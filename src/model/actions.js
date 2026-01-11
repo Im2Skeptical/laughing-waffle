@@ -7,7 +7,6 @@ import {
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
-  cmdStartNextTurn,
   cmdDebugSetCap,
 } from "./commands.js";
 
@@ -107,10 +106,6 @@ export function applyAction(state, action, context = {}) {
   let result;
 
   switch (kind) {
-    case ActionKinds.START_NEXT_TURN:
-      result = cmdStartNextTurn(state);
-      break;
-
     case ActionKinds.PLACE_CHARACTER:
       result = cmdPlaceCharacterInSlot(state, payload);
       break;

@@ -25,7 +25,6 @@ import { initGameState, createInitialState } from "./init.js";
 import { runEffect } from "./effects.js";
 import { runBehaviorsOnInstance } from "./behaviors.js";
 import {
-  cmdStartNextTurn,
   cmdAdvanceSeason,
   cmdTickSimulation,
   cmdRefillEnvSlot,
@@ -45,9 +44,6 @@ export function updateGame(dt, state) {
   const s = state; // explicit state threading
 
   // 1. Master Clock Tick
-  // We MUST tick the simulation command first, because it owns the "Continuous Time Axis".
-  // It advances simStepIndex and tSec even during the "planning" phase (if not paused),
-  // ensuring the Live clock matches the Replay clock.
   const tick = cmdTickSimulation(s, dt);
 
   // If the game is hard-paused (state.paused) or the tick failed, we stop here.
@@ -140,9 +136,6 @@ export function updateGame(dt, state) {
 // Facade command helpers — explicit state required
 // =============================================================================
 
-export function startNextTurn(state) {
-  return cmdStartNextTurn(state);
-}
 
 export function advanceSeason(state) {
   return cmdAdvanceSeason(state);
@@ -197,7 +190,6 @@ export {
   drawEnvDefId,
 
   // commands
-  cmdStartNextTurn,
   cmdAdvanceSeason,
   cmdTickSimulation,
   cmdRefillEnvSlot,

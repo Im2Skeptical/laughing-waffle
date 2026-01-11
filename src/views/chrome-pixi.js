@@ -1,5 +1,5 @@
 // chrome-pixi.js
-// HUD + control buttons (pause, speed, next turn).
+// HUD + control buttons (pause).
 
 import { SEASON_DISPLAY } from "../defs/defs.js";
 
@@ -7,9 +7,7 @@ export function createChromeView({
   app,
   layer,
   getGameState,
-  startNextTurn,
   getCurrentSeasonData,
-  setTimeScale,
   togglePause,
   isPausePending,
 

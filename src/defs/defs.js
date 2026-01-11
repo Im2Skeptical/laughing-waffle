@@ -4,8 +4,6 @@
 
 // Stage 5: season duration is time-driven (rename legacy TURN_SIM_DURATION)
 export const SEASON_DURATION_SEC = 12; // seconds of simulation per season
-// Deprecated legacy alias (kept temporarily for compatibility)
-export const TURN_SIM_DURATION = SEASON_DURATION_SEC; // seconds of simulation per turn
 
 export const SEASONS = ["spring", "summer", "autumn", "winter"];
 

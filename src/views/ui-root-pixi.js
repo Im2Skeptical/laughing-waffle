@@ -103,8 +103,8 @@ function refreshOpenInventoryWindows() {
 }
 
 const interactionController = createInteractionController({
-  // SUPPORTING LEGACY PHASE NONSENSE - HELP ME FIX THIS
-  getPhase: () => (runner.getCursorState().paused ? "planning" : "simulation"),
+  // Stage 5: phase is a normalized semantic label derived from paused by policy.
+  getPhase: () => runner.getCursorState().phase,
 });
 
 const tooltipView = createTooltipView({

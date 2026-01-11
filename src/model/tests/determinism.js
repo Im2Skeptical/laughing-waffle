@@ -7,13 +7,10 @@
 import { serializeGameState, deserializeGameState } from "../state.js";
 import {
   createTimelineFromInitialState,
-  appendActionAtCursor,
   rebuildStateAtBoundary,
 } from "../timeline.js";
 import { updateGame, createInitialState } from "../game-model.js";
 import { buildGoldGraphWindowFromTimeline } from "../projection.js";
-import { ActionKinds, applyAction } from "../actions.js";
-import { cmdStartNextTurn } from "../commands.js";
 import { canonicalizePlanningBoundaryState } from "../canonicalize.js";
 
 const DT_STEP = 1 / 60;
@@ -176,11 +173,7 @@ function testLiveVsReplay() {
     const liveHash = computeStateHash(liveState);
 
     // 5. Rebuild from Timeline (Replay)
-    // The timeline is empty of actions. rebuildStateAtBoundary will:
-    // a) Start at boundary 0
-    // b) See 0 actions
-    // c) Call simulateOneSeason() -> which internally calls cmdStartNextTurn
-    // d) Run simulation until boundary 1
+
     const rebuildRes = rebuildStateAtBoundary(tl, targetBoundary, {
       dtStep: DT_STEP,
     });

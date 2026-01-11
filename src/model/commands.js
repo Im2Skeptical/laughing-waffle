@@ -24,24 +24,26 @@ const TICKS_PER_SEC = 60;
 // Default duration comes from defs (SEASON_DURATION_SEC).
 const DEFAULT_SEASON_DURATION_SEC = SEASON_DURATION_SEC;
 
-export function cmdStartNextTurn(state) {
-  // Stage 5: manual turn stepping is deprecated; simulation advances automatically.
-  // Keep this command as a no-op for compatibility with older UI/actions.
-  return { ok: true, deprecated: true };
-}
 
 export function cmdAdvanceSeason(state) {
   const oldSeasonKey = getCurrentSeasonKey(state);
-  const oldSeasonData = state.envSeasons[oldSeasonKey];
+
+  // Defensive: ensure season deck/discard containers exist (older saves / test harnesses).
+  if (!state.envSeasons) state.envSeasons = {};
+  const oldSeasonData =
+    state.envSeasons[oldSeasonKey] ||
+    (state.envSeasons[oldSeasonKey] = { deck: [], discard: [] });
+  if (!Array.isArray(oldSeasonData.deck)) oldSeasonData.deck = [];
+  if (!Array.isArray(oldSeasonData.discard)) oldSeasonData.discard = [];
 
   // 1) env cards -> discard / recycle
   // Make sure any season-end cleanup runs before we swap the season.
   if (state.envSlots && state.envSlots.length > 0) {
     for (let i = 0; i < state.envSlots.length; i++) {
       const slot = state.envSlots[i];
-      const env = slot?.env;
-      if (env) {
-        applySeasonEndForEnvCard(state, env, oldSeasonKey, i);
+      if (slot?.env) {
+        // NOTE: applySeasonEndForEnvCard expects the slot object + the old season's deck/discard container.
+        applySeasonEndForEnvCard(state, slot, oldSeasonData);
       }
     }
   }
@@ -58,14 +60,15 @@ export function cmdAdvanceSeason(state) {
   // 3) draw next season decks / ensure env season data exists
   if (!state.envSeasons) state.envSeasons = {};
   if (!state.envSeasons[newSeasonKey]) {
-    state.envSeasons[newSeasonKey] = { envDeck: [], envDiscard: [] };
+    // IMPORTANT: must match state.js expectations (deck/discard), not legacy envDeck/envDiscard
+    state.envSeasons[newSeasonKey] = { deck: [], discard: [] };
   }
 
   // Refill env slots as needed (preserve prior semantics)
   refillEnvSlots(state);
 
   // 4) process item/permanent seasonal effects
-  processSeasonChangeForItems(state, oldSeasonKey, newSeasonKey);
+  processSeasonChangeForItems(state);
 
   // 5) reset season-scoped triggers
   resetTimedTriggersOnPermanents(state);
@@ -100,7 +103,13 @@ function maybeAdvanceSeasonBySimTime(state, dt) {
 // SIM TICK ORCHESTRATION
 // =============================================================================
 
-// Owns authoritative tick mutations: simStepIndex, tSec, simTimeRemaining (legacy), phase transitions.
+// cmdTickSimulation is the sole authority for advancing simulation time
+// (simStepIndex / tSec) and time-driven season progression (seasonClockSec → cmdAdvanceSeason).
+//
+// Authority gate:
+// - Time and season progression advance ONLY when state.paused === false.
+// - state.phase is a normalized UI semantic label derived from paused and is NOT used to gate
+//   time, season progression, replay, or projection.
 export function cmdTickSimulation(state, dt) {
   // Global hard-pause check (user explicit pause)
   if (state.paused) return { ok: false };

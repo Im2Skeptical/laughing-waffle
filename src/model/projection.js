@@ -6,7 +6,6 @@
 import { serializeGameState, deserializeGameState } from "./state.js";
 import { rebuildStateAtSecond, isValidTimeline } from "./timeline.js";
 import { canonicalizePlanningBoundaryState } from "./canonicalize.js";
-import { cmdStartNextTurn } from "./commands.js";
 import { updateGame } from "./game-model.js";
 
 const TICKS_PER_SEC = 60;
@@ -82,6 +81,7 @@ function simulateForwardSecondsPure(startState, seconds, dtStep) {
 }
 
 // Optional mode: simulate until the next season event (season index changes).
+// If paused, projection cannot advance time, so return a clean failure.
 function simulateUntilNextSeasonEventPure(
   startState,
   dtStep,
@@ -93,14 +93,9 @@ function simulateUntilNextSeasonEventPure(
   const state = cloneState(startState);
   canonicalizePlanningBoundaryState(state, state.planningIndex ?? 0);
 
-  const startSeason = state.currentSeasonIndex ?? 0;
+  if (state.paused) return { ok: false, reason: "paused" };
 
-  // If we are at planning, begin a simulation run (legacy behavior).
-  if (state.phase === "planning") {
-    const start = cmdStartNextTurn(state);
-    if (!start?.ok)
-      return { ok: false, reason: start?.reason || "startFailed" };
-  }
+  const startSeason = state.currentSeasonIndex ?? 0;
 
   const maxSteps = Math.max(1, Math.floor(stepCapSec / dt));
 

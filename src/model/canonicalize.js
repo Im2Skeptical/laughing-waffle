@@ -6,6 +6,8 @@
 // - Planning boundaries are a UI/snapshot concept.
 // - Season + turn identity must NOT be derived from boundaryIndex arithmetic.
 
+import { syncPhaseToPaused } from "./state.js";
+
 export function canonicalizePlanningBoundaryState(state, boundaryIndex) {
   if (!state) return;
 
@@ -14,7 +16,9 @@ export function canonicalizePlanningBoundaryState(state, boundaryIndex) {
 
   // Legacy/UI-only: boundary marker. Safe to set only if missing.
   // Do NOT derive turn/season from boundary indices.
-
   const b = Math.max(0, Math.floor(boundaryIndex ?? 0));
   state.planningIndex = b;
+
+  // Stage 5 policy: phase is a normalized semantic label derived from paused.
+  syncPhaseToPaused(state);
 }

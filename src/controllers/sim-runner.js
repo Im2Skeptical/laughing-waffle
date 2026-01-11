@@ -19,7 +19,7 @@ import {
   maintainCheckpoints,
 } from "../model/timeline.js";
 
-import { serializeGameState } from "../model/state.js";
+import { serializeGameState, syncPhaseToPaused } from "../model/state.js";
 import { applyAction } from "../model/actions.js";
 
 const SIM_DT_STEP = 1 / 60;
@@ -94,6 +94,10 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     init() {
       initGameState(gameState, "testing");
       cursorState = gameState;
+
+      // Stage 5 policy: normalize phase label derived from paused.
+      syncPhaseToPaused(cursorState);
+
       timeline = createTimelineFromInitialState(cursorState);
 
       // Ensure cursors match genesis
@@ -142,6 +146,10 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
             const tSec = Math.floor(idx / TICKS_PER_SEC);
 
             setPaused(cursorState, true);
+
+            // Stage 5 policy: keep phase label consistent with paused immediately.
+            syncPhaseToPaused(cursorState);
+
             pauseRequested = false;
 
             // NEW: ensure recorded actions at this second are visible while paused
@@ -241,6 +249,9 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       loadIntoGameState(serializeGameState(rebuilt.state));
       cursorState = gameState;
 
+      // Stage 5 policy: ensure phase label stays consistent on cursor replacement.
+      syncPhaseToPaused(cursorState);
+
       const prevMax = timeline.maxReachedSec ?? 0;
       if (t > prevMax) timeline.maxReachedSec = t;
 
@@ -281,10 +292,15 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     setPaused: (p) => {
       dragPreviewState = null;
       simAccumulator = 0;
-      if (p) pauseRequested = true;
-      else {
+
+      if (p) {
+        pauseRequested = true;
+      } else {
         pauseRequested = false;
         setPaused(cursorState, false);
+
+        // Stage 5 policy: normalize phase immediately on unpause commit.
+        syncPhaseToPaused(cursorState);
       }
     },
     isPausePending: () => !!pauseRequested,

@@ -181,9 +181,9 @@ Before writing any code, always perform an **Impact Analysis**:
 ## 8. Collaboration Preferences
 
 - Ask for clarification before coding if requirements are ambiguous.
+- If making changes to more than 3 files - instead summarize required changes and break into additional stages
 - Prefer full, copy-pasteable file replacements over diffs.
 - Explain:
   - what changed
   - why it changed
   - how to test it
-- Stage-specific plans belong in **separate documents or prompts**, not here.

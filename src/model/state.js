@@ -10,6 +10,17 @@ import {
 import { attachRngHelpers } from "./rng.js";
 
 // =============================================================================
+// PHASE / PAUSE POLICY (Stage 5)
+// =============================================================================
+
+// Single source of truth for pause → phase semantics.
+// POLICY ONLY: phase remains non-authoritative.
+export function syncPhaseToPaused(state) {
+  if (!state) return;
+  state.phase = state.paused ? "planning" : "simulation";
+}
+
+// =============================================================================
 // CORE STATE
 // =============================================================================
 
@@ -341,6 +352,9 @@ export function deserializeGameState(data) {
   if (state.timeScale == null) state.timeScale = 1;
 
   if (state.paused == null) state.paused = false;
+
+  // Stage 5: normalize phase policy after paused is known.
+  syncPhaseToPaused(state);
 
   // Enforce Cap Clamp immediately on load (in case save data is over-cap)
   state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
