@@ -1,0 +1,114 @@
+You are assisting with Stage 5 of an existing deterministic JavaScript game.
+
+IMPORTANT:
+You must first read and internalize the attached file:
+- ai-context.md
+
+That document is the permanent architectural contract. Do NOT restate it unless needed.
+Stage-specific goals are defined ONLY below.
+
+--------------------------------------------------
+STAGE 5 — AUTOMATIC SIMULATION & SEASON FLOW
+--------------------------------------------------
+
+CONTEXT (VERY IMPORTANT)
+The project has completed:
+- deterministic time axis (tSec)
+- second-based replay and projection
+- AP-based action gating
+- decoupling of time from turns/boundaries
+
+We are now transitioning away from manual “next turn” mechanics.
+
+--------------------------------------------------
+STAGE 5 GOALS (EXPLICIT)
+--------------------------------------------------
+
+G5.1 — Align paused / phase semantics (POLICY, NOT REMOVAL)
+
+Current state:
+- `paused` and `phase` exist independently.
+- Time is controlled by `paused`.
+- World evolution is controlled by `phase`.
+
+Stage 5 goal:
+- Enforce the policy:
+  - paused === true  → phase = "planning"
+  - paused === false → phase = "simulation"
+
+Important:
+- Do NOT remove `phase`.
+- Do NOT make time depend on `phase`.
+- This is a controller/UI policy alignment, not a model invariant change.
+
+--------------------------------------------------
+
+G5.2 — Automatic simulation (no manual turn stepping)
+
+- Simulation must advance automatically whenever not paused.
+- No UI or player action should be required to “advance a turn”.
+- The world evolves continuously in simulation phase.
+
+Any remaining “next turn” logic should be:
+- deprecated
+- bypassed
+- or made a no-op
+
+--------------------------------------------------
+
+G5.3 — Time-driven season progression
+
+- Rename TURN_SIM_DURATION → SEASON_DURATION_SEC.
+- Seasons advance automatically when accumulated simulation time exceeds SEASON_DURATION_SEC.
+- Season progression occurs ONLY when:
+  - phase === "simulation"
+  - paused === false
+
+Season change must:
+- discard/recycle environment cards
+- draw next season decks
+- process item/permanent seasonal effects
+- reset or roll over season-scoped triggers
+
+All of this must be:
+- deterministic
+- replay-safe
+- driven by simulation time, not UI actions
+
+--------------------------------------------------
+
+G5.4 — Preserve replay & projection invariants
+
+Stage 5 must NOT break:
+- rebuildStateAtSecond(tSec)
+- projection correctness
+- action timestamping
+- determinism guarantees
+
+Replay must reproduce the same season transitions at the same tSec.
+
+--------------------------------------------------
+NON-GOALS (DO NOT DO)
+--------------------------------------------------
+
+- Do NOT redesign season mechanics.
+- Do NOT refactor replay or timeline systems.
+- Do NOT add new gameplay content.
+- Do NOT collapse paused and phase into one variable.
+- Do NOT introduce variable timestep simulation.
+
+--------------------------------------------------
+WORKING RULES
+--------------------------------------------------
+
+Before coding:
+1. Summarize your understanding of Stage 5 goals.
+2. List which files will change and why.
+3. Call out any ambiguity and ask before proceeding.
+
+When delivering code:
+- Prefer full file replacements.
+- Explain what changed, why, and how to test.
+
+--------------------------------------------------
+END OF STAGE 5 PROMPT
