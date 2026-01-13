@@ -14,28 +14,46 @@ import { serializeGameState } from "./state.js";
 import { canonicalizePlanningBoundaryState } from "./canonicalize.js";
 
 export function createTimeGraphController({ getTimeline, getCursorState }) {
-  const HORIZON = 120;
-  const BACK_CONTEXT = 20;
+  const HORIZON_SEC = 1024;
 
-  let cache = null; // { history, maxReachedBoundaryIndex, stateDataByBoundary, window }
+  // Cache shape mirrors projection.js output:
+  // {
+  //   history: [{ tSec, boundaryIndex, gold }, ...],
+  //   maxReachedBoundaryIndex: <alias of maxReachedSec>,
+  //   maxReachedSec,
+  //   stateDataByBoundary: Map<tSec, serializedState>,
+  //   window: { baseSec, endSec, horizonSec, stepSec, forecast:[{tSec,boundaryIndex,gold}] }
+  // }
+  let cache = null;
   let goldByBoundary = new Map();
 
   // Change detection
   let lastKnownActionsLen = 0;
-  let lastKnownMaxReached = 0;
-  let lastKnownForecastBase = 0;
+  let lastKnownMaxReachedSec = 0;
+  let lastKnownForecastBaseSec = 0;
+
+  function clampSec(v) {
+    if (!Number.isFinite(v)) return 0;
+    return Math.max(0, Math.floor(v));
+  }
 
   function rebuildGoldMapFromCache() {
     goldByBoundary = new Map();
     if (!cache) return;
 
     if (Array.isArray(cache.history)) {
-      for (const p of cache.history)
-        goldByBoundary.set(p.boundaryIndex, p.gold ?? 0);
+      for (const p of cache.history) {
+        const x = clampSec(p.tSec ?? p.boundaryIndex ?? 0);
+        goldByBoundary.set(x, p.gold ?? 0);
+      }
     }
+
     const wf = cache.window?.forecast;
     if (Array.isArray(wf)) {
-      for (const p of wf) goldByBoundary.set(p.boundaryIndex, p.gold ?? 0);
+      for (const p of wf) {
+        const x = clampSec(p.tSec ?? p.boundaryIndex ?? 0);
+        goldByBoundary.set(x, p.gold ?? 0);
+      }
     }
   }
 
@@ -43,102 +61,130 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     const tl = getTimeline?.();
     if (!cache || !tl) return { ok: false, reason: "noTimeline" };
 
-    const frontierB = Math.max(0, Math.floor(tl.maxReachedBoundaryIndex ?? 0));
-    if (frontierB === lastKnownForecastBase && cache.window?.forecast?.length) {
+    const frontierSec = clampSec(tl.maxReachedSec ?? 0);
+
+    // If the frontier hasn't moved and we already have a forecast, keep it.
+    if (
+      frontierSec === lastKnownForecastBaseSec &&
+      cache.window?.forecast?.length
+    ) {
       return { ok: true };
     }
 
-    const winRes = buildGoldGraphWindowFromTimeline(tl, frontierB, {
-      horizon: HORIZON,
-      backContext: BACK_CONTEXT,
+    const winRes = buildGoldGraphWindowFromTimeline(tl, frontierSec, {
+      baseSec: frontierSec,
+      horizonSec: HORIZON_SEC,
+      stepSec: 1,
+      // mode defaults to timeWindow; do not use seasonEvent for time graphs
     });
 
     if (!winRes.ok) return winRes;
 
     cache.window = winRes.window;
-    lastKnownForecastBase = frontierB;
+    lastKnownForecastBaseSec = frontierSec;
 
+    // Merge projected states into lookup map
     if (!cache.stateDataByBoundary) cache.stateDataByBoundary = new Map();
-    for (const [b, sd] of winRes.stateDataByBoundary.entries()) {
-      cache.stateDataByBoundary.set(b, sd);
+    for (const [sec, sd] of winRes.stateDataByBoundary.entries()) {
+      cache.stateDataByBoundary.set(sec, sd);
     }
 
     rebuildGoldMapFromCache();
     return { ok: true };
   }
 
-  function extendHistoryTo(newMaxReached) {
+  function extendHistoryTo(newMaxReachedSec) {
     const tl = getTimeline?.();
     if (!cache || !tl) return false;
 
-    const oldMax = Math.max(0, Math.floor(cache.maxReachedBoundaryIndex ?? 0));
-    const target = Math.max(0, Math.floor(newMaxReached ?? 0));
+    const oldMax = clampSec(cache.maxReachedSec ?? cache.maxReachedBoundaryIndex ?? 0);
+    const target = clampSec(newMaxReachedSec ?? 0);
     if (target <= oldMax) return true;
 
     if (!Array.isArray(cache.history)) cache.history = [];
     if (!cache.stateDataByBoundary) cache.stateDataByBoundary = new Map();
 
-    for (let b = oldMax + 1; b <= target; b++) {
-      const s = getStateAtBoundaryFromGoldGraphCache(cache, tl, b);
+    for (let sec = oldMax + 1; sec <= target; sec++) {
+      // Prefer cache (fast path) if present; otherwise rebuild from timeline.
+      const s = getStateAtBoundaryFromGoldGraphCache(cache, tl, sec);
       if (!s) return false;
 
-      canonicalizePlanningBoundaryState(s, b);
+      canonicalizePlanningBoundaryState(s, sec);
 
       const gold = s.resources?.gold ?? s.gold ?? 0;
-      cache.history.push({ boundaryIndex: b, gold });
-      goldByBoundary.set(b, gold);
 
-      cache.stateDataByBoundary.set(b, serializeGameState(s));
+      // IMPORTANT: view plots by tSec; keep boundaryIndex as legacy alias.
+      cache.history.push({ tSec: sec, boundaryIndex: sec, gold });
+      goldByBoundary.set(sec, gold);
+
+      cache.stateDataByBoundary.set(sec, serializeGameState(s));
     }
 
-    cache.maxReachedBoundaryIndex = target;
+    cache.maxReachedSec = target;
+    cache.maxReachedBoundaryIndex = target; // legacy alias still used elsewhere
     return true;
   }
 
-  function trimHistoryTo(targetMax) {
+  function trimHistoryTo(targetMaxSec) {
     if (!cache || !Array.isArray(cache.history)) return;
-    const t = Math.max(0, Math.floor(targetMax ?? 0));
 
-    cache.history = cache.history.filter(
-      (p) => Math.floor(p.boundaryIndex) <= t
-    );
+    const t = clampSec(targetMaxSec ?? 0);
+
+    cache.history = cache.history.filter((p) => {
+      const sec = clampSec(p.tSec ?? p.boundaryIndex ?? 0);
+      return sec <= t;
+    });
+
+    cache.maxReachedSec = t;
     cache.maxReachedBoundaryIndex = t;
 
     for (const k of goldByBoundary.keys()) {
       if (k > t) goldByBoundary.delete(k);
     }
+
+    // NOTE: we do not purge stateDataByBoundary here; it can remain as a
+    // performance cache. Scrub preview is authoritative (see getStateAt()).
   }
 
-  function patchHistoryAtBoundary(b) {
+  function patchHistoryAtSecond(sec) {
     const tl = getTimeline?.();
     if (!cache || !tl) return false;
 
-    const boundary = Math.max(0, Math.floor(b));
-    const rebuilt = getStateAtBoundary(tl, boundary);
+    const t = clampSec(sec);
+
+    const rebuilt = getStateAtBoundary(tl, t);
     if (!rebuilt?.ok) return false;
 
     const s = rebuilt.state;
-    canonicalizePlanningBoundaryState(s, boundary);
+    canonicalizePlanningBoundaryState(s, t);
 
     const gold = s.resources?.gold ?? s.gold ?? 0;
 
+    if (!Array.isArray(cache.history)) cache.history = [];
+
     let replaced = false;
     for (let i = 0; i < cache.history.length; i++) {
-      if (Math.floor(cache.history[i].boundaryIndex) === boundary) {
-        cache.history[i] = { boundaryIndex: boundary, gold };
+      const existingSec = clampSec(
+        cache.history[i].tSec ?? cache.history[i].boundaryIndex ?? 0
+      );
+      if (existingSec === t) {
+        cache.history[i] = { tSec: t, boundaryIndex: t, gold };
         replaced = true;
         break;
       }
     }
-    if (!replaced) cache.history.push({ boundaryIndex: boundary, gold });
+    if (!replaced) cache.history.push({ tSec: t, boundaryIndex: t, gold });
 
     cache.history.sort(
-      (a, b) => Math.floor(a.boundaryIndex) - Math.floor(b.boundaryIndex)
+      (a, b) =>
+        clampSec(a.tSec ?? a.boundaryIndex ?? 0) -
+        clampSec(b.tSec ?? b.boundaryIndex ?? 0)
     );
-    goldByBoundary.set(boundary, gold);
+
+    goldByBoundary.set(t, gold);
 
     if (!cache.stateDataByBoundary) cache.stateDataByBoundary = new Map();
-    cache.stateDataByBoundary.set(boundary, serializeGameState(s));
+    cache.stateDataByBoundary.set(t, serializeGameState(s));
 
     return true;
   }
@@ -151,12 +197,12 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
       return { ok: false, reason: "no timeline" };
     }
 
-    const frontierB = Math.max(0, Math.floor(tl.maxReachedBoundaryIndex ?? 0));
+    const frontierSec = clampSec(tl.maxReachedSec ?? 0);
 
     const res = buildGoldGraphCacheFromTimeline(tl, {
-      baseBoundary: frontierB,
-      horizon: HORIZON,
-      backContext: BACK_CONTEXT,
+      baseSec: frontierSec,
+      horizonSec: HORIZON_SEC,
+      stepSec: 1,
     });
 
     if (!res.ok) {
@@ -166,9 +212,16 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     }
 
     cache = res.cache;
+
+    // Ensure we keep both names consistent for any remaining legacy callers.
+    cache.maxReachedSec = clampSec(cache.maxReachedSec ?? frontierSec);
+    cache.maxReachedBoundaryIndex = clampSec(
+      cache.maxReachedBoundaryIndex ?? cache.maxReachedSec
+    );
+
     lastKnownActionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
-    lastKnownMaxReached = frontierB;
-    lastKnownForecastBase = frontierB;
+    lastKnownMaxReachedSec = frontierSec;
+    lastKnownForecastBaseSec = frontierSec;
 
     rebuildGoldMapFromCache();
     return { ok: true };
@@ -191,38 +244,39 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     }
 
     const actionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
-    const maxReached = Math.max(0, Math.floor(tl.maxReachedBoundaryIndex ?? 0));
-    const curB = Math.max(
-      0,
-      Math.floor(cs.planningIndex ?? tl.cursorBoundaryIndex ?? 0)
-    );
+    const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+    const cursorSec = clampSec(cs.tSec ?? 0);
 
     if (!cache) return buildFullCache();
 
-    // 1) Normal extension
-    if (
-      actionsLen === lastKnownActionsLen &&
-      maxReached >= lastKnownMaxReached
-    ) {
-      const ok = extendHistoryTo(maxReached);
+    // 1) Normal extension: no structural change, frontier advanced
+    if (actionsLen === lastKnownActionsLen && maxReachedSec >= lastKnownMaxReachedSec) {
+      const ok = extendHistoryTo(maxReachedSec);
       if (!ok) return buildFullCache();
 
-      lastKnownMaxReached = maxReached;
-      ensureForecastFromFrontier(); // Rebuild forecast if frontier moved
+      lastKnownMaxReachedSec = maxReachedSec;
+
+      // Rebuild forecast if frontier moved
+      ensureForecastFromFrontier();
       return { ok: true };
     }
 
-    // 2) Branching / Edit
+    // 2) Branching/Edit: action list length changed (truncate/append)
     if (actionsLen !== lastKnownActionsLen) {
-      trimHistoryTo(maxReached);
-      const okPatch = patchHistoryAtBoundary(curB);
+      // By design, the timeline has already truncated future actions when editing in the past.
+      // We only keep history up to the current frontier.
+      trimHistoryTo(maxReachedSec);
+
+      // Patch the point at the cursor second (useful for immediate graph correctness).
+      // (We do not attempt to patch all seconds; full rebuild is the fallback if needed.)
+      const okPatch = patchHistoryAtSecond(cursorSec);
       if (!okPatch) return buildFullCache();
 
       lastKnownActionsLen = actionsLen;
-      lastKnownMaxReached = maxReached;
+      lastKnownMaxReachedSec = maxReachedSec;
 
-      // Force forecast rebuild
-      lastKnownForecastBase = -1;
+      // Force forecast rebuild from the new frontier
+      lastKnownForecastBaseSec = -1;
       if (cache?.window) cache.window = null;
       ensureForecastFromFrontier();
 
@@ -230,7 +284,7 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
       return { ok: true };
     }
 
-    // 3) Scrubbing (no change to structure)
+    // 3) Scrubbing commit: structure didn't change (cursor moved), cache remains valid
     if (reason === "scrubCommit") {
       return { ok: true };
     }
@@ -247,15 +301,23 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     return {
       cache,
       goldByBoundary,
-      HORIZON,
-      BACK_CONTEXT,
+      HORIZON: HORIZON_SEC,
     };
   }
 
-  function getStateAt(boundaryIndex) {
+  // IMPORTANT: scrubbing preview must reflect the *current timeline*, even after edits.
+  // So we rebuild from timeline first (authoritative), and only fall back to cache.
+  function getStateAt(tSec) {
     const tl = getTimeline?.();
-    if (!cache || !tl) return null;
-    return getStateAtBoundaryFromGoldGraphCache(cache, tl, boundaryIndex);
+    if (!tl) return null;
+
+    const sec = clampSec(tSec);
+
+    const rebuilt = getStateAtBoundary(tl, sec);
+    if (rebuilt?.ok) return rebuilt.state;
+
+    if (!cache) return null;
+    return getStateAtBoundaryFromGoldGraphCache(cache, tl, sec);
   }
 
   return {
