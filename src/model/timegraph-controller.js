@@ -13,28 +13,48 @@ import {
 import { serializeGameState } from "./state.js";
 import { canonicalizePlanningBoundaryState } from "./canonicalize.js";
 
-export function createTimeGraphController({ getTimeline, getCursorState }) {
-  const HORIZON_SEC = 1024;
+export function createTimeGraphController({
+  getTimeline,
+  getCursorState,
 
-  // Cache shape mirrors projection.js output:
-  // {
-  //   history: [{ tSec, boundaryIndex, gold }, ...],
-  //   maxReachedBoundaryIndex: <alias of maxReachedSec>,
-  //   maxReachedSec,
-  //   stateDataByBoundary: Map<tSec, serializedState>,
-  //   window: { baseSec, endSec, horizonSec, stepSec, forecast:[{tSec,boundaryIndex,gold}] }
-  // }
+  // Stage 4: decouple plotting resolution from scrubbing resolution
+  historyStrideSec = 5,
+  forecastStepSec = 5,
+  horizonSec = 1200,
+} = {}) {
   let cache = null;
   let goldByBoundary = new Map();
+
+  // Config (mutable locals; never assign to function parameters)
+  let historyStrideSecCur = historyStrideSec;
+  let forecastStepSecCur = forecastStepSec;
+  let horizonSecCur = horizonSec;
 
   // Change detection
   let lastKnownActionsLen = 0;
   let lastKnownMaxReachedSec = 0;
   let lastKnownForecastBaseSec = 0;
+  let lastKnownRevision = 0;
 
   function clampSec(v) {
     if (!Number.isFinite(v)) return 0;
     return Math.max(0, Math.floor(v));
+  }
+
+  function clampStride(v, fallback) {
+    const n = Math.floor(v);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  }
+
+  function getTimelineRevision(tl) {
+    const r = tl?.revision;
+    return Number.isFinite(r) ? Math.floor(r) : 0;
+  }
+
+  function shouldSampleHistory(sec, frontierSec) {
+    // Always include frontier so the line reaches "now"
+    if (sec === frontierSec) return true;
+    return sec % historyStrideSecCur === 0;
   }
 
   function rebuildGoldMapFromCache() {
@@ -57,14 +77,14 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     }
   }
 
-  function ensureForecastFromFrontier() {
+  function ensureForecastFromFrontier(force) {
     const tl = getTimeline?.();
     if (!cache || !tl) return { ok: false, reason: "noTimeline" };
 
     const frontierSec = clampSec(tl.maxReachedSec ?? 0);
 
-    // If the frontier hasn't moved and we already have a forecast, keep it.
     if (
+      !force &&
       frontierSec === lastKnownForecastBaseSec &&
       cache.window?.forecast?.length
     ) {
@@ -73,9 +93,9 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
 
     const winRes = buildGoldGraphWindowFromTimeline(tl, frontierSec, {
       baseSec: frontierSec,
-      horizonSec: HORIZON_SEC,
-      stepSec: 1,
-      // mode defaults to timeWindow; do not use seasonEvent for time graphs
+      horizonSec: horizonSecCur,
+      stepSec: forecastStepSecCur,
+      // mode defaults to timeWindow
     });
 
     if (!winRes.ok) return winRes;
@@ -83,7 +103,6 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     cache.window = winRes.window;
     lastKnownForecastBaseSec = frontierSec;
 
-    // Merge projected states into lookup map
     if (!cache.stateDataByBoundary) cache.stateDataByBoundary = new Map();
     for (const [sec, sd] of winRes.stateDataByBoundary.entries()) {
       cache.stateDataByBoundary.set(sec, sd);
@@ -97,7 +116,9 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     const tl = getTimeline?.();
     if (!cache || !tl) return false;
 
-    const oldMax = clampSec(cache.maxReachedSec ?? cache.maxReachedBoundaryIndex ?? 0);
+    const oldMax = clampSec(
+      cache.maxReachedSec ?? cache.maxReachedBoundaryIndex ?? 0
+    );
     const target = clampSec(newMaxReachedSec ?? 0);
     if (target <= oldMax) return true;
 
@@ -105,7 +126,8 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     if (!cache.stateDataByBoundary) cache.stateDataByBoundary = new Map();
 
     for (let sec = oldMax + 1; sec <= target; sec++) {
-      // Prefer cache (fast path) if present; otherwise rebuild from timeline.
+      if (!shouldSampleHistory(sec, target)) continue;
+
       const s = getStateAtBoundaryFromGoldGraphCache(cache, tl, sec);
       if (!s) return false;
 
@@ -113,7 +135,6 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
 
       const gold = s.resources?.gold ?? s.gold ?? 0;
 
-      // IMPORTANT: view plots by tSec; keep boundaryIndex as legacy alias.
       cache.history.push({ tSec: sec, boundaryIndex: sec, gold });
       goldByBoundary.set(sec, gold);
 
@@ -121,7 +142,7 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     }
 
     cache.maxReachedSec = target;
-    cache.maxReachedBoundaryIndex = target; // legacy alias still used elsewhere
+    cache.maxReachedBoundaryIndex = target;
     return true;
   }
 
@@ -141,9 +162,7 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     for (const k of goldByBoundary.keys()) {
       if (k > t) goldByBoundary.delete(k);
     }
-
-    // NOTE: we do not purge stateDataByBoundary here; it can remain as a
-    // performance cache. Scrub preview is authoritative (see getStateAt()).
+    // stateDataByBoundary is intentionally not purged; it's a perf cache only.
   }
 
   function patchHistoryAtSecond(sec) {
@@ -197,12 +216,19 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
       return { ok: false, reason: "no timeline" };
     }
 
+    // Normalize inputs into mutable locals
+    historyStrideSecCur = clampStride(historyStrideSecCur, 5);
+    forecastStepSecCur = clampStride(forecastStepSecCur, 5);
+    horizonSecCur = clampStride(horizonSecCur, 1200);
+
     const frontierSec = clampSec(tl.maxReachedSec ?? 0);
+    const tlRev = getTimelineRevision(tl);
 
     const res = buildGoldGraphCacheFromTimeline(tl, {
       baseSec: frontierSec,
-      horizonSec: HORIZON_SEC,
-      stepSec: 1,
+      horizonSec: horizonSecCur,
+      stepSec: forecastStepSecCur,
+      historyStrideSec: historyStrideSecCur,
     });
 
     if (!res.ok) {
@@ -213,7 +239,6 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
 
     cache = res.cache;
 
-    // Ensure we keep both names consistent for any remaining legacy callers.
     cache.maxReachedSec = clampSec(cache.maxReachedSec ?? frontierSec);
     cache.maxReachedBoundaryIndex = clampSec(
       cache.maxReachedBoundaryIndex ?? cache.maxReachedSec
@@ -222,12 +247,11 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     lastKnownActionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
     lastKnownMaxReachedSec = frontierSec;
     lastKnownForecastBaseSec = frontierSec;
+    lastKnownRevision = tlRev;
 
     rebuildGoldMapFromCache();
     return { ok: true };
   }
-
-  // Public API
 
   function ensureCache() {
     if (!cache) return buildFullCache();
@@ -246,45 +270,62 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
     const actionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
     const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
     const cursorSec = clampSec(cs.tSec ?? 0);
+    const tlRev = getTimelineRevision(tl);
 
     if (!cache) return buildFullCache();
 
+    // 0) Authoritative invalidation: timeline revision changed (Stage 3 contract)
+    if (tlRev !== lastKnownRevision) {
+      // safest path: keep cache object but bring it back in sync
+      trimHistoryTo(maxReachedSec);
+      patchHistoryAtSecond(cursorSec);
+
+      lastKnownRevision = tlRev;
+      lastKnownActionsLen = actionsLen;
+      lastKnownMaxReachedSec = maxReachedSec;
+
+      // Force forecast rebuild from new frontier
+      lastKnownForecastBaseSec = -1;
+      cache.window = null;
+      ensureForecastFromFrontier(true);
+
+      rebuildGoldMapFromCache();
+      return { ok: true };
+    }
+
     // 1) Normal extension: no structural change, frontier advanced
-    if (actionsLen === lastKnownActionsLen && maxReachedSec >= lastKnownMaxReachedSec) {
+    if (
+      actionsLen === lastKnownActionsLen &&
+      maxReachedSec >= lastKnownMaxReachedSec
+    ) {
       const ok = extendHistoryTo(maxReachedSec);
       if (!ok) return buildFullCache();
 
       lastKnownMaxReachedSec = maxReachedSec;
 
-      // Rebuild forecast if frontier moved
-      ensureForecastFromFrontier();
+      ensureForecastFromFrontier(false);
       return { ok: true };
     }
 
-    // 2) Branching/Edit: action list length changed (truncate/append)
+    // 2) Branching/edit detected by action list length change (legacy fallback)
     if (actionsLen !== lastKnownActionsLen) {
-      // By design, the timeline has already truncated future actions when editing in the past.
-      // We only keep history up to the current frontier.
       trimHistoryTo(maxReachedSec);
 
-      // Patch the point at the cursor second (useful for immediate graph correctness).
-      // (We do not attempt to patch all seconds; full rebuild is the fallback if needed.)
       const okPatch = patchHistoryAtSecond(cursorSec);
       if (!okPatch) return buildFullCache();
 
       lastKnownActionsLen = actionsLen;
       lastKnownMaxReachedSec = maxReachedSec;
 
-      // Force forecast rebuild from the new frontier
       lastKnownForecastBaseSec = -1;
-      if (cache?.window) cache.window = null;
-      ensureForecastFromFrontier();
+      cache.window = null;
+      ensureForecastFromFrontier(true);
 
       rebuildGoldMapFromCache();
       return { ok: true };
     }
 
-    // 3) Scrubbing commit: structure didn't change (cursor moved), cache remains valid
+    // 3) Cursor-only movement: cache remains valid
     if (reason === "scrubCommit") {
       return { ok: true };
     }
@@ -294,19 +335,20 @@ export function createTimeGraphController({ getTimeline, getCursorState }) {
 
   function update() {
     if (!cache) ensureCache();
-    ensureForecastFromFrontier();
+    ensureForecastFromFrontier(false);
   }
 
   function getData() {
     return {
       cache,
       goldByBoundary,
-      HORIZON: HORIZON_SEC,
+      horizonSec: horizonSecCur,
+      historyStrideSec: historyStrideSecCur,
+      forecastStepSec: forecastStepSecCur,
     };
   }
 
-  // IMPORTANT: scrubbing preview must reflect the *current timeline*, even after edits.
-  // So we rebuild from timeline first (authoritative), and only fall back to cache.
+  // Scrubbing preview is authoritative: rebuild from timeline first, then fall back.
   function getStateAt(tSec) {
     const tl = getTimeline?.();
     if (!tl) return null;

@@ -10,7 +10,7 @@ export function createGoldGraphView({
   getCursorState,
   setPreviewState,
   clearPreviewState,
-  commitSecond, // NEW: Expects this callback
+  commitSecond,
 }) {
   const root = new PIXI.Container();
   root.visible = false;
@@ -123,13 +123,15 @@ export function createGoldGraphView({
   function updateTimeBounds() {
     const tl = getTimeline?.();
     const cs = getCursorState?.();
+    const d = controller.getData?.() ?? {};
 
-    // STAGE 3: Use seconds
+    const horizonSec = Math.max(0, Math.floor(d.horizonSec ?? 1200));
+
     const maxReached = tl?.maxReachedSec ?? 0;
     const currentT = Math.floor(cs?.tSec ?? 0);
 
     minSec = 0;
-    maxSec = Math.max(maxReached, currentT) + 60;
+    maxSec = Math.max(maxReached, currentT) + horizonSec;
 
     if (!isScrubbing) {
       scrubSec = clampInt(currentT, minSec, maxSec);
@@ -142,13 +144,13 @@ export function createGoldGraphView({
     const tl = getTimeline?.();
 
     const all = [...(cache?.history || []), ...(cache?.window?.forecast || [])];
-
     if (!all.length) return;
 
     let minGold = Infinity;
     let maxGold = -Infinity;
+
     for (const p of all) {
-      const t = p.tSec ?? 0; // STAGE 3: Expect tSec in cache
+      const t = p.tSec ?? 0;
       if (t < minSec || t > maxSec) continue;
 
       const g = p.gold ?? 0;
@@ -187,29 +189,27 @@ export function createGoldGraphView({
     }
 
     // Data Line
-    if (all.length) {
-      all.sort((a, b) => (a.tSec ?? 0) - (b.tSec ?? 0));
+    all.sort((a, b) => (a.tSec ?? 0) - (b.tSec ?? 0));
 
-      plotG.lineStyle(2, 0xffd966, 1);
-      let first = true;
+    plotG.lineStyle(2, 0xffd966, 1);
+    let first = true;
 
-      for (const p of all) {
-        const t = p.tSec ?? 0;
-        if (t < minSec || t > maxSec) continue;
+    for (const p of all) {
+      const t = p.tSec ?? 0;
+      if (t < minSec || t > maxSec) continue;
 
-        const x = timeToX(t);
-        const y = yForGold(p.gold ?? 0);
+      const x = timeToX(t);
+      const y = yForGold(p.gold ?? 0);
 
-        if (first) {
-          plotG.moveTo(x, y);
-          first = false;
-        } else {
-          plotG.lineTo(x, y);
-        }
+      if (first) {
+        plotG.moveTo(x, y);
+        first = false;
+      } else {
+        plotG.lineTo(x, y);
       }
     }
 
-    // Markers
+    // Markers (actions)
     if (tl && tl.actions) {
       plotG.beginFill(0x55ff55);
       plotG.lineStyle(0);
@@ -236,13 +236,11 @@ export function createGoldGraphView({
 
     const x = timeToX(scrubSec);
 
-    // Scrub Line
     const color = isScrubbing ? 0xffffff : 0xaaaaaa;
     scrubG.lineStyle(1, color, 0.8);
     scrubG.moveTo(x, plot.y);
     scrubG.lineTo(x, plot.y + plot.h);
 
-    // Live Cursor
     if (isScrubbing && Math.abs(scrubSec - curT) > 0) {
       const cx = timeToX(curT);
       if (cx >= plot.x && cx <= plot.x + plot.w) {
@@ -279,7 +277,6 @@ export function createGoldGraphView({
 
     if (commit) {
       clearPreviewState?.();
-      // STAGE 3: Commit Second
       const res = commitSecond?.(scrubSec);
       if (res && res.ok === false) {
         statusNote = `Jump failed: ${res.reason}`;

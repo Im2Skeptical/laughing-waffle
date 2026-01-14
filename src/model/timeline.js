@@ -1,6 +1,7 @@
 // src/model/timeline.js
 // serializable action timeline + deterministic rebuild/replay
-// STAGE 3: Authoritative tSec replay logic
+// STAGE 3: Authoritative tSec replay logic + scrub memo cache (revision-keyed)
+// Fix: defensive invalidation guard in rebuildStateAtSecond to handle out-of-band mutations.
 
 import { deserializeGameState, serializeGameState } from "./state.js";
 import { canonicalizePlanningBoundaryState } from "./canonicalize.js";
@@ -11,9 +12,12 @@ const TICKS_PER_SEC = 60;
 const MICROSTEP_DT = 1 / TICKS_PER_SEC;
 
 // Checkpoint Strategy Constants
-const CP_STRIDE_SEC = 10;
-const CP_WINDOW_BACK = 20;
-const CP_WINDOW_FWD = 20;
+const CP_STRIDE_SEC = 1;
+const CP_WINDOW_BACK = 120000;
+const CP_WINDOW_FWD = 1;
+
+// Memo cache defaults (non-serialized derived fields stored on timeline object)
+const DEFAULT_MEMO_CAP = 512;
 
 export function isValidTimeline(tl) {
   if (!tl || typeof tl !== "object") return false;
@@ -30,15 +34,155 @@ export function createEmptyTimelineFromBase(baseState) {
     // Legacy Boundary Cursor (deprecated)
     cursorBoundaryIndex: 0,
     maxReachedBoundaryIndex: 0,
-    // Stage 3 Integer Second Cursor
+    // Integer Second Cursor
     cursorSec: 0,
     maxReachedSec: 0,
     checkpoints: [],
+    // Stage 3 perf: revision invalidates memo caches
+    revision: 0,
+    // Derived (non-serialized): memo + mutation guard are lazy-created
   };
 }
 
 export function createTimelineFromInitialState(initialState) {
   return createEmptyTimelineFromBase(initialState);
+}
+
+// -----------------------------------------------------------------------------
+// Internal helpers: revision + memo cache
+// -----------------------------------------------------------------------------
+
+function ensureRevision(tl) {
+  if (!Number.isFinite(tl.revision)) tl.revision = 0;
+  tl.revision = Math.max(0, Math.floor(tl.revision));
+  return tl.revision;
+}
+
+function bumpRevision(tl) {
+  const r = ensureRevision(tl);
+  tl.revision = r + 1;
+  // Clear memo eagerly to prevent growth; revision-keying also invalidates hits.
+  if (tl.memoStateBySec) tl.memoStateBySec.clear();
+  if (tl.memoFifo) tl.memoFifo.length = 0;
+  return tl.revision;
+}
+
+function ensureMemo(tl) {
+  if (!tl.memoStateBySec) tl.memoStateBySec = new Map();
+  if (!tl.memoFifo) tl.memoFifo = [];
+  if (!Number.isFinite(tl.memoCap) || tl.memoCap <= 0) {
+    tl.memoCap = DEFAULT_MEMO_CAP;
+  } else {
+    tl.memoCap = Math.floor(tl.memoCap);
+  }
+}
+
+function memoKey(tl, sec) {
+  const r = ensureRevision(tl);
+  return `${r}:${Math.max(0, Math.floor(sec))}`;
+}
+
+function memoGetStateData(tl, sec) {
+  if (!tl.memoStateBySec) return null;
+  return tl.memoStateBySec.get(memoKey(tl, sec)) ?? null;
+}
+
+function memoPutStateData(tl, sec, stateData) {
+  ensureMemo(tl);
+  const key = memoKey(tl, sec);
+
+  if (!tl.memoStateBySec.has(key)) {
+    tl.memoFifo.push(key);
+  }
+  tl.memoStateBySec.set(key, stateData);
+
+  const cap = tl.memoCap ?? DEFAULT_MEMO_CAP;
+  while (tl.memoFifo.length > cap) {
+    const oldest = tl.memoFifo.shift();
+    if (oldest != null) tl.memoStateBySec.delete(oldest);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Defensive invalidation guard (Stage 3 exit requirement)
+// -----------------------------------------------------------------------------
+//
+// Many call sites may still mutate tl.actions / tl.checkpoints directly or via
+// pure helpers without bumping revision. To guarantee correctness, we detect
+// structural changes and bump revision (clearing memo) before using memo hits.
+//
+// This guard is intentionally cheap and focuses on mutation patterns that matter:
+// - array replacement (new ref)
+// - truncation/appends (length changes)
+// - head/tail changes (last element identity / tSec / checkpointSec)
+//
+// In-place mutation of existing action objects without changing any of these
+// signals is discouraged; if it exists, it should be refactored to create new
+// objects (or explicitly bump revision at the call site).
+
+function computeTimelineMutationSig(tl) {
+  const acts = Array.isArray(tl.actions) ? tl.actions : [];
+  const cps = Array.isArray(tl.checkpoints) ? tl.checkpoints : [];
+
+  const aLen = acts.length;
+  const cLen = cps.length;
+
+  const aLast = aLen ? acts[aLen - 1] : null;
+  const cLast = cLen ? cps[cLen - 1] : null;
+
+  // Include refs so that pure helper usage (returning new arrays) is detected.
+  // Weak structural info so we don’t scan entire arrays.
+  const baseRef = tl.baseStateData;
+  const aRef = tl.actions;
+  const cRef = tl.checkpoints;
+
+  const aLastRef = aLast;
+  const cLastRef = cLast;
+
+  const aLastSec = aLast ? Math.floor(aLast.tSec ?? 0) : 0;
+  const cLastSec = cLast ? Math.floor(cLast.checkpointSec ?? 0) : 0;
+
+  // Return a tuple-like object; compare by fields.
+  return {
+    baseRef,
+    aRef,
+    aLen,
+    aLastRef,
+    aLastSec,
+    cRef,
+    cLen,
+    cLastRef,
+    cLastSec,
+  };
+}
+
+function mutationSigEquals(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.baseRef === b.baseRef &&
+    a.aRef === b.aRef &&
+    a.aLen === b.aLen &&
+    a.aLastRef === b.aLastRef &&
+    a.aLastSec === b.aLastSec &&
+    a.cRef === b.cRef &&
+    a.cLen === b.cLen &&
+    a.cLastRef === b.cLastRef &&
+    a.cLastSec === b.cLastSec
+  );
+}
+
+function ensureRevisionFreshAgainstOutOfBandMutations(tl) {
+  const cur = computeTimelineMutationSig(tl);
+  const prev = tl._memoGuardSig;
+
+  if (!mutationSigEquals(cur, prev)) {
+    // Any structural change => invalidate memo.
+    bumpRevision(tl);
+    tl._memoGuardSig = cur;
+    return { bumped: true };
+  }
+
+  return { bumped: false };
 }
 
 // -----------------------------------------------------------------------------
@@ -50,21 +194,21 @@ export function appendActionAtCursor(tl, action, state) {
   if (!action || typeof action !== "object")
     return { ok: false, reason: "badAction" };
 
-  // Current Authoritative Time
-  const t = Math.floor(state?.tSec ?? tl.cursorSec ?? 0);
+  bumpRevision(tl);
 
-  // Legacy Boundary (kept for old saves/UI, but not authoritative for season/turn)
+  const t = Math.floor(state?.tSec ?? tl.cursorSec ?? 0);
   const b = Math.floor(tl.cursorBoundaryIndex ?? 0);
 
   tl.actions = Array.isArray(tl.actions) ? tl.actions : [];
 
   tl.actions.push({
     ...action,
-    // STAGE 3: Action must carry tSec
     tSec: t,
-    // Legacy support
     boundaryIndex: b,
   });
+
+  // Keep guard signature aligned after mutation
+  tl._memoGuardSig = computeTimelineMutationSig(tl);
 
   return { ok: true };
 }
@@ -82,44 +226,54 @@ export function maintainCheckpoints(tl, state) {
   tl.cursorSec = currentSec;
   tl.maxReachedSec = Math.max(tl.maxReachedSec ?? 0, currentSec);
 
-  // Strategy: Save every N seconds OR every legacy boundary
   const isStride = currentSec > 0 && currentSec % CP_STRIDE_SEC === 0;
 
-  // Simple deduplication: Check if we already have a checkpoint for this tSec
+  let checkpointsChanged = false;
+
   const existingIndex = tl.checkpoints.findIndex(
     (c) => c.checkpointSec === currentSec
   );
 
   if (isStride || existingIndex !== -1) {
     const cpData = {
-      // Stage 3
       checkpointSec: currentSec,
-      // Legacy/UI
       boundaryIndex: currentB,
-      // Data
       stateData: serializeGameState(state),
     };
 
     if (existingIndex !== -1) {
+      // Treat update as mutation (stateData changes)
       tl.checkpoints[existingIndex] = cpData;
+      checkpointsChanged = true;
     } else {
       tl.checkpoints.push(cpData);
       tl.checkpoints.sort(
         (a, b) => (a.checkpointSec ?? 0) - (b.checkpointSec ?? 0)
       );
+      checkpointsChanged = true;
     }
   }
 
-  // Pruning (Keep some window around current time)
+  const beforeLen = tl.checkpoints.length;
+
   tl.checkpoints = tl.checkpoints.filter((cp) => {
     const s = cp.checkpointSec ?? 0;
-    if (s === 0) return true; // Keep Genesis
-    if (s % CP_STRIDE_SEC === 0) return true; // Keep Strides
+    if (s === 0) return true;
+    if (s % CP_STRIDE_SEC === 0) return true;
     if (s >= currentSec - CP_WINDOW_BACK && s <= currentSec + CP_WINDOW_FWD)
       return true;
-    if (s === tl.maxReachedSec) return true; // Keep Head
+    if (s === tl.maxReachedSec) return true;
     return false;
   });
+
+  if (tl.checkpoints.length !== beforeLen) checkpointsChanged = true;
+
+  // If checkpoints changed, bump revision so memo cannot reuse states that assumed
+  // a different checkpoint set (even though revision-keying already protects).
+  if (checkpointsChanged) {
+    bumpRevision(tl);
+    tl._memoGuardSig = computeTimelineMutationSig(tl);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -142,7 +296,18 @@ export function rebuildStateAtSecond(tl, targetSec) {
     return { ok: false, reason: "badTargetSec" };
   }
 
+  // Stage 3 safety: invalidate memo if timeline mutated out-of-band
+  ensureRevisionFreshAgainstOutOfBandMutations(tl);
+
   const target = Math.floor(targetSec);
+
+  // Memo fast-path
+  const memoStateData = memoGetStateData(tl, target);
+  if (memoStateData != null) {
+    const state = deserializeGameState(memoStateData);
+    canonicalizePlanningBoundaryState(state, state.planningIndex ?? 0);
+    return { ok: true, state, memoHit: true };
+  }
 
   // 1. Find nearest checkpoint <= target
   let bestCp = null;
@@ -160,11 +325,9 @@ export function rebuildStateAtSecond(tl, targetSec) {
 
   const state = deserializeGameState(startStateData);
 
-  // Ensure restored state clock matches checkpoint expectation
   state.tSec = startSec;
   state.simStepIndex = startSec * TICKS_PER_SEC;
 
-  // Optional: normalize snapshot flags for consistency (does NOT touch season/turn)
   canonicalizePlanningBoundaryState(state, state.planningIndex ?? 0);
 
   // 2. Index actions
@@ -172,7 +335,6 @@ export function rebuildStateAtSecond(tl, targetSec) {
 
   // 3. Replay Loop: s = startSec ... target
   for (let s = startSec; s <= target; s++) {
-    // a) Apply actions for this second
     const acts = actionsBySec.get(s);
     if (acts && acts.length) {
       for (const a of acts) {
@@ -184,8 +346,6 @@ export function rebuildStateAtSecond(tl, targetSec) {
       }
     }
 
-    // b) Run exactly 60 microsteps IF we are not yet at target
-    //    (If s == target, we have applied actions for 'target' and we STOP).
     if (s < target) {
       for (let i = 0; i < TICKS_PER_SEC; i++) {
         updateGame(MICROSTEP_DT, state);
@@ -193,11 +353,14 @@ export function rebuildStateAtSecond(tl, targetSec) {
     }
   }
 
-  return { ok: true, state };
+  memoPutStateData(tl, target, serializeGameState(state));
+  tl._memoGuardSig = computeTimelineMutationSig(tl);
+
+  return { ok: true, state, memoHit: false };
 }
 
 // -----------------------------------------------------------------------------
-// Timeline Truncation
+// Pure truncation helpers (still exported)
 // -----------------------------------------------------------------------------
 
 export function truncateActionsAfterSecond(actions, tSec) {
@@ -210,6 +373,30 @@ export function truncateCheckpointsAfterSecond(checkpoints, tSec) {
   return (checkpoints || []).filter(
     (c) => Math.floor(c.checkpointSec ?? 0) <= t
   );
+}
+
+// -----------------------------------------------------------------------------
+// Timeline Truncation (timeline-level mutators)
+// -----------------------------------------------------------------------------
+
+export function truncateTimelineAfterSecond(tl, tSec) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+  const t = Math.max(0, Math.floor(tSec));
+
+  bumpRevision(tl);
+
+  tl.actions = truncateActionsAfterSecond(tl.actions, t);
+  tl.checkpoints = truncateCheckpointsAfterSecond(tl.checkpoints, t);
+
+  tl.maxReachedSec = Math.min(Math.floor(tl.maxReachedSec ?? 0), t);
+  tl.cursorSec = Math.min(Math.floor(tl.cursorSec ?? 0), t);
+
+  tl.maxReachedBoundaryIndex = tl.maxReachedSec;
+  tl.cursorBoundaryIndex = tl.cursorSec;
+
+  tl._memoGuardSig = computeTimelineMutationSig(tl);
+
+  return { ok: true };
 }
 
 // -----------------------------------------------------------------------------
@@ -228,8 +415,29 @@ export function truncateCheckpointsAfterBoundary(checkpoints, boundaryIndex) {
   );
 }
 
-// Legacy: treat boundaryIndex as a simple time index fallback.
-// This is for old UI paths only; do not use boundaryIndex to derive season/turn.
+export function truncateTimelineAfterBoundary(tl, boundaryIndex) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+  const b = Math.max(0, Math.floor(boundaryIndex));
+
+  bumpRevision(tl);
+
+  tl.actions = truncateActionsAfterBoundary(tl.actions, b);
+  tl.checkpoints = truncateCheckpointsAfterBoundary(tl.checkpoints, b);
+
+  tl.maxReachedBoundaryIndex = Math.min(
+    Math.floor(tl.maxReachedBoundaryIndex ?? 0),
+    b
+  );
+  tl.cursorBoundaryIndex = Math.min(Math.floor(tl.cursorBoundaryIndex ?? 0), b);
+
+  tl.maxReachedSec = tl.maxReachedBoundaryIndex;
+  tl.cursorSec = tl.cursorBoundaryIndex;
+
+  tl._memoGuardSig = computeTimelineMutationSig(tl);
+
+  return { ok: true };
+}
+
 export function rebuildStateAtBoundary(tl, boundaryIndex) {
   return rebuildStateAtSecond(tl, boundaryIndex);
 }

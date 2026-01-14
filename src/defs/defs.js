@@ -2,7 +2,6 @@
 // Pure definitions: constants, permanents, env cards, items.
 // No PIXI, no gameState, no UI.
 
-// Stage 5: season duration is time-driven (rename legacy TURN_SIM_DURATION)
 export const SEASON_DURATION_SEC = 12; // seconds of simulation per season
 
 export const SEASONS = ["spring", "summer", "autumn", "winter"];
@@ -40,7 +39,7 @@ export const permanentDefs = {
     behaviors: [
       {
         kind: "TimedTrigger",
-        requiresOccupant: true, // Step 9: behavior precondition (was gated in updateGame)
+        requiresOccupant: true,
         props: {
           timerKey: "timer",
           periodKey: "timerPeriod",

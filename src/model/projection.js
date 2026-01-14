@@ -7,6 +7,7 @@ import { serializeGameState, deserializeGameState } from "./state.js";
 import { rebuildStateAtSecond, isValidTimeline } from "./timeline.js";
 import { canonicalizePlanningBoundaryState } from "./canonicalize.js";
 import { updateGame } from "./game-model.js";
+import { applyAction } from "./actions.js";
 
 const TICKS_PER_SEC = 60;
 const DEFAULT_DT_STEP = 1 / TICKS_PER_SEC;
@@ -30,6 +31,32 @@ function checkpointMapBySecFromTimeline(tl) {
     m.set(s, cp.stateData);
   }
   return m;
+}
+
+function actionsBySecFromTimeline(tl) {
+  // key = floor(action.tSec)
+  // value = action[] preserving original order
+  const map = new Map();
+  const acts = Array.isArray(tl?.actions) ? tl.actions : [];
+  for (const a of acts) {
+    const s = clampSec(a?.tSec ?? 0);
+    let arr = map.get(s);
+    if (!arr) {
+      arr = [];
+      map.set(s, arr);
+    }
+    arr.push(a);
+  }
+  return map;
+}
+
+function findNearestCheckpointSec(cpMap, atOrBeforeSec) {
+  const target = clampSec(atOrBeforeSec);
+  let best = -1;
+  for (const s of cpMap.keys()) {
+    if (s <= target && s > best) best = s;
+  }
+  return best >= 0 ? best : 0;
 }
 
 // Legacy export name kept for compatibility, but boundaryIndex is treated as tSec.
@@ -64,16 +91,16 @@ function simulateForwardSecondsPure(startState, seconds, dtStep) {
   const totalSec = Math.max(0, clampSec(seconds));
   const state = cloneState(startState);
 
-  // Ensure clean snapshot flags; does NOT derive season/turn.
   canonicalizePlanningBoundaryState(state, state.planningIndex ?? 0);
 
-  // Deterministic stepping: by default 60 microsteps per second (matches replay).
-  const steps = Math.max(0, Math.floor((totalSec * 1) / dt));
-  const maxSteps = totalSec * TICKS_PER_SEC + 10; // safety if dt is 1/60
+  // Default semantics: fixed-step 60 ticks per second when dt=1/60.
+  // If dt differs, we approximate by stepping floor(totalSec/dt).
+  const steps =
+    dt === DEFAULT_DT_STEP
+      ? totalSec * TICKS_PER_SEC
+      : Math.max(0, Math.floor(totalSec / dt));
 
-  const cappedSteps = Math.min(steps, maxSteps);
-
-  for (let i = 0; i < cappedSteps; i++) {
+  for (let i = 0; i < steps; i++) {
     updateGame(dt, state);
   }
 
@@ -96,8 +123,10 @@ function simulateUntilNextSeasonEventPure(
   if (state.paused) return { ok: false, reason: "paused" };
 
   const startSeason = state.currentSeasonIndex ?? 0;
-
-  const maxSteps = Math.max(1, Math.floor(stepCapSec / dt));
+  const maxSteps =
+    dt === DEFAULT_DT_STEP
+      ? Math.max(1, Math.floor(stepCapSec) * TICKS_PER_SEC)
+      : Math.max(1, Math.floor(stepCapSec / dt));
 
   for (let i = 0; i < maxSteps; i++) {
     updateGame(dt, state);
@@ -127,23 +156,51 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
   const stateDataByBoundary = new Map();
   const history = [];
 
-  for (let s = 0; s <= maxReachedSec; s += historyStrideSec) {
-    const rebuilt = getStateAtSecond(tl, s);
-    if (!rebuilt.ok)
-      return { ok: false, reason: rebuilt.reason || "rebuildFailed" };
+  // Stage 1: linear forward-pass from a checkpoint
+  const actionsBySec = actionsBySecFromTimeline(tl);
+  const cpMap = checkpointMapBySecFromTimeline(tl);
 
-    canonicalizePlanningBoundaryState(
-      rebuilt.state,
-      rebuilt.state.planningIndex ?? 0
-    );
+  const startSec = 0;
+  const startCheckpointSec = findNearestCheckpointSec(cpMap, startSec);
 
-    const gold = rebuilt.state.resources?.gold ?? rebuilt.state.gold ?? 0;
+  const startStateData = cpMap.get(startCheckpointSec) ?? tl.baseStateData;
+  if (startStateData == null) return { ok: false, reason: "noBaseStateData" };
 
-    // Keep legacy field names for downstream graph code:
-    // boundaryIndex is now an alias for tSec.
-    history.push({ tSec: s, boundaryIndex: s, gold });
+  const workingState = deserializeGameState(startStateData);
 
-    stateDataByBoundary.set(s, serializeGameState(rebuilt.state));
+  // Ensure clock alignment with checkpoint second (replay invariant)
+  workingState.tSec = startCheckpointSec;
+  workingState.simStepIndex = startCheckpointSec * TICKS_PER_SEC;
+
+  for (let sec = startCheckpointSec; sec <= maxReachedSec; sec++) {
+    // Apply actions scheduled at this second (timeline order preserved)
+    const acts = actionsBySec.get(sec);
+    if (acts && acts.length) {
+      for (const a of acts) {
+        const res = applyAction(workingState, a, { isReplay: true });
+        if (res && res.ok === false) {
+          console.warn(`History replay action failed at t=${sec}`, res, a);
+          return { ok: false, reason: "actionFailed", detail: res };
+        }
+      }
+    }
+
+    // Sample/serialize only on stride seconds
+    if (sec % historyStrideSec === 0) {
+      canonicalizePlanningBoundaryState(workingState, sec);
+
+      const gold = workingState.resources?.gold ?? workingState.gold ?? 0;
+
+      history.push({ tSec: sec, boundaryIndex: sec, gold });
+      stateDataByBoundary.set(sec, serializeGameState(workingState));
+    }
+
+    // Advance exactly 1 second (60 microsteps), unless at frontier
+    if (sec < maxReachedSec) {
+      for (let i = 0; i < TICKS_PER_SEC; i++) {
+        updateGame(DEFAULT_DT_STEP, workingState);
+      }
+    }
   }
 
   return {
@@ -155,11 +212,7 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
   };
 }
 
-export function buildGoldGraphWindowFromTimeline(
-  tl,
-  baseBoundary,
-  opts = null
-) {
+export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
   const dtStep =
@@ -167,7 +220,6 @@ export function buildGoldGraphWindowFromTimeline(
       ? opts.dtStep
       : DEFAULT_DT_STEP;
 
-  // Time-window mode by default
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
       ? Math.floor(opts.horizonSec)
@@ -188,14 +240,15 @@ export function buildGoldGraphWindowFromTimeline(
   if (!baseRes.ok)
     return { ok: false, reason: baseRes.reason || "baseStateFailed" };
 
-  // Work from an isolated copy.
   let s = cloneState(baseRes.state);
   canonicalizePlanningBoundaryState(s, s.planningIndex ?? 0);
 
   const stateDataByBoundary = new Map();
   const forecast = [];
 
-  // Include base point
+  // Stage 2 guarantee:
+  // stateDataByBoundary stores ONLY baseSec + each plotted forecast point.
+  // It does NOT store intermediate simulation-only seconds when stepSec > 1.
   stateDataByBoundary.set(baseSec, serializeGameState(s));
   forecast.push({
     tSec: baseSec,
@@ -204,7 +257,6 @@ export function buildGoldGraphWindowFromTimeline(
   });
 
   let curSec = baseSec;
-
   const steps = Math.floor(horizonSec / stepSec);
 
   for (let i = 1; i <= steps; i++) {
@@ -215,8 +267,6 @@ export function buildGoldGraphWindowFromTimeline(
         dtStep,
         Math.max(1, horizonSec)
       );
-      // In seasonEvent mode, we do not assume a fixed sec delta; we just advance an x-index.
-      // Still, keep boundaryIndex as a monotonically increasing index for graphing.
       curSec = baseSec + i * stepSec;
     } else {
       sim = simulateForwardSecondsPure(s, stepSec, dtStep);
@@ -228,6 +278,7 @@ export function buildGoldGraphWindowFromTimeline(
 
     canonicalizePlanningBoundaryState(s, s.planningIndex ?? 0);
 
+    // Only serialize the plotted point
     stateDataByBoundary.set(curSec, serializeGameState(s));
     forecast.push({
       tSec: curSec,
@@ -244,7 +295,6 @@ export function buildGoldGraphWindowFromTimeline(
       horizonSec,
       stepSec,
       mode,
-      // Legacy aliases
       baseBoundaryIndex: baseSec,
       endBoundaryIndex: baseSec + horizonSec,
       horizon: steps,
