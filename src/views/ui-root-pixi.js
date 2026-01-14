@@ -210,7 +210,6 @@ const chromeView = createChromeView({
   layer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
   getCurrentSeasonData,
-  setTimeScale: (scale) => runner.setTimeScale(scale),
   togglePause: () => {
     const paused = runner.getCursorState().paused;
     runner.setPaused(!paused);

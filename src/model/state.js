@@ -37,9 +37,6 @@ export function createEmptyState(seed = 123456789) {
     simStepIndex: 0,
     tSec: 0,
 
-    // Legacy Float Time (kept for compatibility, driven by simStepIndex in commands)
-    simTimeRemaining: 0,
-
     // Stage 5: renamed remaining clock (legacy field kept until full migration)
     seasonTimeRemaining: 0,
     seasonDurationSec: SEASON_DURATION_SEC,
@@ -47,10 +44,8 @@ export function createEmptyState(seed = 123456789) {
     simTime: 0, // Accumulator for floating point calculations if needed
 
     // Season clock accumulator (decoupled from planning/boundary indices).
-    // Counts SIMULATION time only (dt * timeScale while phase === "simulation").
     seasonClockSec: 0,
 
-    timeScale: 1,
     paused: false,
 
     // Action Points (Skeleton)
@@ -339,17 +334,6 @@ export function deserializeGameState(data) {
   // Stage 5 defaults / legacy bridging
   if (state.seasonDurationSec == null)
     state.seasonDurationSec = SEASON_DURATION_SEC;
-
-  // Legacy: simTimeRemaining renamed to seasonTimeRemaining. Keep both for compatibility during migration.
-  if (state.seasonTimeRemaining == null) {
-    state.seasonTimeRemaining =
-      state.simTimeRemaining != null ? state.simTimeRemaining : 0;
-  }
-  if (state.simTimeRemaining == null)
-    state.simTimeRemaining = state.seasonTimeRemaining;
-
-  // Legacy: timeScale is being removed; default to 1 for older saves.
-  if (state.timeScale == null) state.timeScale = 1;
 
   if (state.paused == null) state.paused = false;
 

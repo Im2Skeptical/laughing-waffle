@@ -152,11 +152,9 @@ export function cmdTickSimulation(state, dt) {
       ? state.seasonDurationSec
       : DEFAULT_SEASON_DURATION_SEC;
   state.seasonTimeRemaining = Math.max(0, dur - (state.seasonClockSec ?? 0));
-  state.simTimeRemaining = state.seasonTimeRemaining;
 
   return {
     ok: true,
-    endedTurn: false,
     advancedSeason: advancedSeasonCount > 0,
     advancedSeasonCount,
   };
@@ -188,12 +186,6 @@ export function cmdSetPaused(state, paused) {
   if (typeof paused !== "boolean") return { ok: false, reason: "badPaused" };
   state.paused = paused;
   return { ok: true, paused };
-}
-
-export function cmdSetTimeScale(state, scale) {
-  // Stage 5: timeScale is deprecated. Keep as no-op for compatibility.
-  state.timeScale = 1;
-  return { ok: true, timeScale: 1, deprecated: true };
 }
 
 // =============================================================================

@@ -156,16 +156,13 @@ export function createChromeView({
     // Only show pointer cursor/click affordance if handler exists
     goldHit.eventMode = typeof onGoldClick === "function" ? "static" : "none";
     goldHit.cursor = typeof onGoldClick === "function" ? "pointer" : "default";
-
-    const speedLabel = `${s.timeScale.toFixed(1)}x`;
-
     deckInfoText.text = `Turn: ${s.turn}  Season: ${seasonName}  Deck: ${
       deck?.deck.length ?? 0
     }  Discard: ${
       deck?.discard.length ?? 0
-    }  Phase: ${phaseLabel}  Sim: ${s.simTimeRemaining.toFixed(
+    }  Phase: ${phaseLabel}  SeasonLength: ${s.seasonTimeRemaining.toFixed(
       1
-    )}s  Speed: ${speedLabel}`;
+    )}`;
   }
 
   function init() {}

@@ -1,5 +1,5 @@
 // game-model.js — facade re-export, stable API for views
-// NOTE (Step 4): Model APIs require explicit `state`.
+// NOTE: Model APIs require explicit `state`.
 // `gameState` remains exported for app-edge wiring only.
 
 import { envCardDefs, permanentDefs } from "../defs/defs.js";
@@ -32,7 +32,6 @@ import {
   cmdSplitStackAndPlace,
   cmdPlaceCharacterInSlot,
   cmdSetPaused,
-  cmdSetTimeScale,
   canOwnerAcceptItem,
 } from "./commands.js";
 
@@ -45,18 +44,10 @@ export function updateGame(dt, state) {
 
   // 1. Master Clock Tick
   const tick = cmdTickSimulation(s, dt);
-
-  // If the game is hard-paused (state.paused) or the tick failed, we stop here.
-  // This satisfies "No time advancement while paused".
   if (!tick?.ok) return;
 
   // 2. Pause Gate
   if (s.paused) return;
-
-  // Stage 5: endedTurn is legacy; keep guard for compatibility.
-  if (tick.endedTurn) return;
-
-  const scaledDt = dt;
 
   // env season data (used for any env-targeted ops)
   const seasonData = getCurrentSeasonData(s);
@@ -70,7 +61,7 @@ export function updateGame(dt, state) {
     const def = permanentDefs[perm.defId];
 
     const ops =
-      runBehaviorsOnInstance(perm, def, scaledDt, s, {
+      runBehaviorsOnInstance(perm, def, dt, s, {
         kind: "permanent",
         slotIndex: i,
       }) || [];
@@ -107,7 +98,7 @@ export function updateGame(dt, state) {
       const def = envCardDefs[env.defId];
 
       const ops =
-        runBehaviorsOnInstance(env, def, scaledDt, s, { kind: "env" }) || [];
+        runBehaviorsOnInstance(env, def, dt, s, { kind: "env" }) || [];
 
       for (const op of ops) {
         const targetSlot =
@@ -157,10 +148,6 @@ export function setPaused(state, paused) {
   return cmdSetPaused(state, paused);
 }
 
-export function setTimeScale(state, scale) {
-  return cmdSetTimeScale(state, scale);
-}
-
 // =============================================================================
 // RE-EXPORTS (public API)
 // =============================================================================
@@ -197,6 +184,5 @@ export {
   cmdSplitStackAndPlace,
   cmdPlaceCharacterInSlot,
   cmdSetPaused,
-  cmdSetTimeScale,
   canOwnerAcceptItem,
 };

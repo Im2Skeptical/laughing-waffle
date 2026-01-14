@@ -1,5 +1,5 @@
 // src/model/actions.js
-// Registry of all valid timeline actions and their payload contracts.
+// Registry of all valid timeline actions.
 // Centralizes dispatch, validation, and legacy alias handling.
 
 import {
@@ -11,7 +11,6 @@ import {
 } from "./commands.js";
 
 export const ActionKinds = {
-  START_NEXT_TURN: "startNextTurn",
   PLACE_CHARACTER: "placeCharacter",
   INVENTORY_MOVE: "inventoryMove",
   INVENTORY_SPLIT: "inventorySplit",
@@ -19,20 +18,7 @@ export const ActionKinds = {
   DEBUG_SET_CAP: "debugSetCap",
 };
 
-// Map legacy action kinds to current canonical kinds
-const LEGACY_ALIASES = {
-  placeCharacterInSlot: ActionKinds.PLACE_CHARACTER,
-  moveItemBetweenOwners: ActionKinds.INVENTORY_MOVE,
-  splitStackAndPlace: ActionKinds.INVENTORY_SPLIT,
-  stackItemsInOwner: ActionKinds.INVENTORY_STACK,
-};
-
 const ACTION_COST = 20;
-
-function normalizeKind(kind) {
-  if (Object.values(ActionKinds).includes(kind)) return kind;
-  return LEGACY_ALIASES[kind] || null;
-}
 
 function ensureAPState(state) {
   if (typeof state.actionPoints !== "number") state.actionPoints = 100;
@@ -46,8 +32,7 @@ export function applyAction(state, action, context = {}) {
   }
 
   const { isReplay } = context;
-  const rawKind = action.kind;
-  const kind = normalizeKind(rawKind);
+  const kind = action.kind;
   const payload = action.payload || {};
 
   if (!kind) {
@@ -65,7 +50,7 @@ export function applyAction(state, action, context = {}) {
   // "Control" actions are allowed while running.
   // "Edit" actions (Player moves) require the simulation to be PAUSED.
   const isControlAction =
-    kind === ActionKinds.START_NEXT_TURN || kind === ActionKinds.DEBUG_SET_CAP;
+    kind === ActionKinds.DEBUG_SET_CAP;
 
   // STRICT GATING: If not replaying, gameplay actions are FORBIDDEN unless paused.
   if (!isReplay && !isControlAction && !state.paused) {
@@ -84,7 +69,6 @@ export function applyAction(state, action, context = {}) {
     case ActionKinds.INVENTORY_STACK:
       cost = ACTION_COST;
       break;
-    case ActionKinds.START_NEXT_TURN:
     case ActionKinds.DEBUG_SET_CAP:
       cost = 0;
       break;

@@ -11,7 +11,7 @@ import {
 } from "../timeline.js";
 import { updateGame, createInitialState } from "../game-model.js";
 import { buildGoldGraphWindowFromTimeline } from "../projection.js";
-import { canonicalizePlanningBoundaryState } from "../canonicalize.js";
+import { canonicalizeSnapshot } from "../canonicalize.js";
 
 const DT_STEP = 1 / 60;
 const TEST_SEED = 99999;
@@ -43,8 +43,7 @@ function stableStringify(obj) {
 function normalizeRuntimeForHash(state) {
   // Reset runtime flags that shouldn't affect authoritative history
   state.paused = false;
-  state.timeScale = 1;
-  state.simTimeRemaining = 0;
+  state.seasonTimeRemaining = 0;
 
   // Note: We DO NOT reset simTime, planningIndex, turn, or seasons.
   // These must match exactly between live and replay.
@@ -130,7 +129,7 @@ function testLiveVsReplay() {
 
     // Ensure we start from a clean, canonical planning snapshot.
     // This matches what replay does (rebuildStateAtBoundary calls canonicalize first).
-    canonicalizePlanningBoundaryState(liveState, 0);
+    canonicalizeSnapshot(liveState, 0);
 
     const startPlanningIndex = liveState.planningIndex || 0;
     const targetBoundary = startPlanningIndex + 1;
@@ -141,7 +140,7 @@ function testLiveVsReplay() {
 
     // 3. Run Live Loop (mirrors timeline.js::simulateOneSeason EXACTLY)
     const maxSteps =
-      Math.ceil((liveState.simTimeRemaining ?? 0) / DT_STEP) + 240;
+      Math.ceil((liveState.seasonTimeRemaining ?? 0) / DT_STEP) + 240;
     let steps = 0;
     let reached = false;
 
@@ -168,7 +167,7 @@ function testLiveVsReplay() {
     // RebuildStateAtBoundary ends with a hard canonicalize call.
     // We must do the same to Live to ensure apples-to-apples comparison
     // (clearing transient floating point noise or flags).
-    canonicalizePlanningBoundaryState(liveState, targetBoundary);
+    canonicalizeSnapshot(liveState, targetBoundary);
 
     const liveHash = computeStateHash(liveState);
 

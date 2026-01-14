@@ -11,7 +11,7 @@ import {
 } from "./projection.js";
 
 import { serializeGameState } from "./state.js";
-import { canonicalizePlanningBoundaryState } from "./canonicalize.js";
+import { canonicalizeSnapshot } from "./canonicalize.js";
 
 export function createTimeGraphController({
   getTimeline,
@@ -131,7 +131,7 @@ export function createTimeGraphController({
       const s = getStateAtBoundaryFromGoldGraphCache(cache, tl, sec);
       if (!s) return false;
 
-      canonicalizePlanningBoundaryState(s, sec);
+      canonicalizeSnapshot(s, sec);
 
       const gold = s.resources?.gold ?? s.gold ?? 0;
 
@@ -175,7 +175,7 @@ export function createTimeGraphController({
     if (!rebuilt?.ok) return false;
 
     const s = rebuilt.state;
-    canonicalizePlanningBoundaryState(s, t);
+    canonicalizeSnapshot(s, t);
 
     const gold = s.resources?.gold ?? s.gold ?? 0;
 

@@ -1,13 +1,12 @@
 // src/controllers/sim-runner.js
-// Stage 3: Decoupled simulation runner with tSec authority.
+// Simulation runner (fixed-step, second-boundary pause, replay injection)
 
 import {
   initGameState,
   updateGame,
   setPaused,
-  setTimeScale,
   loadIntoGameState,
-  gameState, // The singleton model instance
+  gameState,
 } from "../model/game-model.js";
 
 import {
@@ -95,7 +94,6 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       initGameState(gameState, "testing");
       cursorState = gameState;
 
-      // Stage 5 policy: normalize phase label derived from paused.
       syncPhaseToPaused(cursorState);
 
       timeline = createTimelineFromInitialState(cursorState);
@@ -147,7 +145,6 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
 
             setPaused(cursorState, true);
 
-            // Stage 5 policy: keep phase label consistent with paused immediately.
             syncPhaseToPaused(cursorState);
 
             pauseRequested = false;
@@ -242,14 +239,12 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       const t = Math.max(0, Math.floor(tSec));
       pauseRequested = false;
 
-      // STAGE 3: Use Second-Based Rebuild
       const rebuilt = rebuildStateAtSecond(timeline, t);
       if (!rebuilt.ok) return rebuilt;
 
       loadIntoGameState(serializeGameState(rebuilt.state));
       cursorState = gameState;
 
-      // Stage 5 policy: ensure phase label stays consistent on cursor replacement.
       syncPhaseToPaused(cursorState);
 
       const prevMax = timeline.maxReachedSec ?? 0;
@@ -265,15 +260,6 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       onInvalidate?.("scrubCommit");
 
       return { ok: true };
-    },
-
-    // Legacy / View Support
-    dispatchPlanningAction(kind, payload) {
-      return this.dispatchAction(kind, payload);
-    },
-    commitCursorBoundary(b) {
-      console.warn("commitCursorBoundary called in Stage 3 - unsupported");
-      return { ok: false };
     },
 
     getTimeline: () => timeline,
@@ -299,13 +285,9 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
         pauseRequested = false;
         setPaused(cursorState, false);
 
-        // Stage 5 policy: normalize phase immediately on unpause commit.
         syncPhaseToPaused(cursorState);
       }
     },
     isPausePending: () => !!pauseRequested,
-    setTimeScale: (s) => {
-      setTimeScale(cursorState, s);
-    },
   };
 }

@@ -5,7 +5,7 @@
 
 import { serializeGameState, deserializeGameState } from "./state.js";
 import { rebuildStateAtSecond, isValidTimeline } from "./timeline.js";
-import { canonicalizePlanningBoundaryState } from "./canonicalize.js";
+import { canonicalizeSnapshot } from "./canonicalize.js";
 import { updateGame } from "./game-model.js";
 import { applyAction } from "./actions.js";
 
@@ -73,7 +73,7 @@ export function getStateAtSecond(tl, tSec) {
   const sd = cpMap.get(s);
   if (sd != null) {
     const st = deserializeGameState(sd);
-    canonicalizePlanningBoundaryState(st, st.planningIndex ?? 0);
+    canonicalizeSnapshot(st);
     return { ok: true, state: st };
   }
 
@@ -91,7 +91,7 @@ function simulateForwardSecondsPure(startState, seconds, dtStep) {
   const totalSec = Math.max(0, clampSec(seconds));
   const state = cloneState(startState);
 
-  canonicalizePlanningBoundaryState(state, state.planningIndex ?? 0);
+  canonicalizeSnapshot(state);
 
   // Default semantics: fixed-step 60 ticks per second when dt=1/60.
   // If dt differs, we approximate by stepping floor(totalSec/dt).
@@ -118,7 +118,7 @@ function simulateUntilNextSeasonEventPure(
     typeof dtStep === "number" && dtStep > 0 ? dtStep : DEFAULT_DT_STEP;
 
   const state = cloneState(startState);
-  canonicalizePlanningBoundaryState(state, state.planningIndex ?? 0);
+  canonicalizeSnapshot(state);
 
   if (state.paused) return { ok: false, reason: "paused" };
 
@@ -131,7 +131,7 @@ function simulateUntilNextSeasonEventPure(
   for (let i = 0; i < maxSteps; i++) {
     updateGame(dt, state);
     if ((state.currentSeasonIndex ?? 0) !== startSeason) {
-      canonicalizePlanningBoundaryState(state, state.planningIndex ?? 0);
+      canonicalizeSnapshot(state);
       return { ok: true, state };
     }
   }
@@ -187,7 +187,7 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
 
     // Sample/serialize only on stride seconds
     if (sec % historyStrideSec === 0) {
-      canonicalizePlanningBoundaryState(workingState, sec);
+      canonicalizeSnapshot(workingState, sec);
 
       const gold = workingState.resources?.gold ?? workingState.gold ?? 0;
 
@@ -241,7 +241,7 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
     return { ok: false, reason: baseRes.reason || "baseStateFailed" };
 
   let s = cloneState(baseRes.state);
-  canonicalizePlanningBoundaryState(s, s.planningIndex ?? 0);
+  canonicalizeSnapshot(s);
 
   const stateDataByBoundary = new Map();
   const forecast = [];
@@ -276,7 +276,7 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
     if (!sim.ok) break;
     s = sim.state;
 
-    canonicalizePlanningBoundaryState(s, s.planningIndex ?? 0);
+    canonicalizeSnapshot(s);
 
     // Only serialize the plotted point
     stateDataByBoundary.set(curSec, serializeGameState(s));
@@ -345,14 +345,14 @@ export function getStateAtBoundaryFromGoldGraphCache(cache, tl, boundaryIndex) {
   const sd = cache.stateDataByBoundary?.get?.(s);
   if (sd != null) {
     const st = deserializeGameState(sd);
-    canonicalizePlanningBoundaryState(st, st.planningIndex ?? 0);
+    canonicalizeSnapshot(st);
     return st;
   }
 
   const rebuilt = rebuildStateAtSecond(tl, s);
   if (!rebuilt.ok) return null;
 
-  canonicalizePlanningBoundaryState(
+  canonicalizeSnapshot(
     rebuilt.state,
     rebuilt.state.planningIndex ?? 0
   );
