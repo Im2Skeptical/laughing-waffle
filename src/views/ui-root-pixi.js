@@ -4,6 +4,7 @@ import { permanentDefs } from "../defs/defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
+import { GRAPH_METRICS } from "../model/graph-metrics.js";
 import { runDeterminismSuite } from "../model/tests/determinism.js";
 import { createInteractionController } from "./interaction-controler-pixi.js";
 import { createTooltipView } from "./tooltip-pixi.js";
@@ -11,7 +12,7 @@ import { createInventoryView } from "./inventory-pixi.js";
 import { createCharactersView } from "./characters-pixi.js";
 import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
-import { createGoldGraphView } from "./gold-graph-pixi.js";
+import { createMetricGraphView } from "./gold-graph-pixi.js";
 import { PERM_WIDTH, PERM_HEIGHT, layoutPermPos } from "./layout-pixi.js";
 
 const DESIGN_WIDTH = 1920;
@@ -28,8 +29,10 @@ document.body.appendChild(app.view);
 
 const runner = createSimRunner({
   onInvalidate: (reason) => {
-    timeGraphController.handleInvalidate(reason);
+    goldGraphController.handleInvalidate(reason);
+    apGraphController.handleInvalidate(reason);
     if (goldGraphView?.isOpen()) goldGraphView.render();
+    if (apGraphView?.isOpen()) apGraphView.render();
     // Force a check on inventory UI in case state changed
     inventoryView?.update?.();
   },
@@ -42,9 +45,16 @@ const runner = createSimRunner({
   },
 });
 
-const timeGraphController = createTimeGraphController({
+const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
+  metric: GRAPH_METRICS.gold,
+});
+
+const apGraphController = createTimeGraphController({
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  metric: GRAPH_METRICS.ap,
 });
 
 function resizeCanvas() {
@@ -193,16 +203,30 @@ const charactersView = createCharactersView({
   },
 });
 
-let goldGraphView = createGoldGraphView({
+let goldGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
-  controller: timeGraphController,
+  controller: goldGraphController,
+  metric: GRAPH_METRICS.gold,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   setPreviewState: (s) => runner.setPreviewState(s),
   clearPreviewState: () => runner.clearPreviewState(),
   // STAGE 3: Use commitCursorSecond
   commitSecond: (t) => runner.commitCursorSecond(t),
+});
+
+let apGraphView = createMetricGraphView({
+  app,
+  layer: uiLayers.controlsLayer,
+  controller: apGraphController,
+  metric: GRAPH_METRICS.ap,
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  setPreviewState: (s) => runner.setPreviewState(s),
+  clearPreviewState: () => runner.clearPreviewState(),
+  commitSecond: (t) => runner.commitCursorSecond(t),
+  openPosition: { x: 700 },
 });
 
 const chromeView = createChromeView({
@@ -219,6 +243,11 @@ const chromeView = createChromeView({
     runner.clearPreviewState();
     if (!goldGraphView.isOpen()) goldGraphView.open();
     else goldGraphView.close();
+  },
+  onApClick: () => {
+    runner.clearPreviewState();
+    if (!apGraphView.isOpen()) apGraphView.open();
+    else apGraphView.close();
   },
 });
 
@@ -326,9 +355,11 @@ app.ticker.add((delta) => {
   tooltipView.update(frameDt);
   inventoryView.update(frameDt);
   chromeView.update(frameDt);
-  timeGraphController.update();
+  goldGraphController.update();
+  apGraphController.update();
   debugView.update();
   if (goldGraphView.isOpen()) goldGraphView.render();
+  if (apGraphView.isOpen()) apGraphView.render();
 });
 
 window.__DBG__ = {

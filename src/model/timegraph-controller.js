@@ -4,18 +4,20 @@
 // No Pixi imports.
 
 import {
-  buildGoldGraphCacheFromTimeline,
-  buildGoldGraphWindowFromTimeline,
-  getStateAtBoundaryFromGoldGraphCache,
+  buildMetricGraphCacheFromTimeline,
+  buildMetricGraphWindowFromTimeline,
+  getStateAtBoundaryFromGraphCache,
   getStateAtBoundary,
 } from "./projection.js";
 
+import { GRAPH_METRICS } from "./graph-metrics.js";
 import { serializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 
 export function createTimeGraphController({
   getTimeline,
   getCursorState,
+  metric = GRAPH_METRICS.gold,
 
   // Stage 4: decouple plotting resolution from scrubbing resolution
   historyStrideSec = 5,
@@ -23,7 +25,15 @@ export function createTimeGraphController({
   horizonSec = 1200,
 } = {}) {
   let cache = null;
-  let goldByBoundary = new Map();
+  const resolvedMetric =
+    typeof metric === "string" ? GRAPH_METRICS[metric] : metric;
+  const metricDef =
+    resolvedMetric && typeof resolvedMetric === "object"
+      ? resolvedMetric
+      : GRAPH_METRICS.gold;
+  const series = Array.isArray(metricDef.series)
+    ? metricDef.series
+    : GRAPH_METRICS.gold.series;
 
   // Config (mutable locals; never assign to function parameters)
   let historyStrideSecCur = historyStrideSec;
@@ -57,24 +67,14 @@ export function createTimeGraphController({
     return sec % historyStrideSecCur === 0;
   }
 
-  function rebuildGoldMapFromCache() {
-    goldByBoundary = new Map();
-    if (!cache) return;
-
-    if (Array.isArray(cache.history)) {
-      for (const p of cache.history) {
-        const x = clampSec(p.tSec ?? 0);
-        goldByBoundary.set(x, p.gold ?? 0);
-      }
+  function collectSeriesValues(state) {
+    const values = {};
+    for (const s of series) {
+      if (!s || typeof s.getValue !== "function") continue;
+      const v = s.getValue(state);
+      values[s.id] = Number.isFinite(v) ? v : 0;
     }
-
-    const wf = cache.window?.forecast;
-    if (Array.isArray(wf)) {
-      for (const p of wf) {
-        const x = clampSec(p.tSec ?? 0);
-        goldByBoundary.set(x, p.gold ?? 0);
-      }
-    }
+    return values;
   }
 
   function ensureForecastFromFrontier(force) {
@@ -91,10 +91,11 @@ export function createTimeGraphController({
       return { ok: true };
     }
 
-    const winRes = buildGoldGraphWindowFromTimeline(tl, frontierSec, {
+    const winRes = buildMetricGraphWindowFromTimeline(tl, frontierSec, {
       baseSec: frontierSec,
       horizonSec: horizonSecCur,
       stepSec: forecastStepSecCur,
+      series,
       // mode defaults to timeWindow
     });
 
@@ -108,7 +109,6 @@ export function createTimeGraphController({
       cache.stateDataByBoundary.set(sec, sd);
     }
 
-    rebuildGoldMapFromCache();
     return { ok: true };
   }
 
@@ -126,15 +126,13 @@ export function createTimeGraphController({
     for (let sec = oldMax + 1; sec <= target; sec++) {
       if (!shouldSampleHistory(sec, target)) continue;
 
-      const s = getStateAtBoundaryFromGoldGraphCache(cache, tl, sec);
+      const s = getStateAtBoundaryFromGraphCache(cache, tl, sec);
       if (!s) return false;
 
       canonicalizeSnapshot(s, sec);
 
-      const gold = s.resources?.gold ?? s.gold ?? 0;
-
-      cache.history.push({ tSec: sec, gold });
-      goldByBoundary.set(sec, gold);
+      const values = collectSeriesValues(s);
+      cache.history.push({ tSec: sec, values });
 
       cache.stateDataByBoundary.set(sec, serializeGameState(s));
     }
@@ -154,10 +152,6 @@ export function createTimeGraphController({
     });
 
     cache.maxReachedSec = t;
-
-    for (const k of goldByBoundary.keys()) {
-      if (k > t) goldByBoundary.delete(k);
-    }
     // stateDataByBoundary is intentionally not purged; it's a perf cache only.
   }
 
@@ -173,7 +167,7 @@ export function createTimeGraphController({
     const s = rebuilt.state;
     canonicalizeSnapshot(s, t);
 
-    const gold = s.resources?.gold ?? s.gold ?? 0;
+    const values = collectSeriesValues(s);
 
     if (!Array.isArray(cache.history)) cache.history = [];
 
@@ -183,19 +177,17 @@ export function createTimeGraphController({
         cache.history[i].tSec ?? 0
       );
       if (existingSec === t) {
-        cache.history[i] = { tSec: t, gold };
+        cache.history[i] = { tSec: t, values };
         replaced = true;
         break;
       }
     }
-    if (!replaced) cache.history.push({ tSec: t, gold });
+    if (!replaced) cache.history.push({ tSec: t, values });
 
     cache.history.sort(
       (a, b) =>
         clampSec(a.tSec ?? 0) - clampSec(b.tSec ?? 0)
     );
-
-    goldByBoundary.set(t, gold);
 
     if (!cache.stateDataByBoundary) cache.stateDataByBoundary = new Map();
     cache.stateDataByBoundary.set(t, serializeGameState(s));
@@ -207,7 +199,6 @@ export function createTimeGraphController({
     const tl = getTimeline?.();
     if (!tl) {
       cache = null;
-      goldByBoundary = new Map();
       return { ok: false, reason: "no timeline" };
     }
 
@@ -219,16 +210,16 @@ export function createTimeGraphController({
     const frontierSec = clampSec(tl.maxReachedSec ?? 0);
     const tlRev = getTimelineRevision(tl);
 
-    const res = buildGoldGraphCacheFromTimeline(tl, {
+    const res = buildMetricGraphCacheFromTimeline(tl, {
       baseSec: frontierSec,
       horizonSec: horizonSecCur,
       stepSec: forecastStepSecCur,
       historyStrideSec: historyStrideSecCur,
+      series,
     });
 
     if (!res.ok) {
       cache = null;
-      goldByBoundary = new Map();
       return res;
     }
 
@@ -241,7 +232,6 @@ export function createTimeGraphController({
     lastKnownForecastBaseSec = frontierSec;
     lastKnownRevision = tlRev;
 
-    rebuildGoldMapFromCache();
     return { ok: true };
   }
 
@@ -255,7 +245,6 @@ export function createTimeGraphController({
     const cs = getCursorState?.();
     if (!tl || !cs) {
       cache = null;
-      goldByBoundary = new Map();
       return { ok: false, reason: "no state" };
     }
 
@@ -281,7 +270,6 @@ export function createTimeGraphController({
       cache.window = null;
       ensureForecastFromFrontier(true);
 
-      rebuildGoldMapFromCache();
       return { ok: true };
     }
 
@@ -313,7 +301,6 @@ export function createTimeGraphController({
       cache.window = null;
       ensureForecastFromFrontier(true);
 
-      rebuildGoldMapFromCache();
       return { ok: true };
     }
 
@@ -333,7 +320,7 @@ export function createTimeGraphController({
   function getData() {
     return {
       cache,
-      goldByBoundary,
+      metric: metricDef,
       horizonSec: horizonSecCur,
       historyStrideSec: historyStrideSecCur,
       forecastStepSec: forecastStepSecCur,
@@ -351,7 +338,7 @@ export function createTimeGraphController({
     if (rebuilt?.ok) return rebuilt.state;
 
     if (!cache) return null;
-    return getStateAtBoundaryFromGoldGraphCache(cache, tl, sec);
+    return getStateAtBoundaryFromGraphCache(cache, tl, sec);
   }
 
   return {

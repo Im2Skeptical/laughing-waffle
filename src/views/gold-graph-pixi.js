@@ -1,17 +1,43 @@
 // src/views/gold-graph-pixi.js
-// Render-only view for the gold graph.
+// Render-only view for metric graphs.
 // STAGE 3: tSec aware.
 
-export function createGoldGraphView({
+import { GRAPH_METRICS } from "../model/graph-metrics.js";
+
+function getSeriesValue(point, seriesId) {
+  if (point?.values && point.values[seriesId] != null) {
+    const v = point.values[seriesId];
+    return Number.isFinite(v) ? v : 0;
+  }
+  if (seriesId === "gold") {
+    const v = point?.gold ?? 0;
+    return Number.isFinite(v) ? v : 0;
+  }
+  return 0;
+}
+
+export function createMetricGraphView({
   app,
   layer,
   controller,
+  metric = GRAPH_METRICS.gold,
   getTimeline,
   getCursorState,
   setPreviewState,
   clearPreviewState,
   commitSecond,
+  openPosition,
 }) {
+  const resolvedMetric =
+    typeof metric === "string" ? GRAPH_METRICS[metric] : metric;
+  const metricDef =
+    resolvedMetric && typeof resolvedMetric === "object"
+      ? resolvedMetric
+      : GRAPH_METRICS.gold;
+  const series = Array.isArray(metricDef.series)
+    ? metricDef.series
+    : GRAPH_METRICS.gold.series;
+
   const root = new PIXI.Container();
   root.visible = false;
   layer.addChild(root);
@@ -146,36 +172,38 @@ export function createGoldGraphView({
     const all = [...(cache?.history || []), ...(cache?.window?.forecast || [])];
     if (!all.length) return;
 
-    let minGold = Infinity;
-    let maxGold = -Infinity;
+    let minValue = Infinity;
+    let maxValue = -Infinity;
 
     for (const p of all) {
       const t = p.tSec ?? 0;
       if (t < minSec || t > maxSec) continue;
 
-      const g = p.gold ?? 0;
-      if (g < minGold) minGold = g;
-      if (g > maxGold) maxGold = g;
+      for (const s of series) {
+        const v = getSeriesValue(p, s.id);
+        if (v < minValue) minValue = v;
+        if (v > maxValue) maxValue = v;
+      }
     }
 
-    if (!Number.isFinite(minGold)) {
-      minGold = 0;
-      maxGold = 100;
+    if (!Number.isFinite(minValue)) {
+      minValue = 0;
+      maxValue = 100;
     }
-    if (minGold === maxGold) {
-      minGold -= 10;
-      maxGold += 10;
+    if (minValue === maxValue) {
+      minValue -= 10;
+      maxValue += 10;
     }
 
-    const pad = (maxGold - minGold) * 0.1;
-    minGold -= pad;
-    maxGold += pad;
+    const pad = (maxValue - minValue) * 0.1;
+    minValue -= pad;
+    maxValue += pad;
 
-    function yForGold(g) {
-      const t = (g - minGold) / Math.max(1e-6, maxGold - minGold);
+    function yForValue(v) {
+      const t = (v - minValue) / Math.max(1e-6, maxValue - minValue);
       return plot.y + plot.h - t * plot.h;
     }
-
+/*
     // Grid
     plotG.lineStyle(1, 0x444466, 0.5);
     plotG.drawRect(plot.x, plot.y, plot.w, plot.h);
@@ -187,25 +215,28 @@ export function createGoldGraphView({
         plotG.lineTo(x, plot.y + plot.h);
       }
     }
-
+*/
     // Data Line
     all.sort((a, b) => (a.tSec ?? 0) - (b.tSec ?? 0));
 
-    plotG.lineStyle(2, 0xffd966, 1);
-    let first = true;
+    for (const s of series) {
+      const lineColor = Number.isFinite(s.color) ? s.color : 0xffffff;
+      plotG.lineStyle(2, lineColor, 1);
+      let first = true;
 
-    for (const p of all) {
-      const t = p.tSec ?? 0;
-      if (t < minSec || t > maxSec) continue;
+      for (const p of all) {
+        const t = p.tSec ?? 0;
+        if (t < minSec || t > maxSec) continue;
 
-      const x = timeToX(t);
-      const y = yForGold(p.gold ?? 0);
+        const x = timeToX(t);
+        const y = yForValue(getSeriesValue(p, s.id));
 
-      if (first) {
-        plotG.moveTo(x, y);
-        first = false;
-      } else {
-        plotG.lineTo(x, y);
+        if (first) {
+          plotG.moveTo(x, y);
+          first = false;
+        } else {
+          plotG.lineTo(x, y);
+        }
       }
     }
 
@@ -253,7 +284,8 @@ export function createGoldGraphView({
     const zone = scrubSec <= maxReached ? "History" : "Forecast";
     const note = statusNote ? ` • ${statusNote}` : "";
 
-    text.text = `Time: ${scrubSec}s (${zone}) • Live: ${curT}s${note}`;
+    const metricLabel = metricDef?.label ?? "Metric";
+    text.text = `${metricLabel} • Time: ${scrubSec}s (${zone}) • Live: ${curT}s${note}`;
   }
 
   function applyPreviewThrottled(force) {
@@ -308,8 +340,10 @@ export function createGoldGraphView({
   function open() {
     if (root.visible) return;
     root.visible = true;
-    root.x = 40;
-    root.y = app.screen.height - WIN_H - 140;
+    const defaultX = 40;
+    const defaultY = app.screen.height - WIN_H - 140;
+    root.x = openPosition?.x ?? defaultX;
+    root.y = openPosition?.y ?? defaultY;
     controller.ensureCache();
     render();
   }
@@ -335,4 +369,8 @@ export function createGoldGraphView({
   drawWindow();
 
   return { open, close, isOpen, render };
+}
+
+export function createGoldGraphView(opts) {
+  return createMetricGraphView({ ...opts, metric: GRAPH_METRICS.gold });
 }

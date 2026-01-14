@@ -13,6 +13,7 @@ export function createChromeView({
 
   // Stage 3: optional click handler for opening the gold graph
   onGoldClick,
+  onApClick,
 }) {
   // ---------- 1. Text HUD ----------
 
@@ -32,6 +33,16 @@ export function createChromeView({
 
   goldHit.on("pointertap", () => {
     if (typeof onGoldClick === "function") onGoldClick();
+  });
+
+  const apHit = new PIXI.Graphics();
+  apHit.eventMode = "static";
+  apHit.cursor = "pointer";
+  apHit.alpha = 0;
+  layer.addChild(apHit);
+
+  apHit.on("pointertap", () => {
+    if (typeof onApClick === "function") onApClick();
   });
 
   const deckInfoText = new PIXI.Text("", {
@@ -156,6 +167,16 @@ export function createChromeView({
     // Only show pointer cursor/click affordance if handler exists
     goldHit.eventMode = typeof onGoldClick === "function" ? "static" : "none";
     goldHit.cursor = typeof onGoldClick === "function" ? "pointer" : "default";
+
+    const apHitW = 150;
+    const apHitX = Math.max(gx, gx + resourceText.width - apHitW);
+    apHit.clear();
+    apHit.beginFill(0xffffff);
+    apHit.drawRect(apHitX, gy - 2, apHitW, hitH);
+    apHit.endFill();
+
+    apHit.eventMode = typeof onApClick === "function" ? "static" : "none";
+    apHit.cursor = typeof onApClick === "function" ? "pointer" : "default";
     deckInfoText.text = `Turn: ${s.turn}  Season: ${seasonName}  Deck: ${
       deck?.deck.length ?? 0
     }  Discard: ${

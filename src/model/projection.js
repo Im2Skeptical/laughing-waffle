@@ -1,9 +1,10 @@
 // src/model/projection.js
-// Time-based gold history + cursor-anchored windowed forecast projection.
+// Time-based metric history + cursor-anchored windowed forecast projection.
 //
 // Projection must never mutate authoritative/cursor state.
 
 import { serializeGameState, deserializeGameState } from "./state.js";
+import { GRAPH_METRICS } from "./graph-metrics.js";
 import { rebuildStateAtSecond, isValidTimeline } from "./timeline.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { updateGame } from "./game-model.js";
@@ -20,6 +21,24 @@ function clampSec(v) {
 function cloneState(state) {
   // serializeGameState strips derived fields; deserializeGameState rebuilds them.
   return deserializeGameState(serializeGameState(state));
+}
+
+function normalizeSeries(series) {
+  if (Array.isArray(series) && series.length) return series;
+  return GRAPH_METRICS.gold.series;
+}
+
+function safeNumber(value) {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function collectSeriesValues(series, state) {
+  const values = {};
+  for (const s of series) {
+    if (!s || typeof s.getValue !== "function") continue;
+    values[s.id] = safeNumber(s.getValue(state));
+  }
+  return values;
 }
 
 function checkpointMapBySecFromTimeline(tl) {
@@ -140,12 +159,13 @@ function simulateUntilNextSeasonEventPure(
 }
 
 // -----------------------------------------------------------------------------
-// Gold graph cache builders
+// Metric graph cache builders
 // -----------------------------------------------------------------------------
 
-export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
+export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
+  const series = normalizeSeries(opts?.series);
   const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
 
   const historyStrideSec =
@@ -167,6 +187,7 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
   if (startStateData == null) return { ok: false, reason: "noBaseStateData" };
 
   const workingState = deserializeGameState(startStateData);
+  workingState.paused = false;
 
   // Ensure clock alignment with checkpoint second (replay invariant)
   workingState.tSec = startCheckpointSec;
@@ -189,9 +210,8 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
     if (sec % historyStrideSec === 0) {
       canonicalizeSnapshot(workingState, sec);
 
-      const gold = workingState.resources?.gold ?? workingState.gold ?? 0;
-
-      history.push({ tSec: sec, gold });
+      const values = collectSeriesValues(series, workingState);
+      history.push({ tSec: sec, values });
       stateDataByBoundary.set(sec, serializeGameState(workingState));
     }
 
@@ -211,9 +231,14 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
   };
 }
 
-export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) {
+export function buildMetricGraphWindowFromTimeline(
+  tl,
+  baseBoundary,
+  opts = null
+) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
+  const series = normalizeSeries(opts?.series);
   const dtStep =
     typeof opts?.dtStep === "number" && opts.dtStep > 0
       ? opts.dtStep
@@ -241,6 +266,7 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
 
   let s = cloneState(baseRes.state);
   canonicalizeSnapshot(s);
+  s.paused = false;
 
   const stateDataByBoundary = new Map();
   const forecast = [];
@@ -249,9 +275,10 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
   // stateDataByBoundary stores ONLY baseSec + each plotted forecast point.
   // It does NOT store intermediate simulation-only seconds when stepSec > 1.
   stateDataByBoundary.set(baseSec, serializeGameState(s));
+  const baseValues = collectSeriesValues(series, s);
   forecast.push({
     tSec: baseSec,
-    gold: s.resources?.gold ?? s.gold ?? 0,
+    values: baseValues,
   });
 
   let curSec = baseSec;
@@ -280,7 +307,7 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
     stateDataByBoundary.set(curSec, serializeGameState(s));
     forecast.push({
       tSec: curSec,
-      gold: s.resources?.gold ?? s.gold ?? 0,
+      values: collectSeriesValues(series, s),
     });
   }
 
@@ -300,7 +327,7 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
 }
 
 // Convenience builder for a full cache: realized history + cursor-anchored window.
-export function buildGoldGraphCacheFromTimeline(tl, opts = null) {
+export function buildMetricGraphCacheFromTimeline(tl, opts = null) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
   const baseSec = clampSec(
@@ -309,10 +336,10 @@ export function buildGoldGraphCacheFromTimeline(tl, opts = null) {
       : tl.cursorSec ?? 0
   );
 
-  const historyRes = buildGoldGraphHistoryCacheFromTimeline(tl, opts);
+  const historyRes = buildMetricGraphHistoryCacheFromTimeline(tl, opts);
   if (!historyRes.ok) return historyRes;
 
-  const windowRes = buildGoldGraphWindowFromTimeline(tl, baseSec, opts);
+  const windowRes = buildMetricGraphWindowFromTimeline(tl, baseSec, opts);
   if (!windowRes.ok) return windowRes;
 
   // Merge stateData maps (window overwrites same key if present)
@@ -332,7 +359,12 @@ export function buildGoldGraphCacheFromTimeline(tl, opts = null) {
   };
 }
 
-export function getStateAtBoundaryFromGoldGraphCache(cache, tl, boundaryIndex) {
+// Convenience builder for a full cache: realized history + cursor-anchored window.
+export function buildGoldGraphCacheFromTimeline(tl, opts = null) {
+  return buildMetricGraphCacheFromTimeline(tl, opts);
+}
+
+export function getStateAtBoundaryFromGraphCache(cache, tl, boundaryIndex) {
   if (!cache || !isValidTimeline(tl)) return null;
   const s = clampSec(boundaryIndex);
 
@@ -346,6 +378,22 @@ export function getStateAtBoundaryFromGoldGraphCache(cache, tl, boundaryIndex) {
   const rebuilt = rebuildStateAtSecond(tl, s);
   if (!rebuilt.ok) return null;
 
-    canonicalizeSnapshot(rebuilt.state);
+  canonicalizeSnapshot(rebuilt.state);
   return rebuilt.state;
+}
+
+export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
+  return buildMetricGraphHistoryCacheFromTimeline(tl, opts);
+}
+
+export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) {
+  return buildMetricGraphWindowFromTimeline(tl, baseBoundary, opts);
+}
+
+export function getStateAtBoundaryFromGoldGraphCache(
+  cache,
+  tl,
+  boundaryIndex
+) {
+  return getStateAtBoundaryFromGraphCache(cache, tl, boundaryIndex);
 }
