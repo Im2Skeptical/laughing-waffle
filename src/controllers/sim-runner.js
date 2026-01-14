@@ -244,6 +244,8 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       loadIntoGameState(serializeGameState(rebuilt.state));
       cursorState = gameState;
 
+      // Keep timeline checkpoints unpaused so rebuild/replay can advance time.
+      setPaused(cursorState, false);
       syncPhaseToPaused(cursorState);
 
       const prevMax = timeline.maxReachedSec ?? 0;
@@ -254,6 +256,9 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
 
       seekPlaybackIndex(t);
       maintainCheckpoints(timeline, cursorState);
+
+      setPaused(cursorState, true);
+      syncPhaseToPaused(cursorState);
 
       onRebuildViews?.();
       onInvalidate?.("scrubCommit");

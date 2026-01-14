@@ -92,6 +92,7 @@ function simulateForwardSecondsPure(startState, seconds, dtStep) {
   const state = cloneState(startState);
 
   canonicalizeSnapshot(state);
+  state.paused = false;
 
   // Default semantics: fixed-step 60 ticks per second when dt=1/60.
   // If dt differs, we approximate by stepping floor(totalSec/dt).
@@ -119,8 +120,7 @@ function simulateUntilNextSeasonEventPure(
 
   const state = cloneState(startState);
   canonicalizeSnapshot(state);
-
-  if (state.paused) return { ok: false, reason: "paused" };
+  state.paused = false;
 
   const startSeason = state.currentSeasonIndex ?? 0;
   const maxSteps =
