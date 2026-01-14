@@ -191,7 +191,7 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
 
       const gold = workingState.resources?.gold ?? workingState.gold ?? 0;
 
-      history.push({ tSec: sec, boundaryIndex: sec, gold });
+      history.push({ tSec: sec, gold });
       stateDataByBoundary.set(sec, serializeGameState(workingState));
     }
 
@@ -206,7 +206,6 @@ export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
   return {
     ok: true,
     history,
-    maxReachedBoundaryIndex: maxReachedSec, // legacy alias
     maxReachedSec,
     stateDataByBoundary,
   };
@@ -252,7 +251,6 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
   stateDataByBoundary.set(baseSec, serializeGameState(s));
   forecast.push({
     tSec: baseSec,
-    boundaryIndex: baseSec,
     gold: s.resources?.gold ?? s.gold ?? 0,
   });
 
@@ -282,7 +280,6 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
     stateDataByBoundary.set(curSec, serializeGameState(s));
     forecast.push({
       tSec: curSec,
-      boundaryIndex: curSec,
       gold: s.resources?.gold ?? s.gold ?? 0,
     });
   }
@@ -295,8 +292,6 @@ export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) 
       horizonSec,
       stepSec,
       mode,
-      baseBoundaryIndex: baseSec,
-      endBoundaryIndex: baseSec + horizonSec,
       horizon: steps,
       forecast,
     },
@@ -311,7 +306,7 @@ export function buildGoldGraphCacheFromTimeline(tl, opts = null) {
   const baseSec = clampSec(
     typeof opts?.baseSec === "number"
       ? opts.baseSec
-      : tl.cursorSec ?? tl.cursorBoundaryIndex ?? 0
+      : tl.cursorSec ?? 0
   );
 
   const historyRes = buildGoldGraphHistoryCacheFromTimeline(tl, opts);
@@ -330,7 +325,6 @@ export function buildGoldGraphCacheFromTimeline(tl, opts = null) {
     ok: true,
     cache: {
       history: historyRes.history,
-      maxReachedBoundaryIndex: historyRes.maxReachedBoundaryIndex, // alias
       maxReachedSec: historyRes.maxReachedSec,
       stateDataByBoundary,
       window: windowRes.window,
@@ -352,9 +346,6 @@ export function getStateAtBoundaryFromGoldGraphCache(cache, tl, boundaryIndex) {
   const rebuilt = rebuildStateAtSecond(tl, s);
   if (!rebuilt.ok) return null;
 
-  canonicalizeSnapshot(
-    rebuilt.state,
-    rebuilt.state.planningIndex ?? 0
-  );
+    canonicalizeSnapshot(rebuilt.state);
   return rebuilt.state;
 }

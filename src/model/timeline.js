@@ -232,14 +232,11 @@ export function appendActionAtCursor(tl, action, state) {
   bumpRevision(tl);
 
   const t = Math.floor(state?.tSec ?? tl.cursorSec ?? 0);
-  const b = Math.floor(tl.cursorBoundaryIndex ?? 0);
-
   tl.actions = Array.isArray(tl.actions) ? tl.actions : [];
 
   const entry = {
     ...action,
     tSec: t,
-    boundaryIndex: b,
   };
 
   tl.actions.push(entry);
@@ -427,9 +424,6 @@ export function truncateTimelineAfterSecond(tl, tSec) {
   tl.maxReachedSec = Math.min(Math.floor(tl.maxReachedSec ?? 0), t);
   tl.cursorSec = Math.min(Math.floor(tl.cursorSec ?? 0), t);
 
-  tl.maxReachedBoundaryIndex = tl.maxReachedSec;
-  tl.cursorBoundaryIndex = tl.cursorSec;
-
   tl._memoGuardSig = computeTimelineMutationSig(tl);
 
   // Rebuild index after truncation
@@ -444,13 +438,13 @@ export function truncateTimelineAfterSecond(tl, tSec) {
 
 export function truncateActionsAfterBoundary(actions, boundaryIndex) {
   const b = Math.floor(boundaryIndex);
-  return (actions || []).filter((a) => Math.floor(a.boundaryIndex ?? 0) <= b);
+  return (actions || []).filter((a) => Math.floor(a.tSec ?? 0) <= b);
 }
 
 export function truncateCheckpointsAfterBoundary(checkpoints, boundaryIndex) {
   const b = Math.floor(boundaryIndex);
   return (checkpoints || []).filter(
-    (c) => Math.floor(c.boundaryIndex ?? 0) <= b
+    (c) => Math.floor(c.checkpointSec ?? 0) <= b
   );
 }
 
@@ -463,14 +457,8 @@ export function truncateTimelineAfterBoundary(tl, boundaryIndex) {
   tl.actions = truncateActionsAfterBoundary(tl.actions, b);
   tl.checkpoints = truncateCheckpointsAfterBoundary(tl.checkpoints, b);
 
-  tl.maxReachedBoundaryIndex = Math.min(
-    Math.floor(tl.maxReachedBoundaryIndex ?? 0),
-    b
-  );
-  tl.cursorBoundaryIndex = Math.min(Math.floor(tl.cursorBoundaryIndex ?? 0), b);
-
-  tl.maxReachedSec = tl.maxReachedBoundaryIndex;
-  tl.cursorSec = tl.cursorBoundaryIndex;
+  tl.maxReachedSec = Math.min(Math.floor(tl.maxReachedSec ?? 0), b);
+  tl.cursorSec = Math.min(Math.floor(tl.cursorSec ?? 0), b);
 
   tl._memoGuardSig = computeTimelineMutationSig(tl);
 

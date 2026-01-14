@@ -63,7 +63,7 @@ export function createTimeGraphController({
 
     if (Array.isArray(cache.history)) {
       for (const p of cache.history) {
-        const x = clampSec(p.tSec ?? p.boundaryIndex ?? 0);
+        const x = clampSec(p.tSec ?? 0);
         goldByBoundary.set(x, p.gold ?? 0);
       }
     }
@@ -71,7 +71,7 @@ export function createTimeGraphController({
     const wf = cache.window?.forecast;
     if (Array.isArray(wf)) {
       for (const p of wf) {
-        const x = clampSec(p.tSec ?? p.boundaryIndex ?? 0);
+        const x = clampSec(p.tSec ?? 0);
         goldByBoundary.set(x, p.gold ?? 0);
       }
     }
@@ -116,9 +116,7 @@ export function createTimeGraphController({
     const tl = getTimeline?.();
     if (!cache || !tl) return false;
 
-    const oldMax = clampSec(
-      cache.maxReachedSec ?? cache.maxReachedBoundaryIndex ?? 0
-    );
+    const oldMax = clampSec(cache.maxReachedSec ?? 0);
     const target = clampSec(newMaxReachedSec ?? 0);
     if (target <= oldMax) return true;
 
@@ -135,14 +133,13 @@ export function createTimeGraphController({
 
       const gold = s.resources?.gold ?? s.gold ?? 0;
 
-      cache.history.push({ tSec: sec, boundaryIndex: sec, gold });
+      cache.history.push({ tSec: sec, gold });
       goldByBoundary.set(sec, gold);
 
       cache.stateDataByBoundary.set(sec, serializeGameState(s));
     }
 
     cache.maxReachedSec = target;
-    cache.maxReachedBoundaryIndex = target;
     return true;
   }
 
@@ -152,12 +149,11 @@ export function createTimeGraphController({
     const t = clampSec(targetMaxSec ?? 0);
 
     cache.history = cache.history.filter((p) => {
-      const sec = clampSec(p.tSec ?? p.boundaryIndex ?? 0);
+      const sec = clampSec(p.tSec ?? 0);
       return sec <= t;
     });
 
     cache.maxReachedSec = t;
-    cache.maxReachedBoundaryIndex = t;
 
     for (const k of goldByBoundary.keys()) {
       if (k > t) goldByBoundary.delete(k);
@@ -184,20 +180,19 @@ export function createTimeGraphController({
     let replaced = false;
     for (let i = 0; i < cache.history.length; i++) {
       const existingSec = clampSec(
-        cache.history[i].tSec ?? cache.history[i].boundaryIndex ?? 0
+        cache.history[i].tSec ?? 0
       );
       if (existingSec === t) {
-        cache.history[i] = { tSec: t, boundaryIndex: t, gold };
+        cache.history[i] = { tSec: t, gold };
         replaced = true;
         break;
       }
     }
-    if (!replaced) cache.history.push({ tSec: t, boundaryIndex: t, gold });
+    if (!replaced) cache.history.push({ tSec: t, gold });
 
     cache.history.sort(
       (a, b) =>
-        clampSec(a.tSec ?? a.boundaryIndex ?? 0) -
-        clampSec(b.tSec ?? b.boundaryIndex ?? 0)
+        clampSec(a.tSec ?? 0) - clampSec(b.tSec ?? 0)
     );
 
     goldByBoundary.set(t, gold);
@@ -240,9 +235,6 @@ export function createTimeGraphController({
     cache = res.cache;
 
     cache.maxReachedSec = clampSec(cache.maxReachedSec ?? frontierSec);
-    cache.maxReachedBoundaryIndex = clampSec(
-      cache.maxReachedBoundaryIndex ?? cache.maxReachedSec
-    );
 
     lastKnownActionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
     lastKnownMaxReachedSec = frontierSec;
