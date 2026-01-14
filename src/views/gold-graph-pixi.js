@@ -203,7 +203,7 @@ export function createMetricGraphView({
       const t = (v - minValue) / Math.max(1e-6, maxValue - minValue);
       return plot.y + plot.h - t * plot.h;
     }
-/*
+
     // Grid
     plotG.lineStyle(1, 0x444466, 0.5);
     plotG.drawRect(plot.x, plot.y, plot.w, plot.h);
@@ -215,7 +215,7 @@ export function createMetricGraphView({
         plotG.lineTo(x, plot.y + plot.h);
       }
     }
-*/
+
     // Data Line
     all.sort((a, b) => (a.tSec ?? 0) - (b.tSec ?? 0));
 
@@ -344,6 +344,7 @@ export function createMetricGraphView({
     const defaultY = app.screen.height - WIN_H - 140;
     root.x = openPosition?.x ?? defaultX;
     root.y = openPosition?.y ?? defaultY;
+    controller.handleInvalidate?.("open");
     controller.ensureCache();
     render();
   }

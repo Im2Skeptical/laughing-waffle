@@ -29,8 +29,7 @@ document.body.appendChild(app.view);
 
 const runner = createSimRunner({
   onInvalidate: (reason) => {
-    goldGraphController.handleInvalidate(reason);
-    apGraphController.handleInvalidate(reason);
+    timeGraphController.handleInvalidate(reason);
     if (goldGraphView?.isOpen()) goldGraphView.render();
     if (apGraphView?.isOpen()) apGraphView.render();
     // Force a check on inventory UI in case state changed
@@ -45,16 +44,10 @@ const runner = createSimRunner({
   },
 });
 
-const goldGraphController = createTimeGraphController({
+const timeGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
-  metric: GRAPH_METRICS.gold,
-});
-
-const apGraphController = createTimeGraphController({
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  metric: GRAPH_METRICS.ap,
+  metric: GRAPH_METRICS.all,
 });
 
 function resizeCanvas() {
@@ -206,7 +199,7 @@ const charactersView = createCharactersView({
 let goldGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
-  controller: goldGraphController,
+  controller: timeGraphController,
   metric: GRAPH_METRICS.gold,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
@@ -219,7 +212,7 @@ let goldGraphView = createMetricGraphView({
 let apGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
-  controller: apGraphController,
+  controller: timeGraphController,
   metric: GRAPH_METRICS.ap,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
@@ -355,11 +348,14 @@ app.ticker.add((delta) => {
   tooltipView.update(frameDt);
   inventoryView.update(frameDt);
   chromeView.update(frameDt);
-  goldGraphController.update();
-  apGraphController.update();
   debugView.update();
-  if (goldGraphView.isOpen()) goldGraphView.render();
-  if (apGraphView.isOpen()) apGraphView.render();
+  const anyGraphOpen =
+    goldGraphView.isOpen() || apGraphView.isOpen();
+  if (anyGraphOpen) {
+    timeGraphController.update();
+    if (goldGraphView.isOpen()) goldGraphView.render();
+    if (apGraphView.isOpen()) apGraphView.render();
+  }
 });
 
 window.__DBG__ = {

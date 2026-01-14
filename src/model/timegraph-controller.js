@@ -314,6 +314,18 @@ export function createTimeGraphController({
 
   function update() {
     if (!cache) ensureCache();
+    const tl = getTimeline?.();
+    if (cache && tl) {
+      const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+      if (maxReachedSec > lastKnownMaxReachedSec) {
+        const ok = extendHistoryTo(maxReachedSec);
+        if (!ok) {
+          buildFullCache();
+        } else {
+          lastKnownMaxReachedSec = maxReachedSec;
+        }
+      }
+    }
     ensureForecastFromFrontier(false);
   }
 

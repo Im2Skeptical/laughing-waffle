@@ -40,6 +40,26 @@ export const GRAPH_METRICS = {
   },
 };
 
+function mergeSeries(metrics) {
+  const merged = [];
+  const seen = new Set();
+  for (const metric of metrics) {
+    const series = Array.isArray(metric?.series) ? metric.series : [];
+    for (const s of series) {
+      if (!s || !s.id || seen.has(s.id)) continue;
+      merged.push(s);
+      seen.add(s.id);
+    }
+  }
+  return merged;
+}
+
+GRAPH_METRICS.all = {
+  id: "all",
+  label: "All",
+  series: mergeSeries([GRAPH_METRICS.gold, GRAPH_METRICS.ap]),
+};
+
 export function getGraphMetric(metricId) {
   return GRAPH_METRICS[metricId] || GRAPH_METRICS.gold;
 }
