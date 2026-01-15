@@ -109,6 +109,22 @@ export function createMetricGraphView({
     return Math.max(lo, Math.min(hi, v | 0));
   }
 
+  function getGridStep(rangeSec, targetLines = 12) {
+    const range = Math.max(1, Math.floor(rangeSec));
+    const rough = range / Math.max(1, targetLines);
+    const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
+    const candidates = [1, 2, 5, 10];
+    let step = candidates[candidates.length - 1] * pow10;
+    for (const c of candidates) {
+      const s = c * pow10;
+      if (s >= rough) {
+        step = s;
+        break;
+      }
+    }
+    return Math.max(1, Math.round(step));
+  }
+
   function timeToX(t) {
     const ratio = (t - minSec) / Math.max(1, maxSec - minSec);
     return plot.x + ratio * plot.w;
@@ -208,7 +224,10 @@ export function createMetricGraphView({
     plotG.lineStyle(1, 0x444466, 0.5);
     plotG.drawRect(plot.x, plot.y, plot.w, plot.h);
     plotG.lineStyle(1, 0x444466, 0.2);
-    for (let t = minSec; t <= maxSec; t += 10) {
+    const gridStep = getGridStep(maxSec - minSec, 12);
+    const startGrid =
+      Math.ceil(minSec / gridStep) * gridStep;
+    for (let t = startGrid; t <= maxSec; t += gridStep) {
       const x = timeToX(t);
       if (x > plot.x && x < plot.x + plot.w) {
         plotG.moveTo(x, plot.y);

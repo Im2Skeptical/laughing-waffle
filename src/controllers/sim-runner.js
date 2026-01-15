@@ -109,6 +109,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       timeline.checkpoints = [
         {
           checkpointSec: 0,
+          appliedThroughSec: 0,
           stateData: serializeGameState(cursorState),
         },
       ];

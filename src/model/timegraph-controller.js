@@ -20,8 +20,8 @@ export function createTimeGraphController({
   metric = GRAPH_METRICS.gold,
 
   // Stage 4: decouple plotting resolution from scrubbing resolution
-  historyStrideSec = 5,
-  forecastStepSec = 5,
+  historyStrideSec = 1,
+  forecastStepSec = 1,
   horizonSec = 1200,
 } = {}) {
   let cache = null;
@@ -34,6 +34,8 @@ export function createTimeGraphController({
   const series = Array.isArray(metricDef.series)
     ? metricDef.series
     : GRAPH_METRICS.gold.series;
+  let isActive = false;
+  let dirty = true;
 
   // Config (mutable locals; never assign to function parameters)
   let historyStrideSecCur = historyStrideSec;
@@ -245,7 +247,13 @@ export function createTimeGraphController({
     const cs = getCursorState?.();
     if (!tl || !cs) {
       cache = null;
+      dirty = true;
       return { ok: false, reason: "no state" };
+    }
+
+    if (!isActive && reason !== "open" && reason !== "active") {
+      dirty = true;
+      return { ok: true, reason: "deferred" };
     }
 
     const actionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
@@ -253,13 +261,24 @@ export function createTimeGraphController({
     const cursorSec = clampSec(cs.tSec ?? 0);
     const tlRev = getTimelineRevision(tl);
 
-    if (!cache) return buildFullCache();
+    if (!cache) {
+      const res = buildFullCache();
+      dirty = !res.ok;
+      return res;
+    }
 
     // 0) Authoritative invalidation: timeline revision changed (Stage 3 contract)
     if (tlRev !== lastKnownRevision) {
       // safest path: keep cache object but bring it back in sync
-      trimHistoryTo(maxReachedSec);
-      patchHistoryAtSecond(cursorSec);
+      const prevMax = clampSec(cache.maxReachedSec ?? 0);
+      const trimTarget = Math.min(prevMax, maxReachedSec);
+      trimHistoryTo(trimTarget);
+
+      const okExtend = extendHistoryTo(maxReachedSec);
+      if (!okExtend) return buildFullCache();
+
+      const okPatch = patchHistoryAtSecond(cursorSec);
+      if (!okPatch) return buildFullCache();
 
       lastKnownRevision = tlRev;
       lastKnownActionsLen = actionsLen;
@@ -270,6 +289,7 @@ export function createTimeGraphController({
       cache.window = null;
       ensureForecastFromFrontier(true);
 
+      dirty = false;
       return { ok: true };
     }
 
@@ -284,12 +304,18 @@ export function createTimeGraphController({
       lastKnownMaxReachedSec = maxReachedSec;
 
       ensureForecastFromFrontier(false);
+      dirty = false;
       return { ok: true };
     }
 
     // 2) Branching/edit detected by action list length change (legacy fallback)
     if (actionsLen !== lastKnownActionsLen) {
-      trimHistoryTo(maxReachedSec);
+      const prevMax = clampSec(cache.maxReachedSec ?? 0);
+      const trimTarget = Math.min(prevMax, maxReachedSec);
+      trimHistoryTo(trimTarget);
+
+      const okExtend = extendHistoryTo(maxReachedSec);
+      if (!okExtend) return buildFullCache();
 
       const okPatch = patchHistoryAtSecond(cursorSec);
       if (!okPatch) return buildFullCache();
@@ -301,29 +327,45 @@ export function createTimeGraphController({
       cache.window = null;
       ensureForecastFromFrontier(true);
 
+      dirty = false;
       return { ok: true };
     }
 
     // 3) Cursor-only movement: cache remains valid
     if (reason === "scrubCommit") {
+      dirty = false;
       return { ok: true };
     }
 
-    return buildFullCache();
+    const res = buildFullCache();
+    dirty = !res.ok;
+    return res;
   }
 
   function update() {
-    if (!cache) ensureCache();
+    if (!isActive) return;
+    if (dirty) {
+      handleInvalidate("active");
+      return;
+    }
+    if (!cache) {
+      const res = ensureCache();
+      if (!res.ok) {
+        dirty = true;
+        return;
+      }
+    }
     const tl = getTimeline?.();
     if (cache && tl) {
       const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
       if (maxReachedSec > lastKnownMaxReachedSec) {
         const ok = extendHistoryTo(maxReachedSec);
         if (!ok) {
-          buildFullCache();
-        } else {
-          lastKnownMaxReachedSec = maxReachedSec;
+          const res = buildFullCache();
+          dirty = !res.ok;
+          return;
         }
+        lastKnownMaxReachedSec = maxReachedSec;
       }
     }
     ensureForecastFromFrontier(false);
@@ -359,5 +401,11 @@ export function createTimeGraphController({
     update,
     getData,
     getStateAt,
+    setActive: (active) => {
+      const next = !!active;
+      if (next === isActive) return;
+      isActive = next;
+      if (isActive && dirty) handleInvalidate("active");
+    },
   };
 }

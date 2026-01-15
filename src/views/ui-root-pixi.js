@@ -351,6 +351,7 @@ app.ticker.add((delta) => {
   debugView.update();
   const anyGraphOpen =
     goldGraphView.isOpen() || apGraphView.isOpen();
+  timeGraphController.setActive?.(anyGraphOpen);
   if (anyGraphOpen) {
     timeGraphController.update();
     if (goldGraphView.isOpen()) goldGraphView.render();

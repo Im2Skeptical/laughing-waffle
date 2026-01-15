@@ -281,6 +281,7 @@ export function maintainCheckpoints(tl, state) {
   if (isStride || existingIndex !== -1) {
     const cpData = {
       checkpointSec: currentSec,
+      appliedThroughSec: currentSec,
       stateData: serializeGameState(state),
     };
 
@@ -352,12 +353,18 @@ export function rebuildStateAtSecond(tl, targetSec) {
 
   const startSec = bestCp ? bestCp.checkpointSec ?? 0 : 0;
   const startStateData = bestCp ? bestCp.stateData : tl.baseStateData;
+  const skipActionsAtStartSec =
+    bestCp &&
+    Number.isFinite(bestCp.appliedThroughSec) &&
+    bestCp.appliedThroughSec >= startSec;
 
   const state = deserializeGameState(startStateData);
 
   state.tSec = startSec;
   state.simStepIndex = startSec * TICKS_PER_SEC;
 
+  // Replay ignores pause gating; timeline time only advances when unpaused.
+  state.paused = false;
   canonicalizeSnapshot(state);
 
   // 2) Replay second-by-second
@@ -365,13 +372,15 @@ export function rebuildStateAtSecond(tl, targetSec) {
   const actionsBySec = tl.actionsBySec ?? indexActionsBySecond(tl.actions);
 
   for (let s = startSec; s <= target; s++) {
-    const acts = actionsBySec.get(s);
-    if (acts && acts.length) {
-      for (const a of acts) {
-        const res = applyAction(state, a, { isReplay: true });
-        if (!res?.ok) {
-          console.warn(`Replay action failed at t=${s}: ${res.reason}`, a);
-          return { ok: false, reason: "actionFailed", detail: res };
+    if (!(skipActionsAtStartSec && s === startSec)) {
+      const acts = actionsBySec.get(s);
+      if (acts && acts.length) {
+        for (const a of acts) {
+          const res = applyAction(state, a, { isReplay: true });
+          if (!res?.ok) {
+            console.warn(`Replay action failed at t=${s}: ${res.reason}`, a);
+            return { ok: false, reason: "actionFailed", detail: res };
+          }
         }
       }
     }
