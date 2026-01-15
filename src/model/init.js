@@ -1,7 +1,7 @@
 // init.js — scenario/setup assembly (NO core exports here besides init/createInitialState)
 
-import { permanentDefs } from "../defs/defs.js";
-import { setupDefs } from "../defs/setup-defs.js";
+import { permanentDefs } from "../defs/gamepieces-defs.js";
+import { setupDefs } from "../defs/scenarios-defs.js";
 
 import {
   createEmptyState,
@@ -14,7 +14,7 @@ import {
 import { Inventory, initializeItemFromDef } from "./inventory-model.js";
 
 // Create a fully-initialized GameState snapshot
-// - scenario can be a setupId string OR a raw setup object (from setup-defs style)
+// - scenario can be a setupId string OR a raw setup object (from scenarios-defs style)
 export function createInitialState(scenario = "testing", seed = null) {
   const setup = typeof scenario === "string" ? setupDefs[scenario] : scenario;
 

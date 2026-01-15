@@ -1,12 +1,8 @@
 // src/model/commands.js
 // public mutation APIs (cmd*) + move rules
 
-import {
-  permanentDefs,
-  itemDefs,
-  SEASON_DURATION_SEC,
-  AP_INCOME_PER_SEC,
-} from "../defs/defs.js";
+import { permanentDefs, itemDefs } from "../defs/gamepieces-defs.js";
+import { SEASON_DURATION_SEC, AP_INCOME_PER_SEC } from "../defs/gamerules-defs.js";
 
 import {
   getCurrentSeasonKey,

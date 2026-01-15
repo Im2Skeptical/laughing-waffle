@@ -1,7 +1,7 @@
 // chrome-pixi.js
 // HUD + control buttons (pause).
 
-import { SEASON_DISPLAY } from "../defs/defs.js";
+import { SEASON_DISPLAY } from "../defs/gamerules-defs.js";
 import { createTimeLeverView } from "./time-lever-pixi.js";
 
 export function createChromeView({

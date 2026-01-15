@@ -6,7 +6,7 @@ import {
   MOON_PHASE_OFFSET_SEC,
   AP_CAP_MIN,
   AP_CAP_MAX,
-} from "../defs/defs.js";
+} from "../defs/gamerules-defs.js";
 
 function clampInt(v, fallback) {
   const n = Math.floor(v);

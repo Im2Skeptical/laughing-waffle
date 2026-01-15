@@ -1,4 +1,4 @@
-// setup-defs.js â€” human-authored start scenarios (pure data)
+// scenarios-defs.js — human-authored start scenarios (pure data)
 
 export const setupDefs = {
   testing: {

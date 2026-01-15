@@ -1,6 +1,6 @@
 // behaviors.js — behaviors return EffectOps (no side channels)
 
-import { envCardDefs, permanentDefs } from "../defs/defs.js";
+import { envCardDefs, permanentDefs } from "../defs/gamepieces-defs.js";
 
 export const behaviorHandlers = {
   TimedTrigger: handleTimedTrigger,

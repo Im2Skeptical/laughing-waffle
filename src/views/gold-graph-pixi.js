@@ -77,6 +77,20 @@ export function createMetricGraphView({
   headerHit.cursor = "move";
   root.addChild(headerHit);
 
+  const ZOOM_BTN_W = 70;
+  const ZOOM_BTN_H = 22;
+  const zoomBtn = new PIXI.Container();
+  const zoomBg = new PIXI.Graphics();
+  const zoomText = new PIXI.Text("", {
+    fontFamily: "Arial",
+    fontSize: 12,
+    fill: 0xffffff,
+  });
+  zoomBtn.addChild(zoomBg, zoomText);
+  zoomBtn.eventMode = "static";
+  zoomBtn.cursor = "pointer";
+  root.addChild(zoomBtn);
+
   let draggingWindow = false;
   let dragWindowOffset = { x: 0, y: 0 };
 
@@ -100,6 +114,7 @@ export function createMetricGraphView({
   let scrubSec = 0;
   let minSec = 0;
   let maxSec = 0;
+  let zoomed = false;
 
   let lastRestoreMs = 0;
   const RESTORE_THROTTLE_MS = 33;
@@ -137,6 +152,23 @@ export function createMetricGraphView({
     scrubSec = clampInt(Math.round(t), minSec, maxSec);
   }
 
+  function updateZoomButton() {
+    const x = WIN_W - 16 - ZOOM_BTN_W;
+    const y = Math.floor((HEADER_H - ZOOM_BTN_H) / 2);
+
+    zoomBg.clear();
+    zoomBg.beginFill(zoomed ? 0x555555 : 0x333355);
+    zoomBg.drawRoundedRect(0, 0, ZOOM_BTN_W, ZOOM_BTN_H, 6);
+    zoomBg.endFill();
+
+    zoomText.text = zoomed ? "Full" : "Focus";
+    zoomText.x = (ZOOM_BTN_W - zoomText.width) / 2;
+    zoomText.y = (ZOOM_BTN_H - zoomText.height) / 2;
+
+    zoomBtn.x = x;
+    zoomBtn.y = y;
+  }
+
   function drawWindow() {
     header.clear();
     header.beginFill(0x222244, 0.95);
@@ -160,6 +192,8 @@ export function createMetricGraphView({
 
     text.x = 14;
     text.y = 10;
+
+    updateZoomButton();
   }
 
   function updateTimeBounds() {
@@ -172,8 +206,23 @@ export function createMetricGraphView({
     const maxReached = tl?.maxReachedSec ?? 0;
     const currentT = Math.floor(cs?.tSec ?? 0);
 
-    minSec = 0;
-    maxSec = Math.max(maxReached, currentT) + horizonSec;
+    if (zoomed) {
+      const halfSpan = Math.max(1, Math.floor(horizonSec / 4));
+      const span = halfSpan * 2;
+      let min = currentT - halfSpan;
+      let max = currentT + halfSpan;
+
+      if (min < 0) {
+        max += -min;
+        min = 0;
+      }
+
+      minSec = min;
+      maxSec = Math.max(min + span, max);
+    } else {
+      minSec = 0;
+      maxSec = Math.max(maxReached, currentT) + horizonSec;
+    }
 
     if (!isScrubbing) {
       scrubSec = clampInt(currentT, minSec, maxSec);
@@ -357,6 +406,16 @@ export function createMetricGraphView({
   plotHit.on("pointerup", () => endScrub(true));
   plotHit.on("pointerupoutside", () => endScrub(true));
 
+  zoomBtn.on("pointerdown", (e) => {
+    e.stopPropagation();
+  });
+  zoomBtn.on("pointertap", (e) => {
+    e.stopPropagation();
+    zoomed = !zoomed;
+    statusNote = "";
+    render();
+  });
+
   function open() {
     if (root.visible) return;
     root.visible = true;
@@ -383,6 +442,7 @@ export function createMetricGraphView({
   function render() {
     if (!root.visible) return;
     updateTimeBounds();
+    updateZoomButton();
     drawPlot();
     drawScrub();
   }

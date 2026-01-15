@@ -13,6 +13,7 @@ import {
 import { GRAPH_METRICS } from "./graph-metrics.js";
 import { serializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
+import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamerules-defs.js";
 
 export function createTimeGraphController({
   getTimeline,
@@ -22,7 +23,7 @@ export function createTimeGraphController({
   // Stage 4: decouple plotting resolution from scrubbing resolution
   historyStrideSec = 1,
   forecastStepSec = 1,
-  horizonSec = 1200,
+  horizonSec = BASE_PROJECTION_HORIZON_SEC,
 } = {}) {
   let cache = null;
   const resolvedMetric =

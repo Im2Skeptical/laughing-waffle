@@ -1,26 +1,5 @@
-// defs.js
-// Pure definitions: constants, permanents, env cards, items.
-// No PIXI, no gameState, no UI.
-
-export const SEASON_DURATION_SEC = 32; // seconds of simulation per season
-
-// --- Moon / Action Point Cap ---
-export const MOON_CYCLE_SEC = 30;
-export const MOON_PHASE_OFFSET_SEC = 0;
-export const AP_CAP_MIN = 0;
-export const AP_CAP_MAX = 120;
-export const AP_INCOME_PER_SEC = 8;
-
-export const SEASONS = ["spring", "summer", "autumn", "winter"];
-
-export const SEASON_DISPLAY = {
-  spring: "Spring",
-  summer: "Summer",
-  autumn: "Autumn",
-  winter: "Winter",
-};
-
-// --- Permanents (bottom row) ---
+// gamepieces-defs.js
+// Definitions for permanents, env cards, and items.
 
 export const permanentDefs = {
   farm: {
@@ -246,7 +225,7 @@ export const itemDefs = {
         (item, ctx) => `Item id: ${item.id}`,
         (item, ctx) => `Owner: ${ctx.ownerLabel}`,
         (item) => `Quantity: ${item.quantity}`,
-        (item) => `Size: ${item.width}×${item.height}`,
+        (item) => `Size: ${item.width}Į-${item.height}`,
         (item) =>
           item.seasonsToExpire != null
             ? `Seasons to rot: ${item.seasonsToExpire}`
@@ -268,7 +247,7 @@ export const itemDefs = {
         (item, ctx) => `Item id: ${item.id}`,
         (item, ctx) => `Owner: ${ctx.ownerLabel}`,
         (item) => `Quantity: ${item.quantity}`,
-        (item) => `Size: ${item.width}×${item.height}`,
+        (item) => `Size: ${item.width}Į-${item.height}`,
         "Rotting organic matter. No current use.",
       ],
     },

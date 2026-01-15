@@ -1,6 +1,6 @@
 // effects.js — EffectOp interpreter + seasonEnd + item expiry + inventory ops
 
-import { envCardDefs, itemDefs } from "../defs/defs.js";
+import { envCardDefs, itemDefs } from "../defs/gamepieces-defs.js";
 import {
   Inventory,
   canStackItems,

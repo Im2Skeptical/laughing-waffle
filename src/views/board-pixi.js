@@ -3,7 +3,7 @@
 // Uses a fixed 1920x1080 design resolution and centres rows horizontally.
 // VIEW-ONLY: does NOT write layout data into the model.
 
-import { permanentDefs, envCardDefs } from "../defs/defs.js";
+import { permanentDefs, envCardDefs } from "../defs/gamepieces-defs.js";
 import {
   PERM_WIDTH,
   PERM_HEIGHT,

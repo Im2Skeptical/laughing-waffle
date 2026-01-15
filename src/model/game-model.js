@@ -2,7 +2,7 @@
 // NOTE: Model APIs require explicit `state`.
 // `gameState` remains exported for app-edge wiring only.
 
-import { envCardDefs, permanentDefs } from "../defs/defs.js";
+import { envCardDefs, permanentDefs } from "../defs/gamepieces-defs.js";
 
 import {
   gameState,
