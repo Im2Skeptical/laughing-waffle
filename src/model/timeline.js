@@ -12,7 +12,7 @@ const TICKS_PER_SEC = 60;
 const MICROSTEP_DT = 1 / TICKS_PER_SEC;
 
 // Checkpoint Strategy Constants
-const CP_STRIDE_SEC = 1;
+const CP_STRIDE_SEC = 2;
 const CP_WINDOW_BACK = 1800;
 const CP_WINDOW_FWD = 1500;
 

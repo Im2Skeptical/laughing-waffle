@@ -328,7 +328,8 @@ export function createMetricGraphView({
 
     if (commit) {
       clearPreviewState?.();
-      const res = commitSecond?.(scrubSec);
+      const stateData = controller?.getStateDataAt?.(scrubSec);
+      const res = commitSecond?.(scrubSec, stateData);
       if (res && res.ok === false) {
         statusNote = `Jump failed: ${res.reason}`;
         drawScrub();

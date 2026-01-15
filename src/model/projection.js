@@ -103,12 +103,11 @@ export function getStateAtSecond(tl, tSec) {
 // Projection simulation (PURE): returns a NEW state, never mutates the input.
 // -----------------------------------------------------------------------------
 
-function simulateForwardSecondsPure(startState, seconds, dtStep) {
+function simulateForwardSecondsInPlace(state, seconds, dtStep) {
   const dt =
     typeof dtStep === "number" && dtStep > 0 ? dtStep : DEFAULT_DT_STEP;
 
   const totalSec = Math.max(0, clampSec(seconds));
-  const state = cloneState(startState);
 
   canonicalizeSnapshot(state);
   state.paused = false;
@@ -124,6 +123,12 @@ function simulateForwardSecondsPure(startState, seconds, dtStep) {
     updateGame(dt, state);
   }
 
+  return { ok: true };
+}
+
+function simulateForwardSecondsPure(startState, seconds, dtStep) {
+  const state = cloneState(startState);
+  simulateForwardSecondsInPlace(state, seconds, dtStep);
   return { ok: true, state };
 }
 
@@ -254,6 +259,8 @@ export function buildMetricGraphWindowFromTimeline(
       ? Math.floor(opts.stepSec)
       : 1;
 
+  const storeStateBySecond = opts?.storeStateBySecond !== false;
+
   const mode = opts?.mode === "seasonEvent" ? "seasonEvent" : "timeWindow";
 
   const baseSec = clampSec(
@@ -284,31 +291,57 @@ export function buildMetricGraphWindowFromTimeline(
   let curSec = baseSec;
   const steps = Math.floor(horizonSec / stepSec);
 
-  for (let i = 1; i <= steps; i++) {
-    let sim;
-    if (mode === "seasonEvent") {
-      sim = simulateUntilNextSeasonEventPure(
+  if (mode === "seasonEvent") {
+    for (let i = 1; i <= steps; i++) {
+      const sim = simulateUntilNextSeasonEventPure(
         s,
         dtStep,
         Math.max(1, horizonSec)
       );
       curSec = baseSec + i * stepSec;
-    } else {
-      sim = simulateForwardSecondsPure(s, stepSec, dtStep);
-      curSec = baseSec + i * stepSec;
+
+      if (!sim.ok) break;
+      s = sim.state;
+
+      canonicalizeSnapshot(s);
+
+      stateDataByBoundary.set(curSec, serializeGameState(s));
+      forecast.push({
+        tSec: curSec,
+        values: collectSeriesValues(series, s),
+      });
     }
+  } else if (storeStateBySecond) {
+    const totalSecs = steps * stepSec;
+    for (let i = 1; i <= totalSecs; i++) {
+      const sim = simulateForwardSecondsInPlace(s, 1, dtStep);
+      if (!sim.ok) break;
 
-    if (!sim.ok) break;
-    s = sim.state;
+      curSec = baseSec + i;
+      canonicalizeSnapshot(s);
+      stateDataByBoundary.set(curSec, serializeGameState(s));
 
-    canonicalizeSnapshot(s);
+      if (i % stepSec === 0) {
+        forecast.push({
+          tSec: curSec,
+          values: collectSeriesValues(series, s),
+        });
+      }
+    }
+  } else {
+    for (let i = 1; i <= steps; i++) {
+      const sim = simulateForwardSecondsInPlace(s, stepSec, dtStep);
+      curSec = baseSec + i * stepSec;
 
-    // Only serialize the plotted point
-    stateDataByBoundary.set(curSec, serializeGameState(s));
-    forecast.push({
-      tSec: curSec,
-      values: collectSeriesValues(series, s),
-    });
+      if (!sim.ok) break;
+
+      canonicalizeSnapshot(s);
+      stateDataByBoundary.set(curSec, serializeGameState(s));
+      forecast.push({
+        tSec: curSec,
+        values: collectSeriesValues(series, s),
+      });
+    }
   }
 
   return {
@@ -318,6 +351,7 @@ export function buildMetricGraphWindowFromTimeline(
       endSec: baseSec + horizonSec,
       horizonSec,
       stepSec,
+      dtStep,
       mode,
       horizon: steps,
       forecast,
@@ -373,6 +407,36 @@ export function getStateAtBoundaryFromGraphCache(cache, tl, boundaryIndex) {
     const st = deserializeGameState(sd);
     canonicalizeSnapshot(st);
     return st;
+  }
+
+  const win = cache.window;
+  if (win && cache.stateDataByBoundary && s >= win.baseSec && s <= win.endSec) {
+    const baseSec = clampSec(win.baseSec ?? 0);
+    const stepSec = Math.max(1, Math.floor(win.stepSec ?? 1));
+    const offset = s - baseSec;
+    if (offset >= 0) {
+      const anchorSec = baseSec + Math.floor(offset / stepSec) * stepSec;
+      const anchorData = cache.stateDataByBoundary.get(anchorSec);
+      if (anchorData != null) {
+        const st = deserializeGameState(anchorData);
+        canonicalizeSnapshot(st);
+        st.paused = false;
+
+        const deltaSec = s - anchorSec;
+        if (deltaSec > 0) {
+          const sim = simulateForwardSecondsInPlace(
+            st,
+            deltaSec,
+            win.dtStep
+          );
+          if (!sim.ok) return null;
+        }
+
+        canonicalizeSnapshot(st);
+        cache.stateDataByBoundary.set(s, serializeGameState(st));
+        return st;
+      }
+    }
   }
 
   const rebuilt = rebuildStateAtSecond(tl, s);

@@ -206,7 +206,7 @@ let goldGraphView = createMetricGraphView({
   setPreviewState: (s) => runner.setPreviewState(s),
   clearPreviewState: () => runner.clearPreviewState(),
   // STAGE 3: Use commitCursorSecond
-  commitSecond: (t) => runner.commitCursorSecond(t),
+  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
 });
 
 let apGraphView = createMetricGraphView({
@@ -218,7 +218,7 @@ let apGraphView = createMetricGraphView({
   getCursorState: () => runner.getCursorState(),
   setPreviewState: (s) => runner.setPreviewState(s),
   clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t) => runner.commitCursorSecond(t),
+  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 700 },
 });
 

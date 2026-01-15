@@ -20,8 +20,8 @@ export function createTimeGraphController({
   metric = GRAPH_METRICS.gold,
 
   // Stage 4: decouple plotting resolution from scrubbing resolution
-  historyStrideSec = 1,
-  forecastStepSec = 1,
+  historyStrideSec = 3,
+  forecastStepSec = 3,
   horizonSec = 1200,
 } = {}) {
   let cache = null;
@@ -97,6 +97,7 @@ export function createTimeGraphController({
       baseSec: frontierSec,
       horizonSec: horizonSecCur,
       stepSec: forecastStepSecCur,
+      storeStateBySecond: true,
       series,
       // mode defaults to timeWindow
     });
@@ -217,6 +218,7 @@ export function createTimeGraphController({
       horizonSec: horizonSecCur,
       stepSec: forecastStepSecCur,
       historyStrideSec: historyStrideSecCur,
+      storeStateBySecond: true,
       series,
     });
 
@@ -381,12 +383,23 @@ export function createTimeGraphController({
     };
   }
 
+  function getStateDataAt(tSec) {
+    const sec = clampSec(tSec);
+    return cache?.stateDataByBoundary?.get?.(sec) ?? null;
+  }
+
   // Scrubbing preview is authoritative: rebuild from timeline first, then fall back.
   function getStateAt(tSec) {
     const tl = getTimeline?.();
     if (!tl) return null;
 
     const sec = clampSec(tSec);
+    const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+
+    if (sec > maxReachedSec && cache) {
+      const cached = getStateAtBoundaryFromGraphCache(cache, tl, sec);
+      if (cached) return cached;
+    }
 
     const rebuilt = getStateAtBoundary(tl, sec);
     if (rebuilt?.ok) return rebuilt.state;
@@ -400,6 +413,7 @@ export function createTimeGraphController({
     handleInvalidate,
     update,
     getData,
+    getStateDataAt,
     getStateAt,
     setActive: (active) => {
       const next = !!active;

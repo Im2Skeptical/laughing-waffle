@@ -235,15 +235,25 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       return { ok: true };
     },
 
-    commitCursorSecond(tSec) {
+    commitCursorSecond(tSec, stateData) {
       const t = Math.max(0, Math.floor(tSec));
       pauseRequested = false;
 
-      const rebuilt = rebuildStateAtSecond(timeline, t);
-      if (!rebuilt.ok) return rebuilt;
+      let usedCachedState = false;
+      if (stateData != null) {
+        loadIntoGameState(stateData);
+        cursorState = gameState;
+        usedCachedState =
+          Math.floor(cursorState.tSec ?? -1) === t;
+      }
 
-      loadIntoGameState(serializeGameState(rebuilt.state));
-      cursorState = gameState;
+      if (!usedCachedState) {
+        const rebuilt = rebuildStateAtSecond(timeline, t);
+        if (!rebuilt.ok) return rebuilt;
+
+        loadIntoGameState(serializeGameState(rebuilt.state));
+        cursorState = gameState;
+      }
 
       // Keep timeline checkpoints unpaused so rebuild/replay can advance time.
       setPaused(cursorState, false);
