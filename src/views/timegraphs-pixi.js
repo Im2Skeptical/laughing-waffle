@@ -43,7 +43,7 @@ export function createMetricGraphView({
   layer.addChild(root);
 
   const WIN_W = 1200;
-  const WIN_H = 260;
+  const WIN_H = 150;
   const HEADER_H = 38;
 
   const header = new PIXI.Graphics();
