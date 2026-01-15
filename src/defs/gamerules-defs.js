@@ -8,8 +8,10 @@ export const MOON_CYCLE_SEC = 30;
 export const MOON_PHASE_OFFSET_SEC = 0;
 export const AP_CAP_MIN = 0;
 export const AP_CAP_MAX = 120;
-export const AP_INCOME_PER_SEC = 8;
-export const BASE_PROJECTION_HORIZON_SEC = 1200;
+export const AP_INCOME_PER_SEC = 1;
+export const AP_INCOME_MULT_WAXING = 8;
+export const AP_INCOME_MULT_WANING = 0;
+export const BASE_PROJECTION_HORIZON_SEC = 350;
 
 export const SEASONS = ["spring", "summer", "autumn", "winter"];
 

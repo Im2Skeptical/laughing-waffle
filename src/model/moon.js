@@ -14,6 +14,14 @@ function clampInt(v, fallback) {
 }
 
 export function getMoonPhase01AtSecond(tSec) {
+  return getMoonPhaseStateAtSecond(tSec).phase01;
+}
+
+export function isMoonWaxingAtSecond(tSec) {
+  return getMoonPhaseStateAtSecond(tSec).isWaxing;
+}
+
+export function getMoonPhaseStateAtSecond(tSec) {
   const cycleSec = Math.max(1, clampInt(MOON_CYCLE_SEC, 30));
   const offsetSec = clampInt(
     MOON_PHASE_OFFSET_SEC,
@@ -26,7 +34,13 @@ export function getMoonPhase01AtSecond(tSec) {
     phaseSec <= half
       ? phaseSec / Math.max(1, half)
       : (cycleSec - phaseSec) / Math.max(1, half);
-  return Math.max(0, Math.min(1, ratio));
+  const phase01 = Math.max(0, Math.min(1, ratio));
+  return {
+    phase01,
+    isWaxing: phaseSec <= half,
+    phaseSec,
+    cycleSec,
+  };
 }
 
 export function getActionPointCapAtSecond(tSec) {

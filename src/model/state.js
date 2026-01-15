@@ -27,6 +27,7 @@ export function createEmptyState(seed = 123456789) {
     turn: 0,
     seasons: SEASONS,
     currentSeasonIndex: 0,
+    year: 1,
 
     // Time Axis (Integer-based)
     // simStepIndex: Master clock, increments +1 per fixed tick (1/60s).
@@ -323,6 +324,7 @@ export function deserializeGameState(data) {
   // New integer time defaults if missing from save
   if (state.simStepIndex == null) state.simStepIndex = 0;
   if (state.tSec == null) state.tSec = 0;
+  if (state.year == null) state.year = 1;
   if (state.actionPoints == null) state.actionPoints = 100;
   if (state.actionPointCap == null) state.actionPointCap = 100;
   if (!state.apCapOverride || typeof state.apCapOverride !== "object") {

@@ -42,7 +42,7 @@ export function createMetricGraphView({
   root.visible = false;
   layer.addChild(root);
 
-  const WIN_W = 600;
+  const WIN_W = 1200;
   const WIN_H = 260;
   const HEADER_H = 38;
 

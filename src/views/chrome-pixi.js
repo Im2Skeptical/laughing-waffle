@@ -1,7 +1,13 @@
 // chrome-pixi.js
 // HUD + control buttons (pause).
 
-import { SEASON_DISPLAY } from "../defs/gamerules-defs.js";
+import {
+  SEASON_DISPLAY,
+  AP_INCOME_PER_SEC,
+  AP_INCOME_MULT_WAXING,
+  AP_INCOME_MULT_WANING,
+} from "../defs/gamerules-defs.js";
+import { isMoonWaxingAtSecond } from "../model/moon.js";
 import { createTimeLeverView } from "./time-lever-pixi.js";
 
 export function createChromeView({
@@ -167,6 +173,22 @@ export function createChromeView({
     const seasonName = SEASON_DISPLAY[seasonKey];
     const phaseLabel = s.phase === "planning" ? "Planning" : "Simulation";
     const deck = getCurrentSeasonData(s);
+    const tSec = Math.floor(s.tSec ?? 0);
+    const moonWaxing = isMoonWaxingAtSecond(tSec);
+    const moonPhaseLabel = moonWaxing ? "Waxing" : "Waning";
+    const baseIncome = Number.isFinite(AP_INCOME_PER_SEC)
+      ? AP_INCOME_PER_SEC
+      : 0;
+    const incomeMult = moonWaxing
+      ? AP_INCOME_MULT_WAXING
+      : AP_INCOME_MULT_WANING;
+    const incomeMultSafe = Number.isFinite(incomeMult) ? incomeMult : 0;
+    const apIncomePerSec = s.apCapOverride?.enabled
+      ? baseIncome
+      : baseIncome * Math.max(0, incomeMultSafe);
+    const apIncomeLabel = Number.isFinite(apIncomePerSec)
+      ? apIncomePerSec.toFixed(1)
+      : "0.0";
 
     // AP Tracker Logic
     const curAp = s.actionPoints ?? 0;
@@ -203,7 +225,8 @@ export function createChromeView({
 
     apHit.eventMode = typeof onApClick === "function" ? "static" : "none";
     apHit.cursor = typeof onApClick === "function" ? "pointer" : "default";
-    deckInfoText.text = `Turn: ${s.turn}  Season: ${seasonName}  Deck: ${
+    const yearLabel = Number.isFinite(s.year) ? s.year : 1;
+    deckInfoText.text = `Moon: ${moonPhaseLabel}  AP Income: +${apIncomeLabel}/s  Year: ${yearLabel}  Season: ${seasonName}  Deck: ${
       deck?.deck.length ?? 0
     }  Discard: ${
       deck?.discard.length ?? 0

@@ -32,6 +32,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.phase = "simulation";
   state.turn = 0;
   state.currentSeasonIndex = 0;
+  state.year = 1;
   state.seasonTimeRemaining = 0;
   state.paused = false;
 

@@ -2,7 +2,12 @@
 // public mutation APIs (cmd*) + move rules
 
 import { permanentDefs, itemDefs } from "../defs/gamepieces-defs.js";
-import { SEASON_DURATION_SEC, AP_INCOME_PER_SEC } from "../defs/gamerules-defs.js";
+import {
+  SEASON_DURATION_SEC,
+  AP_INCOME_PER_SEC,
+  AP_INCOME_MULT_WAXING,
+  AP_INCOME_MULT_WANING,
+} from "../defs/gamerules-defs.js";
 
 import {
   getCurrentSeasonKey,
@@ -18,7 +23,7 @@ import {
 } from "./effects.js";
 
 import { resetTimedTriggersOnPermanents } from "./behaviors.js";
-import { getActionPointCapAtSecond } from "./moon.js";
+import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
 
 const TICKS_PER_SEC = 60;
 
@@ -43,9 +48,18 @@ function getApCapForSecond(state, tSec) {
   return getActionPointCapAtSecond(tSec);
 }
 
-function getApIncomePerSecond() {
+function getApIncomePerSecond(state, tSec) {
   const income = Number.isFinite(AP_INCOME_PER_SEC) ? AP_INCOME_PER_SEC : 1;
-  return Math.max(0, income);
+  const base = Math.max(0, income);
+
+  if (state?.apCapOverride?.enabled) return base;
+
+  const mult = isMoonWaxingAtSecond(tSec)
+    ? AP_INCOME_MULT_WAXING
+    : AP_INCOME_MULT_WANING;
+  const multSafe = Number.isFinite(mult) ? Math.max(0, mult) : 1;
+
+  return base * multSafe;
 }
 
 
@@ -76,8 +90,16 @@ export function cmdAdvanceSeason(state) {
   const seasons = state.seasons || [];
   if (!seasons.length) return { ok: false, reason: "noSeasons" };
 
-  state.currentSeasonIndex =
+  const nextSeasonIndex =
     ((state.currentSeasonIndex || 0) + 1) % seasons.length;
+  state.currentSeasonIndex = nextSeasonIndex;
+
+  if (nextSeasonIndex === 0) {
+    const currentYear = Number.isFinite(state.year)
+      ? Math.floor(state.year)
+      : 0;
+    state.year = Math.max(1, currentYear + 1);
+  }
 
   const newSeasonKey = getCurrentSeasonKey(state);
 
@@ -153,7 +175,7 @@ export function cmdTickSimulation(state, dt) {
 
     // Income Rule: +1 AP per second whenever the clock advances.
     // (Phase is irrelevant; only Pause stops income, which is handled by the runner).
-    state.actionPoints += getApIncomePerSecond();
+    state.actionPoints += getApIncomePerSecond(state, state.tSec);
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
 
     // Legacy alias: planningIndex is treated as tSec for boundary/checkpoint consumers.

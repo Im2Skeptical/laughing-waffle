@@ -12,7 +12,7 @@ import { createInventoryView } from "./inventory-pixi.js";
 import { createCharactersView } from "./characters-pixi.js";
 import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
-import { createMetricGraphView } from "./gold-graph-pixi.js";
+import { createMetricGraphView } from "./timegraphs-pixi.js";
 import { PERM_WIDTH, PERM_HEIGHT, layoutPermPos } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 
