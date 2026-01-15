@@ -2,6 +2,7 @@
 // HUD + control buttons (pause).
 
 import { SEASON_DISPLAY } from "../defs/defs.js";
+import { createTimeLeverView } from "./time-lever-pixi.js";
 
 export function createChromeView({
   app,
@@ -14,6 +15,10 @@ export function createChromeView({
   // Stage 3: optional click handler for opening the gold graph
   onGoldClick,
   onApClick,
+
+  // Time lever (optional)
+  getTimeScale,
+  setTimeScaleTarget,
 }) {
   // ---------- 1. Text HUD ----------
 
@@ -88,26 +93,47 @@ export function createChromeView({
     return container;
   }
 
+  const BUTTON_WIDTH = 140;
+  const BUTTON_HEIGHT = 44;
+
   const pauseButton = makeButton("Pause", () => {
     togglePause();
   });
 
-  const buttons = [pauseButton];
+  const timeLeverView = createTimeLeverView({
+    app,
+    layer,
+    getTimeScale,
+    setTimeScaleTarget,
+  });
+
+  const controls = [
+    { node: pauseButton, width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
+    {
+      node: timeLeverView.container,
+      width: timeLeverView.width,
+      height: timeLeverView.height,
+    },
+  ];
 
   function layoutButtons() {
-    if (!buttons.length) return;
+    const active = controls.filter((c) => c.node.visible !== false);
+    if (!active.length) return;
 
-    const BUTTON_WIDTH = 140;
     const gap = 24;
     const totalWidth =
-      BUTTON_WIDTH * buttons.length + gap * (buttons.length - 1);
+      active.reduce((sum, c) => sum + c.width, 0) +
+      gap * (active.length - 1);
     const startX = (app.screen.width - totalWidth) / 2;
-    const y = app.screen.height - 120;
+    const baseY = app.screen.height - 120;
+    const centerY = baseY + BUTTON_HEIGHT / 2;
 
-    buttons.forEach((btn, i) => {
-      btn.x = startX + i * (BUTTON_WIDTH + gap);
-      btn.y = y;
-    });
+    let x = startX;
+    for (const c of active) {
+      c.node.x = x;
+      c.node.y = centerY - c.height / 2;
+      x += c.width + gap;
+    }
   }
 
   layoutButtons();
@@ -184,6 +210,8 @@ export function createChromeView({
     }  Phase: ${phaseLabel}  SeasonLength: ${s.seasonTimeRemaining.toFixed(
       1
     )}`;
+
+    timeLeverView.update(s);
   }
 
   function init() {}

@@ -24,6 +24,8 @@ import { applyAction } from "../model/actions.js";
 const SIM_DT_STEP = 1 / 60;
 const TICKS_PER_SEC = 60;
 const MAX_SIM_STEPS_PER_FRAME = 8;
+const TIME_SCALE_MAX = 16;
+const TIME_SCALE_EASE_PER_SEC = 10;
 
 export function createSimRunner({ onInvalidate, onRebuildViews }) {
   // State
@@ -38,6 +40,12 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
   let playbackNextActionIdx = 0;
   let playbackLastAppliedSec = -1;
   let playbackActive = false;
+
+  // Time control (time lever)
+  let timeScaleTarget = 1;
+  let timeScaleCurrent = 1;
+  let timeScaleWantsUnpause = false;
+  let rewindAccumulatorSec = 0;
 
   function seekPlaybackIndex(targetSec) {
     if (!timeline?.actions) {
@@ -88,6 +96,112 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     playbackLastAppliedSec = tSec;
   }
 
+  function clampTimeScale(v) {
+    if (!Number.isFinite(v)) return 1;
+    return Math.max(-TIME_SCALE_MAX, Math.min(TIME_SCALE_MAX, v));
+  }
+
+  function updateTimeScale(frameDt) {
+    if (!Number.isFinite(frameDt) || frameDt <= 0) return;
+    const target = timeScaleTarget;
+    const cur = timeScaleCurrent;
+    if (cur === target) return;
+
+    const maxDelta = TIME_SCALE_EASE_PER_SEC * frameDt;
+    const delta = target - cur;
+    if (Math.abs(delta) <= maxDelta) {
+      timeScaleCurrent = target;
+    } else {
+      timeScaleCurrent = cur + Math.sign(delta) * maxDelta;
+    }
+  }
+
+  function getMaxSimStepsForSpeed(speed) {
+    const abs = Math.abs(speed);
+    const scaled = Math.ceil(abs * 2);
+    return Math.max(MAX_SIM_STEPS_PER_FRAME, scaled);
+  }
+
+  function seekCursorSecond(tSec, stateData, opts = {}) {
+    if (!timeline) return { ok: false, reason: "noTimeline" };
+    const t = Math.max(0, Math.floor(tSec));
+
+    pauseRequested = false;
+    dragPreviewState = null;
+
+    let usedCachedState = false;
+    if (stateData != null) {
+      loadIntoGameState(stateData);
+      cursorState = gameState;
+      usedCachedState = Math.floor(cursorState.tSec ?? -1) === t;
+    }
+
+    if (!usedCachedState) {
+      const rebuilt = rebuildStateAtSecond(timeline, t);
+      if (!rebuilt.ok) return rebuilt;
+
+      loadIntoGameState(serializeGameState(rebuilt.state));
+      cursorState = gameState;
+    }
+
+    const prevMax = Math.floor(timeline.maxReachedSec ?? 0);
+
+    // Keep checkpoints unpaused for replay safety.
+    setPaused(cursorState, false);
+    syncPhaseToPaused(cursorState);
+
+    if (t > prevMax) timeline.maxReachedSec = t;
+    timeline.cursorSec = t;
+
+    if (opts.maintainCheckpoints !== false) {
+      maintainCheckpoints(timeline, cursorState);
+    }
+
+    playbackActive = t < prevMax;
+    seekPlaybackIndex(t);
+
+    if (typeof opts.paused === "boolean") {
+      setPaused(cursorState, opts.paused);
+      syncPhaseToPaused(cursorState);
+    }
+
+    return { ok: true, usedCachedState };
+  }
+
+  function applyTimeRewind(frameDt, speedAbs, keepPauseRequested) {
+    if (!cursorState) return false;
+
+    const prevPauseRequested = pauseRequested;
+
+    rewindAccumulatorSec += frameDt * speedAbs;
+    const rawSteps = Math.floor(rewindAccumulatorSec);
+    if (rawSteps <= 0) return false;
+
+    rewindAccumulatorSec -= rawSteps;
+
+    const currentSec = Math.floor(cursorState.tSec ?? 0);
+    if (currentSec <= 0) {
+      rewindAccumulatorSec = 0;
+      return false;
+    }
+
+    const steps = Math.min(rawSteps, currentSec);
+    const targetSec = Math.max(0, currentSec - steps);
+    if (targetSec === currentSec) return false;
+
+    const res = seekCursorSecond(targetSec, null, {
+      paused: false,
+      maintainCheckpoints: false,
+    });
+    if (!res.ok) return false;
+
+    if (keepPauseRequested) {
+      pauseRequested = prevPauseRequested;
+    }
+
+    return true;
+  }
+
   // API
   return {
     init() {
@@ -104,6 +218,11 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
 
       pauseRequested = false;
       playbackActive = false;
+      timeScaleTarget = 1;
+      timeScaleCurrent = 1;
+      timeScaleWantsUnpause = false;
+      rewindAccumulatorSec = 0;
+      simAccumulator = 0;
 
       // Initial checkpoint
       timeline.checkpoints = [
@@ -124,10 +243,46 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     update(frameDt) {
       if (dragPreviewState) return;
 
-      simAccumulator += frameDt;
-      let steps = 0;
+      updateTimeScale(frameDt);
+      const speed = timeScaleCurrent;
 
-      while (simAccumulator >= SIM_DT_STEP && steps < MAX_SIM_STEPS_PER_FRAME) {
+      if (speed < 0) {
+        simAccumulator = 0;
+        if (timeScaleWantsUnpause && cursorState?.paused) {
+          setPaused(cursorState, false);
+          syncPhaseToPaused(cursorState);
+        }
+        if (timeScaleTarget < 0) {
+          pauseRequested = false;
+        }
+
+        const moved = applyTimeRewind(
+          frameDt,
+          Math.abs(speed),
+          timeScaleTarget === 0
+        );
+        if (moved) {
+          onRebuildViews?.();
+          onInvalidate?.("scrubCommit");
+        }
+        return;
+      }
+
+      const effectiveSpeed =
+        pauseRequested && !cursorState?.paused ? Math.max(speed, 1) : speed;
+
+      if (effectiveSpeed <= 0) return;
+
+      if (timeScaleWantsUnpause && cursorState?.paused) {
+        setPaused(cursorState, false);
+        syncPhaseToPaused(cursorState);
+      }
+
+      simAccumulator += frameDt * effectiveSpeed;
+      let steps = 0;
+      const maxSteps = getMaxSimStepsForSpeed(effectiveSpeed);
+
+      while (simAccumulator >= SIM_DT_STEP && steps < maxSteps) {
         const isPhysicallyPaused = cursorState.paused;
 
         if (isPhysicallyPaused) {
@@ -184,7 +339,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
         maintainCheckpoints(timeline, cursorState);
       }
 
-      if (steps === MAX_SIM_STEPS_PER_FRAME) {
+      if (steps === maxSteps) {
         simAccumulator = 0;
       }
     },
@@ -236,46 +391,50 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     },
 
     commitCursorSecond(tSec, stateData) {
-      const t = Math.max(0, Math.floor(tSec));
-      pauseRequested = false;
+      const res = seekCursorSecond(tSec, stateData, {
+        paused: true,
+        maintainCheckpoints: true,
+      });
+      if (!res.ok) return res;
 
-      let usedCachedState = false;
-      if (stateData != null) {
-        loadIntoGameState(stateData);
-        cursorState = gameState;
-        usedCachedState =
-          Math.floor(cursorState.tSec ?? -1) === t;
-      }
-
-      if (!usedCachedState) {
-        const rebuilt = rebuildStateAtSecond(timeline, t);
-        if (!rebuilt.ok) return rebuilt;
-
-        loadIntoGameState(serializeGameState(rebuilt.state));
-        cursorState = gameState;
-      }
-
-      // Keep timeline checkpoints unpaused so rebuild/replay can advance time.
-      setPaused(cursorState, false);
-      syncPhaseToPaused(cursorState);
-
-      const prevMax = timeline.maxReachedSec ?? 0;
-      if (t > prevMax) timeline.maxReachedSec = t;
-
-      // Enter playback mode if we are behind the frontier
-      playbackActive = t < prevMax;
-
-      seekPlaybackIndex(t);
-      maintainCheckpoints(timeline, cursorState);
-
-      setPaused(cursorState, true);
-      syncPhaseToPaused(cursorState);
+      timeScaleWantsUnpause = false;
+      timeScaleTarget = 0;
+      timeScaleCurrent = 0;
+      rewindAccumulatorSec = 0;
 
       onRebuildViews?.();
       onInvalidate?.("scrubCommit");
 
       return { ok: true };
     },
+
+    setTimeScaleTarget: (speed, opts = {}) => {
+      const clamped = clampTimeScale(speed);
+      timeScaleTarget = clamped;
+
+      if (opts.immediate) timeScaleCurrent = clamped;
+
+      if (opts.unpause && clamped !== 0) {
+        timeScaleWantsUnpause = true;
+        pauseRequested = false;
+        if (cursorState?.paused) {
+          setPaused(cursorState, false);
+          syncPhaseToPaused(cursorState);
+        }
+      }
+
+      if (opts.requestPause && clamped === 0) {
+        timeScaleWantsUnpause = false;
+        pauseRequested = true;
+      }
+
+      return { ok: true, target: timeScaleTarget };
+    },
+    getTimeScale: () => ({
+      current: timeScaleCurrent,
+      target: timeScaleTarget,
+      max: TIME_SCALE_MAX,
+    }),
 
     getTimeline: () => timeline,
     getCursorState: () => cursorState,
@@ -296,6 +455,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
 
       if (p) {
         pauseRequested = true;
+        timeScaleWantsUnpause = false;
       } else {
         pauseRequested = false;
         setPaused(cursorState, false);
