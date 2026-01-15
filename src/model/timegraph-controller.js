@@ -20,8 +20,8 @@ export function createTimeGraphController({
   metric = GRAPH_METRICS.gold,
 
   // Stage 4: decouple plotting resolution from scrubbing resolution
-  historyStrideSec = 3,
-  forecastStepSec = 3,
+  historyStrideSec = 1,
+  forecastStepSec = 1,
   horizonSec = 1200,
 } = {}) {
   let cache = null;

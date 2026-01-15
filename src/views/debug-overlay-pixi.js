@@ -81,8 +81,8 @@ export function createDebugOverlay({ layer, runner }) {
   cheatBtn.on("pointerdown", () => {
     cheatsEnabled = !cheatsEnabled;
     const payload = cheatsEnabled
-      ? { cap: 9999, points: 9999 }
-      : { cap: 100, points: 100 };
+      ? { enabled: true, cap: 9999, points: 9999 }
+      : { enabled: false };
     runner.dispatchAction(ActionKinds.DEBUG_SET_CAP, payload);
     cheatBg.clear();
     cheatBg.beginFill(cheatsEnabled ? 0x00aa00 : 0x555555);

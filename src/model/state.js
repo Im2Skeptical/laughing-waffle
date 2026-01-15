@@ -8,6 +8,7 @@ import {
   SEASON_DURATION_SEC,
 } from "../defs/defs.js";
 import { attachRngHelpers } from "./rng.js";
+import { getActionPointCapAtSecond } from "./moon.js";
 
 // =============================================================================
 // PHASE / PAUSE POLICY (Stage 5)
@@ -51,6 +52,7 @@ export function createEmptyState(seed = 123456789) {
     // Action Points (Skeleton)
     actionPoints: 100,
     actionPointCap: 100,
+    apCapOverride: null,
 
     resources: { gold: 0, food: 0, population: 0 },
 
@@ -327,6 +329,11 @@ export function deserializeGameState(data) {
   if (state.tSec == null) state.tSec = 0;
   if (state.actionPoints == null) state.actionPoints = 100;
   if (state.actionPointCap == null) state.actionPointCap = 100;
+  if (!state.apCapOverride || typeof state.apCapOverride !== "object") {
+    state.apCapOverride = null;
+  } else if (state.apCapOverride.enabled === false) {
+    state.apCapOverride = null;
+  }
 
   // Season clock defaults
   if (state.seasonClockSec == null) state.seasonClockSec = 0;
@@ -340,8 +347,30 @@ export function deserializeGameState(data) {
   // Stage 5: normalize phase policy after paused is known.
   syncPhaseToPaused(state);
 
-  // Enforce Cap Clamp immediately on load (in case save data is over-cap)
-  state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
+  if (state.apCapOverride) {
+    const overrideCap =
+      typeof state.apCapOverride.cap === "number"
+        ? Math.max(0, Math.floor(state.apCapOverride.cap))
+        : state.actionPointCap;
+    const overridePoints =
+      typeof state.apCapOverride.points === "number"
+        ? Math.floor(state.apCapOverride.points)
+        : state.actionPoints;
+
+    state.apCapOverride.enabled = true;
+    state.apCapOverride.cap = overrideCap;
+    state.apCapOverride.points = overridePoints;
+
+    state.actionPointCap = overrideCap;
+    state.actionPoints = Math.min(
+      state.actionPointCap,
+      Math.max(0, overridePoints)
+    );
+  } else {
+    state.actionPointCap = getActionPointCapAtSecond(state.tSec ?? 0);
+    // Enforce Cap Clamp immediately on load (in case save data is over-cap)
+    state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
+  }
 
   stripTransientFromEnvSlots(state.envSlots);
   stripLegacyTransientFromInventories(state.ownerInventories);

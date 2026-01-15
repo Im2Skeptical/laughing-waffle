@@ -21,18 +21,18 @@ export const GRAPH_METRICS = {
     label: "AP",
     series: [
       {
-        id: "ap",
-        label: "AP",
-        color: 0x66ccff,
-        getValue: (state) => state?.actionPoints ?? 0,
-        formatValue: (value) =>
-          Number.isFinite(value) ? `${Math.floor(value)}` : "0",
-      },
-      {
         id: "apCap",
         label: "AP Cap",
         color: 0xffaa66,
         getValue: (state) => state?.actionPointCap ?? 0,
+        formatValue: (value) =>
+          Number.isFinite(value) ? `${Math.floor(value)}` : "0",
+      },
+      {
+        id: "ap",
+        label: "AP",
+        color: 0x66ccff,
+        getValue: (state) => state?.actionPoints ?? 0,
         formatValue: (value) =>
           Number.isFinite(value) ? `${Math.floor(value)}` : "0",
       },

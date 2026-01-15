@@ -1,7 +1,12 @@
 // src/model/commands.js
 // public mutation APIs (cmd*) + move rules
 
-import { permanentDefs, itemDefs, SEASON_DURATION_SEC } from "../defs/defs.js";
+import {
+  permanentDefs,
+  itemDefs,
+  SEASON_DURATION_SEC,
+  AP_INCOME_PER_SEC,
+} from "../defs/defs.js";
 
 import {
   getCurrentSeasonKey,
@@ -17,12 +22,35 @@ import {
 } from "./effects.js";
 
 import { resetTimedTriggersOnPermanents } from "./behaviors.js";
+import { getActionPointCapAtSecond } from "./moon.js";
 
 const TICKS_PER_SEC = 60;
 
 // Season progression is time-based (decoupled from planning boundaries).
 // Default duration comes from defs (SEASON_DURATION_SEC).
 const DEFAULT_SEASON_DURATION_SEC = SEASON_DURATION_SEC;
+
+function normalizeApState(state) {
+  if (typeof state.actionPoints !== "number") state.actionPoints = 0;
+  if (typeof state.actionPointCap !== "number") state.actionPointCap = 0;
+}
+
+function getApCapForSecond(state, tSec) {
+  const override = state.apCapOverride;
+  if (override && override.enabled) {
+    const cap =
+      typeof override.cap === "number"
+        ? Math.max(0, Math.floor(override.cap))
+        : Math.max(0, Math.floor(state.actionPointCap ?? 0));
+    return cap;
+  }
+  return getActionPointCapAtSecond(tSec);
+}
+
+function getApIncomePerSecond() {
+  const income = Number.isFinite(AP_INCOME_PER_SEC) ? AP_INCOME_PER_SEC : 1;
+  return Math.max(0, income);
+}
 
 
 export function cmdAdvanceSeason(state) {
@@ -124,16 +152,17 @@ export function cmdTickSimulation(state, dt) {
   if (newTSec > prevTSec) {
     state.tSec = newTSec;
 
+    normalizeApState(state);
+    state.actionPointCap = getApCapForSecond(state, state.tSec);
+
     // Income Rule: +1 AP per second whenever the clock advances.
     // (Phase is irrelevant; only Pause stops income, which is handled by the runner).
-    state.actionPoints++;
+    state.actionPoints += getApIncomePerSecond();
+    state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
 
     // Legacy alias: planningIndex is treated as tSec for boundary/checkpoint consumers.
     state.planningIndex = state.tSec;
   }
-
-  // Hard Clamp AP
-  state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
 
   let advancedSeasonCount = 0;
 
@@ -303,20 +332,44 @@ export function cmdPlaceCharacterInSlot(state, { charId, slotIndex }) {
 // DEBUG / CHEATS
 // =============================================================================
 
-export function cmdDebugSetCap(state, { cap, points }) {
-  if (typeof cap === "number") {
-    state.actionPointCap = Math.max(0, Math.floor(cap));
-  }
-  if (typeof points === "number") {
+export function cmdDebugSetCap(state, { cap, points, enabled } = {}) {
+  normalizeApState(state);
+
+  const enableOverride =
+    typeof enabled === "boolean"
+      ? enabled
+      : typeof cap === "number" || typeof points === "number";
+
+  if (enableOverride) {
+    const overrideCap =
+      typeof cap === "number"
+        ? Math.max(0, Math.floor(cap))
+        : Math.max(0, Math.floor(state.actionPointCap ?? 0));
+    const overridePoints =
+      typeof points === "number" ? Math.floor(points) : overrideCap;
+
+    state.apCapOverride = {
+      enabled: true,
+      cap: overrideCap,
+      points: overridePoints,
+    };
+
+    state.actionPointCap = overrideCap;
     state.actionPoints = Math.min(
       state.actionPointCap,
-      Math.max(0, Math.floor(points))
+      Math.max(0, overridePoints)
     );
+  } else {
+    state.apCapOverride = null;
+    state.actionPointCap = getActionPointCapAtSecond(state.tSec ?? 0);
+    state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
   }
+
   return {
     ok: true,
     actionPointCap: state.actionPointCap,
     actionPoints: state.actionPoints,
+    apCapOverride: state.apCapOverride,
   };
 }
 
