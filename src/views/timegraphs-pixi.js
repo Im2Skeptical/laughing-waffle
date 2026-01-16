@@ -23,6 +23,7 @@ export function createMetricGraphView({
   metric = GRAPH_METRICS.gold,
   getTimeline,
   getCursorState,
+  getSeriesValueOverride,
   setPreviewState,
   clearPreviewState,
   commitSecond,
@@ -119,6 +120,9 @@ export function createMetricGraphView({
   let lastRestoreMs = 0;
   const RESTORE_THROTTLE_MS = 33;
   let statusNote = "";
+  let cachedActionSecs = [];
+  let lastActionRevision = null;
+  const ACTION_SNAP_THRESHOLD_SEC = 0.75;
 
   function clampInt(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v | 0));
@@ -149,7 +153,56 @@ export function createMetricGraphView({
     const localX = globalX - root.x;
     const ratio = (localX - plot.x) / Math.max(1, plot.w);
     const t = minSec + ratio * (maxSec - minSec);
-    scrubSec = clampInt(Math.round(t), minSec, maxSec);
+    scrubSec = clampInt(Math.round(applyActionSnap(t)), minSec, maxSec);
+  }
+
+  function applyActionSnap(t) {
+    const list = getActionSecs();
+    if (!list.length) return t;
+
+    let lo = 0;
+    let hi = list.length - 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const val = list[mid];
+      if (val < t) lo = mid + 1;
+      else if (val > t) hi = mid - 1;
+      else return val;
+    }
+
+    const candidates = [];
+    if (lo >= 0 && lo < list.length) candidates.push(list[lo]);
+    if (hi >= 0 && hi < list.length) candidates.push(list[hi]);
+
+    let best = t;
+    let bestDist = Infinity;
+    for (const c of candidates) {
+      const dist = Math.abs(c - t);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = c;
+      }
+    }
+
+    return bestDist <= ACTION_SNAP_THRESHOLD_SEC ? best : t;
+  }
+
+  function getActionSecs() {
+    const tl = getTimeline?.();
+    const rev = Math.floor(tl?.revision ?? -1);
+    if (rev !== lastActionRevision) {
+      lastActionRevision = rev;
+      cachedActionSecs = [];
+      if (tl?.actions?.length) {
+        const set = new Set();
+        for (const a of tl.actions) {
+          const sec = Math.max(0, Math.floor(a.tSec ?? 0));
+          set.add(sec);
+        }
+        cachedActionSecs = Array.from(set.values()).sort((a, b) => a - b);
+      }
+    }
+    return cachedActionSecs;
   }
 
   function updateZoomButton() {
@@ -245,7 +298,9 @@ export function createMetricGraphView({
       if (t < minSec || t > maxSec) continue;
 
       for (const s of series) {
-        const v = getSeriesValue(p, s.id);
+        const override = getSeriesValueOverride?.(t, s.id, p);
+        const v =
+          Number.isFinite(override) ? override : getSeriesValue(p, s.id);
         if (v < minValue) minValue = v;
         if (v > maxValue) maxValue = v;
       }
@@ -297,7 +352,10 @@ export function createMetricGraphView({
         if (t < minSec || t > maxSec) continue;
 
         const x = timeToX(t);
-        const y = yForValue(getSeriesValue(p, s.id));
+        const override = getSeriesValueOverride?.(t, s.id, p);
+        const value =
+          Number.isFinite(override) ? override : getSeriesValue(p, s.id);
+        const y = yForValue(value);
 
         if (first) {
           plotG.moveTo(x, y);

@@ -258,6 +258,39 @@ export function appendActionAtCursor(tl, action, state) {
   return { ok: true };
 }
 
+export function replaceActionsAtSecond(tl, tSec, actionsAtSec, opts = {}) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+  const t = Math.max(0, Math.floor(tSec));
+  const truncateFuture = opts.truncateFuture !== false;
+
+  bumpRevision(tl);
+
+  const before = [];
+  const after = [];
+  const acts = Array.isArray(tl.actions) ? tl.actions : [];
+
+  for (const action of acts) {
+    const sec = Math.floor(action.tSec ?? 0);
+    if (sec < t) before.push(action);
+    else if (sec > t) after.push(action);
+  }
+
+  const replacements = Array.isArray(actionsAtSec) ? actionsAtSec : [];
+  const normalized = replacements.map((action) => ({
+    ...action,
+    tSec: t,
+  }));
+
+  tl.actions = truncateFuture
+    ? [...before, ...normalized]
+    : [...before, ...normalized, ...after];
+
+  rebuildActionsBySecIndex(tl);
+  tl._memoGuardSig = computeTimelineMutationSig(tl);
+
+  return { ok: true };
+}
+
 // -----------------------------------------------------------------------------
 // Checkpoint Management
 // -----------------------------------------------------------------------------

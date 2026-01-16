@@ -17,6 +17,7 @@ export function createChromeView({
   getCurrentSeasonData,
   togglePause,
   isPausePending,
+  getApPreview,
 
   // Stage 3: optional click handler for opening the gold graph
   onGoldClick,
@@ -148,6 +149,8 @@ export function createChromeView({
 
   function update() {
     const s = getGameState();
+    const preview =
+      typeof getApPreview === "function" ? getApPreview() : null;
 
     // Pause button label/state:
     // - paused => "Paused"
@@ -191,7 +194,10 @@ export function createChromeView({
       : "0.0";
 
     // AP Tracker Logic
-    const curAp = s.actionPoints ?? 0;
+    const curAp =
+      preview && Number.isFinite(preview.remaining)
+        ? Math.floor(preview.remaining)
+        : s.actionPoints ?? 0;
     const capAp = s.actionPointCap ?? 100;
 
     resourceText.text = `Gold: ${s.resources.gold.toFixed(

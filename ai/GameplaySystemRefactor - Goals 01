@@ -1,0 +1,74 @@
+## Key goals of the refactor
+
+### G1 — Establish the new 4-zone board model (UI + state contract)
+
+* Implement the 4 horizontal zones:
+
+  1. time graphs + time lever
+  2. env tiles row (terrain systems)
+  3. env cards/events row (transient effects/animals)
+  4. city/permanents row
+* All three gameplay rows share a **12-column grid** for consistent “same column” reasoning. 
+
+### G2 — Introduce a canonical board data model that supports multi-slot pieces
+
+* Adopt a single “board” state model with:
+
+  * persistent env tiles
+  * transient env cards
+  * permanents
+* Support variable width (`span`) pieces (e.g. storm spans 3 columns; building spans 2).
+* Provide derived occupancy indices (like inventory grid) that are stripped on serialize and rebuilt on deserialize/replay. 
+
+### G3 — Split env defs into “tile systems” vs “event cards”
+
+* Replace the current mixed `envCardDefs` concept with two def families:
+
+  * **EnvTileDefs**: durable terrain/biome systems with tags/props and per-season spawn tables
+  * **EnvEventDefs**: transient cards (weather, hazards, animals) with lifecycle + behaviors/effects
+* Keep behaviors/effects as the execution model (defs stay data-only).
+
+### G4 — Replace deck/discard environmental flow with time-based cadence generation
+
+* Deprecate discard pile as a core mechanic.
+* Generate env events from tiles via:
+
+  * deterministic cadence (e.g. every 5 seconds)
+  * season-specific weighted tables per tile
+  * RNG sourced only from `state.rng`
+* Preserve time-travel correctness: replay at a given `tSec` produces identical spawns and outcomes.
+
+### G5 — Standardize targeting across layers (column + layer addressing)
+
+* Make env events able to target:
+
+  * their underlying tile
+  * permanents in the same column span
+  * other env events if needed
+* Replace ad-hoc `envSlotIndex` targeting with a generalized target spec (layer + col, plus “self/under/sameCol” shortcuts).
+* Ensure this fits the existing behavior→EffectOp→runEffect pipeline.
+
+### G6 — Preserve determinism, serialization, replay, and projection invariants
+
+* No non-serializable objects in state.
+* Derived caches rebuilt deterministically on deserialize/canonicalize (like inventory indices). 
+* Ensure:
+
+  * timeline actions remain the sole history source 
+  * `rebuildStateAtSecond` stays authoritative 
+  * projection remains pure and continues to work with the new env system. 
+
+### G7 — Keep the game runnable through migration (dual-write, incremental cutover)
+
+* Introduce new state/defs in parallel.
+* Switch rendering first, then generation, then behavior/effects routing.
+* Only remove legacy env deck/discard and `envSlots` iteration after parity is proven.
+
+### G8 — Seed placeholder content to validate distribution and graphs early
+
+* Populate initial tile tables with mostly no-op events plus a few resource bumps so time graphs show meaningful deltas.
+* Use this to tune cadence, weights, and emergent behavior before designing full mechanics.
+
+
+
+

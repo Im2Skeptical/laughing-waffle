@@ -94,7 +94,11 @@ export function createDebugOverlay({ layer, runner }) {
     update: () => {
       const state = runner.getState();
       if (state) {
-        const cur = state.actionPoints ?? 0;
+        const preview = runner.getActionPlanner?.()?.getApPreview?.() ?? null;
+        const cur =
+          preview && Number.isFinite(preview.remaining)
+            ? Math.floor(preview.remaining)
+            : state.actionPoints ?? 0;
         const cap = state.actionPointCap ?? 100;
         apText.text = `AP: ${cur} / ${cap}`;
         apText.style.fill = cur < 20 ? 0xff5555 : 0xffd700;

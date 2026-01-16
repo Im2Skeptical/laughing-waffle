@@ -14,12 +14,14 @@ import {
   appendActionAtCursor,
   truncateActionsAfterSecond,
   truncateCheckpointsAfterSecond,
+  replaceActionsAtSecond,
   rebuildStateAtSecond,
   maintainCheckpoints,
 } from "../model/timeline.js";
 
 import { serializeGameState, syncPhaseToPaused } from "../model/state.js";
 import { applyAction } from "../model/actions.js";
+import { createActionPlanner } from "./action-planner.js";
 
 const SIM_DT_STEP = 1 / 60;
 const TICKS_PER_SEC = 60;
@@ -35,6 +37,17 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
   let simAccumulator = 0;
 
   let pauseRequested = false;
+  let lastPlannerCommitError = null;
+
+  const actionPlanner = createActionPlanner({
+    getTimeline: () => timeline,
+    getState: () => cursorState,
+    onInvalidate: (reason) => onInvalidate?.(`planner:${reason}`),
+    onEdit: (reason) => {
+      dragPreviewState = null;
+      commitPlannerActions(`edit:${reason || "update"}`);
+    },
+  });
 
   // Playback / Live Replay State
   let playbackNextActionIdx = 0;
@@ -205,6 +218,147 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     return true;
   }
 
+  function isPlannerManagedAction(action) {
+    if (!action || typeof action !== "object") return false;
+    const kind = action.kind;
+    if (kind === "placeCharacter" || kind === "buildDesignate") return true;
+    if (kind === "inventoryMove") {
+      const payload = action.payload || {};
+      return payload.fromOwnerId !== payload.toOwnerId;
+    }
+    return false;
+  }
+
+  function getPlannerActionSubjectKey(action) {
+    if (!action || typeof action !== "object") return null;
+    const payload = action.payload || {};
+    if (action.kind === "inventoryMove") {
+      const itemId = payload.itemId ?? payload.item?.id ?? null;
+      return itemId != null ? `item:${itemId}` : null;
+    }
+    if (action.kind === "placeCharacter") {
+      const charId = payload.charId ?? null;
+      return charId != null ? `pawn:${charId}` : null;
+    }
+    if (action.kind === "buildDesignate") {
+      const buildKey = payload.buildKey ?? payload.targetKey ?? null;
+      return buildKey != null ? `build:${buildKey}` : null;
+    }
+    return null;
+  }
+
+  function commitPlannerActions(reason) {
+    if (!timeline || !cursorState) return { ok: false, reason: "noState" };
+
+    const build = actionPlanner.buildCommitActions?.();
+    if (!build?.ok) return build || { ok: false, reason: "buildFailed" };
+
+    const actions = build.actions || [];
+    const tSec = Math.floor(cursorState.tSec ?? 0);
+
+    const actionsWithTSec = actions.map((action) => ({
+      ...action,
+      tSec,
+    }));
+
+    const existingAtSec = [];
+    const beforeAtSec = [];
+    for (const action of timeline.actions || []) {
+      const sec = Math.floor(action.tSec ?? 0);
+      if (sec < tSec) beforeAtSec.push(action);
+      else if (sec === tSec) existingAtSec.push(action);
+    }
+
+    const newByKey = new Map();
+    for (const action of actionsWithTSec) {
+      const key = getPlannerActionSubjectKey(action);
+      if (key) newByKey.set(key, action);
+    }
+
+    const usedKeys = new Set();
+    const orderedAtSec = [];
+
+    for (const action of existingAtSec) {
+      if (!isPlannerManagedAction(action)) {
+        orderedAtSec.push(action);
+        continue;
+      }
+      const key = getPlannerActionSubjectKey(action);
+      const replacement = key ? newByKey.get(key) : null;
+      if (replacement) {
+        orderedAtSec.push(replacement);
+        usedKeys.add(key);
+      }
+    }
+
+    for (const action of actionsWithTSec) {
+      const key = getPlannerActionSubjectKey(action);
+      if (key && usedKeys.has(key)) continue;
+      orderedAtSec.push(action);
+    }
+
+    const candidateActions = [...beforeAtSec, ...orderedAtSec];
+    const candidateCheckpoints = truncateCheckpointsAfterSecond(
+      timeline.checkpoints,
+      tSec
+    ).filter((cp) => Math.floor(cp.checkpointSec ?? -1) !== tSec);
+    const candidateTimeline = {
+      baseStateData: timeline.baseStateData,
+      actions: candidateActions,
+      checkpoints: candidateCheckpoints,
+      cursorSec: tSec,
+      maxReachedSec: tSec,
+      revision: timeline.revision ?? 0,
+    };
+
+    const rebuilt = rebuildStateAtSecond(candidateTimeline, tSec);
+    if (!rebuilt?.ok) {
+      lastPlannerCommitError = {
+        reason: rebuilt?.reason ?? "rebuildFailed",
+        detail: rebuilt?.detail ?? null,
+        tSec,
+        commitReason: reason || "commit",
+      };
+      console.warn("Planner commit failed:", lastPlannerCommitError);
+      actionPlanner.resetToTimeline?.();
+      onRebuildViews?.();
+      onInvalidate?.("plannerCommitFailed");
+      return { ok: false, reason: "commitFailed", detail: lastPlannerCommitError };
+    }
+
+    lastPlannerCommitError = null;
+    timeline.checkpoints = truncateCheckpointsAfterSecond(
+      timeline.checkpoints,
+      tSec
+    );
+    const replaceRes = replaceActionsAtSecond(timeline, tSec, orderedAtSec, {
+      truncateFuture: true,
+    });
+    if (!replaceRes?.ok) return replaceRes || { ok: false, reason: "replace" };
+    timeline.maxReachedSec = tSec;
+    timeline.cursorSec = tSec;
+
+    const wasPaused = !!cursorState.paused;
+    loadIntoGameState(serializeGameState(rebuilt.state));
+    cursorState = gameState;
+    setPaused(cursorState, wasPaused);
+    syncPhaseToPaused(cursorState);
+
+    playbackActive = false;
+    seekPlaybackIndex(tSec);
+    maintainCheckpoints(timeline, cursorState);
+
+    actionPlanner.markCommitted?.({
+      tSec,
+      revision: timeline.revision ?? 0,
+    });
+
+    onRebuildViews?.();
+    onInvalidate?.(`plannerCommit:${reason || "commit"}`);
+
+    return { ok: true, committed: actionsWithTSec.length };
+  }
+
   // API
   return {
     init() {
@@ -357,7 +511,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       }
     },
 
-    dispatchAction(kind, payload) {
+    dispatchAction(kind, payload, opts = {}) {
       dragPreviewState = null;
       simAccumulator = 0;
       pauseRequested = false;
@@ -379,7 +533,11 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       timeline.maxReachedSec = tSec;
 
       // Apply Live
-      const exec = applyAction(cursorState, { kind, payload });
+      const exec = applyAction(cursorState, {
+        kind,
+        payload,
+        apCost: opts.apCost,
+      });
       if (!exec?.ok) return exec || { ok: false, reason: "cmdFailed" };
 
       // Record with tSec
@@ -389,6 +547,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
           kind,
           payload,
           tSec: tSec,
+          apCost: opts.apCost,
         },
         cursorState
       );
@@ -418,6 +577,18 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       onRebuildViews?.();
       onInvalidate?.("scrubCommit");
 
+      return { ok: true };
+    },
+
+    browseCursorSecond(tSec, stateData) {
+      const res = seekCursorSecond(tSec, stateData, {
+        paused: true,
+        maintainCheckpoints: true,
+      });
+      if (!res.ok) return res;
+
+      onRebuildViews?.();
+      onInvalidate?.("scrubBrowse");
       return { ok: true };
     },
 
@@ -453,6 +624,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     getCursorState: () => cursorState,
     getState: () => dragPreviewState || cursorState,
     isPreviewing: () => !!dragPreviewState,
+    getLastPlannerCommitError: () => lastPlannerCommitError,
     setPreviewState: (s) => {
       dragPreviewState = s || null;
       simAccumulator = 0;
@@ -477,5 +649,6 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       }
     },
     isPausePending: () => !!pauseRequested,
+    getActionPlanner: () => actionPlanner,
   };
 }

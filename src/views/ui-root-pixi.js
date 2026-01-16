@@ -15,6 +15,7 @@ import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
 import { PERM_WIDTH, PERM_HEIGHT, layoutPermPos } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
+import { createActionLogView } from "./action-log-pixi.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
@@ -44,6 +45,8 @@ const runner = createSimRunner({
     chromeView.refresh?.();
   },
 });
+
+const actionPlanner = runner.getActionPlanner?.();
 
 const timeGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
@@ -139,16 +142,34 @@ const inventoryView = createInventoryView({
   },
   canShowHoverUI: () => interactionController.canShowHoverUI(),
   getState: () => runner.getState(),
-  moveItemBetweenOwners: (spec) =>
-    runner.dispatchAction(ActionKinds.INVENTORY_MOVE, spec),
+  getPreviewVersion: () =>
+    runner.isPreviewing?.() ? 0 : actionPlanner?.getVersion?.() ?? 0,
+  getInventoryPreview: (ownerId) =>
+    runner.isPreviewing?.()
+      ? null
+      : actionPlanner?.getInventoryPreview?.(ownerId) ?? null,
+  getFocusIntent: () =>
+    runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
+  onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
+  moveItemBetweenOwners: (spec) => {
+    if (spec.fromOwnerId === spec.toOwnerId) {
+      return runner.dispatchAction(
+        ActionKinds.INVENTORY_MOVE,
+        spec,
+        { apCost: 0 }
+      );
+    }
+    return actionPlanner?.setItemTransferIntent?.(spec) || {
+      ok: false,
+      reason: "noPlanner",
+    };
+  },
   splitStackAndPlace: ({ ownerId, itemId, amount }) =>
-    runner.dispatchAction(ActionKinds.INVENTORY_SPLIT, {
-      ownerId,
-      itemId,
-      amount,
-    }),
-  stackItemsInOwner: (spec) =>
-    runner.dispatchAction(ActionKinds.INVENTORY_STACK, spec),
+    runner.dispatchAction(
+      ActionKinds.INVENTORY_SPLIT,
+      { ownerId, itemId, amount },
+      { apCost: 0 }
+    ),
 });
 
 const boardView = createBoardView({
@@ -169,6 +190,12 @@ const charactersView = createCharactersView({
   interaction: interactionController,
   tooltipView,
   inventoryView,
+  getFocusIntent: () =>
+    runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
+  getPreviewSlotIndex: (charId) =>
+    runner.isPreviewing?.()
+      ? null
+      : actionPlanner?.getCharacterOverrideSlot?.(charId) ?? null,
   onCharacterDropped({ charId, dropPos }) {
     const slots = runner.getState().permanentSlots;
     const count = slots.length;
@@ -189,9 +216,9 @@ const charactersView = createCharactersView({
       }
     }
     if (bestIndex != null) {
-      runner.dispatchAction(ActionKinds.PLACE_CHARACTER, {
+      actionPlanner?.setPawnMoveIntent?.({
         charId,
-        slotIndex: bestIndex,
+        toSlotIndex: bestIndex,
       });
     }
   },
@@ -217,6 +244,14 @@ let apGraphView = createMetricGraphView({
   metric: GRAPH_METRICS.ap,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
+  getSeriesValueOverride: (tSec, seriesId) => {
+    if (seriesId !== "ap") return null;
+    const state = runner.getCursorState();
+    const currentSec = Math.floor(state?.tSec ?? 0);
+    if (tSec !== currentSec) return null;
+    const preview = actionPlanner?.getApPreview?.();
+    return preview ? preview.remaining : null;
+  },
   setPreviewState: (s) => runner.setPreviewState(s),
   clearPreviewState: () => runner.clearPreviewState(),
   commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
@@ -228,6 +263,7 @@ const chromeView = createChromeView({
   layer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
   getCurrentSeasonData,
+  getApPreview: () => actionPlanner?.getApPreview?.() ?? null,
   togglePause: () => {
     const paused = runner.getCursorState().paused;
     if (paused) {
@@ -259,6 +295,31 @@ const debugView = createDebugOverlay({
   runner,
 });
 
+const actionLogView = createActionLogView({
+  app,
+  layer: uiLayers.controlsLayer,
+  getPlanner: () => actionPlanner,
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  isPreviewing: () => runner.isPreviewing?.() ?? false,
+  onJumpToSecond: (tSec) => runner.browseCursorSecond?.(tSec),
+  getOwnerLabel(ownerId) {
+    const state = runner.getState();
+    const permSlot = state.permanentSlots.find(
+      (s) => s.permanent && s.permanent.instanceId === ownerId
+    );
+    if (permSlot) {
+      const perm = permSlot.permanent;
+      const def = permanentDefs[perm.defId];
+      return def?.name || def?.id || `Permanent ${ownerId}`;
+    }
+    const ch = state.characters.find((c) => c.id === ownerId);
+    if (ch) return ch.name || `Char ${ownerId}`;
+    return `Owner ${ownerId}`;
+  },
+  getState: () => runner.getState(),
+});
+
 runner.init();
 interactionController.init();
 tooltipView.init();
@@ -266,6 +327,7 @@ inventoryView.init();
 boardView.init();
 charactersView.init();
 chromeView.init();
+actionLogView.init();
 
 app.ticker.add((delta) => {
   const frameDt = delta / 60;
@@ -276,6 +338,7 @@ app.ticker.add((delta) => {
   tooltipView.update(frameDt);
   inventoryView.update(frameDt);
   chromeView.update(frameDt);
+  actionLogView.update(frameDt);
   debugView.update();
   const anyGraphOpen =
     goldGraphView.isOpen() || apGraphView.isOpen();
@@ -292,7 +355,12 @@ window.__DBG__ = {
   getCursorState: () => runner.getCursorState(),
   commit: (b) => runner.commitCursorSecond(b),
   preview: (s) => runner.setPreviewState(s),
-  clearPreview: () => runner.clearPreviewState(),
+  clearPreview: () => {
+    runner.clearPreviewState();
+    return { ok: true, previewing: runner.isPreviewing?.() ?? false };
+  },
   dispatch: (kind, payload) => runner.dispatchAction(kind, payload),
+  getLastPlannerCommitError: () =>
+    runner.getLastPlannerCommitError?.() ?? null,
   test: runDeterminismSuite,
 };

@@ -15,14 +15,36 @@ export const ActionKinds = {
   INVENTORY_MOVE: "inventoryMove",
   INVENTORY_SPLIT: "inventorySplit",
   INVENTORY_STACK: "inventoryStack",
+  BUILD_DESIGNATE: "buildDesignate",
   DEBUG_SET_CAP: "debugSetCap",
 };
-
-const ACTION_COST = 20;
 
 function ensureAPState(state) {
   if (typeof state.actionPoints !== "number") state.actionPoints = 100;
   if (typeof state.actionPointCap !== "number") state.actionPointCap = 100;
+}
+
+function getActionApCost(action) {
+  const raw = action?.apCost ?? action?.payload?.apCost;
+  if (Number.isFinite(raw)) {
+    return Math.max(0, Math.floor(raw));
+  }
+
+  const kind = action?.kind;
+  if (
+    kind === ActionKinds.PLACE_CHARACTER ||
+    kind === ActionKinds.INVENTORY_MOVE ||
+    kind === ActionKinds.INVENTORY_SPLIT ||
+    kind === ActionKinds.INVENTORY_STACK ||
+    kind === ActionKinds.BUILD_DESIGNATE
+  ) {
+    console.warn(
+      "Action missing apCost; defaulting to 0 for replay safety.",
+      action
+    );
+  }
+
+  return 0;
 }
 
 // UPDATE: Added context parameter to support Replay mode
@@ -60,19 +82,7 @@ export function applyAction(state, action, context = {}) {
   // ---------------------------------------------------------------------------
   // 2. Cost Calculation & Validation
   // ---------------------------------------------------------------------------
-  let cost = 0;
-
-  switch (kind) {
-    case ActionKinds.PLACE_CHARACTER:
-    case ActionKinds.INVENTORY_MOVE:
-    case ActionKinds.INVENTORY_SPLIT:
-    case ActionKinds.INVENTORY_STACK:
-      cost = ACTION_COST;
-      break;
-    case ActionKinds.DEBUG_SET_CAP:
-      cost = 0;
-      break;
-  }
+  const cost = getActionApCost(action);
 
   // NOTE: We still enforce AP costs during replay to ensure determinism.
   if (state.actionPoints < cost) {
@@ -109,6 +119,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.INVENTORY_STACK:
       result = cmdStackItemsInOwner(state, payload);
+      break;
+
+    case ActionKinds.BUILD_DESIGNATE:
+      result = { ok: true, result: "designated" };
       break;
 
     case ActionKinds.DEBUG_SET_CAP:

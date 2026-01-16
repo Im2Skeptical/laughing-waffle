@@ -33,6 +33,10 @@ export function createInventoryView({
   canShowHoverUI,
   tooltipView,
   getState,
+  getPreviewVersion,
+  getInventoryPreview,
+  getFocusIntent,
+  onGhostClick,
 
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
@@ -42,6 +46,8 @@ export function createInventoryView({
 
   const windows = new Map();
   let uiBlocked = false;
+  let lastPreviewVersion = null;
+  let focusIntentCache = null;
 
   // Owners currently showing an error flash; used to pause auto-rebuilds.
   const flashingOwners = new Set();
@@ -66,6 +72,7 @@ export function createInventoryView({
     offsetX: 0,
     offsetY: 0,
     view: null,
+    sourceOwnerOverride: null,
 
     cellOffsetGX: 0,
     cellOffsetGY: 0,
@@ -148,6 +155,12 @@ export function createInventoryView({
     header.cursor = "move";
     c.addChild(header);
 
+    const focusOutline = new PIXI.Graphics();
+    focusOutline.lineStyle(2, 0x7fd0ff, 1);
+    focusOutline.drawRoundedRect(1, 1, w - 2, h - 2, 10);
+    focusOutline.visible = false;
+    c.addChild(focusOutline);
+
     const title = new PIXI.Text(getOwnerLabel(ownerId), {
       fill: 0xffffff,
       fontSize: 13,
@@ -182,6 +195,7 @@ export function createInventoryView({
       ownerId,
       container: c,
       header,
+      focusOutline,
       title,
       pinText,
       body,
@@ -310,6 +324,35 @@ export function createInventoryView({
     }
   }
 
+  function refreshWindowVisibility(win) {
+    if (!win) return;
+    win.container.visible = !!win.pinned || !!win.hovered;
+  }
+
+  function applyFocusVisibility(focusIntent) {
+    if (focusIntent && focusIntent.kind === "itemTransfer") {
+      const focusOwners = new Set([
+        focusIntent.fromOwnerId,
+        focusIntent.toOwnerId,
+      ]);
+      for (const ownerId of focusOwners) {
+        if (ownerId == null) continue;
+        ensureWindow(ownerId);
+      }
+      for (const win of windows.values()) {
+        const shouldFocus = focusOwners.has(win.ownerId);
+        win.focusOutline.visible = shouldFocus;
+        win.container.visible = shouldFocus;
+      }
+      return;
+    }
+
+    for (const win of windows.values()) {
+      win.focusOutline.visible = false;
+      refreshWindowVisibility(win);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // TOOLTIP HELPERS
   // ---------------------------------------------------------------------------
@@ -362,7 +405,11 @@ export function createInventoryView({
     win.body.removeChildren();
 
     drawGrid(win);
-    drawItems(win, inv);
+    const preview =
+      typeof getInventoryPreview === "function"
+        ? getInventoryPreview(ownerId)
+        : null;
+    drawItems(win, inv, preview);
 
     win.title.text = getOwnerLabel(ownerId);
 
@@ -389,62 +436,140 @@ export function createInventoryView({
     win.body.addChild(g);
   }
 
-  function drawItems(win, inv) {
+  function buildItemView(win, item, opts = {}) {
     const { cellSize } = win;
+    const c = new PIXI.Container();
+    const ownerId = opts.ownerId ?? win.ownerId;
 
-    for (const item of inv.items) {
-      const c = new PIXI.Container();
-      c.eventMode = "static";
-      c.cursor = "pointer";
+    const interactive = !!opts.interactive;
+    c.eventMode = interactive ? "static" : "none";
+    c.cursor = interactive ? "pointer" : "default";
 
-      c.itemData = item;
-      c.ownerId = win.ownerId;
+    c.itemData = item;
+    c.ownerId = ownerId;
+    c.sourceOwnerId = item?.sourceOwnerId ?? null;
 
+    if (interactive && !opts.isGhost) {
       c.on("pointerover", () => {
         if (dragItem.active) return;
         if (!tooltipView) return;
         const bounds = c.getBounds();
-        tooltipView.show(makeItemTooltipSpec(item, win.ownerId), bounds);
+        tooltipView.show(makeItemTooltipSpec(item, ownerId), bounds);
       });
 
       c.on("pointerout", () => {
         if (!tooltipView) return;
         tooltipView.hide();
       });
+    }
 
-      const def = itemDefs[item.kind];
-      const color = def?.color ?? 0x999999;
+    const def = itemDefs[item.kind];
+    const color = def?.color ?? 0x999999;
 
-      const box = new PIXI.Graphics();
-      box.beginFill(color);
-      box.drawRoundedRect(
-        0,
-        0,
-        item.width * cellSize - 2,
-        item.height * cellSize - 2,
-        5
-      );
-      box.endFill();
-      c.addChild(box);
+    const box = new PIXI.Graphics();
+    box.beginFill(color);
+    box.drawRoundedRect(
+      0,
+      0,
+      item.width * cellSize - 2,
+      item.height * cellSize - 2,
+      5
+    );
+    box.endFill();
+    c.addChild(box);
 
-      c.bg = box;
+    c.bg = box;
+    c.bg.__baseTint = 0xffffff;
 
-      if (item.quantity > 1) {
-        const t = new PIXI.Text(String(item.quantity), {
-          fill: 0xffffff,
-          fontSize: 14,
-        });
-        t.x = item.width * cellSize - t.width - 6;
-        t.y = item.height * cellSize - t.height - 4;
-        c.addChild(t);
-      }
+    if (item.quantity > 1) {
+      const t = new PIXI.Text(String(item.quantity), {
+        fill: 0xffffff,
+        fontSize: 14,
+      });
+      t.x = item.width * cellSize - t.width - 6;
+      t.y = item.height * cellSize - t.height - 4;
+      c.addChild(t);
+    }
 
-      c.x = item.gridX * cellSize + 1;
-      c.y = item.gridY * cellSize + 1;
+    const gx = opts.gridX ?? item.gridX;
+    const gy = opts.gridY ?? item.gridY;
+    c.x = gx * cellSize + 1;
+    c.y = gy * cellSize + 1;
 
+    if (opts.isGhost) {
+      c.alpha = 0.4;
+      c.cursor = "pointer";
+      c.eventMode = "static";
+      c.on("pointertap", () => {
+        if (typeof onGhostClick === "function") {
+          onGhostClick(opts.intentId);
+        }
+      });
+    }
+
+    if (interactive && opts.enableDrag) {
       c.on("pointerdown", (ev) => onItemPointerDown(ev, win, item, c));
+    }
 
-      win.body.addChild(c);
+    if (opts.isFocused) {
+      c.bg.tint = 0xffff66;
+    }
+
+    win.body.addChild(c);
+    return c;
+  }
+
+  function drawItems(win, inv, preview) {
+    const hidden =
+      preview?.hiddenItemIds instanceof Set
+        ? preview.hiddenItemIds
+        : new Set(preview?.hiddenItemIds || []);
+
+    const focusIntent =
+      typeof getFocusIntent === "function" ? getFocusIntent() : null;
+    const focusedItemId =
+      focusIntent && focusIntent.kind === "itemTransfer"
+        ? focusIntent.itemId
+        : null;
+
+    for (const item of inv.items) {
+      if (hidden.has(item.id)) continue;
+      buildItemView(win, item, {
+        interactive: true,
+        enableDrag: true,
+        isFocused: focusedItemId != null && item.id === focusedItemId,
+      });
+    }
+
+    if (preview?.overlayItems?.length) {
+      for (const item of preview.overlayItems) {
+        if (!item) continue;
+        const allowDrag = item.sourceOwnerId != null;
+        buildItemView(win, item, {
+          ownerId: item.ownerId ?? win.ownerId,
+          gridX: item.gridX,
+          gridY: item.gridY,
+          interactive: allowDrag,
+          enableDrag: allowDrag,
+          isFocused: focusedItemId != null && item.id === focusedItemId,
+        });
+      }
+    }
+
+    if (preview?.ghostItems?.length) {
+      for (const item of preview.ghostItems) {
+        if (!item) continue;
+        buildItemView(win, item, {
+          ownerId: item.ownerId ?? win.ownerId,
+          gridX: item.gridX,
+          gridY: item.gridY,
+          interactive: false,
+          enableDrag: false,
+          isGhost: true,
+          intentId: item.intentId,
+          isFocused: focusedItemId != null && item.id === focusedItemId,
+        });
+      }
     }
   }
 
@@ -485,6 +610,7 @@ export function createInventoryView({
     dragItem.ownerId = win.ownerId;
     dragItem.item = item;
     dragItem.view = view;
+    dragItem.sourceOwnerOverride = view?.sourceOwnerId ?? null;
 
     grayItemView(view);
 
@@ -565,7 +691,10 @@ export function createInventoryView({
 
   function dropItem(ev) {
     const item = dragItem.item;
-    const sourceOwner = dragItem.ownerId;
+    const sourceOwner =
+      dragItem.sourceOwnerOverride != null
+        ? dragItem.sourceOwnerOverride
+        : dragItem.ownerId;
     const view = dragItem.view;
     const g = ev.data.global;
 
@@ -575,6 +704,7 @@ export function createInventoryView({
     const finish = () => {
       restoreItemView(view);
       dragItem.view = null;
+      dragItem.sourceOwnerOverride = null;
     };
 
     if (uiBlocked) {
@@ -595,6 +725,20 @@ export function createInventoryView({
 
     gx -= dragItem.cellOffsetGX || 0;
     gy -= dragItem.cellOffsetGY || 0;
+
+    const isCrossOwner = sourceOwner !== targetOwner;
+    if (isCrossOwner) {
+      const targetInv = getInventoryForOwner(targetOwner);
+      const preview =
+        typeof getInventoryPreview === "function"
+          ? getInventoryPreview(targetOwner)
+          : null;
+      if (!canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id)) {
+        flashItemError(view, sourceOwner);
+        finish();
+        return;
+      }
+    }
 
     const handler =
       typeof moveItemBetweenOwners === "function"
@@ -647,6 +791,62 @@ export function createInventoryView({
       gx: Math.floor(local.x / win.cellSize),
       gy: Math.floor(local.y / win.cellSize),
     };
+  }
+
+  function previewCoversCell(item, gx, gy) {
+    if (!item) return false;
+    return (
+      gx >= item.gridX &&
+      gx < item.gridX + item.width &&
+      gy >= item.gridY &&
+      gy < item.gridY + item.height
+    );
+  }
+
+  function isCellBlocked(inv, gx, gy, preview, ignoreItemId) {
+    if (!inv) return true;
+    if (gx < 0 || gy < 0 || gx >= inv.cols || gy >= inv.rows) return true;
+
+    const hidden =
+      preview?.hiddenItemIds instanceof Set
+        ? preview.hiddenItemIds
+        : new Set(preview?.hiddenItemIds || []);
+
+    const idx = gy * inv.cols + gx;
+    const baseId = inv.grid[idx];
+    if (baseId != null && baseId !== ignoreItemId && !hidden.has(baseId))
+      return true;
+
+    if (preview?.overlayItems?.length) {
+      for (const item of preview.overlayItems) {
+        if (item?.id === ignoreItemId) continue;
+        if (previewCoversCell(item, gx, gy)) return true;
+      }
+    }
+
+    if (preview?.ghostItems?.length) {
+      for (const item of preview.ghostItems) {
+        if (item?.id === ignoreItemId) continue;
+        if (previewCoversCell(item, gx, gy)) return true;
+      }
+    }
+
+    return false;
+  }
+
+  function canPlaceItemPreview(inv, item, gx, gy, preview, ignoreItemId) {
+    if (!inv || !item) return false;
+    if (gx < 0 || gy < 0) return false;
+    if (gx + item.width > inv.cols) return false;
+    if (gy + item.height > inv.rows) return false;
+
+    for (let y = 0; y < item.height; y++) {
+      for (let x = 0; x < item.width; x++) {
+        if (isCellBlocked(inv, gx + x, gy + y, preview, ignoreItemId))
+          return false;
+      }
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -810,6 +1010,12 @@ export function createInventoryView({
       return;
     }
 
+    const previewVersion =
+      typeof getPreviewVersion === "function" ? getPreviewVersion() : null;
+    const previewChanged =
+      previewVersion != null && previewVersion !== lastPreviewVersion;
+    if (previewChanged) lastPreviewVersion = previewVersion;
+
     for (const [ownerId, win] of windows.entries()) {
       if (!win.container.visible) continue;
 
@@ -819,10 +1025,17 @@ export function createInventoryView({
       const v = inv.version ?? 0;
       const last = lastVersionByOwner.get(ownerId) ?? 0;
 
-      if (v !== last) {
+      if (v !== last || previewChanged) {
         rebuildWindow(ownerId);
       }
     }
+
+    const focusIntent =
+      typeof getFocusIntent === "function" ? getFocusIntent() : null;
+    if (focusIntent !== focusIntentCache) {
+      focusIntentCache = focusIntent;
+    }
+    applyFocusVisibility(focusIntent);
   }
 
   return {

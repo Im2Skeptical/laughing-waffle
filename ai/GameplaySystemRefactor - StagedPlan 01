@@ -1,0 +1,168 @@
+## Staged plan (keeps the game runnable; isolates risk)
+
+### Stage 0 — Baseline + guardrails
+
+**Goal:** freeze a baseline and make regressions obvious.
+**Work:**
+
+* Ensure determinism suite is runnable from your current workflow.
+* Add a minimal “board migration debug overlay” flag (optional).
+  **Accept:** determinism suite passes; no behavior changes.
+
+---
+
+### Stage 1 — Add new defs (tiles + events) with placeholders
+
+**Goal:** lock the new def contract without touching simulation.
+**Work:**
+
+* Create `defs/env-tiles-defs.js` (or extend `gamepieces-defs.js` with a new export).
+* Create `defs/env-events-defs.js` (new env event set; mostly no-op).
+* Add 8–12 tile defs and 15–30 event defs:
+
+  * include some `AddResource` events to drive graphs. (Already supported)
+    **Accept:** app loads; no gameplay change yet.
+
+---
+
+### Stage 2 — Add `state.board` + serialization rules + occupancy rebuild
+
+**Goal:** introduce the new state shape in parallel.
+**Work:**
+
+* In `state.js`:
+
+  * add `state.board = { width:12, env:{tilesById,cardsById}, city:{permanentsById}, cadence:{...} }`
+  * add counters: `nextEnvTileInstanceId`, `nextEnvCardInstanceId`
+  * add `rebuildBoardDerived(state)` that rebuilds `tileOcc/cardOcc/permOcc`
+* In `serializeGameState`:
+
+  * strip board derived occupancy arrays (same idea as inventory `grid`) 
+* In `deserializeGameState`:
+
+  * rebuild derived occupancy arrays deterministically 
+    **Accept:** determinism suite passes; existing gameplay unchanged.
+
+---
+
+### Stage 3 — Populate board from scenario/init (tiles + permanents), render new rows
+
+**Goal:** new UI layout works; state.board is visible.
+**Work:**
+
+* Update scenario/init to place:
+
+  * env tiles (persistent) into `board.env.tilesById`
+  * permanents into `board.city.permanentsById`
+  * set each instance’s `col/span`
+* Update board rendering to use `state.board` for:
+
+  * env tiles row
+  * env events row (empty for now)
+  * permanent row (or map existing permanents into board for rendering only)
+* Keep legacy envSlots/permanentSlots intact (dual-run).
+  **Accept:** UI shows 3 aligned 12-slot rows; interaction still works for legacy systems; determinism passes.
+
+---
+
+### Stage 4 — Introduce board-aware targeting helpers + minimal effect ops (no cadence yet)
+
+**Goal:** “same column” lookups are standardized.
+**Work:**
+
+* Add model helpers:
+
+  * `getTileIdAtCol(state,col)`, `getCardIdAtCol(state,col)`, `getPermanentIdAtCol(state,col)`
+  * `resolveTarget(state, ctx, targetSpec)`
+* Extend `effects.js` with board-aware variants (minimal set):
+
+  * `AddBoardProp` / `SetBoardProp` (tile/card/permanent)
+  * `RemoveBoardPiece` (card only initially)
+  * `TransformBoardPiece` (card only initially)
+* Don’t delete old env ops yet; keep them.
+  **Accept:** no gameplay change; helpers covered by small unit smoke tests; determinism passes.
+
+---
+
+### Stage 5 — Cadence generator: spawn env events from tiles every N seconds
+
+**Goal:** replace deck/discard flow with deterministic time-based spawns (still minimal behaviors).
+**Work:**
+
+* Add cadence config to gamerules (intervalSec=5) and store in `state.board.cadence`.
+* In the simulation path (inside `updateGame` after `cmdTickSimulation`), on cadence boundary:
+
+  * for each tile (or for each column, anchored tile):
+
+    * use tile’s season table to select an env event via `state.rng`
+    * create/replace an `EnvCardInstance` in `board.env.cardsById` occupying that span/col
+    * set `createdSec`, optional `expiresSec` (using def duration)
+  * rebuild occupancy
+* Keep old envSlots system running, but stop rendering it to avoid confusion.
+  **Accept:** time travel/replay deterministically reproduces spawns; graphs change as expected; determinism suite passes.
+
+---
+
+### Stage 6 — Run env event behaviors through existing behavior/effect pipeline
+
+**Goal:** env events actually do things over time and can target tiles/permanents.
+**Work:**
+
+* Update `game-model.js` loop:
+
+  * iterate active env cards (board layer) and run behaviors (existing behavior engine)
+  * pass a context that includes `{ col, span, layer:"card" }`
+* Add 2–4 placeholder behaviors demonstrating:
+
+  * event applies `AddResource` on tick
+  * event adds a prop to underlying tile
+  * event affects permanent in same columns
+    **Accept:** behaviors fire consistently in simulation + replay; targeting works across layers.
+
+---
+
+### Stage 7 — Switch gameplay interactions/actions to new board model (as needed)
+
+**Goal:** player interactions edit the new board state via timeline actions.
+**Work:**
+
+* Add new actions (timeline-recorded) for:
+
+  * placing/removing tiles (if player-editable)
+  * placing/removing permanents (if not already)
+* Ensure gating remains “must be paused” for edit actions. 
+  **Accept:** actions replay deterministically; scrubbing shows correct state.
+
+---
+
+### Stage 8 — Remove legacy env deck/discard + envSlots refill code paths
+
+**Goal:** fully retire old env system.
+**Work:**
+
+* Delete or deprecate:
+
+  * `envSeasons`, `drawEnvDefId`, `refillEnvSlots`, discard mechanics
+  * env slot iteration in `game-model.js`
+  * deck/discard HUD text in chrome 
+    **Accept:** no legacy references remain; determinism suite passes; time travel stable.
+
+---
+
+### Stage 9 — Multi-span rules + cleanup
+
+**Goal:** finalize placement/overlap policies and simplify.
+**Work:**
+
+* Define overlap rules per layer:
+
+  * tile vs tile (usually forbidden)
+  * card vs card (replace/forbidden)
+  * permanent vs permanent (forbidden)
+  * card over tile (allowed)
+* Ensure occupancy rebuild enforces invariants (detect overlap, resolve deterministically).
+* Cleanup naming and docs.
+
+**Accept:** stable rules; no hidden coupling; performance acceptable.
+
+---

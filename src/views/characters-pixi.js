@@ -28,12 +28,16 @@ export function createCharactersView(opts) {
     // newer shape
     getGameState,
     onDropCharacter,
+    getFocusIntent,
+    getPreviewSlotIndex,
   } = opts;
 
   const viewsById = new Map();
   const DRAG_THRESHOLD_PX = 3;
   const FAN_SPACING = 40;
   const RADIUS = 30;
+  let focusGhost = null;
+  let focusedCharId = null;
 
   // ---------------------------------------------------------------------------
   // Safe adapters (so missing wiring doesn't crash)
@@ -132,7 +136,11 @@ export function createCharactersView(opts) {
     const slotsToChars = new Map();
 
     for (const char of chars) {
-      const idx = char.slotIndex;
+      const overrideIdx =
+        typeof getPreviewSlotIndex === "function"
+          ? getPreviewSlotIndex(char.id)
+          : null;
+      const idx = overrideIdx != null ? overrideIdx : char.slotIndex;
       if (idx == null) continue;
       let list = slotsToChars.get(idx);
       if (!list) {
@@ -321,7 +329,7 @@ export function createCharactersView(opts) {
       }
     }
 
-    viewsById.set(char.id, { container, char });
+    viewsById.set(char.id, { container, char, outline });
   }
 
   // ---------------------------------------------------------------------------
@@ -335,6 +343,11 @@ export function createCharactersView(opts) {
       createCharacterView(char);
     }
 
+    if (focusGhost && focusGhost.parent) {
+      focusGhost.parent.removeChild(focusGhost);
+    }
+    focusGhost = null;
+
     layoutAllCharacters();
   }
 
@@ -344,8 +357,47 @@ export function createCharactersView(opts) {
 
   function init() {}
 
+  function updateFocus() {
+    const intent =
+      typeof getFocusIntent === "function" ? getFocusIntent() : null;
+    const nextFocused =
+      intent && intent.kind === "pawnMove" ? intent.charId : null;
+    if (focusedCharId !== nextFocused) {
+      focusedCharId = nextFocused;
+    }
+
+    for (const [id, view] of viewsById.entries()) {
+      const isFocused = focusedCharId != null && id === focusedCharId;
+      view.outline.tint = isFocused ? 0xffff66 : 0x000000;
+    }
+
+    if (intent && intent.kind === "pawnMove") {
+      const fromSlot = intent.fromPlacement?.slotIndex;
+      if (fromSlot != null) {
+        const pos = getBasePosForSlotIndex(fromSlot);
+        if (!focusGhost) {
+          focusGhost = new PIXI.Graphics();
+          focusGhost.lineStyle(2, 0x7fd0ff, 1);
+          focusGhost.beginFill(0xffffff, 0.2);
+          focusGhost.drawCircle(0, 0, RADIUS);
+          focusGhost.endFill();
+          focusGhost.zIndex = 1;
+          layer.addChild(focusGhost);
+        }
+        focusGhost.visible = true;
+        focusGhost.x = pos.x;
+        focusGhost.y = pos.y;
+      } else if (focusGhost) {
+        focusGhost.visible = false;
+      }
+    } else if (focusGhost) {
+      focusGhost.visible = false;
+    }
+  }
+
   function update() {
     layoutAllCharacters();
+    updateFocus();
   }
 
   return {
