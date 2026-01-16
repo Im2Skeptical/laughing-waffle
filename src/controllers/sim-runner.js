@@ -70,10 +70,11 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
   // IMPORTANT: This advances playbackNextActionIdx and sets playbackLastAppliedSec,
   // so actions at this second are NOT duplicated later (e.g. after unpausing).
   function applyPlaybackActionsForSecond(tSec) {
-    if (!playbackActive) return;
-    if (!timeline?.actions) return;
-    if (playbackLastAppliedSec === tSec) return;
+    if (!playbackActive) return false;
+    if (!timeline?.actions) return false;
+    if (playbackLastAppliedSec === tSec) return false;
 
+    let appliedAny = false;
     while (playbackNextActionIdx < timeline.actions.length) {
       const action = timeline.actions[playbackNextActionIdx];
       const aSec = Math.floor(action.tSec ?? 0);
@@ -87,6 +88,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
         if (res && !res.ok) {
           console.warn(`Live Replay failed at t=${tSec}`, res);
         }
+        appliedAny = true;
         playbackNextActionIdx++;
         continue;
       }
@@ -94,6 +96,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     }
 
     playbackLastAppliedSec = tSec;
+    return appliedAny;
   }
 
   function clampTimeScale(v) {
@@ -282,6 +285,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       let steps = 0;
       const maxSteps = getMaxSimStepsForSpeed(effectiveSpeed);
 
+      let playbackAppliedThisUpdate = false;
       while (simAccumulator >= SIM_DT_STEP && steps < maxSteps) {
         const isPhysicallyPaused = cursorState.paused;
 
@@ -305,7 +309,9 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
             pauseRequested = false;
 
             // NEW: ensure recorded actions at this second are visible while paused
-            applyPlaybackActionsForSecond(tSec);
+            if (applyPlaybackActionsForSecond(tSec)) {
+              playbackAppliedThisUpdate = true;
+            }
 
             simAccumulator = 0;
             break;
@@ -318,14 +324,16 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
           const maxReached = timeline.maxReachedSec ?? 0;
           const currentTSec = Math.floor(simStep / TICKS_PER_SEC);
 
-          if (currentTSec >= maxReached) {
+          if (currentTSec > maxReached) {
             playbackActive = false;
           }
 
           // Check for actions at this second
           if (playbackActive && simStep % TICKS_PER_SEC === 0) {
             const tSec = currentTSec;
-            applyPlaybackActionsForSecond(tSec);
+            if (applyPlaybackActionsForSecond(tSec)) {
+              playbackAppliedThisUpdate = true;
+            }
           }
         }
 
@@ -337,6 +345,11 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
 
       if (steps > 0) {
         maintainCheckpoints(timeline, cursorState);
+      }
+
+      if (playbackAppliedThisUpdate) {
+        onRebuildViews?.();
+        onInvalidate?.("playbackApply");
       }
 
       if (steps === maxSteps) {

@@ -1,0 +1,259 @@
+For context please refer to AGENTS.md and ai-context.md
+
+
+---
+
+## ✦ IMPLEMENTATION PROMPT — ACTION PLANNER + ACTION LOG (V1)
+
+You are implementing the **Action Planner + Action Log (v1)** for an existing deterministic, time-travel-enabled JavaScript game.
+
+This feature introduces **planning-phase player intents**, **consequence-based AP costs**, and **inventory ghost reservations**, while preserving determinism and replay.
+
+You must follow the architectural boundaries described below. Do not invent new systems unless explicitly required.
+
+---
+
+## 1. CORE DESIGN INTENT (NON-NEGOTIABLE)
+
+* The game supports **time travel** and **rewind**.
+* Player actions within a single `tSec` are **reversible and editable**.
+* **AP cost is charged based on final consequence**, not intermediate moves.
+* **Undo must never hard-fail**.
+
+* **Authoritative state and replay must remain unchanged in principle**.
+
+---
+
+## 2. CONCEPTUAL MODEL
+
+### Two layers of actions
+
+1. **Planning Intents (controller-only)**
+
+   * Exist only while paused at a given `tSec`
+   * Editable, undoable, coalesced
+   * Drive AP preview + UI
+   * Never serialized into timeline
+
+2. **Canonical Timeline Actions (model)**
+
+   * Net consequences only
+   * Recorded at `tSec`
+   * Deterministic and replayable
+   * Source of truth when rewinding
+
+---
+
+## 3. MODULES TO IMPLEMENT / MODIFY
+
+### New modules
+
+```
+src/controllers/
+  action-intents.js     // pure intent constructors + light validation
+  action-planner.js    // stateful planner, coalescing, ghosts, AP preview
+
+src/views/
+  action-log-pixi.js   // UI view of planner state (current tSec only)
+```
+
+### Existing modules to integrate with
+
+* `src/controllers/sim-runner.js`
+* `src/views/ui-root-pixi.js`
+* Inventory rendering (to display ghost overlays)
+
+---
+
+## 4. ACTION PLANNER RESPONSIBILITIES (`action-planner.js`)
+
+The planner is a **controller**, not a model.
+
+It must:
+
+### Lifecycle
+
+* Operate on **one active `tSec` at a time**
+* Reset or re-materialize when `tSec` changes
+* Support **rewind** by reconstructing state from timeline actions
+
+### Inputs
+
+* Player intent setters:
+
+  * item ownership transfer
+  * pawn relocation
+  * build designation
+* Timeline actions at a given `tSec` (for reconstruction)
+
+### Outputs
+
+* Ordered, coalesced intent list for UI
+* AP preview (spent / remaining)
+* Inventory ghost overlays (source-side only)
+* Canonical timeline actions on commit
+
+### Guarantees
+
+* **One active intent per subject** (item / pawn / build plan)
+* If net effect == start-of-second state → intent disappears
+* Undo = remove intent + recompute preview
+* No per-frame recomputation
+
+---
+
+## 5. ACTION INTENTS (`action-intents.js`)
+
+This module must be:
+
+* Pure (no state)
+* Deterministic
+* JS objects only (no classes)
+
+Provide factory helpers for:
+
+* Item ownership transfer intent
+* Pawn move intent
+* Build designation intent
+
+No coalescing or AP logic here.
+
+---
+
+## 6. ACTION LOG UI (`action-log-pixi.js`)
+
+Scope is intentionally minimal. Attached is a mockup showing rough visual design / layout. 
+
+### Displays
+
+* **Only current `tSec`**
+* Each row:
+
+  * AP cost
+  * short description
+  * undo (“×”)
+
+### Behavior
+
+* AP visually deducts immediately (preview)
+* Undo refunds immediately
+* Clicking a row or ghost:
+
+  * highlights corresponding destination
+  * highlights log row
+
+No history browsing.
+No multi-second display.
+
+---
+
+## 7. INVENTORY GHOST RESERVATIONS
+
+### Purpose
+
+* Guarantee undo feasibility
+* Represent spatial commitment explicitly
+
+### Rules
+
+* Ghosts exist **only for inventory ownership transfers**
+* Pawns do not ghost (unbounded stacking)
+* Ghosts:
+
+  * occupy exact grid footprint
+  * rendered greyed-out
+  * block space
+  * are non-draggable
+  * clickable for focus only
+
+Ghosts are derived from:
+
+* start-of-`tSec` placement
+* current active intents
+
+---
+
+## 8. AP COST MODEL
+
+* AP is **preview-deducted immediately** when intent is added
+* AP preview is derived from **net consequence**
+* No authoritative AP mutation until commit
+* Undo refunds preview AP
+
+AP income / upkeep is **out of scope**.
+
+---
+
+## 9. COMMIT + TIME TRAVEL SEMANTICS
+
+### Commit (implicit)
+
+Occurs when:
+
+* time advances past the current `tSec`
+* cursor moves to another second
+
+On commit:
+
+* planner produces canonical timeline actions
+* sim-runner truncates future, appends actions
+* authoritative AP deducted once
+* planner resets for next `tSec`
+
+### Rewind
+
+When scrubbing back to a `tSec`:
+
+* planner reconstructs its state by **materializing intents from timeline actions at that second**
+* no separate intent history is stored
+
+This is **Option A** (reconstruct, not persist intents).
+
+---
+
+## 10. PERFORMANCE REQUIREMENTS (MINIMAL, BUT REQUIRED)
+
+* Use `timeline.revision` to invalidate planner caches
+* Materialize intents **only on events**, not per frame:
+
+  * `tSec` change
+  * timeline revision change
+  * planner edit
+* Cache materialized log by `(tSec, revision)`
+* No simulation or grid scanning during materialization
+* Timeline actions must include minimal placement data:
+
+  * `fromOwnerId`, `toOwnerId`
+  * `fromPlacement`, `toPlacement`
+
+---
+
+## 11. NON-GOALS (DO NOT IMPLEMENT)
+
+* Multi-second action logs
+* Explicit commit buttons
+* Partial build stages
+* Staging buffers as first-class UI
+* AI planning
+* Action reordering
+* AP income / upkeep UI
+
+---
+
+## 12. DELIVERABLE EXPECTATION
+
+You will:
+
+1. Confirm understanding of this brief.
+2. Produce a **step-by-step implementation plan**:
+
+   * file by file
+   * responsibilities
+   * data flow
+   * integration points
+3. Identify any ambiguities **before coding**.
+
+Do not write code until the plan is approved.
+
+---
+

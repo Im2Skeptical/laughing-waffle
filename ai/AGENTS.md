@@ -3,7 +3,7 @@
 Local instructions for Codex agents working in this repo.
 
 ## Project context
-- Read `src/ai-context.md` before making changes.
+- Read `ai/ai-context.md` before making changes.
 - Preferred location for AI context files is `ai/ai-context.md` or `docs/ai-context.md`
   (the repo already has `ai/`, so `ai/ai-context.md` is a good home if you move it).
 
