@@ -141,7 +141,14 @@ export function placeCharacterInSlot(state, args) {
 }
 
 export function splitStackAndPlace(state, args) {
-  return cmdSplitStackAndPlace(state, args.ownerId, args.itemId, args.amount);
+  return cmdSplitStackAndPlace(
+    state,
+    args.ownerId,
+    args.itemId,
+    args.amount,
+    args.targetGX,
+    args.targetGY
+  );
 }
 
 export function setPaused(state, paused) {

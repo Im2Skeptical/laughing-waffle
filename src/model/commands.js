@@ -20,6 +20,7 @@ import {
   runEffect,
   applySeasonEndForEnvCard,
   processSeasonChangeForItems,
+  processSecondChangeForItems,
 } from "./effects.js";
 
 import { resetTimedTriggersOnPermanents } from "./behaviors.js";
@@ -180,6 +181,8 @@ export function cmdTickSimulation(state, dt) {
 
     // Legacy alias: planningIndex is treated as tSec for boundary/checkpoint consumers.
     state.planningIndex = state.tSec;
+
+    processSecondChangeForItems(state);
   }
 
   let advancedSeasonCount = 0;
@@ -273,7 +276,14 @@ export function cmdMoveItemBetweenOwners(
   return ctx.out || { ok: false, reason: "effectFailed" };
 }
 
-export function cmdSplitStackAndPlace(state, ownerId, itemId, amount) {
+export function cmdSplitStackAndPlace(
+  state,
+  ownerId,
+  itemId,
+  amount,
+  targetGX,
+  targetGY
+) {
   const inv = state.ownerInventories[ownerId];
   if (!inv) return { ok: false, reason: "noInventory" };
 
@@ -295,6 +305,8 @@ export function cmdSplitStackAndPlace(state, ownerId, itemId, amount) {
       ownerId,
       itemId,
       amount: splitAmount,
+      targetGX,
+      targetGY,
     },
     ctx
   );

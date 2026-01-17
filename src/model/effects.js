@@ -23,6 +23,61 @@ function bumpInvVersion(inv) {
   inv.version = (inv.version ?? 0) + 1;
 }
 
+function getExpiryTargetKind(def) {
+  if (!def) return null;
+  if (def.expiryToKind) return def.expiryToKind;
+  const seasonExpiry = normalizeEffectSpec(def.seasonExpiry);
+  if (seasonExpiry?.op === "TransformTo") return seasonExpiry.targetKind ?? null;
+  return null;
+}
+
+function sampleBinomial(state, trials, chance) {
+  if (!Number.isFinite(trials) || trials <= 0) return 0;
+  if (!Number.isFinite(chance) || chance <= 0) return 0;
+  if (chance >= 1) return Math.floor(trials);
+  if (typeof state?.rngNextFloat !== "function") return 0;
+
+  let hits = 0;
+  const count = Math.floor(trials);
+  for (let i = 0; i < count; i++) {
+    if (state.rngNextFloat() < chance) hits++;
+  }
+  return hits;
+}
+
+function addStackedUnits(state, inv, kind, amount) {
+  if (!inv || !Number.isFinite(amount) || amount <= 0) return 0;
+  const def = itemDefs[kind] || null;
+  const maxStack = getItemMaxStack({ kind, seasonsToExpire: null });
+  const dummy = { kind, seasonsToExpire: null };
+  let remaining = Math.floor(amount);
+
+  for (const stack of inv.items) {
+    if (!canStackItems(stack, dummy)) continue;
+    const current = Math.floor(stack.quantity ?? 0);
+    const space = Math.max(0, maxStack - current);
+    if (space <= 0) continue;
+    const add = Math.min(space, remaining);
+    stack.quantity = current + add;
+    remaining -= add;
+    if (remaining <= 0) break;
+  }
+
+  while (remaining > 0) {
+    const qty = Math.min(remaining, maxStack);
+    const newItem = Inventory.addNewItem(state, inv, {
+      kind,
+      quantity: qty,
+      width: def?.defaultWidth ?? 1,
+      height: def?.defaultHeight ?? 1,
+    });
+    if (!newItem) break;
+    remaining -= qty;
+  }
+
+  return amount - remaining;
+}
+
 export function runEffect(state, rawEffect, context) {
   if (!rawEffect) return false;
 
@@ -365,17 +420,30 @@ function handleSplitStack(state, effect, context) {
     seasonsToExpire: item.seasonsToExpire ?? null,
   };
 
-  let placed = false;
-  outer: for (let gy = 0; gy <= inv.rows - newItem.height; gy++) {
-    for (let gx = 0; gx <= inv.cols - newItem.width; gx++) {
+    let placed = false;
+    if (Number.isFinite(effect.targetGX) && Number.isFinite(effect.targetGY)) {
+      const gx = Math.floor(effect.targetGX);
+      const gy = Math.floor(effect.targetGY);
       if (Inventory.canPlaceItemAt(inv, newItem, gx, gy)) {
         newItem.gridX = gx;
         newItem.gridY = gy;
         placed = true;
-        break outer;
+      } else {
+        item.quantity += splitAmount;
+        return { ok: false, reason: "blocked" };
+      }
+    } else {
+      outer: for (let gy = 0; gy <= inv.rows - newItem.height; gy++) {
+        for (let gx = 0; gx <= inv.cols - newItem.width; gx++) {
+          if (Inventory.canPlaceItemAt(inv, newItem, gx, gy)) {
+            newItem.gridX = gx;
+            newItem.gridY = gy;
+            placed = true;
+            break outer;
+          }
+        }
       }
     }
-  }
 
   if (!placed) {
     item.quantity += splitAmount;
@@ -546,6 +614,46 @@ export function processSeasonChangeForItems(state) {
       item.seasonsToExpire -= 1;
       if (item.seasonsToExpire <= 0) handleItemSeasonExpiry(state, inv, item);
     }
+  }
+}
+
+export function processSecondChangeForItems(state) {
+  if (!state?.ownerInventories) return;
+
+  for (const inv of Object.values(state.ownerInventories)) {
+    if (!inv) continue;
+    const itemsSnapshot = [...inv.items];
+    let invChanged = false;
+
+    for (const item of itemsSnapshot) {
+      if (!item) continue;
+      const def = itemDefs[item.kind];
+      const chance = def?.expiryChancePerSec;
+      if (!Number.isFinite(chance) || chance <= 0) continue;
+
+      const qty = Math.floor(item.quantity ?? 0);
+      if (qty <= 0) continue;
+
+      const expired = sampleBinomial(state, qty, chance);
+      if (expired <= 0) continue;
+
+      const targetKind = getExpiryTargetKind(def);
+      if (expired >= qty) {
+        Inventory.removeItem(inv, item.id);
+        if (targetKind) {
+          addStackedUnits(state, inv, targetKind, qty);
+        }
+      } else {
+        item.quantity = qty - expired;
+        if (targetKind) {
+          addStackedUnits(state, inv, targetKind, expired);
+        }
+      }
+
+      invChanged = true;
+    }
+
+    if (invChanged) bumpInvVersion(inv);
   }
 }
 

@@ -164,10 +164,10 @@ const inventoryView = createInventoryView({
       reason: "noPlanner",
     };
   },
-  splitStackAndPlace: ({ ownerId, itemId, amount }) =>
+  splitStackAndPlace: ({ ownerId, itemId, amount, targetGX, targetGY }) =>
     runner.dispatchAction(
       ActionKinds.INVENTORY_SPLIT,
-      { ownerId, itemId, amount },
+      { ownerId, itemId, amount, targetGX, targetGY },
       { apCost: 0 }
     ),
 });

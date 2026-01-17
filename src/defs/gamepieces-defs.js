@@ -215,8 +215,8 @@ export const itemDefs = {
     name: "Grain",
     color: 0xdaa520,
     maxStack: 25,
-    expirySeasonsRange: [5, 6],
     seasonExpiry: { op: "TransformTo", targetKind: "rot" },
+    expiryChancePerSec: 0.0057,
     defaultWidth: 1,
     defaultHeight: 2,
     ui: {

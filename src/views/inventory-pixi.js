@@ -849,6 +849,18 @@ export function createInventoryView({
     return true;
   }
 
+  function findSplitPlacement(inv, item, preview) {
+    if (!inv || !item) return null;
+    for (let gy = 0; gy <= inv.rows - item.height; gy++) {
+      for (let gx = 0; gx <= inv.cols - item.width; gx++) {
+        if (canPlaceItemPreview(inv, item, gx, gy, preview, null)) {
+          return { gx, gy };
+        }
+      }
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------------------
   // SPLIT DIALOG
   // ---------------------------------------------------------------------------
@@ -880,9 +892,11 @@ export function createInventoryView({
     title.y = 6;
     dlg.addChild(title);
 
-    const amt = { value: 1 };
+    const maxDefault = Math.max(1, item.quantity - 1);
+    const half = Math.max(1, Math.floor(item.quantity / 2));
+    const amt = { value: Math.min(half, maxDefault) };
 
-    const amtText = new PIXI.Text("1", {
+    const amtText = new PIXI.Text(String(amt.value), {
       fill: 0xffffaa,
       fontSize: 16,
     });
@@ -894,6 +908,8 @@ export function createInventoryView({
       amtText.text = String(amt.value);
       amtText.x = panelW / 2 - amtText.width / 2;
     }
+
+    updateAmt();
 
     const minus = new PIXI.Text("–", {
       fill: 0xffffff,
@@ -960,8 +976,28 @@ export function createInventoryView({
     const handler =
       typeof splitStackAndPlace === "function" ? splitStackAndPlace : null;
 
+    const inv = getInventoryForOwner(ownerId);
+    const preview =
+      typeof getInventoryPreview === "function"
+        ? getInventoryPreview(ownerId)
+        : null;
+    const target = findSplitPlacement(inv, item, preview);
+    if (!target) {
+      console.warn("inventorySplit blocked by preview");
+      flashItemError(dragItem.view, ownerId);
+      if (tooltipView) tooltipView.hide?.();
+      closeSplitDialog();
+      return;
+    }
+
     const result = handler
-      ? handler({ ownerId, itemId: item.id, amount })
+      ? handler({
+          ownerId,
+          itemId: item.id,
+          amount,
+          targetGX: target.gx,
+          targetGY: target.gy,
+        })
       : { ok: false, reason: "noSplitStackAndPlaceHandler" };
 
     if (!result.ok) {

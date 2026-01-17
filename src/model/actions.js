@@ -113,7 +113,9 @@ export function applyAction(state, action, context = {}) {
         state,
         payload.ownerId,
         payload.itemId,
-        payload.amount
+        payload.amount,
+        payload.targetGX,
+        payload.targetGY
       );
       break;
 
