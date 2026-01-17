@@ -37,6 +37,7 @@ export function createInventoryView({
   getInventoryPreview,
   getFocusIntent,
   onGhostClick,
+  hasItemTransferIntent,
 
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
@@ -582,7 +583,10 @@ export function createInventoryView({
     if (uiBlocked) return;
 
     if (ev.data.originalEvent.shiftKey) {
-      if (view?.sourceOwnerId != null) {
+      const transferLocked =
+        typeof hasItemTransferIntent === "function" &&
+        hasItemTransferIntent(item.id);
+      if (transferLocked || view?.sourceOwnerId != null) {
         flashItemError(view, win.ownerId);
         return;
       }
@@ -763,6 +767,26 @@ export function createInventoryView({
       typeof getInventoryPreview === "function"
         ? getInventoryPreview(targetOwner)
         : null;
+
+
+    const isSameOwner = sourceOwner === targetOwner;
+    if (isSameOwner && targetInv && typeof hasItemTransferIntent === "function") {
+      const hidden =
+        preview?.hiddenItemIds instanceof Set
+          ? preview.hiddenItemIds
+          : new Set(preview?.hiddenItemIds || []);
+      if (gx >= 0 && gy >= 0 && gx < targetInv.cols && gy < targetInv.rows) {
+        const idx = gy * targetInv.cols + gx;
+        const baseId = targetInv.grid?.[idx] ?? null;
+        if (baseId != null && baseId !== item.id && !hidden.has(baseId)) {
+          if (hasItemTransferIntent(item.id) || hasItemTransferIntent(baseId)) {
+            flashItemError(view, sourceOwner);
+            finish();
+            return;
+          }
+        }
+      }
+    }
 
     if (isPreviewAreaReserved(item, gx, gy, preview, item?.id)) {
       flashItemError(view, sourceOwner);

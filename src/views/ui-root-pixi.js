@@ -151,6 +151,8 @@ const inventoryView = createInventoryView({
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
+  hasItemTransferIntent: (itemId) =>
+    actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
   moveItemBetweenOwners: (spec) => {
     if (spec.fromOwnerId === spec.toOwnerId) {
       return runner.dispatchAction(

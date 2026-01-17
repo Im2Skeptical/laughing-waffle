@@ -65,7 +65,6 @@ export function createActionPlanner({
     apPreview: null,
     costSummary: null,
     previewByOwner: new Map(),
-    ghostsByOwner: new Map(),
     characterOverrides: new Map(),
   };
 
@@ -84,7 +83,6 @@ export function createActionPlanner({
     cache.apPreview = null;
     cache.costSummary = null;
     cache.previewByOwner.clear();
-    cache.ghostsByOwner.clear();
     cache.characterOverrides.clear();
   }
 
@@ -320,7 +318,6 @@ export function createActionPlanner({
 
   function buildInventoryPreviewCaches() {
     cache.previewByOwner.clear();
-    cache.ghostsByOwner.clear();
 
     const baselineByKey = baselineIntents;
     const currentByKey = intents;
@@ -405,7 +402,6 @@ export function createActionPlanner({
       const ownerId = curIntent.fromPlacement.ownerId ?? curIntent.fromOwnerId;
       if (ownerId == null) continue;
 
-      const ghosts = getOrCreateGhosts(ownerId);
       const ghostEntry = {
         ...item,
         ownerId,
@@ -414,7 +410,6 @@ export function createActionPlanner({
         intentId: key,
         isGhost: true,
       };
-      ghosts.push(ghostEntry);
       const preview = getOrCreateOwnerPreview(ownerId);
       preview.ghostItems.push(ghostEntry);
     }
@@ -431,15 +426,6 @@ export function createActionPlanner({
       cache.previewByOwner.set(ownerId, entry);
     }
     return entry;
-  }
-
-  function getOrCreateGhosts(ownerId) {
-    let list = cache.ghostsByOwner.get(ownerId);
-    if (!list) {
-      list = [];
-      cache.ghostsByOwner.set(ownerId, list);
-    }
-    return list;
   }
 
   function buildCharacterOverrideCache() {
@@ -484,19 +470,33 @@ export function createActionPlanner({
   }
 
   function canAffordIntent(intent, existingId) {
-    ensureCaches();
+    ensureActive();
     const state = getStateSafe();
     const currentAp = Math.max(0, Math.floor(state?.actionPoints ?? 0));
-    const summary = cache.costSummary || { total: 0, byId: {} };
-    const oldCost = existingId ? summary.byId?.[existingId] ?? 0 : 0;
-    const newCost = estimateIntentApCost(intent, { stateStart: state });
-    const available = currentAp + oldCost;
+    const key = intent?.id ?? intent?.subjectKey ?? existingId ?? null;
 
-    if (available - newCost < 0) {
+    const nextList = [];
+    const ordered = getOrderedIntents();
+    let replaced = false;
+    for (const existing of ordered) {
+      const existingKey = existing?.id ?? existing?.subjectKey ?? null;
+      if (key != null && existingKey === key) {
+        nextList.push(intent);
+        replaced = true;
+      } else {
+        nextList.push(existing);
+      }
+    }
+    if (!replaced) nextList.push(intent);
+
+    const summary = computeIntentCostSummary(nextList, { stateStart: state });
+    const total = summary?.total ?? 0;
+
+    if (total > currentAp) {
       return {
         ok: false,
         reason: "insufficientAP",
-        needed: newCost,
+        needed: total,
         current: currentAp,
       };
     }
@@ -685,6 +685,10 @@ export function createActionPlanner({
     ensureActive();
     const state = getStateSafe();
     const actions = [];
+    const costSummary = computeIntentCostSummary(getOrderedIntents(), {
+      stateStart: state,
+    });
+    const costById = costSummary?.byId || {};
 
     for (const intent of getOrderedIntents()) {
       if (!intent) continue;
@@ -701,14 +705,22 @@ export function createActionPlanner({
           toPlacement: intent.toPlacement,
           item: intent.item,
         };
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
         actions.push({
           kind: ActionKinds.INVENTORY_MOVE,
           payload,
-          apCost: estimateIntentApCost(intent, { stateStart: state }),
+          apCost,
         });
       } else if (intent.kind === IntentKinds.PAWN_MOVE) {
         const toSlot = intent.toPlacement?.slotIndex;
         if (toSlot == null) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
         actions.push({
           kind: ActionKinds.PLACE_CHARACTER,
           payload: {
@@ -717,9 +729,13 @@ export function createActionPlanner({
             fromSlotIndex: intent.fromPlacement?.slotIndex ?? null,
             toSlotIndex: toSlot,
           },
-          apCost: estimateIntentApCost(intent, { stateStart: state }),
+          apCost,
         });
       } else if (intent.kind === IntentKinds.BUILD_DESIGNATE) {
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
         actions.push({
           kind: ActionKinds.BUILD_DESIGNATE,
           payload: {
@@ -727,26 +743,12 @@ export function createActionPlanner({
             defId: intent.defId ?? null,
             target: intent.target ?? null,
           },
-          apCost: estimateIntentApCost(intent, { stateStart: state }),
+          apCost,
         });
       }
     }
 
     return { ok: true, actions };
-  }
-
-  function resetAfterCommit({ tSec, revision } = {}) {
-    intents.clear();
-    baselineIntents.clear();
-    intentOrder = [];
-    focusIntentId = null;
-    hasEdits = false;
-    activeSec = Number.isFinite(tSec) ? Math.floor(tSec) : activeSec;
-    activeRevision = Number.isFinite(revision)
-      ? Math.floor(revision)
-      : activeRevision;
-    clearCaches();
-    bump("commitReset");
   }
 
   function resetToTimeline() {
@@ -776,6 +778,16 @@ export function createActionPlanner({
     bump("commitSync");
   }
 
+
+  function hasItemTransferIntent(itemId) {
+    ensureActive();
+    if (itemId == null) return false;
+    const key = `item:${itemId}`;
+    const intent = intents.get(key);
+    if (!intent || intent.kind !== IntentKinds.ITEM_TRANSFER) return false;
+    return intent.fromOwnerId !== intent.toOwnerId;
+  }
+
   function toggleFocus(intentId) {
     ensureActive();
     if (focusIntentId === intentId) focusIntentId = null;
@@ -786,14 +798,6 @@ export function createActionPlanner({
 
   return {
     getVersion: () => version,
-    hasPendingIntents: () => {
-      ensureActive();
-      return intents.size > 0;
-    },
-    hasEdits: () => {
-      ensureActive();
-      return !!hasEdits;
-    },
     getOrderedIntents: () => {
       ensureCaches();
       return getOrderedIntents();
@@ -821,13 +825,12 @@ export function createActionPlanner({
         }
       );
     },
-    getGhostsForOwner(ownerId) {
-      ensureCaches();
-      return cache.ghostsByOwner.get(ownerId) || [];
-    },
     getCharacterOverrideSlot(charId) {
       ensureCaches();
       return cache.characterOverrides.get(charId) ?? null;
+    },
+    hasItemTransferIntent(itemId) {
+      return hasItemTransferIntent(itemId);
     },
     getFocusIntent() {
       ensureActive();
@@ -835,12 +838,6 @@ export function createActionPlanner({
       return intents.get(focusIntentId) || null;
     },
     toggleFocus,
-    clearFocus: () => {
-      if (!focusIntentId) return { ok: true };
-      focusIntentId = null;
-      bump("focusCleared");
-      return { ok: true };
-    },
     setItemTransferIntent,
     setPawnMoveIntent,
     setBuildDesignationIntent,
@@ -849,7 +846,6 @@ export function createActionPlanner({
       return removeIntentByKey(intentId);
     },
     buildCommitActions,
-    resetAfterCommit,
     resetToTimeline,
     markCommitted,
   };
