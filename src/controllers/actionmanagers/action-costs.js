@@ -31,6 +31,9 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
     case "itemTransfer": {
       if (intent.fromOwnerId === intent.toOwnerId) return 0;
       if (placementEquals(intent.fromPlacement, intent.toPlacement)) return 0;
+      if (isCurrencyTransfer) {
+        return INTENT_AP_COSTS.currencyTransfer ?? INTENT_AP_COSTS.itemTransfer ?? 0;
+      }
       return INTENT_AP_COSTS.itemTransfer ?? 0;
     }
     case "pawnMove": {

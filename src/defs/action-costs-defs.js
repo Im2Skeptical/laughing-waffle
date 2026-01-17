@@ -3,6 +3,7 @@
 
 export const INTENT_AP_COSTS = {
   itemTransfer: 10,
+  currencyTransfer: 5,
   pawnMove: 20,
   buildDesignate: 20,
 };
