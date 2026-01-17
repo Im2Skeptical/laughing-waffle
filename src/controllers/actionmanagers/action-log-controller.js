@@ -123,7 +123,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
       if (!desc) continue;
       const isFocused =
         focus && group.intentIds.some((id) => id === focus.id);
-      if (!group.net) continue;
+      if (!group.net || group.cost <= 0) continue;
       rowsOut.push({
         id: groupKey,
         description: desc,
@@ -137,11 +137,13 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
     }
 
     if (!intent) continue;
+    const intentCost = planner?.getIntentCost?.(intentId) ?? 0;
+    if (intent.kind === IntentKinds.ITEM_TRANSFER && intentCost <= 0) continue;
     const rowId = intentId ?? `intent:${rowsOut.length}`;
     rowsOut.push({
       id: rowId,
       description: describeIntent(intent, state, getOwnerLabel),
-      cost: planner?.getIntentCost?.(intentId) ?? 0,
+      cost: intentCost,
       intentIds: intentId ? [intentId] : [],
       focusIntentId: intentId,
       isFocused: !!(focus && intentId && focus.id === intentId),
@@ -199,7 +201,7 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       if (emittedGroups.has(groupKey)) continue;
       emittedGroups.add(groupKey);
       const group = groupByKey.get(groupKey);
-      if (!group || !group.net) continue;
+      if (!group || !group.net || group.cost <= 0) continue;
       const desc = formatCurrencyGroupDescription(group, getOwnerLabel);
       if (!desc) continue;
       rowsOut.push({
@@ -232,6 +234,7 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       desc = `Build ${payload.defId || payload.buildKey || "Plan"}`;
     }
 
+    if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
     rowsOut.push({
       id: `${kind}:${i}`,
       description: desc,
