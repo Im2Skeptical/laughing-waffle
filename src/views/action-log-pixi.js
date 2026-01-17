@@ -148,8 +148,46 @@ export function createActionLogView({
 
   function formatItemName(intent) {
     const kind = intent?.item?.kind ?? null;
+    return formatItemNameFromKind(kind) || `Item ${intent?.itemId ?? ""}`.trim();
+  }
+
+  function formatItemNameFromKind(kind) {
     if (kind && itemDefs[kind]) return itemDefs[kind].name || kind;
-    return kind || `Item ${intent?.itemId ?? ""}`.trim();
+    return kind || "";
+  }
+
+  function isCurrencyKind(kind) {
+    const tags = itemDefs[kind]?.tags || [];
+    return Array.isArray(tags) && tags.includes("currency");
+  }
+
+  function getItemQuantity(item) {
+    return Math.max(1, Math.floor(item?.quantity ?? 1));
+  }
+
+  function compareOwnerIds(a, b) {
+    const aNum = Number(a);
+    const bNum = Number(b);
+    const aIsNum = Number.isFinite(aNum);
+    const bIsNum = Number.isFinite(bNum);
+    if (aIsNum && bIsNum) return aNum - bNum;
+    const aStr = String(a);
+    const bStr = String(b);
+    if (aStr < bStr) return -1;
+    if (aStr > bStr) return 1;
+    return 0;
+  }
+
+  function getCurrencyGroupInfo(kind, fromOwnerId, toOwnerId) {
+    if (kind == null) return null;
+    if (fromOwnerId == null || toOwnerId == null) return null;
+    if (fromOwnerId === toOwnerId) return null;
+    const cmp = compareOwnerIds(fromOwnerId, toOwnerId);
+    const minId = cmp <= 0 ? fromOwnerId : toOwnerId;
+    const maxId = cmp <= 0 ? toOwnerId : fromOwnerId;
+    const dir = cmp <= 0 ? 1 : -1;
+    const key = `${kind}|${String(minId)}|${String(maxId)}`;
+    return { key, dir, minId, maxId };
   }
 
   function formatOwnerName(ownerId) {
@@ -194,6 +232,80 @@ export function createActionLogView({
     }
   }
 
+  function buildIntentRowSpecs(intents, planner, state, focus) {
+    const groupByKey = new Map();
+    const groupKeyByIntentId = new Map();
+
+    for (let i = 0; i < intents.length; i++) {
+      const intent = intents[i];
+      if (intent?.kind !== "itemTransfer") continue;
+      const kind = intent.item?.kind ?? null;
+      if (!isCurrencyKind(kind)) continue;
+      const info = getCurrencyGroupInfo(
+        kind,
+        intent.fromOwnerId,
+        intent.toOwnerId
+      );
+      if (!info) continue;
+      const qty = getItemQuantity(intent.item);
+      let group = groupByKey.get(info.key);
+      if (!group) {
+        group = {
+          kind,
+          minId: info.minId,
+          maxId: info.maxId,
+          net: 0,
+          intentIds: [],
+          cost: 0,
+        };
+        groupByKey.set(info.key, group);
+      }
+      group.net += info.dir * qty;
+      group.intentIds.push(intent.id);
+      group.cost += planner.getIntentCost?.(intent.id) ?? 0;
+      groupKeyByIntentId.set(intent.id, info.key);
+    }
+
+    const rowsOut = [];
+    const emittedGroups = new Set();
+
+    for (let i = 0; i < intents.length; i++) {
+      const intent = intents[i];
+      const groupKey = groupKeyByIntentId.get(intent.id);
+      if (groupKey) {
+        if (emittedGroups.has(groupKey)) continue;
+        emittedGroups.add(groupKey);
+        const group = groupByKey.get(groupKey);
+        if (!group || !group.net) continue;
+        const qty = Math.abs(group.net);
+        const toOwnerId = group.net > 0 ? group.maxId : group.minId;
+        const itemName = formatItemNameFromKind(group.kind);
+        const isFocused =
+          focus && group.intentIds.some((intentId) => intentId === focus.id);
+        rowsOut.push({
+          id: groupKey,
+          description: `${qty} ${itemName} > ${formatOwnerName(toOwnerId)}`,
+          cost: group.cost,
+          intentIds: group.intentIds.slice(),
+          focusIntentId: isFocused ? focus.id : group.intentIds[0] ?? null,
+          isFocused,
+        });
+        continue;
+      }
+
+      rowsOut.push({
+        id: intent.id,
+        description: describeIntent(intent, state),
+        cost: planner.getIntentCost?.(intent.id) ?? 0,
+        intentIds: [intent.id],
+        focusIntentId: intent.id,
+        isFocused: focus && focus.id === intent.id,
+      });
+    }
+
+    return rowsOut;
+  }
+
   function rebuildFromIntents() {
     rows.removeChildren();
     const planner = typeof getPlanner === "function" ? getPlanner() : null;
@@ -202,23 +314,21 @@ export function createActionLogView({
     const state = typeof getState === "function" ? getState() : null;
     const intents = planner.getOrderedIntents?.() || [];
     const focus = planner.getFocusIntent?.();
+    const rowSpecs = buildIntentRowSpecs(intents, planner, state, focus);
 
     let y = 0;
-    for (const intent of intents) {
+    for (const spec of rowSpecs) {
       const row = new PIXI.Container();
       row.x = 0;
       row.y = y;
 
-      const isFocused = focus && focus.id === intent.id;
-
       const rowBg = new PIXI.Graphics();
-      rowBg.beginFill(isFocused ? 0x2b3350 : 0x2a2f42, 1);
+      rowBg.beginFill(spec.isFocused ? 0x2b3350 : 0x2a2f42, 1);
       rowBg.drawRoundedRect(0, 0, PANEL_WIDTH - PADDING * 2, ROW_HEIGHT, 12);
       rowBg.endFill();
       row.addChild(rowBg);
 
-      const cost = planner.getIntentCost?.(intent.id) ?? 0;
-      const costText = new PIXI.Text(String(cost), {
+      const costText = new PIXI.Text(String(spec.cost ?? 0), {
         fill: 0x7fd0ff,
         fontSize: 16,
         fontWeight: "bold",
@@ -227,7 +337,7 @@ export function createActionLogView({
       costText.y = 16;
       row.addChild(costText);
 
-      const descText = new PIXI.Text(describeIntent(intent, state), {
+      const descText = new PIXI.Text(spec.description || "", {
         fill: 0xffffff,
         fontSize: 16,
       });
@@ -244,27 +354,86 @@ export function createActionLogView({
       undoText.eventMode = "static";
       undoText.cursor = "pointer";
       undoText.on("pointertap", () => {
-        planner.removeIntent?.(intent.id);
+        for (const intentId of spec.intentIds || []) {
+          planner.removeIntent?.(intentId);
+        }
       });
       row.addChild(undoText);
 
-      row.eventMode = "static";
-      row.cursor = "pointer";
-      row.on("pointertap", () => {
-        planner.toggleFocus?.(intent.id);
-      });
+      if (spec.focusIntentId) {
+        row.eventMode = "static";
+        row.cursor = "pointer";
+        row.on("pointertap", () => {
+          planner.toggleFocus?.(spec.focusIntentId);
+        });
+      }
 
       rows.addChild(row);
       y += ROW_HEIGHT + ROW_GAP;
     }
   }
 
-  function buildActionRows(actions, state) {
-    rows.removeChildren();
-    let y = 0;
-    for (const action of actions) {
-      const kind = action.kind;
+  function buildActionRowSpecs(actions, state) {
+    const groupByKey = new Map();
+    const groupKeyByAction = new Map();
+
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      if (action.kind !== "inventoryMove") continue;
       const payload = action.payload || {};
+      const kind = payload.item?.kind ?? null;
+      if (!isCurrencyKind(kind)) continue;
+      const info = getCurrencyGroupInfo(
+        kind,
+        payload.fromOwnerId,
+        payload.toOwnerId
+      );
+      if (!info) continue;
+      const qty = getItemQuantity(payload.item);
+      let group = groupByKey.get(info.key);
+      if (!group) {
+        group = {
+          kind,
+          minId: info.minId,
+          maxId: info.maxId,
+          net: 0,
+          cost: 0,
+        };
+        groupByKey.set(info.key, group);
+      }
+      group.net += info.dir * qty;
+      group.cost += Number.isFinite(action.apCost)
+        ? Math.floor(action.apCost)
+        : Number.isFinite(payload.apCost)
+        ? Math.floor(payload.apCost)
+        : 0;
+      groupKeyByAction.set(action, info.key);
+    }
+
+    const rowsOut = [];
+    const emittedGroups = new Set();
+
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      const payload = action.payload || {};
+      const groupKey = groupKeyByAction.get(action);
+      if (groupKey) {
+        if (emittedGroups.has(groupKey)) continue;
+        emittedGroups.add(groupKey);
+        const group = groupByKey.get(groupKey);
+        if (!group || !group.net) continue;
+        const qty = Math.abs(group.net);
+        const toOwnerId = group.net > 0 ? group.maxId : group.minId;
+        const itemName = formatItemNameFromKind(group.kind);
+        rowsOut.push({
+          id: groupKey,
+          description: `${qty} ${itemName} > ${formatOwnerName(toOwnerId)}`,
+          cost: group.cost,
+        });
+        continue;
+      }
+
+      const kind = action.kind;
       const apCost =
         Number.isFinite(action.apCost) || Number.isFinite(payload.apCost)
           ? Math.floor(action.apCost ?? payload.apCost ?? 0)
@@ -273,7 +442,7 @@ export function createActionLogView({
       let desc = "Action";
       if (kind === "inventoryMove") {
         const itemName = payload.item?.kind
-          ? itemDefs[payload.item.kind]?.name || payload.item.kind
+          ? formatItemNameFromKind(payload.item.kind)
           : `Item ${payload.itemId ?? ""}`.trim();
         const dest = formatOwnerName(payload.toOwnerId);
         desc = `${itemName} > ${dest}`;
@@ -285,6 +454,17 @@ export function createActionLogView({
         desc = `Build ${payload.defId || payload.buildKey || "Plan"}`;
       }
 
+      rowsOut.push({ id: `${kind}:${i}`, description: desc, cost: apCost });
+    }
+
+    return rowsOut;
+  }
+
+  function buildActionRows(actions, state) {
+    rows.removeChildren();
+    const rowSpecs = buildActionRowSpecs(actions, state);
+    let y = 0;
+    for (const spec of rowSpecs) {
       const row = new PIXI.Container();
       row.x = 0;
       row.y = y;
@@ -295,7 +475,7 @@ export function createActionLogView({
       rowBg.endFill();
       row.addChild(rowBg);
 
-      const costText = new PIXI.Text(String(apCost), {
+      const costText = new PIXI.Text(String(spec.cost ?? 0), {
         fill: 0x7fd0ff,
         fontSize: 16,
         fontWeight: "bold",
@@ -304,7 +484,7 @@ export function createActionLogView({
       costText.y = 16;
       row.addChild(costText);
 
-      const descText = new PIXI.Text(desc, {
+      const descText = new PIXI.Text(spec.description || "", {
         fill: 0xffffff,
         fontSize: 16,
       });

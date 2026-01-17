@@ -8,6 +8,7 @@ import {
   AP_INCOME_MULT_WANING,
 } from "../defs/gamerules-defs.js";
 import { isMoonWaxingAtSecond } from "../model/moon.js";
+import { getTotalFoodFromEdibles } from "../model/query.js";
 import { createTimeLeverView } from "./time-lever-pixi.js";
 
 export function createChromeView({
@@ -200,11 +201,15 @@ export function createChromeView({
         : s.actionPoints ?? 0;
     const capAp = s.actionPointCap ?? 100;
 
+    const edibleFood = getTotalFoodFromEdibles(s);
+    const baseFood = Number.isFinite(s.resources.food) ? s.resources.food : 0;
+    const foodTotal = baseFood + edibleFood;
+
     resourceText.text = `Gold: ${s.resources.gold.toFixed(
       1
-    )}  Food: ${s.resources.food.toFixed(
+    )}  Food: ${foodTotal.toFixed(1)}  Pop: ${s.resources.population.toFixed(
       1
-    )}  Pop: ${s.resources.population.toFixed(1)}  AP: ${curAp}/${capAp}`;
+    )}  AP: ${curAp}/${capAp}`;
 
     // Position and size the gold hit area over the left section of the HUD line.
     // Approximate width for "Gold: 00000.0" plus padding.

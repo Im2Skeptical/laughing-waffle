@@ -247,6 +247,36 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     return null;
   }
 
+  function getActionItemIds(action) {
+    if (!action || typeof action !== "object") return [];
+    const payload = action.payload || {};
+    if (action.kind === "inventoryMove") {
+      const itemId = payload.itemId ?? payload.item?.id ?? null;
+      return itemId != null ? [itemId] : [];
+    }
+    if (action.kind === "inventorySplit") {
+      return payload.itemId != null ? [payload.itemId] : [];
+    }
+    if (action.kind === "inventoryStack") {
+      const ids = [];
+      if (payload.sourceItemId != null) ids.push(payload.sourceItemId);
+      if (payload.targetItemId != null) ids.push(payload.targetItemId);
+      return ids;
+    }
+    return [];
+  }
+
+  function shouldDropActionForRemovedItems(action, index, removedByItemId) {
+    if (!removedByItemId || removedByItemId.size === 0) return false;
+    const ids = getActionItemIds(action);
+    for (const id of ids) {
+      const key = String(id);
+      const removedIndex = removedByItemId.get(key);
+      if (removedIndex != null && index > removedIndex) return true;
+    }
+    return false;
+  }
+
   function commitPlannerActions(reason) {
     if (!timeline || !cursorState) return { ok: false, reason: "noState" };
 
@@ -275,11 +305,29 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       if (key) newByKey.set(key, action);
     }
 
+    const removedByItemId = new Map();
+    for (let i = 0; i < existingAtSec.length; i++) {
+      const action = existingAtSec[i];
+      if (!isPlannerManagedAction(action)) continue;
+      const key = getPlannerActionSubjectKey(action);
+      if (key && newByKey.has(key)) continue;
+      if (action.kind !== "inventoryMove") continue;
+      const payload = action.payload || {};
+      const itemId = payload.itemId ?? payload.item?.id ?? null;
+      if (itemId != null) {
+        removedByItemId.set(String(itemId), i);
+      }
+    }
+
     const usedKeys = new Set();
     const orderedAtSec = [];
 
-    for (const action of existingAtSec) {
+    for (let i = 0; i < existingAtSec.length; i++) {
+      const action = existingAtSec[i];
       if (!isPlannerManagedAction(action)) {
+        if (shouldDropActionForRemovedItems(action, i, removedByItemId)) {
+          continue;
+        }
         orderedAtSec.push(action);
         continue;
       }

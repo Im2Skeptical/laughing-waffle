@@ -217,6 +217,7 @@ export const itemDefs = {
     maxStack: 25,
     seasonExpiry: { op: "TransformTo", targetKind: "rot" },
     expiryChancePerSec: 0.0057,
+    tags: ["edible", "currency"],
     defaultWidth: 1,
     defaultHeight: 2,
     ui: {

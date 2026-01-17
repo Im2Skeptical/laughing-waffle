@@ -581,6 +581,10 @@ export function createInventoryView({
     if (uiBlocked) return;
 
     if (ev.data.originalEvent.shiftKey) {
+      if (view?.sourceOwnerId != null) {
+        flashItemError(view, win.ownerId);
+        return;
+      }
       openSplitDialog(ev.data.global, win.ownerId, item);
       return;
     }
@@ -727,12 +731,19 @@ export function createInventoryView({
     gy -= dragItem.cellOffsetGY || 0;
 
     const isCrossOwner = sourceOwner !== targetOwner;
+    const targetInv = getInventoryForOwner(targetOwner);
+    const preview =
+      typeof getInventoryPreview === "function"
+        ? getInventoryPreview(targetOwner)
+        : null;
+
+    if (isPreviewAreaReserved(item, gx, gy, preview, item?.id)) {
+      flashItemError(view, sourceOwner);
+      finish();
+      return;
+    }
+
     if (isCrossOwner) {
-      const targetInv = getInventoryForOwner(targetOwner);
-      const preview =
-        typeof getInventoryPreview === "function"
-          ? getInventoryPreview(targetOwner)
-          : null;
       if (!canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id)) {
         flashItemError(view, sourceOwner);
         finish();
@@ -801,6 +812,37 @@ export function createInventoryView({
       gy >= item.gridY &&
       gy < item.gridY + item.height
     );
+  }
+
+  function isPreviewAreaReserved(item, gx, gy, preview, ignoreItemId) {
+    if (!preview || !item) return false;
+    const overlays = Array.isArray(preview.overlayItems)
+      ? preview.overlayItems
+      : [];
+    const ghosts = Array.isArray(preview.ghostItems)
+      ? preview.ghostItems
+      : [];
+    if (!overlays.length && !ghosts.length) return false;
+
+    const width = Math.max(1, Math.floor(item.width ?? 1));
+    const height = Math.max(1, Math.floor(item.height ?? 1));
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const cellX = gx + x;
+        const cellY = gy + y;
+        for (const block of overlays) {
+          if (!block) continue;
+          if (ignoreItemId != null && block.id === ignoreItemId) continue;
+          if (previewCoversCell(block, cellX, cellY)) return true;
+        }
+        for (const block of ghosts) {
+          if (!block) continue;
+          if (ignoreItemId != null && block.id === ignoreItemId) continue;
+          if (previewCoversCell(block, cellX, cellY)) return true;
+        }
+      }
+    }
+    return false;
   }
 
   function isCellBlocked(inv, gx, gy, preview, ignoreItemId) {
