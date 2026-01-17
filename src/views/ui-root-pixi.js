@@ -164,6 +164,12 @@ const inventoryView = createInventoryView({
       reason: "noPlanner",
     };
   },
+  cancelItemTransfer: ({ itemId }) => {
+    if (itemId == null) return { ok: false, reason: "noItemId" };
+    const key = `item:${itemId}`;
+    const res = actionPlanner?.removeIntent?.(key);
+    return res || { ok: false, reason: "noPlanner" };
+  },
   splitStackAndPlace: ({ ownerId, itemId, amount, targetGX, targetGY }) =>
     runner.dispatchAction(
       ActionKinds.INVENTORY_SPLIT,

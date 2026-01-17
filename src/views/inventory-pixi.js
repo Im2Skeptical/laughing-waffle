@@ -41,6 +41,7 @@ export function createInventoryView({
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
   splitStackAndPlace,
+  cancelItemTransfer,
 }) {
   const stage = layer.parent;
 
@@ -730,6 +731,32 @@ export function createInventoryView({
     gx -= dragItem.cellOffsetGX || 0;
     gy -= dragItem.cellOffsetGY || 0;
 
+
+    const returnToSource =
+      view?.sourceOwnerId != null &&
+      targetOwner === view.sourceOwnerId;
+
+    if (returnToSource) {
+      const cancel =
+        typeof cancelItemTransfer === "function"
+          ? cancelItemTransfer
+          : null;
+      const result = cancel
+        ? cancel({ itemId: item.id })
+        : { ok: false, reason: "noCancelItemTransferHandler" };
+      if (!result.ok) {
+        console.warn("cancelItemTransfer failed:", result.reason, result);
+        flashItemError(view, sourceOwner);
+        finish();
+        return;
+      }
+      rebuildWindow(targetOwner);
+      if (dragItem.ownerId !== targetOwner) {
+        rebuildWindow(dragItem.ownerId);
+      }
+      finish();
+      return;
+    }
     const isCrossOwner = sourceOwner !== targetOwner;
     const targetInv = getInventoryForOwner(targetOwner);
     const preview =
