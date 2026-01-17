@@ -1,5 +1,7 @@
 ## Key goals of the refactor
 
+## FOUNDATION
+
 ### G1 — Establish the new 4-zone board model (UI + state contract)
 
 * Implement the 4 horizontal zones:
@@ -10,65 +12,166 @@
   4. city/permanents row
 * All three gameplay rows share a **12-column grid** for consistent “same column” reasoning. 
 
-### G2 — Introduce a canonical board data model that supports multi-slot pieces
+---
 
-* Adopt a single “board” state model with:
+### **G2 — Canonical board model with multi-span pieces**
 
-  * persistent env tiles
-  * transient env cards
+* Introduce `state.board` as the authoritative home for:
+
+  * env tiles
+  * env events
   * permanents
-* Support variable width (`span`) pieces (e.g. storm spans 3 columns; building spans 2).
-* Provide derived occupancy indices (like inventory grid) that are stripped on serialize and rebuilt on deserialize/replay. 
+* All three share a **12-column grid**.
+* Pieces have `{ col, span }` (span ≥ 1).
+* Maintain **derived occupancy arrays** rebuilt deterministically on:
 
-### G3 — Split env defs into “tile systems” vs “event cards”
+  * deserialize
+  * canonicalization
+  * replay rebuild.
 
-* Replace the current mixed `envCardDefs` concept with two def families:
+---
 
-  * **EnvTileDefs**: durable terrain/biome systems with tags/props and per-season spawn tables
-  * **EnvEventDefs**: transient cards (weather, hazards, animals) with lifecycle + behaviors/effects
-* Keep behaviors/effects as the execution model (defs stay data-only).
+### **G3 — Tag-driven terrain systems (Model B)**
 
-### G4 — Replace deck/discard environmental flow with time-based cadence generation
+* Introduce `envTagDefs` as modular system definitions.
+* Tags may:
 
-* Deprecate discard pile as a core mechanic.
-* Generate env events from tiles via:
+  * introduce numeric props (with defaults and clamps)
+  * enable behaviors
+  * define affordances/interactability.
+* Tiles define `baseTags`; events/actions may add/remove tags dynamically.
+* Tags are the primary lever for adding/removing systems.
 
-  * deterministic cadence (e.g. every 5 seconds)
-  * season-specific weighted tables per tile
-  * RNG sourced only from `state.rng`
-* Preserve time-travel correctness: replay at a given `tSec` produces identical spawns and outcomes.
+---
 
-### G5 — Standardize targeting across layers (column + layer addressing)
+### **G4 — Split defs cleanly (data-only)**
 
-* Make env events able to target:
+* Separate def families:
 
-  * their underlying tile
-  * permanents in the same column span
-  * other env events if needed
-* Replace ad-hoc `envSlotIndex` targeting with a generalized target spec (layer + col, plus “self/under/sameCol” shortcuts).
-* Ensure this fits the existing behavior→EffectOp→runEffect pipeline.
+  * `EnvTileDefs` — persistent terrain systems
+  * `EnvEventDefs` — transient environmental events/animals
+  * `EnvTagDefs` — system modules
+* Defs contain **no functions** or runtime references.
+* All logic flows through behaviors and effect ops.
 
-### G6 — Preserve determinism, serialization, replay, and projection invariants
+---
 
-* No non-serializable objects in state.
-* Derived caches rebuilt deterministically on deserialize/canonicalize (like inventory indices). 
-* Ensure:
+### **G5 — Unified targeting contract (TargetSpec v1)**
 
-  * timeline actions remain the sole history source 
-  * `rebuildStateAtSecond` stays authoritative 
-  * projection remains pure and continues to work with the new env system. 
+* Relative targeting:
 
-### G7 — Keep the game runnable through migration (dual-write, incremental cutover)
+  ```js
+  { ref:"self", layer:"tile"|"event"|"permanent" }
+  ```
+* Absolute targeting:
 
-* Introduce new state/defs in parallel.
-* Switch rendering first, then generation, then behavior/effects routing.
-* Only remove legacy env deck/discard and `envSlots` iteration after parity is proven.
+  ```js
+  { at:{ layer:"tile"|"event"|"permanent", col:number } }
+  ```
+* Span-aware resolution:
 
-### G8 — Seed placeholder content to validate distribution and graphs early
+  * resolve across all occupied columns
+  * de-duplicate by instanceId.
 
-* Populate initial tile tables with mostly no-op events plus a few resource bumps so time graphs show meaningful deltas.
-* Use this to tune cadence, weights, and emergent behavior before designing full mechanics.
+---
 
+## ENVIRONMENT MECHANICS
 
+### **G6 — Season-deck generation from tiles**
 
+* On **season start**:
 
+  * For each env tile anchor, roll **once** from its `seasonTables[currentSeason]` using `state.rng`.
+  * Selected envEvent contributes entries to a **season deck**.
+  * If the event has `span > 1`, it contributes `span` entries.
+* Store deck as:
+
+  ```js
+  { seasonKey, entries: string[], drawIndex }
+  ```
+
+---
+
+### **G7 — Cadence draws from the season deck**
+
+* On a fixed cadence (e.g. every 5 seconds):
+
+  * If `drawIndex < entries.length`:
+
+    * draw next entry
+    * spawn envEvent instance(s)
+    * increment `drawIndex`
+  * If exhausted: **do nothing**.
+* At season end:
+
+  * delete the deck.
+  * Next occurrence of the season generates a new deck.
+* No discard pile; no carry-over.
+
+---
+
+## EXECUTION MODEL
+
+### **G8 — Reuse behavior/effect pipeline with board awareness**
+
+* Keep existing behavior → EffectOp → runEffect architecture.
+* Extend effects with board-aware ops:
+
+  * Add/SetProp on tile/event/permanent
+  * AddTag / RemoveTag
+  * Remove/Transform envEvent
+* Avoid ad-hoc array indexing (`envSlotIndex`) for new systems.
+
+---
+
+### **G11 — Tag-driven behavior expansion phase**
+
+* Add `getActiveBehaviorsForPiece(state, piece)`:
+
+  * merge behaviors from:
+
+    * the piece’s own def
+    * all active tag defs (`envTagDefs[tag].behaviors`)
+* Feed merged behaviors into the existing behavior runner unchanged.
+* This makes “tags define systems” operational.
+
+---
+
+### **G12 — Absolute lifecycle for env events**
+
+* EnvEvent instances must include:
+
+  * `createdSec`
+  * `expiresSec` (if def has `durationSec`)
+* Expiry is checked against `tSec`.
+* Legacy countdown behaviors (e.g. `TimedLife`) may remain for permanents/items.
+* Improves replay clarity, debugging, and UI.
+
+---
+
+## CORRECTNESS & ROBUSTNESS
+
+### **G9 — Fail-fast defs validation (boot-time)**
+
+* On boot (dev):
+
+  * validate defs
+  * throw on invalid content (duplicate ids, missing refs, invalid tables).
+* Runtime issues:
+
+  * deterministic recovery + warnings
+  * optional stricter debug mode.
+
+---
+
+### **G10 — Preserve determinism, replay, and projection invariants**
+
+* Replay at any `tSec` must reproduce:
+
+  * identical season decks
+  * identical cadence draws
+  * identical envEvent behavior.
+* No non-serializable state.
+* No time-dependent randomness outside `state.rng`.
+
+---
