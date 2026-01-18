@@ -1,0 +1,201 @@
+Your proposal is internally consistent, and it pushes complexity into **(a) tag assignment** and **(b) tiered “player-facing systems”**, which is a good fit for determinism + time travel.
+
+### Key implications
+
+* **Tiers should belong to “systems”, not tags.** Tags are *routing/meaning* (“farmable”), systems are *player-facing meters* (“fertility”, “hydration”) with tier semantics. If you put tiers on tags, you’ll constantly fight “which tag sets fertility tier?” once multiple tags touch the same system.
+* **Tags can remain boolean.** “rivered” is just a tag. If later you need “river flow strength”, that becomes a system (e.g. `riverFlow`) with tiers.
+* **Tiles can stay “tier ignorant” at the *def* level** while still having tiered state at the *instance* level (because events will modify them). That matches your “don’t incentivize editing base props in tiles” goal.
+* **Absolute-time timers are compatible with your event lifecycle.** On spawn: `createdSec = state.tSec`, `expiresSec = createdSec + durationSec`. No decrementing timers needed; replay/projection stays simple. (This aligns with the project’s time-axis rules.) 
+
+---
+
+## Minimal def schemas (v1)
+
+### 0) Shared types
+
+```ts
+type Tier = "bronze" | "silver" | "gold" | "diamond";
+type BoardLayer = "tile" | "card" | "permanent";
+
+type EffectSpec = EffectOp | EffectOp[];
+
+type TargetSpec =
+  | { type: "at"; layer: BoardLayer; col: number }
+  | { type: "self" }
+  | { type: "under"; layer: "tile" | "permanent" }
+  | { type: "sameCol"; layer: BoardLayer };
+```
+
+### 1) EnvTagDef (minimal)
+
+Tags are *labels* used for gating + rule routing. No behaviors/affordances fields required yet.
+
+```ts
+type EnvTagDef = {
+  id: string;          // "farmable"
+  kind: "envTag";
+
+  ui?: {
+    name?: string;
+    description?: string;
+    icon?: string;
+    color?: number;
+  };
+};
+```
+
+### 2) EnvSystemDef (this is where tiers live)
+
+This replaces “player-facing numeric props”. Systems define:
+
+* the tier ladder
+* (optionally) UI copy/tooltips later
+* (optionally) how tiers map to internal numbers later (but keep that out of defs for now if you want)
+
+```ts
+type EnvSystemDef = {
+  id: string;          // "fertility" | "hydration" | "fishDensity" ...
+  kind: "envSystem";
+
+  ui?: {
+    name?: string;
+    description?: string;
+  };
+
+  defaultTier: Tier;   // you said: default everything to bronze
+};
+```
+
+### 3) EnvTileDef (minimal, no props/tiers in defs)
+
+Tiles only declare identity + season tables.
+
+```ts
+type WeightedTableEntry = {
+  defId: string;
+  weight: number;
+};
+
+type EnvTileDef = {
+  id: string;          // "tile_floodplains"
+  kind: "envTile";
+  name: string;
+
+  ui?: {
+    shortName?: string;
+    description?: string;
+    icon?: string;
+    color?: number;
+  };
+
+  // “Starts with no tag” is allowed (empty array).
+  baseTags?: string[];
+
+  // per-season generation source
+  seasonTables: Record<string /* seasonKey */, WeightedTableEntry[]>;
+};
+```
+
+### 4) EnvEventDef (your shape, trimmed)
+
+* keep `class?: "effect" | "animal"` as a thin discriminator (it’s cheap and helps later)
+* `tags?:` can be omitted for now unless you want UI filtering/search
+
+```ts
+type EnvEventDef = {
+  id: string;              // "event_rain"
+  kind: "envEvent";
+  name: string;
+
+  ui?: {
+    shortName?: string;
+    description?: string;
+    icon?: string;
+    color?: number;
+  };
+
+  class?: "effect" | "animal";
+
+  defaultSpan?: number;    // >= 1
+
+  durationSec?: number;    // if set => expiresSec = createdSec + durationSec
+  expiresOnSeasonChange?: boolean;
+
+  onEnter?: EffectSpec;
+  onTick?: EffectSpec;     // once per second while unpaused
+  onExit?: EffectSpec;
+};
+```
+
+---
+
+## Required instance/state shapes (where tiers actually exist)
+
+### Tile instance (authoritative state)
+
+```ts
+type EnvTileInstance = {
+  instanceId: number;
+  defId: string;
+  col: number;
+  span: number;
+
+  tags: string[];                 // boolean tags like "rivered", "farmable"
+  systemTiers: Record<string /*systemId*/, Tier>; // fertility: "silver", etc.
+};
+```
+
+### Event/card instance (authoritative state, absolute timers)
+
+```ts
+type EnvCardInstance = {
+  instanceId: number;
+  defId: string;
+  col: number;
+  span: number;
+
+  createdSec: number;
+  expiresSec?: number;
+};
+```
+
+---
+
+## Effects you’ll need to support your “flood -> farmable -> fertility/hydration tiers” flow
+
+At minimum, add tier/tag ops (names can match your existing style later):
+
+```ts
+type EffectOp =
+  | { op: "AddResource"; resource: string; amount: number }
+
+  | { op: "AddTag"; target: TargetSpec; tagId: string }
+  | { op: "RemoveTag"; target: TargetSpec; tagId: string }
+
+  | { op: "SetSystemTier"; target: TargetSpec; systemId: string; tier: Tier }
+  | { op: "BumpSystemTier"; target: TargetSpec; systemId: string; delta: -1|1 };
+```
+
+**Important design decision (your note “Add tag includes a required tier”):**
+
+* Don’t bake tier into `AddTag`.
+* Instead: `AddTag` does only the tag, and separate ops handle systems/tiers.
+* If you want “farmable implies fertility/hydration exist”, do it in *model logic when a tag is added* (small, centralized rule), or by emitting a small effect bundle:
+
+  * `AddTag(tile, "farmable")`
+  * `SetSystemTier(tile, "fertility", "silver")`
+  * `SetSystemTier(tile, "hydration", "silver")`
+
+This keeps the schema minimal and avoids “tag-tier coupling” that will get messy fast.
+
+---
+
+## Soundness check against your goals
+
+* **ENV Tags**: boolean routing labels only ✅
+* **ENV Tiles**: host tags, generate cards, no prop overrides, no tiers in defs ✅
+* **Player-facing props → tiers**: moved into `systemTiers` on tile instances ✅
+* **Events modify tiers/tags**: supported via `AddTag/SetSystemTier` ops ✅
+* **Absolute timers**: supported via `createdSec/expiresSec` on card instances ✅
+
+If you want, paste (or re-upload) your current “Gamepiece Def Schema” doc content and I’ll rewrite it into a clean “authoritative contract (v1)” using exactly the minimal fields above.
