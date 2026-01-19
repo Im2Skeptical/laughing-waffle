@@ -24,23 +24,21 @@ These are mostly **no-op/debug** pieces to validate schema and distribution.
 
 ### Required content (minimum)
 
-* 6–10 tags: `farmable`, `fishable`, `forageable`, `huntable` (optional), `roadwork` (optional), `scavenge` (optional)
-
+* 5–8 tags: `farmable`, `fishable`, `forageable`, `grazable`, `mineable`, etc
   * Each tag: 1–2 intents with minimal `requires` + small `AddResource` effects.
-* 6–10 systems: `fertility`, `hydration`, `fishDensity`, `gameDensity`, `growth`, `soilHealth`
 
+* 6–10 systems: `fertility`, `hydration`, `fishDensity`, `turfDensity`, `growth`, `mineralRarity`, etc.
   * Each has `defaultTier:"bronze"` and a numeric `tierMap`.
-* 8–12 tiles: `tile_floodplains`, `tile_coast`, `tile_wastes`, `tile_dunes`, `tile_tundra`, etc.
 
+* 8–12 tiles: `tile_floodplains`, `tile_wetlands`, `tile_levee`, `tile_dunes`, `tile_hinterland`, etc.
   * Each has ordered `baseTags`
   * Each has `seasonTables` for all seasons, with a few entries and weights.
-* 12–20 events:
 
+* 12–20 events:
   * class `"effect"` and a few `"animal"`
   * some with `durationSec` (5–10), some without
   * keep effects trivial (mostly no-op or small AddResource)
   * include at least one event that uses `AddTag` on enter and `RemoveTag` on exit (per schema)
-
 ### File touch list
 
 Create or update:
