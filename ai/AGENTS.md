@@ -4,8 +4,9 @@ Local instructions for Codex agents working in this repo.
 
 ## Project context
 - Read `ai/ai-context.md` before making changes.
-- Preferred location for AI context files is `ai/ai-context.md` or `docs/ai-context.md`
-  (the repo already has `ai/`, so `ai/ai-context.md` is a good home if you move it).
+
+## Current goal context
+- Read `ai/Gamepiece Def Schema.md` and `ai/GameplaySystemRefactor - Goals 01.md` for the refactor stage you are working on
 
 ## Core constraints (non-negotiable)
 - Determinism: no `Math.random()`; all randomness must go through `state.rng`.

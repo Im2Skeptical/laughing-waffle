@@ -16,6 +16,18 @@ A fully deterministic simulation supporting:
 - time travel / scrubbing
 - projection and forecasting
 
+### Board & Gamepieces Refactor (current canonical goals)
+
+* **4-zone board model:** time / env tiles / env events / permanents, all 12-col aligned.
+* **Env tiles:** persistent; store ordered tags + system tiers; tile defs are tier-ignorant.
+* **Tags:** ordered, unique, gameplay-relevant verbs; at most one tag intent executes per tile per second.
+* **Pawn gate:** if no pawn on tile → skip intent evaluation entirely.
+* **Systems:** own tiers; when adding a tag that enables a system, initialize missing system tier to that system’s `defaultTier`.
+* **Env events:** transient; absolute-time lifecycle (`createdSec`, `expiresSec`).
+* **Season deck:** generated at season start from tiles; drawn on fixed cadence; no discard pile; deleted at season end.
+* **Effects:** data-only; gating stays in resolver/manager layer.
+
+
 ## 2. Core Principles (Non-Negotiable)
 ### A. Determinism
 **Invariant Rules**
@@ -160,7 +172,16 @@ A fully deterministic simulation supporting:
 
 ---
 
-## 7. Working Rules for AI Assistance
+## 7. Anti-patterns:
+
+* Don’t add countdown timers; use absolute expiry seconds.
+* Don’t implement gating inside effects.
+* Don’t store Maps/Sets in state (including “indexes”); keep them derived and rebuilt.
+
+---
+
+
+## 8. Working Rules for AI Assistance
 
 Before writing any code, always perform an **Impact Analysis**:
 
@@ -178,7 +199,7 @@ Before writing any code, always perform an **Impact Analysis**:
 
 ---
 
-## 8. Collaboration Preferences
+## 9. Collaboration Preferences
 
 - Ask for clarification before coding if requirements are ambiguous.
 - Explain:

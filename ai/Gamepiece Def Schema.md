@@ -1,3 +1,9 @@
+Stage-1 usage notes:
+These schemas are to be populated with mostly no-op or debug gamepieces.
+Correct shape and ID stability matter more than meaningful gameplay effects.
+onTick exists for future use; Stage-1 events may omit it or use no-op effects.
+Prefer { ref:"self" } targeting in Stage-1 defs unless cross-tile behavior is explicitly desired.
+
 ## v1 Schemas
 
 Below are the **schemas for all relevant types** plus **one canonical example each**.
@@ -49,25 +55,39 @@ type EnvTagDef = {
   };
 
   // Optional: declare what high-level systems this tag enables
+  // show systems on expand (UI)
   systems?: string[];      // e.g. ["fertility", "agriculture"]
 
   // Optional: action/UI gating flags (pure data)
-  affordances?: string[];  // e.g. ["canFarm", "blocksBuild"]
+  // enables verbs (UI gating)
+  affordances?: string[];  // e.g. ["canFarm", "canBuildFarms"]
+
+  intents?: TagIntentDef[]; // ordered within the tag; tag order still matters globally
+};
+```
+#### TagIntentDef (v1 minimal)
+
+```ts
+type TagIntentDef = {
+  id: string;                    // stable within the tag, e.g. "farm"
+  verb: string;                  // "farm" | "fish" | "forage" ...
+  requires?: RequireSpec;        // optional gating
+  effect?: EffectSpec;           // what happens if chosen
 };
 ```
 
-### Example
+#### RequireSpec (keep tiny; no query language)
 
-```js
-{
-  id: "farmable",
-  kind: "envTag",
-  ui: { name: "Farmable", description: "Supports crops and irrigation." },
-  systems: ["fertility", "hydration"],
-  affordances: ["canFarm"]
-}
+```ts
+type RequireSpec = {
+  season?: string[];             // ["spring","summer"]
+  hasPawn?: boolean;             // true => only if pawn present on tile
+  hasTag?: string[];             // tile must have these tags
+  hasEquipment?: string[];       // pawn equipment tags/ids (later)
+};
 ```
-### EnvSystemDef (this is where tiers live)
+
+#### EnvSystemDef (this is where tiers live)
 
 This replaces “player-facing numeric props”. Systems define:
 
@@ -89,7 +109,28 @@ type EnvSystemDef = {
   tierMap: { bronze: number; silver: number; gold: number; diamond: number };
 
 };
+
 ```
+### Example
+
+```js
+{
+  id: "farmable",
+  kind: "envTag",
+  ui: { name: "Farm", description: "Grow crops and harvest crops" },
+  systems: ["fertility", "hydration", "growth"],
+  affordances: ["canFarm","canBuildFarms"]
+  intents: [
+    {
+      id: "farm",
+      verb: "farm",
+      requires: { season: ["spring","summer"], hasPawn: true },
+      effect: { op: "AddResource", resource: "food", amount: 1 } // Final effects for farming more likely to be complex systems
+    }
+  ]
+}
+```
+
 ---
 
 # 2) EnvTileDef (persistent terrain)
@@ -115,6 +156,7 @@ type EnvTileDef = {
   };
 
   // Base tags present on this tile at worldgen/init.
+  // ordered, unique list, top->bottom priority
   baseTags?: string[];
 
   seasonTables?: {
@@ -132,7 +174,7 @@ type EnvTileDef = {
   name: "Floodplains",
   ui: { description: "Lowlands shaped by seasonal overflow." },
 
-  baseTags: ["rivered", "farmable", "fishable"],
+  baseTags: ["forageable", "farmable", "fishable"], 
 
   seasonTables: {
     spring: [{ defId: "event_rain", weight: 4 }, { defId: "event_storm", weight: 1 }],
@@ -218,6 +260,7 @@ type EffectOp =
   | { op: "RemoveEvent"; target: TargetSpec }
   | { op: "TransformEvent"; target: TargetSpec; defId: string };
 
+
 ```
 
 ### Example (multi-span storm affecting permanents)
@@ -239,7 +282,7 @@ On gaining a tag, if it enables a system and systemTiers[system] is missing, set
 
 ---
 
-# 6) Instance shapes (created by model)
+# 5) Instance shapes (created by model)
 
 ### EnvTileInstance
 
@@ -265,4 +308,6 @@ type EnvEventInstance = {
 };
 
 ```
+
+CmdSetTileTagOrder { tileCol: number, tagIds: string[] }
 
