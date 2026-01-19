@@ -6,12 +6,6 @@
 
 **Work:**
 
-* Create new defs registries/files for:
-
-  * `EnvTagDef[]`
-  * `EnvSystemDef[]`
-  * `EnvTileDef[]`
-  * `EnvEventDef[]`
 * Add ~5–10 tags (farm/fish/forage/etc) with minimal intents (often no-op or small `AddResource`).
 * Add ~5–10 systems with tier maps (bronze→diamond).
 * Add ~8–12 tiles with `baseTags` + `seasonTables` (weighted).
@@ -31,14 +25,31 @@
 
 **Work:**
 
-* Add instance constructors:
+In `createEmptyState` add:
 
-  * `makeEnvTileInstance(defId, col, span, state)`
-  * `makeEnvEventInstance(defId, col, span, tSec, state)`
-* Add state storage:
+```js
+state.board = {
+  cols: 12,
+  layers: {
+    tile: { anchors: [] },
+    event: { anchors: [] },
+    permanent: { anchors: [] }, // can mirror existing permanent slots later
+  },
+  occ: {
+    tile: new Array(12).fill(null),
+    event: new Array(12).fill(null),
+    permanent: new Array(12).fill(null),
+  },
+};
+```
 
-  * 12 env tile slots (tile layer)
-  * 12 env event slots (event layer)
+Rules:
+
+* `layers.*.anchors` are the only authoritative placement storage.
+* `occ.*` arrays are derived (may be overwritten on canonicalize).
+
+---
+
 * Implement absolute-time fields on event instances (`createdSec`, `expiresSec`).
 * Implement tag/system state on tile instances (`tags`, `systemTiers`).
 * Add minimal “world init” / “new game” population of 12 tiles.
