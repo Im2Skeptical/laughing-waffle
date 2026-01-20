@@ -10,11 +10,8 @@ import {
   makeEnvInstance,
   makePermanentInstance,
   initializeInstanceFromDef,
-  buildInitialEnvDecks,
   getCurrentSeasonKey,
   getCurrentSeasonData,
-  refillEnvSlots,
-  drawEnvDefId,
   serializeGameState,
   deserializeGameState,
   loadIntoGameState,
@@ -51,9 +48,6 @@ export function updateGame(dt, state) {
   // 2. Pause Gate
   if (s.paused) return;
 
-  // env season data (used for any env-targeted ops)
-  const seasonData = getCurrentSeasonData(s);
-
   // permanents: updateGame stays generic; behaviors decide via preconditions
   for (let i = 0; i < s.permanentSlots.length; i++) {
     const slot = s.permanentSlots[i];
@@ -81,7 +75,6 @@ export function updateGame(dt, state) {
             kind: "env",
             slot: envSlot,
             state: s,
-            seasonData,
           });
         }
         continue;
@@ -113,16 +106,11 @@ export function updateGame(dt, state) {
             kind: "env",
             slot: targetSlot,
             state: s,
-            seasonData,
           });
 
           if (!slot.env) break;
         }
       }
-
-      // Preserve prior semantics: refill immediately after processing this slot,
-      // but route the mutation through a command instead of updateGame.
-      cmdRefillEnvSlot(s, i);
     }
   }
 }
@@ -181,11 +169,8 @@ export {
   makeEnvInstance,
   makePermanentInstance,
   initializeInstanceFromDef,
-  buildInitialEnvDecks,
   getCurrentSeasonKey,
   getCurrentSeasonData,
-  refillEnvSlots,
-  drawEnvDefId,
 
   // commands
   cmdAdvanceSeason,

@@ -1,4 +1,4 @@
-// state.js — core GameState shape + RNG helpers + env decks + serialize/deserialize
+// state.js — core GameState shape + RNG helpers + season decks + serialize/deserialize
 // Model-only. No view imports.
 
 import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
@@ -136,8 +136,8 @@ export function createEmptyState(seed = 123456789) {
     nextPermanentInstanceId: 1,
 
     envSlots: [],
-    envSlotsEnabled: true,
-    envSeasons: {},
+    envSlotsEnabled: false,
+    currentSeasonDeck: null,
     nextEnvInstanceId: 1,
 
     ownerInventories: {},
@@ -290,49 +290,68 @@ export function initializeInstanceFromDef(instance, def) {
 }
 
 // =============================================================================
-// ENV DECKS + DRAW
+// SEASON EVENT DECKS (tile-driven)
 // =============================================================================
 
-function shuffleArray(state, arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = state.rngNextInt(0, i);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+function pickWeightedDefId(state, entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return null;
+  if (typeof state?.rngNextFloat !== "function") return null;
+
+  let total = 0;
+  const weights = new Array(entries.length);
+  for (let i = 0; i < entries.length; i++) {
+    const weight = Number.isFinite(entries[i]?.weight)
+      ? Math.max(0, entries[i].weight)
+      : 0;
+    weights[i] = weight;
+    total += weight;
   }
+
+  if (total <= 0) return null;
+
+  const roll = state.rngNextFloat() * total;
+  let acc = 0;
+  for (let i = 0; i < entries.length; i++) {
+    acc += weights[i];
+    if (roll < acc) return entries[i]?.defId ?? null;
+  }
+
+  return entries[entries.length - 1]?.defId ?? null;
 }
 
-export function buildInitialEnvDecks(state) {
-  state.envSeasons = {};
+function getOrderedTileAnchors(state) {
+  const anchors = Array.isArray(state?.board?.layers?.tile?.anchors)
+    ? state.board.layers.tile.anchors
+    : [];
+  const ordered = anchors.map((anchor, index) => ({
+    anchor,
+    index,
+    col: Number.isFinite(anchor?.col) ? Math.floor(anchor.col) : 0,
+  }));
+  ordered.sort((a, b) => (a.col - b.col) || (a.index - b.index));
+  return ordered.map((entry) => entry.anchor);
+}
 
-  for (const season of state.seasons) {
-    const seasonData = { deck: [], discard: [] };
+export function buildSeasonDeckForCurrentSeason(state) {
+  if (!state) return null;
+  const seasonKey = getCurrentSeasonKey(state);
+  const deck = [];
 
-    if (season === "autumn") {
-      for (let i = 0; i < 10; i++) seasonData.deck.push("barren_autumn");
-      for (let i = 0; i < 10; i++) seasonData.deck.push("flood_autumn");
-    } else {
-      let barrenId;
-      switch (season) {
-        case "spring":
-          barrenId = "barren_spring";
-          break;
-        case "summer":
-          barrenId = "barren_summer";
-          break;
-        case "winter":
-          barrenId = "barren_winter";
-          break;
-        default:
-          barrenId = "barren_spring";
-          break;
-      }
-      for (let i = 0; i < 10; i++) seasonData.deck.push(barrenId);
-    }
+  for (const anchor of getOrderedTileAnchors(state)) {
+    if (!anchor) continue;
+    const def = envTileDefs[anchor.defId];
+    const table = def?.seasonTables?.[seasonKey];
+    if (!Array.isArray(table) || table.length === 0) continue;
 
-    for (let i = 0; i < 5; i++) seasonData.deck.push("rock");
+    const defId = pickWeightedDefId(state, table);
+    if (!defId) continue;
 
-    shuffleArray(state, seasonData.deck);
-    state.envSeasons[season] = seasonData;
+    const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
+    deck.push({ defId, col });
   }
+
+  state.currentSeasonDeck = { seasonKey, deck };
+  return state.currentSeasonDeck;
 }
 
 export function getCurrentSeasonKey(state) {
@@ -340,30 +359,18 @@ export function getCurrentSeasonKey(state) {
 }
 
 export function getCurrentSeasonData(state) {
-  return state.envSeasons[getCurrentSeasonKey(state)];
+  const seasonKey = getCurrentSeasonKey(state);
+  const deck = state.currentSeasonDeck;
+  if (deck && deck.seasonKey === seasonKey) return deck;
+  return { seasonKey, deck: [] };
 }
 
-export function drawEnvDefId(state) {
-  const seasonData = getCurrentSeasonData(state);
-  const deck = seasonData.deck;
-  const discard = seasonData.discard;
-
-  if (deck.length === 0) {
-    if (discard.length === 0) return null;
-    while (discard.length > 0) deck.push(discard.pop());
-    shuffleArray(state, deck);
-  }
-
-  return deck.pop();
-}
-
-export function refillEnvSlots(state) {
-  for (const slot of state.envSlots) {
-    if (slot.env) continue;
-    const defId = drawEnvDefId(state);
-    if (!defId) break;
-    slot.env = makeEnvInstance(defId, state);
-  }
+export function drawSeasonDeckEntry(state) {
+  const seasonKey = getCurrentSeasonKey(state);
+  const deck = state.currentSeasonDeck;
+  if (!deck || deck.seasonKey !== seasonKey) return null;
+  if (!Array.isArray(deck.deck) || deck.deck.length === 0) return null;
+  return deck.deck.shift();
 }
 
 // =============================================================================
@@ -465,12 +472,27 @@ export function deserializeGameState(data) {
   if (!state.rng) state.rng = { seed: 123456789 };
   if (!state.resources) state.resources = { gold: 0, food: 0, population: 0 };
   if (!state.envSlots) state.envSlots = [];
-  if (state.envSlotsEnabled == null) state.envSlotsEnabled = true;
-  if (!state.envSeasons) state.envSeasons = {};
+  if (state.envSlotsEnabled == null) state.envSlotsEnabled = false;
   if (!state.permanentSlots) state.permanentSlots = [];
   if (!state.characters) state.characters = [];
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
+  if (
+    state.currentSeasonDeck != null &&
+    typeof state.currentSeasonDeck !== "object"
+  ) {
+    state.currentSeasonDeck = null;
+  } else if (state.currentSeasonDeck) {
+    if (!Array.isArray(state.currentSeasonDeck.deck)) {
+      state.currentSeasonDeck.deck = [];
+    }
+    if (Object.prototype.hasOwnProperty.call(state.currentSeasonDeck, "discard")) {
+      delete state.currentSeasonDeck.discard;
+    }
+    if (typeof state.currentSeasonDeck.seasonKey !== "string") {
+      state.currentSeasonDeck.seasonKey = getCurrentSeasonKey(state);
+    }
+  }
   ensureBoardState(state);
   ensureTilePawnsByCol(state);
   state._boardDirty = false;

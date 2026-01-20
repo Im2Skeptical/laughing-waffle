@@ -3,8 +3,15 @@
 
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
-import { getCurrentSeasonKey, rebuildBoardOccupancy } from "./state.js";
+import {
+  drawSeasonDeckEntry,
+  getCurrentSeasonKey,
+  makeEnvEventInstance,
+  rebuildBoardOccupancy,
+} from "./state.js";
 import { runEffect } from "./effects.js";
+
+const EVENT_CADENCE_SEC = 5;
 
 function isIntentEligible(intent, seasonKey, tile, hasPawn) {
   if (!intent || typeof intent !== "object") return false;
@@ -50,6 +57,7 @@ export function stepEnvSecond(state, tSec) {
 
   const board = state.board;
   const seasonKey = getCurrentSeasonKey(state);
+  let needsRebuild = state._boardDirty === true;
 
   const eventAnchors = board.layers?.event?.anchors;
   if (Array.isArray(eventAnchors) && eventAnchors.length > 0) {
@@ -78,7 +86,55 @@ export function stepEnvSecond(state, tSec) {
       if (expiredByTime || expiredBySeason) {
         if (def.onExit) runEffect(state, def.onExit, context);
         eventAnchors.splice(i, 1);
-        state._boardDirty = true;
+        needsRebuild = true;
+        const occ = board.occ?.event;
+        if (Array.isArray(occ)) {
+          const col = Number.isFinite(anchor.col) ? anchor.col : 0;
+          const span = Number.isFinite(anchor.span) ? anchor.span : 1;
+          for (let offset = 0; offset < span; offset++) {
+            const occCol = col + offset;
+            if (occCol < 0 || occCol >= occ.length) continue;
+            if (occ[occCol] === anchor) occ[occCol] = null;
+          }
+        }
+      }
+    }
+  }
+
+  if (
+    Number.isFinite(tSec) &&
+    tSec > 0 &&
+    tSec % EVENT_CADENCE_SEC === 0
+  ) {
+    // Collision policy: consume the draw even if the spawn is blocked.
+    const entry = drawSeasonDeckEntry(state);
+    if (entry) {
+      const def = envEventDefs[entry.defId];
+      if (def) {
+        const col = Number.isFinite(entry.col) ? Math.floor(entry.col) : 0;
+        const span =
+          Number.isFinite(def.defaultSpan) && def.defaultSpan > 0
+            ? Math.floor(def.defaultSpan)
+            : 1;
+
+        const occ = board.occ?.event;
+        let blocked = false;
+        if (Array.isArray(occ)) {
+          for (let offset = 0; offset < span; offset++) {
+            const occCol = col + offset;
+            if (occCol < 0 || occCol >= board.cols) continue;
+            if (occ[occCol]) {
+              blocked = true;
+              break;
+            }
+          }
+        }
+
+        if (!blocked) {
+          const anchor = makeEnvEventInstance(entry.defId, state, col, span, tSec);
+          board.layers.event.anchors.push(anchor);
+          needsRebuild = true;
+        }
       }
     }
   }
@@ -114,7 +170,7 @@ export function stepEnvSecond(state, tSec) {
     }
   }
 
-  if (state._boardDirty) {
+  if (needsRebuild) {
     rebuildBoardOccupancy(state);
     state._boardDirty = false;
   }

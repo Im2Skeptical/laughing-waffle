@@ -9,8 +9,7 @@ import {
   makeEnvInstance,
   makeEnvTileInstance,
   makePermanentInstance,
-  buildInitialEnvDecks,
-  refillEnvSlots,
+  buildSeasonDeckForCurrentSeason,
   rebuildBoardOccupancy,
 } from "./state.js";
 
@@ -115,15 +114,8 @@ export function createInitialState(scenario = "testing", seed = null) {
   // scenario-defined inventory items
   applySetupInventories(state, setup);
 
-  // decks
-  if (setup.envDecks) {
-    state.envSeasons = JSON.parse(JSON.stringify(setup.envDecks));
-  } else {
-    buildInitialEnvDecks(state);
-  }
-
-  // fill empty env slots
-  refillEnvSlots(state);
+  // season deck (tile-driven)
+  buildSeasonDeckForCurrentSeason(state);
 
   rebuildBoardOccupancy(state);
 

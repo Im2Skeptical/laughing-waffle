@@ -11,9 +11,7 @@ import {
 
 import {
   getCurrentSeasonKey,
-  refillEnvSlots,
-  drawEnvDefId,
-  makeEnvInstance,
+  buildSeasonDeckForCurrentSeason,
 } from "./state.js";
 
 import {
@@ -69,22 +67,13 @@ function getApIncomePerSecond(state, tSec) {
 export function cmdAdvanceSeason(state) {
   const oldSeasonKey = getCurrentSeasonKey(state);
 
-  // Defensive: ensure season deck/discard containers exist (older saves / test harnesses).
-  if (!state.envSeasons) state.envSeasons = {};
-  const oldSeasonData =
-    state.envSeasons[oldSeasonKey] ||
-    (state.envSeasons[oldSeasonKey] = { deck: [], discard: [] });
-  if (!Array.isArray(oldSeasonData.deck)) oldSeasonData.deck = [];
-  if (!Array.isArray(oldSeasonData.discard)) oldSeasonData.discard = [];
-
   // 1) env cards -> discard / recycle
   // Make sure any season-end cleanup runs before we swap the season.
   if (state.envSlots && state.envSlots.length > 0) {
     for (let i = 0; i < state.envSlots.length; i++) {
       const slot = state.envSlots[i];
       if (slot?.env) {
-        // NOTE: applySeasonEndForEnvCard expects the slot object + the old season's deck/discard container.
-        applySeasonEndForEnvCard(state, slot, oldSeasonData);
+        applySeasonEndForEnvCard(state, slot, null);
       }
     }
   }
@@ -106,15 +95,9 @@ export function cmdAdvanceSeason(state) {
 
   const newSeasonKey = getCurrentSeasonKey(state);
 
-  // 3) draw next season decks / ensure env season data exists
-  if (!state.envSeasons) state.envSeasons = {};
-  if (!state.envSeasons[newSeasonKey]) {
-    // IMPORTANT: must match state.js expectations (deck/discard), not legacy envDeck/envDiscard
-    state.envSeasons[newSeasonKey] = { deck: [], discard: [] };
-  }
-
-  // Refill env slots as needed (preserve prior semantics)
-  refillEnvSlots(state);
+  // 3) build new season deck (tile-driven)
+  state.currentSeasonDeck = null;
+  buildSeasonDeckForCurrentSeason(state);
 
   // 4) process item/permanent seasonal effects
   processSeasonChangeForItems(state);
@@ -122,7 +105,7 @@ export function cmdAdvanceSeason(state) {
   // 5) reset season-scoped triggers
   resetTimedTriggersOnPermanents(state);
 
-  return { ok: true, oldSeasonKey, newSeasonKey: getCurrentSeasonKey(state) };
+  return { ok: true, oldSeasonKey, newSeasonKey };
 }
 
 function maybeAdvanceSeasonBySimTime(state, dt) {
@@ -231,12 +214,7 @@ export function cmdRefillEnvSlot(state, envSlotIndex) {
   if (!slot) return { ok: false, reason: "noEnvSlot" };
 
   if (slot.env) return { ok: true, filled: false };
-
-  const nextDefId = drawEnvDefId(state);
-  if (!nextDefId) return { ok: true, filled: false, exhausted: true };
-
-  slot.env = makeEnvInstance(nextDefId, state);
-  return { ok: true, filled: true, defId: nextDefId };
+  return { ok: true, filled: false, reason: "envDeckDeprecated" };
 }
 
 // =============================================================================
