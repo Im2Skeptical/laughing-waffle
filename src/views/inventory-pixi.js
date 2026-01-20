@@ -5,15 +5,11 @@
 // - Handles drag/drop + stack splitting.
 // - Does NOT contain game rules; delegates legality + mutation to the model.
 //
-// Stage 6 fix: preserve original visuals/UX, but route mutations through injected handlers
-// (timeline-aware dispatcher in ui-root-pixi.js). No direct model mutations here.
-//
+
 
 import { itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 
-// NOTE: Stage 6 — removed direct model mutation imports.
-// import { cmdSplitStackAndPlace } from "../model/commands.js";
-// import { tryMoveItemBetweenOwners } from "../model/game-model.js";
+
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;

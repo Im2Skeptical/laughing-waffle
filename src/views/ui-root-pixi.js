@@ -16,6 +16,10 @@ import { createMetricGraphView } from "./timegraphs-pixi.js";
 import { BOARD_COLS, getBoardColumnCenterX } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
+import {
+  createSunAndMoonDisksView,
+  SUN_AND_MOON_DISKS_LAYOUT,
+} from "./sunandmoon-disks-pixi.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
@@ -23,7 +27,7 @@ const DESIGN_HEIGHT = 1080;
 export const app = new PIXI.Application({
   width: DESIGN_WIDTH,
   height: DESIGN_HEIGHT,
-  backgroundColor: 0x57514B,
+  backgroundColor: 0x57514b,
   antialias: true,
 });
 
@@ -245,7 +249,7 @@ let goldGraphView = createMetricGraphView({
   clearPreviewState: () => runner.clearPreviewState(),
   // STAGE 3: Use commitCursorSecond
   commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
-  openPosition: { x: 350, y: 280},
+  openPosition: { x: 350, y: 280 },
 });
 
 let apGraphView = createMetricGraphView({
@@ -297,8 +301,14 @@ const chromeView = createChromeView({
     else apGraphView.close();
   },
   getTimeScale: () => runner.getTimeScale?.(),
-  setTimeScaleTarget: (speed, opts) =>
-    runner.setTimeScaleTarget?.(speed, opts),
+  setTimeScaleTarget: (speed, opts) => runner.setTimeScaleTarget?.(speed, opts),
+});
+
+// NEW: Sun/Moon rotating disks HUD view
+const sunMoonDisksView = createSunAndMoonDisksView({
+  layer: uiLayers.controlsLayer,
+  getState: () => runner.getState(), 
+  layout: SUN_AND_MOON_DISKS_LAYOUT,
 });
 
 const debugView = createDebugOverlay({
@@ -338,6 +348,7 @@ inventoryView.init();
 boardView.init();
 charactersView.init();
 chromeView.init();
+sunMoonDisksView.init(); // NEW
 actionLogView.init();
 apGraphView.open();
 
@@ -350,10 +361,11 @@ app.ticker.add((delta) => {
   tooltipView.update(frameDt);
   inventoryView.update(frameDt);
   chromeView.update(frameDt);
+  sunMoonDisksView.update(frameDt); // NEW
   actionLogView.update(frameDt);
   debugView.update();
-  const anyGraphOpen =
-    goldGraphView.isOpen() || apGraphView.isOpen();
+
+  const anyGraphOpen = goldGraphView.isOpen() || apGraphView.isOpen();
   timeGraphController.setActive?.(anyGraphOpen);
   if (anyGraphOpen) {
     timeGraphController.update();
