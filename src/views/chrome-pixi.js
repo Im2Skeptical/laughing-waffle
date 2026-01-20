@@ -6,7 +6,7 @@ import {
   AP_INCOME_PER_SEC,
   AP_INCOME_MULT_WAXING,
   AP_INCOME_MULT_WANING,
-} from "../defs/gamerules-defs.js";
+} from "../defs/gamesettings/gamerules-defs.js";
 import { isMoonWaxingAtSecond } from "../model/moon.js";
 import { getTotalFoodFromEdibles } from "../model/query.js";
 import { createTimeLeverView } from "./time-lever-pixi.js";
@@ -253,3 +253,4 @@ export function createChromeView({
 
   return { init, refresh, update };
 }
+

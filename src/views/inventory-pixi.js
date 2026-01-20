@@ -9,7 +9,7 @@
 // (timeline-aware dispatcher in ui-root-pixi.js). No direct model mutations here.
 //
 
-import { itemDefs } from "../defs/gamepieces-defs.js";
+import { itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 
 // NOTE: Stage 6 — removed direct model mutation imports.
 // import { cmdSplitStackAndPlace } from "../model/commands.js";
@@ -1182,3 +1182,4 @@ export function createInventoryView({
     windows,
   };
 }
+

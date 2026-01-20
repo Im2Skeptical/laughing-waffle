@@ -1,8 +1,8 @@
 // state.js — core GameState shape + RNG helpers + env decks + serialize/deserialize
 // Model-only. No view imports.
 
-import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamerules-defs.js";
-import { envCardDefs, permanentDefs } from "../defs/gamepieces-defs.js";
+import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import { envCardDefs, permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { attachRngHelpers } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 
@@ -389,3 +389,4 @@ export function loadIntoGameState(data) {
   Object.assign(gameState, loaded);
   attachRngHelpers(gameState);
 }
+

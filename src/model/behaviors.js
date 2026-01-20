@@ -1,6 +1,6 @@
 // behaviors.js — behaviors return EffectOps (no side channels)
 
-import { envCardDefs, permanentDefs } from "../defs/gamepieces-defs.js";
+import { envCardDefs, permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
 
 export const behaviorHandlers = {
   TimedTrigger: handleTimedTrigger,
@@ -245,3 +245,4 @@ export function resetTimedTriggersOnPermanents(state) {
 
   return ops;
 }
+

@@ -1,6 +1,8 @@
 // gamerules-defs.js
 // Gameplay rules and tuning constants.
 
+import "../env-defs-dev.js";
+
 export const SEASON_DURATION_SEC = 32; // seconds of simulation per season
 
 // --- Moon / Action Point Cap ---

@@ -1,13 +1,13 @@
 // src/model/commands.js
 // public mutation APIs (cmd*) + move rules
 
-import { permanentDefs, itemDefs } from "../defs/gamepieces-defs.js";
+import { permanentDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import {
   SEASON_DURATION_SEC,
   AP_INCOME_PER_SEC,
   AP_INCOME_MULT_WAXING,
   AP_INCOME_MULT_WANING,
-} from "../defs/gamerules-defs.js";
+} from "../defs/gamesettings/gamerules-defs.js";
 
 import {
   getCurrentSeasonKey,
@@ -452,3 +452,4 @@ export function canOwnerAcceptItem(state, ownerId, item) {
 
   return false;
 }
+

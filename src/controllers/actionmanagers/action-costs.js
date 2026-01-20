@@ -1,7 +1,7 @@
 // src/controllers/actionmanagers/action-costs.js
 // Pure AP cost estimation helpers for planner intents.
 
-import { INTENT_AP_COSTS } from "../../defs/action-costs-defs.js";
+import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import {
   getCurrencyGroupInfo,
   getItemQuantity,
@@ -94,3 +94,4 @@ export function computeIntentCostSummary(intents, ctx = {}) {
 
   return { total, byId };
 }
+

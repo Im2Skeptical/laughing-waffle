@@ -1,7 +1,7 @@
 // src/controllers/actionmanagers/action-log-controller.js
 // View-model helpers for action log rows and navigation.
 
-import { itemDefs, permanentDefs } from "../../defs/gamepieces-defs.js";
+import { itemDefs, permanentDefs } from "../../defs/gamepieces/gamepieces-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { IntentKinds } from "./action-intents.js";
 import {
@@ -381,3 +381,4 @@ export function createActionLogController({
     getApText,
   };
 }
+

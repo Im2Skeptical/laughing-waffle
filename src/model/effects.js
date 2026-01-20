@@ -1,6 +1,6 @@
 // effects.js — EffectOp interpreter + seasonEnd + item expiry + inventory ops
 
-import { envCardDefs, itemDefs } from "../defs/gamepieces-defs.js";
+import { envCardDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import {
   Inventory,
   canStackItems,
@@ -663,3 +663,4 @@ function handleItemSeasonExpiry(state, inv, item) {
 
   runEffect(state, def.seasonExpiry, { kind: "itemSeasonExpiry", inv, item });
 }
+

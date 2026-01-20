@@ -13,7 +13,7 @@ import {
 import { GRAPH_METRICS } from "./graph-metrics.js";
 import { serializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
-import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamerules-defs.js";
+import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
 
 export function createTimeGraphController({
   getTimeline,
@@ -424,3 +424,4 @@ export function createTimeGraphController({
     },
   };
 }
+

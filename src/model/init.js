@@ -1,7 +1,7 @@
 // init.js — scenario/setup assembly (NO core exports here besides init/createInitialState)
 
-import { permanentDefs } from "../defs/gamepieces-defs.js";
-import { setupDefs } from "../defs/scenarios-defs.js";
+import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 
 import {
   createEmptyState,
@@ -165,3 +165,4 @@ function applySetupInventories(state, setup) {
     inv.version = (inv.version ?? 0) + 1;
   }
 }
+

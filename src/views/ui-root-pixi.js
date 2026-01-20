@@ -1,6 +1,6 @@
 // src/views/ui-root-pixi.js
 import { getCurrentSeasonData } from "../model/game-model.js";
-import { permanentDefs } from "../defs/gamepieces-defs.js";
+import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
@@ -372,3 +372,4 @@ window.__DBG__ = {
     runner.getLastPlannerCommitError?.() ?? null,
   test: runDeterminismSuite,
 };
+
