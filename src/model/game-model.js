@@ -30,7 +30,6 @@ import {
   cmdPlaceCharacterInSlot,
   cmdSetPaused,
   cmdSetTileTagOrder,
-  cmdDebugToggleTilePawn,
   canOwnerAcceptItem,
 } from "./commands.js";
 
@@ -181,7 +180,6 @@ export {
   cmdPlaceCharacterInSlot,
   cmdSetPaused,
   cmdSetTileTagOrder,
-  cmdDebugToggleTilePawn,
   canOwnerAcceptItem,
 };
 

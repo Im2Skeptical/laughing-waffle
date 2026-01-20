@@ -9,7 +9,6 @@ import {
   cmdStackItemsInOwner,
   cmdDebugSetCap,
   cmdSetTileTagOrder,
-  cmdDebugToggleTilePawn,
 } from "./commands.js";
 
 export const ActionKinds = {
@@ -20,7 +19,6 @@ export const ActionKinds = {
   BUILD_DESIGNATE: "buildDesignate",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
   DEBUG_SET_CAP: "debugSetCap",
-  DEBUG_TOGGLE_TILE_PAWN: "debugToggleTilePawn",
 };
 
 function ensureAPState(state) {
@@ -63,7 +61,7 @@ export function applyAction(state, action, context = {}) {
 
   if (!kind) {
     throw new Error(
-      `Unknown action kind: '${rawKind}'. Action: ${JSON.stringify(action)}`
+      `Unknown action kind: '${action?.kind}'. Action: ${JSON.stringify(action)}`
     );
   }
 
@@ -75,9 +73,7 @@ export function applyAction(state, action, context = {}) {
 
   // "Control" actions are allowed while running.
   // "Edit" actions (Player moves) require the simulation to be PAUSED.
-  const isControlAction =
-    kind === ActionKinds.DEBUG_SET_CAP ||
-    kind === ActionKinds.DEBUG_TOGGLE_TILE_PAWN;
+  const isControlAction = kind === ActionKinds.DEBUG_SET_CAP;
 
   // STRICT GATING: If not replaying, gameplay actions are FORBIDDEN unless paused.
   if (!isReplay && !isControlAction && !state.paused) {
@@ -138,10 +134,6 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.DEBUG_SET_CAP:
       result = cmdDebugSetCap(state, payload);
-      break;
-
-    case ActionKinds.DEBUG_TOGGLE_TILE_PAWN:
-      result = cmdDebugToggleTilePawn(state, payload);
       break;
 
     default:

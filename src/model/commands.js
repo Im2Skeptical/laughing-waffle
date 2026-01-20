@@ -374,12 +374,17 @@ export function cmdPlaceCharacterInSlot(state, { charId, slotIndex }) {
     return { ok: false, reason: "badSlotIndex" };
   }
 
-  const slot = state.permanentSlots?.[slotIndex];
-  if (!slot) return { ok: false, reason: "noSlot" };
-  if (!slot.permanent) return { ok: false, reason: "noPermanent" };
+  const col = Math.floor(slotIndex);
+  const cols = Number.isFinite(state?.board?.cols)
+    ? Math.floor(state.board.cols)
+    : Array.isArray(state.permanentSlots)
+      ? state.permanentSlots.length
+      : 0;
 
-  ch.slotIndex = slotIndex;
-  return { ok: true, result: "placed", charId, slotIndex };
+  if (col < 0 || col >= cols) return { ok: false, reason: "badSlotIndex" };
+
+  ch.slotIndex = col;
+  return { ok: true, result: "placed", charId, slotIndex: col };
 }
 
 // =============================================================================
@@ -425,23 +430,6 @@ export function cmdDebugSetCap(state, { cap, points, enabled } = {}) {
     actionPoints: state.actionPoints,
     apCapOverride: state.apCapOverride,
   };
-}
-
-export function cmdDebugToggleTilePawn(state, { tileCol } = {}) {
-  if (!Number.isFinite(tileCol)) return { ok: false, reason: "badTileCol" };
-  const col = Math.floor(tileCol);
-  const cols = state.board?.cols ?? 12;
-  if (col < 0 || col >= cols) return { ok: false, reason: "badTileCol" };
-
-  if (
-    !Array.isArray(state.tilePawnsByCol) ||
-    state.tilePawnsByCol.length !== cols
-  ) {
-    state.tilePawnsByCol = new Array(cols).fill(false);
-  }
-
-  state.tilePawnsByCol[col] = !state.tilePawnsByCol[col];
-  return { ok: true, tileCol: col, present: state.tilePawnsByCol[col] };
 }
 
 // =============================================================================

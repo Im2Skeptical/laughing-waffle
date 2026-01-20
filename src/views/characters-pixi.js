@@ -10,7 +10,7 @@
 // - Supports both older opts { getCharacters, getPermanentSlots, interaction, tooltipView, inventoryView, onCharacterDropped }
 // - And newer opts { getGameState, onDropCharacter } (used by current ui-root-pixi.js)
 
-import { PERM_WIDTH, layoutPermPos } from "./layout-pixi.js";
+import { BOARD_COLS, PERM_WIDTH, layoutPermPos } from "./layout-pixi.js";
 
 export function createCharactersView(opts) {
   const {
@@ -63,11 +63,10 @@ export function createCharactersView(opts) {
     return s?.characters || s?.chars || s?.characterList || s?.party || [];
   }
 
-  function getPermanentSlotsSafe() {
-    if (typeof getPermanentSlots === "function")
-      return getPermanentSlots() || [];
+  function getBoardColsSafe() {
     const s = getStateSafe();
-    return s?.permanentSlots || [];
+    const cols = Number.isFinite(s?.board?.cols) ? Math.floor(s.board.cols) : null;
+    return cols != null ? cols : BOARD_COLS;
   }
 
   function getInvSafe() {
@@ -90,14 +89,13 @@ export function createCharactersView(opts) {
 
   // Centre above a permanent card at slotIndex
   function getBasePosForSlotIndex(slotIndex) {
-    const slots = getPermanentSlotsSafe();
-    const count = Array.isArray(slots) ? slots.length : 0;
+    const cols = getBoardColsSafe();
 
-    if (!count || slotIndex == null || slotIndex < 0 || slotIndex >= count) {
+    if (!cols || slotIndex == null || slotIndex < 0 || slotIndex >= cols) {
       return { x: 200 + (slotIndex ?? 0) * 220, y: 380 };
     }
 
-    const pos = layoutPermPos(app.screen.width, slotIndex, count);
+    const pos = layoutPermPos(app.screen.width, slotIndex);
     const centerX = pos.x + PERM_WIDTH / 2;
     const topY = pos.y;
     return { x: centerX, y: topY - 30 };

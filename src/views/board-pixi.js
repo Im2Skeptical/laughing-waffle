@@ -1,109 +1,121 @@
 // board-pixi.js
-// Renders environment cards (row 1) + permanent slots (row 2)
-// Uses a fixed 1920x1080 design resolution and centres rows horizontally.
-// VIEW-ONLY: does NOT write layout data into the model.
+// Renders tiles/events/permanents aligned to a 12-column board.
+// VIEW-ONLY: no direct state mutation.
 
-import { permanentDefs, envCardDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { ActionKinds } from "../model/actions.js";
 import {
+  BOARD_COLS,
+  BOARD_COL_GAP,
+  TILE_WIDTH,
+  TILE_HEIGHT,
+  EVENT_WIDTH,
+  EVENT_HEIGHT,
   PERM_WIDTH,
   PERM_HEIGHT,
-  PERM_GAP,
+  TILE_ROW_Y,
+  EVENT_ROW_Y,
   PERM_ROW_Y,
-  layoutPermPos as layoutPermPosShared,
+  getBoardColumnX,
+  layoutBoardColPos,
 } from "./layout-pixi.js";
 
 /**
  * opts:
  *  - app: PIXI.Application
- *  - envLayer: PIXI.Container
+ *  - tileLayer: PIXI.Container
+ *  - eventLayer: PIXI.Container
  *  - permanentsLayer: PIXI.Container
  *  - getGameState: () => gameState
- *  - interaction: interactionController (for canShowHoverUI)
+ *  - interaction: interactionController
  *  - tooltipView
  *  - inventoryView
+ *  - dispatchAction: (kind, payload, opts?) => any
  */
 export function createBoardView(opts) {
   const {
     app,
-    envLayer,
+    tileLayer,
+    eventLayer,
     permanentsLayer,
     getGameState,
+    interaction,
     tooltipView,
     inventoryView,
+    dispatchAction,
   } = opts;
 
-  /** @type {(BoardEnvView | undefined)[]} */
-  const envViews = [];
+  const tileViews = [];
+  /** @type {Map<number, BoardEventView>} */
+  const eventViews = new Map();
   /** @type {Map<number, BoardPermView>} */
   const permViews = new Map();
-
-  // --------------------------------------------------------
-  // Layout helpers (VIEW-ONLY)
-  // --------------------------------------------------------
-
-  function layoutEnvPos(i, count) {
-    const totalWidth = count * ENV_WIDTH + (count - 1) * ENV_GAP;
-    const startX = (app.screen.width - totalWidth) / 2;
-    return {
-      x: startX + i * (ENV_WIDTH + ENV_GAP),
-      y: 140,
-    };
-  }
 
   // --------------------------------------------------------
   // UI helpers
   // --------------------------------------------------------
 
-  function getEnvUi(envInst) {
-    const def = envCardDefs[envInst.defId];
-    const ui = def.ui || {};
-    const title =
-      (typeof ui.title === "function" ? ui.title(envInst, def) : ui.title) ||
-      def.name ||
-      envInst.defId;
-    const lines = (ui.lines || [])
-      .map((line) => (typeof line === "function" ? line(envInst, def) : line))
-      .filter(Boolean);
-    const meters = Array.isArray(ui.meters) ? ui.meters : [];
-    return { def, title, lines, color: def.color ?? 0x66aa66, meters };
+  function getTileUi(tileInst) {
+    const def = envTileDefs[tileInst.defId];
+    const title = def?.name || tileInst.defId || "Tile";
+    const desc = def?.ui?.description || "";
+    const color = def?.color ?? 0x6f8a6f;
+    const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
+    return { def, title, desc, color, tags };
+  }
+
+  function getEventUi(eventInst) {
+    const def = envEventDefs[eventInst.defId];
+    const title = def?.name || eventInst.defId || "Event";
+    const desc = def?.ui?.description || "";
+    const classKind = def?.class || "effect";
+    const color =
+      classKind === "animal"
+        ? 0x8f6f5f
+        : classKind === "effect"
+          ? 0x5f6f8f
+          : 0x707070;
+    return { def, title, desc, color };
   }
 
   function getPermUi(permInst) {
     const def = permanentDefs[permInst.defId];
-    const ui = def.ui || {};
+    const ui = def?.ui || {};
     const title =
       (typeof ui.title === "function" ? ui.title(permInst, def) : ui.title) ||
-      def.name ||
+      def?.name ||
       permInst.defId;
     const lines = (ui.lines || [])
       .map((line) => (typeof line === "function" ? line(permInst, def) : line))
       .filter(Boolean);
     const meters = Array.isArray(ui.meters) ? ui.meters : [];
-    return { def, title, lines, color: def.color ?? 0x336699, meters };
+    return { def, title, lines, color: def?.color ?? 0x336699, meters };
   }
 
   // --------------------------------------------------------
-  // Meter helpers
+  // Meter helpers (permanents only)
   // --------------------------------------------------------
 
   function createMeters(container, meters, inst, startY, maxWidth) {
-    const meterHeight = 8;
-    const meterWidth = maxWidth ?? 120;
+    const meterHeight = 6;
+    const meterWidth = maxWidth ?? 110;
     let y = startY;
     const meterViews = [];
 
     for (const meter of meters) {
       const labelText = new PIXI.Text("", {
         fill: 0x000000,
-        fontSize: 14,
+        fontSize: 11,
       });
-      labelText.x = 12;
+      labelText.x = 8;
       labelText.y = y;
       container.addChild(labelText);
 
       const barBg = new PIXI.Graphics()
-        .beginFill(0x555555)
-        .drawRoundedRect(12, y + 16, meterWidth, meterHeight, 4)
+        .beginFill(0x444444)
+        .drawRoundedRect(8, y + 14, meterWidth, meterHeight, 3)
         .endFill();
       container.addChild(barBg);
 
@@ -117,7 +129,7 @@ export function createBoardView(opts) {
         width: meterWidth,
       });
 
-      y += 32;
+      y += 26;
     }
 
     updateMeters(meterViews, inst);
@@ -148,18 +160,97 @@ export function createBoardView(opts) {
 
       labelText.text = label;
       barFill.clear();
-      barFill.beginFill(0x00ff00);
-      barFill.drawRoundedRect(12, labelText.y + 16, width * ratio, 8, 4);
+      barFill.beginFill(0x00cc66);
+      barFill.drawRoundedRect(8, labelText.y + 14, width * ratio, 6, 3);
       barFill.endFill();
     }
   }
 
   // --------------------------------------------------------
-  // Build env view
+  // Tag reorder helper
   // --------------------------------------------------------
 
-  function buildEnvView(envInst) {
-    const { title, lines, color, meters } = getEnvUi(envInst);
+  function tryReorderTag(tileCol, tagIndex, direction) {
+    if (!dispatchAction) return;
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
+
+    const state = getGameState?.();
+    const tile = state?.board?.occ?.tile?.[tileCol];
+    const tags = Array.isArray(tile?.tags) ? tile.tags.slice() : [];
+    if (tags.length < 2) return;
+
+    const nextIndex = tagIndex + direction;
+    if (nextIndex < 0 || nextIndex >= tags.length) return;
+
+    const tmp = tags[tagIndex];
+    tags[tagIndex] = tags[nextIndex];
+    tags[nextIndex] = tmp;
+
+    dispatchAction(ActionKinds.SET_TILE_TAG_ORDER, {
+      tileCol,
+      tagIds: tags,
+    });
+  }
+
+  // --------------------------------------------------------
+  // Tile view
+  // --------------------------------------------------------
+
+  function rebuildTileTags(view, tileInst) {
+    const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
+    view.tagSignature = tags.join("|");
+
+    view.tagContainer.removeChildren();
+
+    let y = 0;
+    for (let i = 0; i < tags.length; i++) {
+      const tag = tags[i];
+
+      const tagText = new PIXI.Text(tag, {
+        fill: 0x101010,
+        fontSize: 10,
+        wordWrap: true,
+        wordWrapWidth: TILE_WIDTH - 36,
+      });
+      tagText.x = 8;
+      tagText.y = y;
+      view.tagContainer.addChild(tagText);
+
+      const up = new PIXI.Text("^", {
+        fill: 0x1a1a1a,
+        fontSize: 10,
+      });
+      up.eventMode = "static";
+      up.cursor = "pointer";
+      up.x = TILE_WIDTH - 24;
+      up.y = y;
+      up.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        tryReorderTag(view.col, i, -1);
+      });
+      view.tagContainer.addChild(up);
+
+      const down = new PIXI.Text("v", {
+        fill: 0x1a1a1a,
+        fontSize: 10,
+      });
+      down.eventMode = "static";
+      down.cursor = "pointer";
+      down.x = TILE_WIDTH - 14;
+      down.y = y;
+      down.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        tryReorderTag(view.col, i, 1);
+      });
+      view.tagContainer.addChild(down);
+
+      y += 14;
+      if (view.tagStartY + y > TILE_HEIGHT - 12) break;
+    }
+  }
+
+  function buildTileView(tileInst, col) {
+    const { title, desc, color } = getTileUi(tileInst);
 
     const cont = new PIXI.Container();
     cont.eventMode = "static";
@@ -167,75 +258,202 @@ export function createBoardView(opts) {
 
     cont.addChild(
       new PIXI.Graphics()
-        .beginFill(0x444444)
-        .drawRoundedRect(0, 0, ENV_WIDTH, ENV_HEIGHT, 12)
+        .beginFill(0x3a3a3a)
+        .drawRoundedRect(0, 0, TILE_WIDTH, TILE_HEIGHT, 8)
         .endFill()
     );
 
     cont.addChild(
       new PIXI.Graphics()
         .beginFill(color)
-        .drawRoundedRect(4, 4, ENV_WIDTH - 8, ENV_HEIGHT - 8, 10)
+        .drawRoundedRect(3, 3, TILE_WIDTH - 6, TILE_HEIGHT - 6, 6)
         .endFill()
     );
 
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
-      fontSize: 20,
+      fontSize: 12,
       wordWrap: true,
-      wordWrapWidth: ENV_WIDTH - 20,
+      wordWrapWidth: TILE_WIDTH - 12,
     });
-    titleText.x = 10;
-    titleText.y = 8;
+    titleText.x = 6;
+    titleText.y = 6;
     cont.addChild(titleText);
 
-    let y = titleText.y + titleText.height + 4;
-    for (const line of lines) {
-      const t = new PIXI.Text(line, {
-        fill: 0x000000,
-        fontSize: 12,
-        wordWrap: true,
-        wordWrapWidth: ENV_WIDTH - 20,
-      });
-      t.x = 10;
-      t.y = y;
-      cont.addChild(t);
-      y += t.height + 2;
-    }
+    const descText = new PIXI.Text(desc, {
+      fill: 0x101010,
+      fontSize: 10,
+      wordWrap: true,
+      wordWrapWidth: TILE_WIDTH - 12,
+    });
+    descText.x = 6;
+    descText.y = titleText.y + titleText.height + 2;
+    cont.addChild(descText);
 
-    let meterViews = [];
-    if (meters.length > 0) {
-      meterViews = createMeters(
-        cont,
-        meters,
-        envInst,
-        y + 2,
-        ENV_WIDTH - 24
-      ).meterViews;
-    }
+    const tagContainer = new PIXI.Container();
+    const tagStartY = Math.min(
+      TILE_HEIGHT - 14,
+      descText.y + descText.height + 2
+    );
+    tagContainer.y = tagStartY;
+    cont.addChild(tagContainer);
+
+    const pawnBadge = new PIXI.Container();
+    const pawnBg = new PIXI.Graphics()
+      .beginFill(0x222222)
+      .drawCircle(0, 0, 8)
+      .endFill();
+    const pawnText = new PIXI.Text("", {
+      fill: 0xffffff,
+      fontSize: 9,
+    });
+    pawnText.anchor.set(0.5);
+    pawnBadge.addChild(pawnBg, pawnText);
+    pawnBadge.x = TILE_WIDTH - 12;
+    pawnBadge.y = 12;
+    pawnBadge.visible = false;
+    cont.addChild(pawnBadge);
 
     cont.on("pointerenter", () => {
-      if (!opts.interaction || !opts.interaction.canShowHoverUI()) return;
-
-      tooltipView.show(
-        { title, lines },
-        { x: cont.x, y: cont.y, width: ENV_WIDTH, height: ENV_HEIGHT }
+      if (!interaction?.canShowHoverUI?.()) return;
+      tooltipView?.show?.(
+        {
+          title,
+          lines: desc ? [desc] : [],
+        },
+        { x: cont.x, y: cont.y, width: TILE_WIDTH, height: TILE_HEIGHT }
       );
     });
 
     cont.on("pointerleave", () => {
-      tooltipView.hide();
+      tooltipView?.hide?.();
     });
 
-    envLayer.addChild(cont);
-    return { container: cont, env: envInst, meterViews };
+    const pos = layoutBoardColPos(app.screen.width, col, TILE_WIDTH, TILE_ROW_Y);
+    cont.x = pos.x;
+    cont.y = pos.y;
+
+    tileLayer.addChild(cont);
+
+    const view = {
+      container: cont,
+      tile: tileInst,
+      col,
+      tagContainer,
+      tagStartY,
+      tagSignature: "",
+      pawnBadge,
+      pawnText,
+    };
+
+    rebuildTileTags(view, tileInst);
+    return view;
+  }
+
+  function updateTileView(view, tileInst, pawnCount) {
+    const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
+    const signature = tags.join("|");
+    if (signature !== view.tagSignature) {
+      rebuildTileTags(view, tileInst);
+    }
+
+    if (pawnCount > 0) {
+      view.pawnBadge.visible = true;
+      view.pawnText.text = pawnCount > 9 ? "9+" : String(pawnCount);
+    } else {
+      view.pawnBadge.visible = false;
+    }
   }
 
   // --------------------------------------------------------
-  // Build permanent view (RESTORES inventory hover/pin)
+  // Event view
   // --------------------------------------------------------
 
-  function buildPermanentView(permInst) {
+  function buildEventView(eventInst, col) {
+    const { title, desc, color } = getEventUi(eventInst);
+    const span =
+      Number.isFinite(eventInst.span) && eventInst.span > 0
+        ? Math.floor(eventInst.span)
+        : 1;
+
+    const width = EVENT_WIDTH * span + BOARD_COL_GAP * (span - 1);
+
+    const cont = new PIXI.Container();
+    cont.eventMode = "static";
+
+    cont.addChild(
+      new PIXI.Graphics()
+        .beginFill(0x2f2f2f)
+        .drawRoundedRect(0, 0, width, EVENT_HEIGHT, 8)
+        .endFill()
+    );
+
+    cont.addChild(
+      new PIXI.Graphics()
+        .beginFill(color)
+        .drawRoundedRect(3, 3, width - 6, EVENT_HEIGHT - 6, 6)
+        .endFill()
+    );
+
+    const titleText = new PIXI.Text(title, {
+      fill: 0xffffff,
+      fontSize: 11,
+      wordWrap: true,
+      wordWrapWidth: width - 12,
+    });
+    titleText.x = 6;
+    titleText.y = 4;
+    cont.addChild(titleText);
+
+    const descText = new PIXI.Text(desc, {
+      fill: 0x101010,
+      fontSize: 9,
+      wordWrap: true,
+      wordWrapWidth: width - 12,
+    });
+    descText.x = 6;
+    descText.y = titleText.y + titleText.height + 1;
+    cont.addChild(descText);
+
+    const remainingText = new PIXI.Text("", {
+      fill: 0x101010,
+      fontSize: 10,
+    });
+    remainingText.x = 6;
+    remainingText.y = EVENT_HEIGHT - 16;
+    cont.addChild(remainingText);
+
+    const startX =
+      span > 1
+        ? getBoardColumnX(app.screen.width, col)
+        : layoutBoardColPos(app.screen.width, col, EVENT_WIDTH, EVENT_ROW_Y).x;
+    cont.x = startX;
+    cont.y = EVENT_ROW_Y;
+
+    eventLayer.addChild(cont);
+
+    return {
+      container: cont,
+      event: eventInst,
+      remainingText,
+    };
+  }
+
+  function updateEventRemaining(view, state) {
+    const expires = view.event?.expiresSec;
+    if (expires == null) {
+      view.remainingText.text = "";
+      return;
+    }
+    const remaining = Math.max(0, (expires ?? 0) - (state?.tSec ?? 0));
+    view.remainingText.text = `T-${remaining}s`;
+  }
+
+  // --------------------------------------------------------
+  // Permanent view
+  // --------------------------------------------------------
+
+  function buildPermanentView(permInst, col) {
     const { title, lines, color, meters } = getPermUi(permInst);
 
     const cont = new PIXI.Container();
@@ -244,40 +462,41 @@ export function createBoardView(opts) {
 
     cont.addChild(
       new PIXI.Graphics()
-        .beginFill(0x444444)
-        .drawRoundedRect(0, 0, PERM_WIDTH, PERM_HEIGHT, 16)
+        .beginFill(0x3a3a3a)
+        .drawRoundedRect(0, 0, PERM_WIDTH, PERM_HEIGHT, 10)
         .endFill()
     );
 
     cont.addChild(
       new PIXI.Graphics()
         .beginFill(color)
-        .drawRoundedRect(4, 4, PERM_WIDTH - 8, PERM_HEIGHT - 8, 14)
+        .drawRoundedRect(3, 3, PERM_WIDTH - 6, PERM_HEIGHT - 6, 8)
         .endFill()
     );
 
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
-      fontSize: 22,
+      fontSize: 12,
       wordWrap: true,
-      wordWrapWidth: PERM_WIDTH - 20,
+      wordWrapWidth: PERM_WIDTH - 12,
     });
-    titleText.x = 12;
-    titleText.y = 10;
+    titleText.x = 6;
+    titleText.y = 6;
     cont.addChild(titleText);
 
-    let y = titleText.y + titleText.height + 4;
+    let y = titleText.y + titleText.height + 2;
     for (const line of lines) {
       const t = new PIXI.Text(line, {
         fill: 0x000000,
-        fontSize: 13,
+        fontSize: 10,
         wordWrap: true,
-        wordWrapWidth: PERM_WIDTH - 22,
+        wordWrapWidth: PERM_WIDTH - 12,
       });
-      t.x = 10;
+      t.x = 6;
       t.y = y;
       cont.addChild(t);
-      y += t.height + 2;
+      y += t.height + 1;
+      if (y > PERM_HEIGHT - 40) break;
     }
 
     let meterViews = [];
@@ -286,20 +505,20 @@ export function createBoardView(opts) {
         cont,
         meters,
         permInst,
-        y + 4,
-        PERM_WIDTH - 28
+        y + 2,
+        PERM_WIDTH - 14
       ).meterViews;
     }
 
     function permHasInventory() {
-      const s = getGameState();
+      const s = getGameState?.();
       return !!s?.ownerInventories?.[permInst.instanceId];
     }
 
     cont.on("pointerenter", () => {
-      if (!opts.interaction || !opts.interaction.canShowHoverUI()) return;
+      if (!interaction?.canShowHoverUI?.()) return;
 
-      tooltipView.show(
+      tooltipView?.show?.(
         { title, lines },
         { x: cont.x, y: cont.y, width: PERM_WIDTH, height: PERM_HEIGHT }
       );
@@ -315,7 +534,7 @@ export function createBoardView(opts) {
     });
 
     cont.on("pointerleave", () => {
-      tooltipView.hide();
+      tooltipView?.hide?.();
       if (inventoryView && permHasInventory()) {
         inventoryView.hideOnHoverOut(permInst.instanceId);
       }
@@ -327,93 +546,121 @@ export function createBoardView(opts) {
       }
     });
 
+    const pos = layoutBoardColPos(app.screen.width, col, PERM_WIDTH, PERM_ROW_Y);
+    cont.x = pos.x;
+    cont.y = pos.y;
+
     permanentsLayer.addChild(cont);
+
     return { container: cont, perm: permInst, meterViews };
   }
 
   // --------------------------------------------------------
-  // rebuildAll
+  // sync helpers
   // --------------------------------------------------------
 
-  function rebuildAll() {
-    envLayer.removeChildren();
-    permanentsLayer.removeChildren();
-    envViews.length = 0;
-    permViews.clear();
-
-    const s = getGameState();
-
-    // env
-    for (let i = 0; i < s.envSlots.length; i++) {
-      const slot = s.envSlots[i];
-      if (!slot.env) continue;
-
-      const view = buildEnvView(slot.env);
-      const pos = layoutEnvPos(i, s.envSlots.length);
-      view.container.x = pos.x;
-      view.container.y = pos.y;
-      envViews[i] = view;
+  function getPawnCountsByCol(state, cols) {
+    const countLen = Number.isFinite(cols) ? Math.max(0, cols) : BOARD_COLS;
+    const counts = new Array(countLen).fill(0);
+    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    for (const ch of chars) {
+      const col = Number.isFinite(ch?.slotIndex)
+        ? Math.floor(ch.slotIndex)
+        : null;
+      if (col == null || col < 0 || col >= counts.length) continue;
+      counts[col] += 1;
     }
-
-    // permanents
-    for (let i = 0; i < s.permanentSlots.length; i++) {
-      const slot = s.permanentSlots[i];
-      if (!slot.permanent) continue;
-
-      const view = buildPermanentView(slot.permanent);
-
-      // Step 9: shared permanent-row layout
-      const pos = layoutPermPosShared(
-        app.screen.width,
-        i,
-        s.permanentSlots.length
-      );
-      view.container.x = pos.x;
-      view.container.y = pos.y; // PERM_ROW_Y from layout-pixi.js
-
-      permViews.set(slot.permanent.instanceId, view);
-    }
+    return counts;
   }
 
-  // --------------------------------------------------------
-  // update
-  // --------------------------------------------------------
+  function syncTiles(state, cols) {
+    const tileOcc = state?.board?.occ?.tile;
+    const pawnCounts = getPawnCountsByCol(state, cols);
 
-  function update() {
-    const s = getGameState();
+    for (let col = 0; col < cols; col++) {
+      const tileInst = tileOcc?.[col] || null;
+      const view = tileViews[col];
 
-    // --- keep env card views in sync with model ---
-    for (let i = 0; i < s.envSlots.length; i++) {
-      const slotEnv = s.envSlots[i].env;
-      const view = envViews[i];
-
-      // remove view if env removed
-      if (!slotEnv) {
+      if (!tileInst) {
         if (view) {
-          envLayer.removeChild(view.container);
-          envViews[i] = undefined;
+          tileLayer.removeChild(view.container);
+          tileViews[col] = undefined;
         }
         continue;
       }
 
-      // rebuild view if env instance changed
-      if (!view || view.env.instanceId !== slotEnv.instanceId) {
-        if (view) envLayer.removeChild(view.container);
+      if (!view || view.tile.instanceId !== tileInst.instanceId) {
+        if (view) tileLayer.removeChild(view.container);
+        tileViews[col] = buildTileView(tileInst, col);
+      }
 
-        const newView = buildEnvView(slotEnv);
-        const pos = layoutEnvPos(i, s.envSlots.length);
-        newView.container.x = pos.x;
-        newView.container.y = pos.y;
-        envViews[i] = newView;
+      const activeView = tileViews[col];
+      if (activeView) {
+        updateTileView(activeView, tileInst, pawnCounts[col] || 0);
+      }
+    }
+  }
+
+  function syncEvents(state, cols) {
+    const occ = state?.board?.occ?.event;
+    const seen = new Set();
+
+    for (let col = 0; col < cols; col++) {
+      const eventInst = occ?.[col] || null;
+      if (!eventInst) continue;
+
+      const anchorCol = Number.isFinite(eventInst.col)
+        ? Math.floor(eventInst.col)
+        : col;
+      if (anchorCol !== col) continue;
+
+      const id = eventInst.instanceId ?? col;
+      seen.add(id);
+
+      const existing = eventViews.get(id);
+      if (!existing || existing.event.instanceId !== eventInst.instanceId) {
+        if (existing) eventLayer.removeChild(existing.container);
+        eventViews.set(id, buildEventView(eventInst, col));
+      }
+
+      const view = eventViews.get(id);
+      if (view) updateEventRemaining(view, state);
+    }
+
+    for (const [id, view] of eventViews.entries()) {
+      if (seen.has(id)) continue;
+      eventLayer.removeChild(view.container);
+      eventViews.delete(id);
+    }
+  }
+
+  function syncPermanents(state, cols) {
+    const occ = state?.board?.occ?.permanent;
+    const seen = new Set();
+
+    for (let col = 0; col < cols; col++) {
+      const permInst = occ?.[col] || null;
+      if (!permInst) continue;
+
+      const anchorCol = Number.isFinite(permInst.col)
+        ? Math.floor(permInst.col)
+        : col;
+      if (anchorCol !== col) continue;
+
+      const id = permInst.instanceId ?? col;
+      seen.add(id);
+
+      const existing = permViews.get(id);
+      if (!existing || existing.perm.instanceId !== permInst.instanceId) {
+        if (existing) permanentsLayer.removeChild(existing.container);
+        permViews.set(id, buildPermanentView(permInst, col));
       }
     }
 
-    // existing meter updates...
-    for (let i = 0; i < s.envSlots.length; i++) {
-      const view = envViews[i];
-      if (view && view.meterViews.length > 0) {
-        updateMeters(view.meterViews, view.env);
-      }
+    for (const [id, view] of permViews.entries()) {
+      if (seen.has(id)) continue;
+      permanentsLayer.removeChild(view.container);
+      permViews.delete(id);
     }
 
     for (const view of permViews.values()) {
@@ -423,28 +670,54 @@ export function createBoardView(opts) {
     }
   }
 
+  // --------------------------------------------------------
+  // rebuildAll
+  // --------------------------------------------------------
+
+  function rebuildAll() {
+    tileLayer.removeChildren();
+    eventLayer.removeChildren();
+    permanentsLayer.removeChildren();
+    tileViews.length = 0;
+    eventViews.clear();
+    permViews.clear();
+
+    const s = getGameState?.();
+    if (!s?.board) return;
+
+    const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
+    syncTiles(s, cols);
+    syncEvents(s, cols);
+    syncPermanents(s, cols);
+  }
+
+  // --------------------------------------------------------
+  // update
+  // --------------------------------------------------------
+
+  function update() {
+    const s = getGameState?.();
+    if (!s?.board) return;
+
+    const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
+    syncTiles(s, cols);
+    syncEvents(s, cols);
+    syncPermanents(s, cols);
+  }
+
   function init() {}
 
   return { init, rebuildAll, update };
 }
 
-// --------------------------------------------------------
-// Layout constants (VIEW-ONLY)
-// --------------------------------------------------------
-
-const ENV_WIDTH = 220;
-const ENV_HEIGHT = 130;
-const ENV_GAP = 40;
-
 /**
- * @typedef {Object} BoardEnvView
+ * @typedef {Object} BoardEventView
  * @property {PIXI.Container} container
- * @property {any} env
- * @property {Array<any>} meterViews
+ * @property {any} event
+ * @property {PIXI.Text} remainingText
  *
  * @typedef {Object} BoardPermView
  * @property {PIXI.Container} container
  * @property {any} perm
  * @property {Array<any>} meterViews
  */
-

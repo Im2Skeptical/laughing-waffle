@@ -13,7 +13,7 @@ import { createCharactersView } from "./characters-pixi.js";
 import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
-import { PERM_WIDTH, PERM_HEIGHT, layoutPermPos } from "./layout-pixi.js";
+import { BOARD_COLS, getBoardColumnCenterX } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
 
@@ -79,7 +79,8 @@ window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
 const uiLayers = {
-  envLayer: new PIXI.Container(),
+  tileLayer: new PIXI.Container(),
+  eventLayer: new PIXI.Container(),
   permanentsLayer: new PIXI.Container(),
   characterLayer: new PIXI.Container(),
   controlsLayer: new PIXI.Container(),
@@ -92,7 +93,8 @@ const uiLayers = {
 app.stage.eventMode = "static";
 app.stage.hitArea = app.screen;
 app.stage.addChild(
-  uiLayers.envLayer,
+  uiLayers.tileLayer,
+  uiLayers.eventLayer,
   uiLayers.permanentsLayer,
   uiLayers.characterLayer,
   uiLayers.controlsLayer,
@@ -182,12 +184,15 @@ const inventoryView = createInventoryView({
 
 const boardView = createBoardView({
   app,
-  envLayer: uiLayers.envLayer,
+  tileLayer: uiLayers.tileLayer,
+  eventLayer: uiLayers.eventLayer,
   permanentsLayer: uiLayers.permanentsLayer,
   getGameState: () => runner.getState(),
   interaction: interactionController,
   tooltipView,
   inventoryView,
+  dispatchAction: (kind, payload, opts) =>
+    runner.dispatchAction(kind, payload, opts),
 });
 
 const charactersView = createCharactersView({
@@ -195,6 +200,7 @@ const charactersView = createCharactersView({
   layer: uiLayers.characterLayer,
   getCharacters: () => runner.getState().characters,
   getPermanentSlots: () => runner.getState().permanentSlots,
+  getGameState: () => runner.getState(),
   interaction: interactionController,
   tooltipView,
   inventoryView,
@@ -205,22 +211,18 @@ const charactersView = createCharactersView({
       ? null
       : actionPlanner?.getCharacterOverrideSlot?.(charId) ?? null,
   onCharacterDropped({ charId, dropPos }) {
-    const slots = runner.getState().permanentSlots;
-    const count = slots.length;
+    const cols = Number.isFinite(runner.getState()?.board?.cols)
+      ? Math.floor(runner.getState().board.cols)
+      : BOARD_COLS;
     let bestIndex = null;
     let bestDist2 = Infinity;
-    for (let i = 0; i < count; i++) {
-      const slot = slots[i];
-      if (!slot.permanent) continue;
-      const pos = layoutPermPos(app.screen.width, i, count);
-      const cx = pos.x + PERM_WIDTH / 2;
-      const cy = pos.y + PERM_HEIGHT / 2;
+    for (let col = 0; col < cols; col++) {
+      const cx = getBoardColumnCenterX(app.screen.width, col);
       const dx = dropPos.x - cx;
-      const dy = dropPos.y - cy;
-      const d2 = dx * dx + dy * dy;
+      const d2 = dx * dx;
       if (d2 < bestDist2) {
         bestDist2 = d2;
-        bestIndex = i;
+        bestIndex = col;
       }
     }
     if (bestIndex != null) {

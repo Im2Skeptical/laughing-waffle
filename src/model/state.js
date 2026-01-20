@@ -62,24 +62,24 @@ function ensureBoardState(state) {
   }
 }
 
-function ensureTilePawnsByCol(state) {
+function syncPermanentAnchors(state) {
   if (!state) return;
-  const cols = state.board?.cols ?? BOARD_COLS;
-  if (!Array.isArray(state.tilePawnsByCol) || state.tilePawnsByCol.length !== cols) {
-    const next = new Array(cols).fill(false);
-    if (Array.isArray(state.tilePawnsByCol)) {
-      const copyLen = Math.min(cols, state.tilePawnsByCol.length);
-      for (let i = 0; i < copyLen; i++) {
-        next[i] = !!state.tilePawnsByCol[i];
-      }
-    }
-    state.tilePawnsByCol = next;
-    return;
-  }
+  const board = state.board;
+  const slots = Array.isArray(state.permanentSlots)
+    ? state.permanentSlots
+    : [];
+  if (!board?.layers?.permanent) return;
 
-  for (let i = 0; i < state.tilePawnsByCol.length; i++) {
-    state.tilePawnsByCol[i] = !!state.tilePawnsByCol[i];
+  const anchors = [];
+  for (let i = 0; i < slots.length; i++) {
+    const perm = slots[i]?.permanent;
+    if (!perm) continue;
+    perm.col = i;
+    perm.span =
+      Number.isFinite(perm.span) && perm.span > 0 ? Math.floor(perm.span) : 1;
+    anchors.push(perm);
   }
+  board.layers.permanent.anchors = anchors;
 }
 
 // =============================================================================
@@ -130,7 +130,6 @@ export function createEmptyState(seed = 123456789) {
     resources: { gold: 0, food: 0, population: 0 },
 
     board: createBoardState(),
-    tilePawnsByCol: new Array(BOARD_COLS).fill(false),
 
     permanentSlots: [],
     nextPermanentInstanceId: 1,
@@ -219,6 +218,8 @@ export function makeEnvEventInstance(defId, state, col, span, tSec) {
 export function rebuildBoardOccupancy(state) {
   if (!state) return;
   ensureBoardState(state);
+
+  syncPermanentAnchors(state);
 
   const board = state.board;
   for (const layer of BOARD_LAYERS) {
@@ -494,7 +495,9 @@ export function deserializeGameState(data) {
     }
   }
   ensureBoardState(state);
-  ensureTilePawnsByCol(state);
+  if (Object.prototype.hasOwnProperty.call(state, "tilePawnsByCol")) {
+    delete state.tilePawnsByCol;
+  }
   state._boardDirty = false;
   state._seasonChanged = false;
 
