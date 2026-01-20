@@ -1,4 +1,4 @@
-// scenarios-defs.js — human-authored start scenarios (pure data)
+// scenarios-defs.js - human-authored start scenarios (pure data)
 
 export const setupDefs = {
   testing: {
@@ -6,29 +6,47 @@ export const setupDefs = {
 
     resources: { gold: 0, food: 0, population: 0 },
 
-    // permanents on the board
+    board: {
+      cols: 12,
+      tiles: [
+        "tile_floodplains",
+        "tile_wetlands",
+        "tile_levee",
+        "tile_coast",
+        "tile_dunes",
+        "tile_hinterland",
+        "tile_highlands",
+        "tile_steppe",
+        "tile_floodplains",
+        "tile_wetlands",
+        "tile_levee",
+        "tile_coast",
+      ],
+    },
+
+    // permanents placed by board column
     permanents: [
-      { defId: "farm", x: 80, y: 260 },
-      { defId: "mine", x: 240, y: 260 },
-      { defId: "storehouse", x: 400, y: 260 },
-      { defId: "storehouse", x: 560, y: 260 },
+      { defId: "farm", col: 1 },
+      { defId: "mine", col: 3 },
+      { defId: "storehouse", col: 6 },
+      { defId: "storehouse", col: 8 },
     ],
 
     // legacy env cards (static; no deck refill)
     envSlots: [null, null, null, null, null],
 
-    // characters
+    // characters placed by board column
     characters: [
-      { name: "Char 1", color: 0xff9999, slotIndex: 0 },
-      { name: "Char 2", color: 0x9999ff, slotIndex: 1 },
+      { name: "Char 1", color: 0xff9999, col: 1 },
+      { name: "Char 2", color: 0x9999ff, col: 3 },
     ],
 
     // inventories keyed by owner selector:
-    // owner: { type: "permanent", index: 2 } means "3rd permanent in permanents array"
+    // owner: { type: "permanent", col: 6 } means "permanent at column 6"
     // owner: { type: "character", index: 0 } means "1st character in characters array"
     inventories: [
       {
-        owner: { type: "permanent", index: 2 },
+        owner: { type: "permanent", col: 6 },
         items: [
           { kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "grain", quantity: 20, gridX: 1, gridY: 0 },
@@ -36,7 +54,6 @@ export const setupDefs = {
         ],
       },
     ],
-
   },
 
   // Example: a curated autumn flood test start
@@ -44,15 +61,33 @@ export const setupDefs = {
     rngSeed: 777,
     resources: { gold: 0, food: 0, population: 0 },
 
+    board: {
+      cols: 12,
+      tiles: [
+        "tile_floodplains",
+        "tile_floodplains",
+        "tile_wetlands",
+        "tile_levee",
+        "tile_coast",
+        "tile_dunes",
+        "tile_hinterland",
+        "tile_highlands",
+        "tile_steppe",
+        "tile_floodplains",
+        "tile_wetlands",
+        "tile_levee",
+      ],
+    },
+
     permanents: [
-      { defId: "farm", x: 80, y: 260 },
-      { defId: "mine", x: 240, y: 260 },
-      { defId: "storehouse", x: 400, y: 260 },
+      { defId: "farm", col: 2 },
+      { defId: "mine", col: 4 },
+      { defId: "storehouse", col: 7 },
     ],
 
     envSlots: ["flood_autumn", "flood_autumn", null, null, "rock"],
 
-    characters: [{ name: "Char 1", color: 0xff9999, slotIndex: 1 }],
+    characters: [{ name: "Char 1", color: 0xff9999, col: 4 }],
 
     inventories: [],
   },

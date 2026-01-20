@@ -35,7 +35,7 @@ export function createCharactersView(opts) {
   const viewsById = new Map();
   const DRAG_THRESHOLD_PX = 3;
   const FAN_SPACING = 40;
-  const RADIUS = 30;
+  const RADIUS = 20;
   let focusGhost = null;
   let focusedCharId = null;
 

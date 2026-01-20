@@ -52,36 +52,25 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.nextItemId = 1;
   state.nextCharacterId = 101;
 
+  const boardCols = getBoardColsFromSetup(setup, state);
+  ensureBoardCols(state, boardCols);
+
   // permanents
-  state.permanentSlots = (setup.permanents || []).map((p) => ({
-    x: p.x,
-    y: p.y,
-    permanent: makePermanentInstance(p.defId, state),
-  }));
+  state.permanentSlots = buildPermanentSlots(setup, boardCols, state);
 
   // env slots
   state.envSlots = (setup.envSlots || []).map((envDefId) => ({
     env: envDefId ? makeEnvInstance(envDefId, state) : null,
   }));
 
-  const boardCols = state.board?.cols ?? 12;
-  const tileDefIds = Object.keys(envTileDefs);
-  const orderedTileDefIds =
-    tileDefIds.length > 0 ? tileDefIds.slice().sort() : ["tile_floodplains"];
-  state.board.layers.tile.anchors = [];
-  for (let col = 0; col < boardCols; col++) {
-    const defId = orderedTileDefIds[col % orderedTileDefIds.length];
-    state.board.layers.tile.anchors.push(
-      makeEnvTileInstance(defId, state, col, 1)
-    );
-  }
+  state.board.layers.tile.anchors = buildTileAnchors(setup, boardCols, state);
 
   // characters
-  state.characters = (setup.characters || []).map((c) => ({
+  state.characters = (setup.characters || []).map((c, index) => ({
     id: state.nextCharacterId++,
     name: c.name,
     color: c.color,
-    slotIndex: c.slotIndex ?? 0,
+    slotIndex: getColIndex(c, index, boardCols),
     props: {},
   }));
 
@@ -91,6 +80,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   // permanent inventories
   for (const slot of state.permanentSlots) {
     const perm = slot.permanent;
+    if (!perm) continue;
     const def = permanentDefs[perm.defId];
     const hasInventory = def?.tags?.includes("hasInventory") && def.inventory;
     if (!hasInventory) continue;
@@ -137,7 +127,7 @@ function applySetupInventories(state, setup) {
   if (invSpecs.length === 0) return;
 
   const permIdsInOrder = state.permanentSlots.map(
-    (s) => s.permanent.instanceId
+    (s) => s?.permanent?.instanceId ?? null
   );
   const charIdsInOrder = state.characters.map((c) => c.id);
 
@@ -148,7 +138,13 @@ function applySetupInventories(state, setup) {
     let ownerId = null;
 
     if (owner.type === "permanent") {
-      ownerId = permIdsInOrder[owner.index];
+      const idx =
+        Number.isFinite(owner.col) || Number.isFinite(owner.slotIndex)
+          ? getColIndex(owner, owner.index ?? 0, permIdsInOrder.length)
+          : owner.index;
+      ownerId = permIdsInOrder[idx];
+    } else if (owner.type === "permanentSlot") {
+      ownerId = permIdsInOrder[getColIndex(owner, owner.index ?? 0, permIdsInOrder.length)];
     } else if (owner.type === "character") {
       ownerId = charIdsInOrder[owner.index];
     }
@@ -173,5 +169,92 @@ function applySetupInventories(state, setup) {
 
     inv.version = (inv.version ?? 0) + 1;
   }
+}
+
+function getBoardColsFromSetup(setup, state) {
+  const candidate = setup?.board?.cols;
+  if (Number.isFinite(candidate)) return Math.max(1, Math.floor(candidate));
+  return Number.isFinite(state?.board?.cols) ? Math.floor(state.board.cols) : 12;
+}
+
+function ensureBoardCols(state, cols) {
+  if (!state?.board) return;
+  if (state.board.cols === cols) return;
+  state.board.cols = cols;
+  if (!state.board.layers) {
+    state.board.layers = { tile: { anchors: [] }, event: { anchors: [] }, permanent: { anchors: [] } };
+  }
+  if (!state.board.occ) {
+    state.board.occ = { tile: [], event: [], permanent: [] };
+  }
+  for (const layer of ["tile", "event", "permanent"]) {
+    state.board.occ[layer] = new Array(cols).fill(null);
+    if (!state.board.layers[layer]) state.board.layers[layer] = { anchors: [] };
+    if (!Array.isArray(state.board.layers[layer].anchors)) {
+      state.board.layers[layer].anchors = [];
+    }
+  }
+}
+
+function getColIndex(spec, fallback, maxCols) {
+  const raw =
+    Number.isFinite(spec?.col) ? spec.col : Number.isFinite(spec?.slotIndex) ? spec.slotIndex : fallback;
+  const col = Number.isFinite(raw) ? Math.floor(raw) : 0;
+  if (Number.isFinite(maxCols) && maxCols > 0) {
+    return Math.max(0, Math.min(maxCols - 1, col));
+  }
+  return Math.max(0, col);
+}
+
+function buildPermanentSlots(setup, boardCols, state) {
+  const slots = new Array(boardCols).fill(null).map(() => ({ permanent: null }));
+  const specs = Array.isArray(setup.permanents) ? setup.permanents : [];
+  for (let i = 0; i < specs.length; i++) {
+    const spec = specs[i];
+    if (!spec?.defId) continue;
+    const col = getColIndex(spec, i, boardCols);
+    if (col < 0 || col >= boardCols) continue;
+    slots[col] = {
+      x: spec.x,
+      y: spec.y,
+      permanent: makePermanentInstance(spec.defId, state),
+    };
+  }
+  return slots;
+}
+
+function buildTileAnchors(setup, boardCols, state) {
+  const tileSpecs = setup?.board?.tiles ?? setup?.tiles ?? null;
+  const anchors = [];
+
+  if (Array.isArray(tileSpecs) && tileSpecs.length > 0) {
+    if (typeof tileSpecs[0] === "string") {
+      for (let col = 0; col < boardCols; col++) {
+        const defId = tileSpecs[col % tileSpecs.length];
+        if (!defId || !envTileDefs[defId]) continue;
+        anchors.push(makeEnvTileInstance(defId, state, col, 1));
+      }
+      return anchors;
+    }
+
+    for (let i = 0; i < tileSpecs.length; i++) {
+      const spec = tileSpecs[i];
+      if (!spec?.defId || !envTileDefs[spec.defId]) continue;
+      const col = getColIndex(spec, i, boardCols);
+      const span =
+        Number.isFinite(spec.span) && spec.span > 0 ? Math.floor(spec.span) : 1;
+      anchors.push(makeEnvTileInstance(spec.defId, state, col, span));
+    }
+    return anchors;
+  }
+
+  const tileDefIds = Object.keys(envTileDefs);
+  const orderedTileDefIds =
+    tileDefIds.length > 0 ? tileDefIds.slice().sort() : ["tile_floodplains"];
+  for (let col = 0; col < boardCols; col++) {
+    const defId = orderedTileDefIds[col % orderedTileDefIds.length];
+    anchors.push(makeEnvTileInstance(defId, state, col, 1));
+  }
+  return anchors;
 }
 

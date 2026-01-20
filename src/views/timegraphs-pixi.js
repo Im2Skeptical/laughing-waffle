@@ -477,8 +477,8 @@ export function createMetricGraphView({
   function open() {
     if (root.visible) return;
     root.visible = true;
-    const defaultX = 40;
-    const defaultY = app.screen.height - WIN_H - 140;
+    const defaultX = 20;
+    const defaultY = app.screen.height - WIN_H - 800;
     root.x = openPosition?.x ?? defaultX;
     root.y = openPosition?.y ?? defaultY;
     controller.handleInvalidate?.("open");

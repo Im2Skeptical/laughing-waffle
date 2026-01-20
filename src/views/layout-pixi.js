@@ -2,17 +2,17 @@
 // Shared layout constants/helpers for the 12-column board.
 
 export const BOARD_COLS = 12;
-export const BOARD_COL_WIDTH = 150;
+export const BOARD_COL_WIDTH = 100;
 export const BOARD_COL_GAP = 6;
 
-export const TILE_WIDTH = 140;
-export const TILE_HEIGHT = 120;
-export const EVENT_WIDTH = 140;
-export const EVENT_HEIGHT = 70;
-export const PERM_WIDTH = 150;
-export const PERM_HEIGHT = 160;
+export const TILE_WIDTH = 100;
+export const TILE_HEIGHT = 150;
+export const EVENT_WIDTH = 100;
+export const EVENT_HEIGHT = 150;
+export const PERM_WIDTH = 100;
+export const PERM_HEIGHT = 150;
 
-export const TILE_ROW_Y = 80;
+export const TILE_ROW_Y = 400;
 export const EVENT_ROW_Y = TILE_ROW_Y + TILE_HEIGHT + 20;
 export const PERM_ROW_Y = EVENT_ROW_Y + EVENT_HEIGHT + 60;
 

@@ -23,7 +23,7 @@ const DESIGN_HEIGHT = 1080;
 export const app = new PIXI.Application({
   width: DESIGN_WIDTH,
   height: DESIGN_HEIGHT,
-  backgroundColor: 0x202030,
+  backgroundColor: 0x57514B,
   antialias: true,
 });
 
@@ -245,6 +245,7 @@ let goldGraphView = createMetricGraphView({
   clearPreviewState: () => runner.clearPreviewState(),
   // STAGE 3: Use commitCursorSecond
   commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
+  openPosition: { x: 350, y: 280},
 });
 
 let apGraphView = createMetricGraphView({
@@ -265,7 +266,7 @@ let apGraphView = createMetricGraphView({
   setPreviewState: (s) => runner.setPreviewState(s),
   clearPreviewState: () => runner.clearPreviewState(),
   commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
-  openPosition: { x: 700 },
+  openPosition: { x: 350 },
 });
 
 const chromeView = createChromeView({
@@ -338,6 +339,7 @@ boardView.init();
 charactersView.init();
 chromeView.init();
 actionLogView.init();
+apGraphView.open();
 
 app.ticker.add((delta) => {
   const frameDt = delta / 60;

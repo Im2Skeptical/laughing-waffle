@@ -3,7 +3,7 @@
 
 import { createActionLogController } from "../controllers/actionmanagers/action-log-controller.js";
 
-const PANEL_WIDTH = 300;
+const PANEL_WIDTH = 280;
 const PANEL_HEIGHT = 720;
 const HEADER_HEIGHT = 64;
 const ROW_HEIGHT = 54;
@@ -20,7 +20,7 @@ export function createActionLogView({
   onJumpToSecond,
   getOwnerLabel,
   getState,
-  position = { x: 1600, y: 180 },
+  position = { x: 1620, y: 180 },
 }) {
   const container = new PIXI.Container();
   container.x = position.x;
@@ -49,7 +49,7 @@ export function createActionLogView({
 
   const title = new PIXI.Text("Action Log", {
     fill: 0xffffff,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "bold",
   });
   title.x = PADDING + 80;

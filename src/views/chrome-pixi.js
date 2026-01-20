@@ -133,7 +133,7 @@ export function createChromeView({
       active.reduce((sum, c) => sum + c.width, 0) +
       gap * (active.length - 1);
     const startX = (app.screen.width - totalWidth) / 2;
-    const baseY = app.screen.height - 120;
+    const baseY = app.screen.height - 70;
     const centerY = baseY + BUTTON_HEIGHT / 2;
 
     let x = startX;
