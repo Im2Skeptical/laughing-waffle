@@ -67,13 +67,13 @@ function getApIncomePerSecond(state, tSec) {
 export function cmdAdvanceSeason(state) {
   const oldSeasonKey = getCurrentSeasonKey(state);
 
-  // 1) env cards -> discard / recycle
+  // 1) Legacy env cards: apply season-end cleanup
   // Make sure any season-end cleanup runs before we swap the season.
   if (state.envSlots && state.envSlots.length > 0) {
     for (let i = 0; i < state.envSlots.length; i++) {
       const slot = state.envSlots[i];
       if (slot?.env) {
-        applySeasonEndForEnvCard(state, slot, null);
+        applySeasonEndForEnvCard(state, slot);
       }
     }
   }
@@ -165,9 +165,7 @@ export function cmdTickSimulation(state, dt) {
     state.actionPoints += getApIncomePerSecond(state, state.tSec);
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
 
-    // Legacy alias: planningIndex is treated as tSec for boundary/checkpoint consumers.
-    state.planningIndex = state.tSec;
-
+    // Contract: item decay/expiry runs only on integer second boundaries.
     processSecondChangeForItems(state);
   }
 
@@ -202,19 +200,6 @@ export function cmdTickSimulation(state, dt) {
     advancedSeason: advancedSeasonCount > 0,
     advancedSeasonCount,
   };
-}
-
-// Refill a specific env slot if empty (preserves prior per-slot refill timing semantics).
-export function cmdRefillEnvSlot(state, envSlotIndex) {
-  if (typeof envSlotIndex !== "number" || !Number.isFinite(envSlotIndex)) {
-    return { ok: false, reason: "badEnvSlotIndex" };
-  }
-
-  const slot = state.envSlots?.[envSlotIndex];
-  if (!slot) return { ok: false, reason: "noEnvSlot" };
-
-  if (slot.env) return { ok: true, filled: false };
-  return { ok: true, filled: false, reason: "envDeckDeprecated" };
 }
 
 // =============================================================================

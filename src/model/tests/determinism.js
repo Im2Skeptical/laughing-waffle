@@ -38,14 +38,14 @@ function stableStringify(obj) {
 }
 
 // Custom canonicalizer for hashing that PRESERVES authoritative counters
-// (planningIndex, turn, currentSeasonIndex) to detect logic drift,
+// (tSec, simStepIndex, turn, currentSeasonIndex) to detect logic drift,
 // while resetting transient runtime flags.
 function normalizeRuntimeForHash(state) {
   // Reset runtime flags that shouldn't affect authoritative history
   state.paused = false;
   state.seasonTimeRemaining = 0;
 
-  // Note: We DO NOT reset simTime, planningIndex, turn, or seasons.
+  // Note: We DO NOT reset simTime, tSec, simStepIndex, turn, or seasons.
   // These must match exactly between live and replay.
 }
 
@@ -131,35 +131,23 @@ function testLiveVsReplay() {
     // This matches what replay does (rebuildStateAtBoundary calls canonicalize first).
     canonicalizeSnapshot(liveState, 0);
 
-    const startPlanningIndex = liveState.planningIndex || 0;
-    const targetBoundary = startPlanningIndex + 1;
+    const startSec = liveState.tSec ?? 0;
+    const targetSec = startSec + 1;
 
     // 2. Start Season (Live)
     // Use the COMMAND directly, mirroring timeline.js internals.
     // Do not use applyAction (which is for planning phase actions).
 
     // 3. Run Live Loop (mirrors timeline.js::simulateOneSeason EXACTLY)
-    const maxSteps =
-      Math.ceil((liveState.seasonTimeRemaining ?? 0) / DT_STEP) + 240;
-    let steps = 0;
-    let reached = false;
+    const startBoundarySec = liveState.tSec ?? 0;
+    const ticksPerSecond = 60; // 1 second == 60 ticks
+    const ticksToRun = (targetSec - startBoundarySec) * ticksPerSecond;
 
-    while (steps < maxSteps) {
-      const startBoundary = liveState.planningIndex ?? 0;
-      const ticksPerBoundary = 60; // 1 boundary == 1 second == 60 ticks
-      const ticksToRun = (targetBoundary - startBoundary) * ticksPerBoundary;
-
-      for (let i = 0; i < ticksToRun; i++) {
-        updateGame(DT_STEP, liveState);
-      }
-
-      if ((liveState.planningIndex ?? 0) >= targetBoundary) {
-        reached = true;
-        break;
-      }
+    for (let i = 0; i < ticksToRun; i++) {
+      updateGame(DT_STEP, liveState);
     }
 
-    if (!reached) {
+    if ((liveState.tSec ?? 0) < targetSec) {
       throw new Error("Live sim failed to reach target boundary");
     }
 
@@ -167,13 +155,13 @@ function testLiveVsReplay() {
     // RebuildStateAtBoundary ends with a hard canonicalize call.
     // We must do the same to Live to ensure apples-to-apples comparison
     // (clearing transient floating point noise or flags).
-    canonicalizeSnapshot(liveState, targetBoundary);
+    canonicalizeSnapshot(liveState, targetSec);
 
     const liveHash = computeStateHash(liveState);
 
     // 5. Rebuild from Timeline (Replay)
 
-    const rebuildRes = rebuildStateAtBoundary(tl, targetBoundary, {
+    const rebuildRes = rebuildStateAtBoundary(tl, targetSec, {
       dtStep: DT_STEP,
     });
     if (!rebuildRes.ok) throw new Error("Rebuild failed: " + rebuildRes.reason);
@@ -184,13 +172,13 @@ function testLiveVsReplay() {
       // Debug helper: log key counters
       console.warn("Mismatch Details:", {
         live: {
-          pi: liveState.planningIndex,
+          tSec: liveState.tSec,
           turn: liveState.turn,
           simTime: liveState.simTime,
           gold: liveState.resources?.gold,
         },
         replay: {
-          pi: rebuildRes.state.planningIndex,
+          tSec: rebuildRes.state.tSec,
           turn: rebuildRes.state.turn,
           simTime: rebuildRes.state.simTime,
           gold: rebuildRes.state.resources?.gold,

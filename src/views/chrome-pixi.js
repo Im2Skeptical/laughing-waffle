@@ -239,8 +239,6 @@ export function createChromeView({
     const yearLabel = Number.isFinite(s.year) ? s.year : 1;
     deckInfoText.text = `Moon: ${moonPhaseLabel}  AP Income: +${apIncomeLabel}/s  Year: ${yearLabel}  Season: ${seasonName}  Deck: ${
       deck?.deck.length ?? 0
-    }  Discard: ${
-      deck?.discard?.length ?? 0
     }  Phase: ${phaseLabel}  SeasonLength: ${s.seasonTimeRemaining.toFixed(
       1
     )}`;

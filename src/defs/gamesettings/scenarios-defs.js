@@ -14,7 +14,7 @@ export const setupDefs = {
       { defId: "storehouse", x: 560, y: 260 },
     ],
 
-    // env row: either explicit cards, or null to draw from deck
+    // legacy env cards (static; no deck refill)
     envSlots: [null, null, null, null, null],
 
     // characters
@@ -37,10 +37,6 @@ export const setupDefs = {
       },
     ],
 
-    // optional: override the default seasonal decks (otherwise use buildInitialEnvDecks)
-    // envDecks: {
-    //   summer: { deck: ["barren_summer", ...], discard: [] },
-    // }
   },
 
   // Example: a curated autumn flood test start

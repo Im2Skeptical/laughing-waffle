@@ -11,6 +11,15 @@ import { getActionPointCapAtSecond } from "./moon.js";
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event", "permanent"];
 
+// Board contract: layers.*.anchors are authoritative placements.
+// board.occ.* is derived in rebuildBoardOccupancy and stripped on serialize.
+
+const DEV =
+  (typeof globalThis !== "undefined" && globalThis.__DEV__ === true) ||
+  (typeof process !== "undefined" &&
+    process.env &&
+    process.env.NODE_ENV !== "production");
+
 function createBoardState(cols = BOARD_COLS) {
   return {
     cols,
@@ -247,6 +256,8 @@ export function rebuildBoardOccupancy(state) {
       }
     }
   }
+
+  maybeValidateState(state, "rebuildBoardOccupancy");
 }
 
 export function initializeInstanceFromDef(instance, def) {
@@ -449,7 +460,17 @@ export function serializeGameState(state) {
 
   delete clean.rngNextFloat;
   delete clean.rngNextInt;
+  delete clean.planningIndex;
+  delete clean._boardDirty;
+  delete clean._seasonChanged;
+  delete clean.tilePawnsByCol;
   if (clean.board && clean.board.occ) delete clean.board.occ;
+  if (
+    clean.currentSeasonDeck &&
+    Object.prototype.hasOwnProperty.call(clean.currentSeasonDeck, "discard")
+  ) {
+    delete clean.currentSeasonDeck.discard;
+  }
 
   // Inventories contain derived indices that cannot survive JSON cloning.
   if (clean.ownerInventories) {
@@ -497,6 +518,9 @@ export function deserializeGameState(data) {
   ensureBoardState(state);
   if (Object.prototype.hasOwnProperty.call(state, "tilePawnsByCol")) {
     delete state.tilePawnsByCol;
+  }
+  if (Object.prototype.hasOwnProperty.call(state, "planningIndex")) {
+    delete state.planningIndex;
   }
   state._boardDirty = false;
   state._seasonChanged = false;
@@ -561,6 +585,115 @@ export function deserializeGameState(data) {
   rebuildBoardOccupancy(state);
   attachRngHelpers(state);
   return state;
+}
+
+export function validateState(state) {
+  const errors = [];
+  const warnings = [];
+
+  if (!state || typeof state !== "object") {
+    errors.push("state missing");
+    return { ok: false, errors, warnings };
+  }
+
+  const board = state.board;
+  if (!board || typeof board !== "object") {
+    errors.push("board missing");
+    return { ok: false, errors, warnings };
+  }
+
+  const cols = Number.isFinite(board.cols) ? Math.floor(board.cols) : null;
+  if (!cols || cols <= 0) {
+    errors.push("board.cols invalid");
+    return { ok: false, errors, warnings };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(state, "tilePawnsByCol")) {
+    errors.push("tilePawnsByCol should not exist");
+  }
+
+  if (
+    state.currentSeasonDeck &&
+    Object.prototype.hasOwnProperty.call(state.currentSeasonDeck, "discard")
+  ) {
+    errors.push("currentSeasonDeck.discard should not exist");
+  }
+
+  const chars = Array.isArray(state.characters) ? state.characters : [];
+  for (const ch of chars) {
+    if (!Number.isFinite(ch?.slotIndex)) continue;
+    const col = Math.floor(ch.slotIndex);
+    if (col < 0 || col >= cols) {
+      errors.push(`character slotIndex out of bounds: ${ch.id ?? "unknown"}`);
+    }
+  }
+
+  const occ = board.occ || {};
+  for (const layer of BOARD_LAYERS) {
+    const anchors = Array.isArray(board.layers?.[layer]?.anchors)
+      ? board.layers[layer].anchors
+      : null;
+    if (!anchors) {
+      errors.push(`board.layers.${layer}.anchors missing`);
+      continue;
+    }
+
+    const occLayer = occ[layer];
+    if (!Array.isArray(occLayer) || occLayer.length !== cols) {
+      errors.push(`board.occ.${layer} length mismatch`);
+      continue;
+    }
+
+    const expected = new Array(cols).fill(null);
+    for (const anchor of anchors) {
+      if (!anchor) continue;
+      const rawCol = anchor.col;
+      if (!Number.isFinite(rawCol)) {
+        errors.push(`anchor missing col in layer ${layer}`);
+        continue;
+      }
+      const col = Math.floor(rawCol);
+      const rawSpan = anchor.span;
+      if (!Number.isFinite(rawSpan) || rawSpan <= 0) {
+        errors.push(`anchor span invalid in layer ${layer}`);
+        continue;
+      }
+      const span = Math.floor(rawSpan);
+      for (let offset = 0; offset < span; offset++) {
+        const occCol = col + offset;
+        if (occCol < 0 || occCol >= cols) {
+          errors.push(`anchor out of bounds in layer ${layer}`);
+          continue;
+        }
+        expected[occCol] = anchor;
+      }
+    }
+
+    for (let col = 0; col < cols; col++) {
+      const actual = occLayer[col];
+      const exp = expected[col];
+      if (exp === actual) continue;
+      if (exp?.instanceId != null && actual?.instanceId != null) {
+        if (exp.instanceId === actual.instanceId) continue;
+      }
+      if (exp || actual) {
+        errors.push(`board.occ.${layer}[${col}] mismatch`);
+      }
+    }
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+function maybeValidateState(state, origin) {
+  if (!DEV) return;
+  const result = validateState(state);
+  if (!result.ok) {
+    console.warn(`[state] ${origin}: ${result.errors.join("; ")}`);
+  }
+  if (result.warnings.length > 0) {
+    console.warn(`[state] ${origin}: ${result.warnings.join("; ")}`);
+  }
 }
 
 // App-edge only: explicitly mutates the singleton.

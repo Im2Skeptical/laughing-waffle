@@ -176,21 +176,19 @@ export function runEffect(state, rawEffect, context) {
 
     case "KillEnv": {
       if (context.kind !== "env") return false;
-      const { slot, seasonData } = context;
+      const { slot } = context;
       if (!slot || !slot.env) return false;
 
-      if (seasonData) seasonData.discard.push(slot.env.defId);
       slot.env = null;
       return true;
     }
 
     case "SeasonEndRecycleAs": {
       if (context.kind !== "env") return false;
-      const { slot, seasonData } = context;
+      const { slot } = context;
       if (!slot || !slot.env) return false;
 
       const targetDefId = effect.targetDefId || slot.env.defId;
-      if (seasonData) seasonData.discard.push(targetDefId);
       slot.env = null;
       return true;
     }
@@ -453,7 +451,7 @@ export function runEffect(state, rawEffect, context) {
 
     case "AddEnvProp": {
       if (context.kind !== "env") return false;
-      const { slot, seasonData } = context;
+      const { slot } = context;
       if (!slot || !slot.env) return false;
 
       const prop = effect.prop;
@@ -471,7 +469,7 @@ export function runEffect(state, rawEffect, context) {
       }
 
       if (effect.killIfZero && env.props[prop] <= 0) {
-        runEffect(state, { op: "KillEnv" }, { kind: "env", slot, seasonData });
+        runEffect(state, { op: "KillEnv" }, { kind: "env", slot });
       }
 
       return true;
@@ -485,7 +483,7 @@ export function runEffect(state, rawEffect, context) {
       if (!prop || typeof value !== "number") return false;
 
       if (context.kind === "env") {
-        const { slot, seasonData } = context;
+        const { slot } = context;
         if (!slot || !slot.env) return false;
 
         const env = slot.env;
@@ -502,7 +500,7 @@ export function runEffect(state, rawEffect, context) {
           runEffect(
             state,
             { op: "KillEnv" },
-            { kind: "env", slot, seasonData }
+            { kind: "env", slot }
           );
         }
 
@@ -538,7 +536,7 @@ export function runEffect(state, rawEffect, context) {
       if (!prop || typeof amt !== "number") return false;
 
       if (context.kind === "env") {
-        const { slot, seasonData } = context;
+        const { slot } = context;
         if (!slot || !slot.env) return false;
 
         const env = slot.env;
@@ -555,7 +553,7 @@ export function runEffect(state, rawEffect, context) {
           runEffect(
             state,
             { op: "KillEnv" },
-            { kind: "env", slot, seasonData }
+            { kind: "env", slot }
           );
         }
 
@@ -857,14 +855,14 @@ function handleMoveItem(state, effect, context) {
 // Existing season-end + expiry hooks
 // =============================================================================
 
-export function applySeasonEndForEnvCard(state, slot, seasonData) {
+export function applySeasonEndForEnvCard(state, slot) {
   const env = slot.env;
   if (!env) return;
 
   const def = envCardDefs[env.defId];
   const rule = normalizeEffectSpec(def.seasonEnd) || { op: "KillEnv" };
 
-  runEffect(state, rule, { kind: "env", slot, seasonData });
+  runEffect(state, rule, { kind: "env", slot });
 }
 
 export function processSeasonChangeForItems(state) {

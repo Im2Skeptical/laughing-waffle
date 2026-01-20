@@ -24,7 +24,6 @@ import { runBehaviorsOnInstance } from "./behaviors.js";
 import {
   cmdAdvanceSeason,
   cmdTickSimulation,
-  cmdRefillEnvSlot,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdPlaceCharacterInSlot,
@@ -174,7 +173,6 @@ export {
   // commands
   cmdAdvanceSeason,
   cmdTickSimulation,
-  cmdRefillEnvSlot,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdPlaceCharacterInSlot,
