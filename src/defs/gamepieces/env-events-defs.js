@@ -8,7 +8,7 @@ export const envEventDefs = {
     name: "Rain",
     ui: { description: "Light seasonal rainfall." },
     class: "effect",
-    durationSec: 6,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "water", amount: 1 },
   },
   event_flooding: {
@@ -17,7 +17,7 @@ export const envEventDefs = {
     name: "Flooding",
     ui: { description: "Overflow briefly changes the terrain." },
     class: "effect",
-    durationSec: 6,
+    durationSec: 12,
     onEnter: {
       op: "AddTag",
       target: { ref: "self", layer: "tile" },
@@ -35,7 +35,7 @@ export const envEventDefs = {
     name: "Frost",
     ui: { description: "A brief cold snap." },
     class: "effect",
-    durationSec: 7,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "food", amount: 1 },
   },
   event_heatwave: {
@@ -44,7 +44,7 @@ export const envEventDefs = {
     name: "Heatwave",
     ui: { description: "Short-lived extreme heat." },
     class: "effect",
-    durationSec: 5,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "heat", amount: 1 },
   },
   event_duststorm: {
@@ -53,7 +53,7 @@ export const envEventDefs = {
     name: "Duststorm",
     ui: { description: "Gritty winds sweep across the land." },
     class: "effect",
-    durationSec: 6,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "scrap", amount: 1 },
   },
   event_bloom: {
@@ -62,7 +62,7 @@ export const envEventDefs = {
     name: "Bloom",
     ui: { description: "A short burst of growth." },
     class: "effect",
-    durationSec: 8,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "food", amount: 1 },
   },
   event_misty_morning: {
@@ -71,6 +71,7 @@ export const envEventDefs = {
     name: "Misty Morning",
     ui: { description: "Low fog settles over the area." },
     class: "effect",
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "water", amount: 1 },
   },
   event_clear_skies: {
@@ -79,6 +80,7 @@ export const envEventDefs = {
     name: "Clear Skies",
     ui: { description: "Calm conditions and open visibility." },
     class: "effect",
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "morale", amount: 1 },
   },
   event_deer_herd: {
@@ -87,7 +89,7 @@ export const envEventDefs = {
     name: "Deer Herd",
     ui: { description: "A herd moves through the area." },
     class: "animal",
-    durationSec: 9,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "meat", amount: 1 },
   },
   event_boar: {
@@ -96,7 +98,7 @@ export const envEventDefs = {
     name: "Boar",
     ui: { description: "A lone boar is spotted." },
     class: "animal",
-    durationSec: 6,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "meat", amount: 1 },
   },
   event_rabbits: {
@@ -105,7 +107,7 @@ export const envEventDefs = {
     name: "Rabbits",
     ui: { description: "Small game is active here." },
     class: "animal",
-    durationSec: 5,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "meat", amount: 1 },
   },
   event_fish_school: {
@@ -114,7 +116,7 @@ export const envEventDefs = {
     name: "Fish School",
     ui: { description: "Fish cluster in the shallows." },
     class: "animal",
-    durationSec: 6,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "fish", amount: 1 },
   },
   event_wolves: {
@@ -123,7 +125,7 @@ export const envEventDefs = {
     name: "Wolves",
     ui: { description: "A wolf pack passes through." },
     class: "animal",
-    durationSec: 7,
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "hide", amount: 1 },
   },
   event_migratory_birds: {
@@ -132,6 +134,7 @@ export const envEventDefs = {
     name: "Migratory Birds",
     ui: { description: "Seasonal birds rest briefly." },
     class: "animal",
+    durationSec: 12,
     onEnter: { op: "AddResource", resource: "food", amount: 1 },
   },
 };

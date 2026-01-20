@@ -16,7 +16,7 @@ A fully deterministic simulation supporting:
 - time travel / scrubbing
 - projection and forecasting
 
-### Board & Gamepieces Refactor (current canonical goals)
+### Board & Gamepieces review
 
 * **4-zone board model:** time / env tiles / env events / permanents, all 12-col aligned.
 * **Env tiles:** persistent; store ordered tags + system tiers; tile defs are tier-ignorant.

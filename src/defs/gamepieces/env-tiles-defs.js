@@ -7,7 +7,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Floodplains",
     ui: { description: "Lowlands shaped by seasonal overflow." },
-    baseTags: ["farmable", "forageable", "fishable"],
+    baseTags: ["farmable", "forageable"],
     seasonTables: {
       spring: [
         { defId: "event_rain", weight: 4 },
@@ -94,6 +94,31 @@ export const envTileDefs = {
     name: "Coast",
     ui: { description: "Shallow waters and tidal flats." },
     baseTags: ["fishable", "forageable"],
+    seasonTables: {
+      spring: [
+        { defId: "event_rain", weight: 2 },
+        { defId: "event_fish_school", weight: 4 },
+      ],
+      summer: [
+        { defId: "event_fish_school", weight: 4 },
+        { defId: "event_clear_skies", weight: 2 },
+      ],
+      autumn: [
+        { defId: "event_misty_morning", weight: 2 },
+        { defId: "event_migratory_birds", weight: 2 },
+      ],
+      winter: [
+        { defId: "event_frost", weight: 2 },
+        { defId: "event_fish_school", weight: 2 },
+      ],
+    },
+  },
+  tile_river: {
+    id: "tile_river",
+    kind: "envTile",
+    name: "River",
+    ui: { description: "Flowing water and aquatic life." },
+    baseTags: ["fishable"],
     seasonTables: {
       spring: [
         { defId: "event_rain", weight: 2 },

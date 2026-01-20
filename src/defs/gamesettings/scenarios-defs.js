@@ -9,27 +9,27 @@ export const setupDefs = {
     board: {
       cols: 12,
       tiles: [
-        "tile_floodplains",
-        "tile_wetlands",
-        "tile_levee",
-        "tile_coast",
-        "tile_dunes",
         "tile_hinterland",
-        "tile_highlands",
-        "tile_steppe",
+        "tile_levee",
+        "tile_floodplains",
         "tile_floodplains",
         "tile_wetlands",
+        "tile_floodplains",
+        "tile_river",
+        "tile_wetlands",
+        "tile_floodplains",
+        "tile_floodplains",
         "tile_levee",
-        "tile_coast",
+        "tile_hinterland",
       ],
     },
 
     // permanents placed by board column
     permanents: [
-      { defId: "farm", col: 1 },
-      { defId: "mine", col: 3 },
+      { defId: "farm", col: 4 },
+      { defId: "mine", col: 5 },
       { defId: "storehouse", col: 6 },
-      { defId: "storehouse", col: 8 },
+      { defId: "storehouse", col: 7 },
     ],
 
     // legacy env cards (static; no deck refill)
@@ -37,8 +37,8 @@ export const setupDefs = {
 
     // characters placed by board column
     characters: [
-      { name: "Char 1", color: 0xff9999, col: 1 },
-      { name: "Char 2", color: 0x9999ff, col: 3 },
+      { name: "Char 1", color: 0xff9999, col: 4 },
+      { name: "Char 2", color: 0x9999ff, col: 5 },
     ],
 
     // inventories keyed by owner selector:
@@ -80,9 +80,9 @@ export const setupDefs = {
     },
 
     permanents: [
-      { defId: "farm", col: 2 },
-      { defId: "mine", col: 4 },
-      { defId: "storehouse", col: 7 },
+      { defId: "farm", col: 5 },
+      { defId: "mine", col: 5 },
+      { defId: "storehouse", col: 6 },
     ],
 
     envSlots: ["flood_autumn", "flood_autumn", null, null, "rock"],
