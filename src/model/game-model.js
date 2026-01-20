@@ -32,6 +32,8 @@ import {
   cmdSplitStackAndPlace,
   cmdPlaceCharacterInSlot,
   cmdSetPaused,
+  cmdSetTileTagOrder,
+  cmdDebugToggleTilePawn,
   canOwnerAcceptItem,
 } from "./commands.js";
 
@@ -89,37 +91,39 @@ export function updateGame(dt, state) {
     }
   }
 
-  // env behaviors -> EffectOps -> runEffect
-  for (let i = 0; i < s.envSlots.length; i++) {
-    const slot = s.envSlots[i];
-    const env = slot.env;
+  if (s.envSlotsEnabled !== false) {
+    // Legacy env slot behavior (Stage 3 debug can disable via envSlotsEnabled).
+    for (let i = 0; i < s.envSlots.length; i++) {
+      const slot = s.envSlots[i];
+      const env = slot.env;
 
-    if (env) {
-      const def = envCardDefs[env.defId];
+      if (env) {
+        const def = envCardDefs[env.defId];
 
-      const ops =
-        runBehaviorsOnInstance(env, def, dt, s, { kind: "env" }) || [];
+        const ops =
+          runBehaviorsOnInstance(env, def, dt, s, { kind: "env" }) || [];
 
-      for (const op of ops) {
-        const targetSlot =
-          op && typeof op.envSlotIndex === "number"
-            ? s.envSlots?.[op.envSlotIndex] || slot
-            : slot;
+        for (const op of ops) {
+          const targetSlot =
+            op && typeof op.envSlotIndex === "number"
+              ? s.envSlots?.[op.envSlotIndex] || slot
+              : slot;
 
-        runEffect(s, op, {
-          kind: "env",
-          slot: targetSlot,
-          state: s,
-          seasonData,
-        });
+          runEffect(s, op, {
+            kind: "env",
+            slot: targetSlot,
+            state: s,
+            seasonData,
+          });
 
-        if (!slot.env) break;
+          if (!slot.env) break;
+        }
       }
-    }
 
-    // Preserve prior semantics: refill immediately after processing this slot,
-    // but route the mutation through a command instead of updateGame.
-    cmdRefillEnvSlot(s, i);
+      // Preserve prior semantics: refill immediately after processing this slot,
+      // but route the mutation through a command instead of updateGame.
+      cmdRefillEnvSlot(s, i);
+    }
   }
 }
 
@@ -191,6 +195,8 @@ export {
   cmdSplitStackAndPlace,
   cmdPlaceCharacterInSlot,
   cmdSetPaused,
+  cmdSetTileTagOrder,
+  cmdDebugToggleTilePawn,
   canOwnerAcceptItem,
 };
 

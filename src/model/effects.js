@@ -1,12 +1,17 @@
 // effects.js — EffectOp interpreter + seasonEnd + item expiry + inventory ops
 
 import { envCardDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import {
   Inventory,
   canStackItems,
   getItemMaxStack,
 } from "./inventory-model.js";
 import { makeEnvInstance } from "./state.js";
+
+const SYSTEM_TIER_LADDER = ["bronze", "silver", "gold", "diamond"];
 
 export function normalizeEffectSpec(raw) {
   if (!raw) return null;
@@ -76,6 +81,58 @@ function addStackedUnits(state, inv, kind, amount) {
   }
 
   return amount - remaining;
+}
+
+function resolveBoardTargets(state, targetSpec, context) {
+  if (!targetSpec || typeof targetSpec !== "object") return [];
+
+  if (targetSpec.at && typeof targetSpec.at === "object") {
+    const layer = targetSpec.at.layer;
+    const col = targetSpec.at.col;
+    if (!layer || !Number.isFinite(col)) return [];
+    const occ = state.board?.occ?.[layer];
+    if (!Array.isArray(occ)) return [];
+    const idx = Math.floor(col);
+    const target = occ[idx];
+    return target ? [target] : [];
+  }
+
+  if (targetSpec.ref === "self") {
+    const layer = targetSpec.layer;
+    const source = context?.source;
+    if (!layer || !source) return [];
+    const occ = state.board?.occ?.[layer];
+    if (!Array.isArray(occ)) return [];
+
+    const startCol = Number.isFinite(source.col) ? Math.floor(source.col) : 0;
+    const span =
+      Number.isFinite(source.span) && source.span > 0
+        ? Math.floor(source.span)
+        : 1;
+
+    const targets = [];
+    const seen = new Set();
+    for (let offset = 0; offset < span; offset++) {
+      const col = startCol + offset;
+      if (col < 0 || col >= occ.length) continue;
+      const target = occ[col];
+      if (!target) continue;
+      const key = target.instanceId ?? target;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push(target);
+    }
+    return targets;
+  }
+
+  return [];
+}
+
+function getSystemTierLadder(systemDef) {
+  if (!systemDef?.tierMap || typeof systemDef.tierMap !== "object") return [];
+  return SYSTEM_TIER_LADDER.filter(
+    (tier) => systemDef.tierMap[tier] != null
+  );
 }
 
 export function runEffect(state, rawEffect, context) {
@@ -179,13 +236,217 @@ export function runEffect(state, rawEffect, context) {
     // ================= GAME OPS =================
 
     case "AddResource": {
-      if (context.kind !== "game") return false;
       const key = effect.resource;
       const amt = effect.amount ?? 0;
       if (!key || typeof amt !== "number") return false;
 
       state.resources[key] = (state.resources[key] ?? 0) + amt;
       return true;
+    }
+
+    // ================= BOARD TARGET OPS =================
+
+    case "AddTag": {
+      const tagId = effect.tag;
+      if (!tagId || typeof tagId !== "string") return false;
+
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        if (!Array.isArray(target.tags)) target.tags = [];
+        if (target.tags.includes(tagId)) continue;
+
+        target.tags.push(tagId);
+        changed = true;
+
+        const tagDef = envTagDefs[tagId];
+        const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
+        if (systems.length === 0) continue;
+
+        if (!target.systemTiers || typeof target.systemTiers !== "object") {
+          target.systemTiers = {};
+        }
+
+        for (const systemId of systems) {
+          if (target.systemTiers[systemId] != null) continue;
+          const sysDef = envSystemDefs[systemId];
+          if (!sysDef) continue;
+          if (sysDef.defaultTier != null) {
+            target.systemTiers[systemId] = sysDef.defaultTier;
+          }
+        }
+      }
+
+      return changed;
+    }
+
+    case "RemoveTag": {
+      const tagId = effect.tag;
+      if (!tagId || typeof tagId !== "string") return false;
+
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        if (!Array.isArray(target.tags) || target.tags.length === 0) continue;
+
+        const nextTags = target.tags.filter((t) => t !== tagId);
+        if (nextTags.length === target.tags.length) continue;
+        target.tags = nextTags;
+        changed = true;
+      }
+
+      return changed;
+    }
+
+    case "SetSystemTier": {
+      const systemId = effect.system;
+      if (!systemId || typeof systemId !== "string") return false;
+
+      const systemDef = envSystemDefs[systemId];
+      if (!systemDef) return false;
+
+      const tier =
+        typeof effect.tier === "string"
+          ? effect.tier
+          : typeof effect.value === "string"
+            ? effect.value
+            : null;
+      if (!tier || systemDef.tierMap?.[tier] == null) return false;
+
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        if (!target.systemTiers || typeof target.systemTiers !== "object") {
+          target.systemTiers = {};
+        }
+        if (target.systemTiers[systemId] === tier) continue;
+        target.systemTiers[systemId] = tier;
+        changed = true;
+      }
+
+      return changed;
+    }
+
+    case "UpgradeSystemTier": {
+      const systemId = effect.system;
+      if (!systemId || typeof systemId !== "string") return false;
+
+      const systemDef = envSystemDefs[systemId];
+      if (!systemDef) return false;
+
+      const tiers = getSystemTierLadder(systemDef);
+      if (tiers.length === 0) return false;
+
+      if (!Number.isFinite(effect.delta)) return false;
+      const delta = Math.trunc(effect.delta);
+
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      let changed = false;
+      const defaultTier = tiers.includes(systemDef.defaultTier)
+        ? systemDef.defaultTier
+        : tiers[0];
+      for (const target of targets) {
+        if (!target) continue;
+        if (!target.systemTiers || typeof target.systemTiers !== "object") {
+          target.systemTiers = {};
+        }
+
+        const hasCurrent = typeof target.systemTiers[systemId] === "string";
+        let current = hasCurrent ? target.systemTiers[systemId] : defaultTier;
+        if (!hasCurrent) {
+          target.systemTiers[systemId] = current;
+          changed = true;
+        }
+
+        let idx = tiers.indexOf(current);
+        if (idx < 0) idx = tiers.indexOf(defaultTier);
+        if (idx < 0) idx = 0;
+
+        const nextIdx = Math.max(0, Math.min(tiers.length - 1, idx + delta));
+        const nextTier = tiers[nextIdx];
+
+        if (current === nextTier) continue;
+        target.systemTiers[systemId] = nextTier;
+        changed = true;
+      }
+
+      return changed;
+    }
+
+    case "RemoveEvent": {
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      const anchors = state.board?.layers?.event?.anchors;
+      if (!Array.isArray(anchors) || anchors.length === 0) return false;
+
+      const targetIds = new Set();
+      const targetRefs = new Set();
+      for (const target of targets) {
+        if (!target) continue;
+        if (target.instanceId != null) targetIds.add(target.instanceId);
+        else targetRefs.add(target);
+      }
+
+      const next = anchors.filter((anchor) => {
+        if (!anchor) return true;
+        if (anchor.instanceId != null && targetIds.has(anchor.instanceId)) {
+          return false;
+        }
+        if (targetRefs.has(anchor)) return false;
+        return true;
+      });
+
+      const removed = next.length !== anchors.length;
+      if (removed) {
+        anchors.length = 0;
+        anchors.push(...next);
+      }
+
+      if (removed) state._boardDirty = true;
+      return removed;
+    }
+
+    case "TransformEvent": {
+      const defId = effect.defId;
+      if (!defId || typeof defId !== "string") return false;
+
+      const def = envEventDefs[defId];
+      if (!def) return false;
+
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      const nowSec = Number.isFinite(context?.tSec)
+        ? Math.floor(context.tSec)
+        : Math.floor(state.tSec ?? 0);
+
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        target.defId = defId;
+        target.createdSec = nowSec;
+        if (def.durationSec != null) {
+          target.expiresSec = nowSec + def.durationSec;
+        } else {
+          delete target.expiresSec;
+        }
+        delete target.entered;
+        changed = true;
+      }
+
+      return changed;
     }
 
     // ================= ENV PROP OPS =================

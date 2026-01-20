@@ -23,6 +23,8 @@ import {
   processSecondChangeForItems,
 } from "./effects.js";
 
+import { stepEnvSecond } from "./env-exec.js";
+
 import { resetTimedTriggersOnPermanents } from "./behaviors.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
 
@@ -168,7 +170,8 @@ export function cmdTickSimulation(state, dt) {
   const prevTSec = state.tSec || 0;
   const newTSec = Math.floor(state.simStepIndex / TICKS_PER_SEC);
 
-  if (newTSec > prevTSec) {
+  const didAdvanceSecond = newTSec > prevTSec;
+  if (didAdvanceSecond) {
     state.tSec = newTSec;
 
     normalizeApState(state);
@@ -203,6 +206,14 @@ export function cmdTickSimulation(state, dt) {
       : DEFAULT_SEASON_DURATION_SEC;
   state.seasonTimeRemaining = Math.max(0, dur - (state.seasonClockSec ?? 0));
 
+  state._seasonChanged =
+    state._seasonChanged === true || advancedSeasonCount > 0;
+
+  if (didAdvanceSecond) {
+    stepEnvSecond(state, state.tSec);
+    if (state._seasonChanged) state._seasonChanged = false;
+  }
+
   return {
     ok: true,
     advancedSeason: advancedSeasonCount > 0,
@@ -236,6 +247,41 @@ export function cmdSetPaused(state, paused) {
   if (typeof paused !== "boolean") return { ok: false, reason: "badPaused" };
   state.paused = paused;
   return { ok: true, paused };
+}
+
+// =============================================================================
+// TILE TAG ORDERING
+// =============================================================================
+
+export function cmdSetTileTagOrder(state, { tileCol, tagIds }) {
+  if (!Number.isFinite(tileCol)) return { ok: false, reason: "badTileCol" };
+  if (!Array.isArray(tagIds)) return { ok: false, reason: "badTagIds" };
+
+  const col = Math.floor(tileCol);
+  const tile = state.board?.occ?.tile?.[col];
+  if (!tile) return { ok: false, reason: "noTile" };
+
+  const unique = new Set();
+  const ordered = [];
+  for (const tag of tagIds) {
+    if (typeof tag !== "string") return { ok: false, reason: "badTagId" };
+    if (unique.has(tag)) return { ok: false, reason: "duplicateTag" };
+    unique.add(tag);
+    ordered.push(tag);
+  }
+
+  const existingTags = Array.isArray(tile.tags) ? tile.tags : [];
+  const existingSet = new Set(existingTags);
+
+  if (existingSet.size !== unique.size) {
+    return { ok: false, reason: "tagSetMismatch" };
+  }
+  for (const tag of unique) {
+    if (!existingSet.has(tag)) return { ok: false, reason: "tagSetMismatch" };
+  }
+
+  tile.tags = ordered;
+  return { ok: true, result: "tagOrderSet", tileCol: col };
 }
 
 // =============================================================================
@@ -401,6 +447,23 @@ export function cmdDebugSetCap(state, { cap, points, enabled } = {}) {
     actionPoints: state.actionPoints,
     apCapOverride: state.apCapOverride,
   };
+}
+
+export function cmdDebugToggleTilePawn(state, { tileCol } = {}) {
+  if (!Number.isFinite(tileCol)) return { ok: false, reason: "badTileCol" };
+  const col = Math.floor(tileCol);
+  const cols = state.board?.cols ?? 12;
+  if (col < 0 || col >= cols) return { ok: false, reason: "badTileCol" };
+
+  if (
+    !Array.isArray(state.tilePawnsByCol) ||
+    state.tilePawnsByCol.length !== cols
+  ) {
+    state.tilePawnsByCol = new Array(cols).fill(false);
+  }
+
+  state.tilePawnsByCol[col] = !state.tilePawnsByCol[col];
+  return { ok: true, tileCol: col, present: state.tilePawnsByCol[col] };
 }
 
 // =============================================================================

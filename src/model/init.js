@@ -1,14 +1,17 @@
 // init.js — scenario/setup assembly (NO core exports here besides init/createInitialState)
 
 import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 
 import {
   createEmptyState,
   makeEnvInstance,
+  makeEnvTileInstance,
   makePermanentInstance,
   buildInitialEnvDecks,
   refillEnvSlots,
+  rebuildBoardOccupancy,
 } from "./state.js";
 
 import { Inventory, initializeItemFromDef } from "./inventory-model.js";
@@ -62,6 +65,18 @@ export function createInitialState(scenario = "testing", seed = null) {
     env: envDefId ? makeEnvInstance(envDefId, state) : null,
   }));
 
+  const boardCols = state.board?.cols ?? 12;
+  const tileDefIds = Object.keys(envTileDefs);
+  const orderedTileDefIds =
+    tileDefIds.length > 0 ? tileDefIds.slice().sort() : ["tile_floodplains"];
+  state.board.layers.tile.anchors = [];
+  for (let col = 0; col < boardCols; col++) {
+    const defId = orderedTileDefIds[col % orderedTileDefIds.length];
+    state.board.layers.tile.anchors.push(
+      makeEnvTileInstance(defId, state, col, 1)
+    );
+  }
+
   // characters
   state.characters = (setup.characters || []).map((c) => ({
     id: state.nextCharacterId++,
@@ -109,6 +124,8 @@ export function createInitialState(scenario = "testing", seed = null) {
 
   // fill empty env slots
   refillEnvSlots(state);
+
+  rebuildBoardOccupancy(state);
 
   return state;
 }

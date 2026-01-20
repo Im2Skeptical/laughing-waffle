@@ -3,8 +3,84 @@
 
 import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
 import { envCardDefs, permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { attachRngHelpers } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
+
+const BOARD_COLS = 12;
+const BOARD_LAYERS = ["tile", "event", "permanent"];
+
+function createBoardState(cols = BOARD_COLS) {
+  return {
+    cols,
+    layers: {
+      tile: { anchors: [] },
+      event: { anchors: [] },
+      permanent: { anchors: [] },
+    },
+    occ: {
+      tile: new Array(cols).fill(null),
+      event: new Array(cols).fill(null),
+      permanent: new Array(cols).fill(null),
+    },
+  };
+}
+
+function ensureBoardState(state) {
+  if (!state.board || typeof state.board !== "object") {
+    state.board = createBoardState();
+    return;
+  }
+
+  const board = state.board;
+  const cols =
+    typeof board.cols === "number" && board.cols > 0 ? board.cols : BOARD_COLS;
+  board.cols = cols;
+
+  if (!board.layers || typeof board.layers !== "object") {
+    board.layers = {};
+  }
+
+  for (const layer of BOARD_LAYERS) {
+    if (!board.layers[layer] || typeof board.layers[layer] !== "object") {
+      board.layers[layer] = { anchors: [] };
+    }
+    if (!Array.isArray(board.layers[layer].anchors)) {
+      board.layers[layer].anchors = [];
+    }
+  }
+
+  if (!board.occ || typeof board.occ !== "object") {
+    board.occ = {};
+  }
+
+  for (const layer of BOARD_LAYERS) {
+    if (!Array.isArray(board.occ[layer]) || board.occ[layer].length !== cols) {
+      board.occ[layer] = new Array(cols).fill(null);
+    }
+  }
+}
+
+function ensureTilePawnsByCol(state) {
+  if (!state) return;
+  const cols = state.board?.cols ?? BOARD_COLS;
+  if (!Array.isArray(state.tilePawnsByCol) || state.tilePawnsByCol.length !== cols) {
+    const next = new Array(cols).fill(false);
+    if (Array.isArray(state.tilePawnsByCol)) {
+      const copyLen = Math.min(cols, state.tilePawnsByCol.length);
+      for (let i = 0; i < copyLen; i++) {
+        next[i] = !!state.tilePawnsByCol[i];
+      }
+    }
+    state.tilePawnsByCol = next;
+    return;
+  }
+
+  for (let i = 0; i < state.tilePawnsByCol.length; i++) {
+    state.tilePawnsByCol[i] = !!state.tilePawnsByCol[i];
+  }
+}
 
 // =============================================================================
 // PHASE / PAUSE POLICY (Stage 5)
@@ -53,10 +129,14 @@ export function createEmptyState(seed = 123456789) {
 
     resources: { gold: 0, food: 0, population: 0 },
 
+    board: createBoardState(),
+    tilePawnsByCol: new Array(BOARD_COLS).fill(false),
+
     permanentSlots: [],
     nextPermanentInstanceId: 1,
 
     envSlots: [],
+    envSlotsEnabled: true,
     envSeasons: {},
     nextEnvInstanceId: 1,
 
@@ -97,6 +177,75 @@ export function makeEnvInstance(defId, state) {
   const inst = { instanceId: state.nextEnvInstanceId++, defId, props: {} };
   initializeInstanceFromDef(inst, def);
   return inst;
+}
+
+export function makeEnvTileInstance(defId, state, col, span = 1) {
+  const def = envTileDefs[defId];
+  const baseTags = Array.isArray(def?.baseTags) ? def.baseTags : [];
+  const tags = [];
+  const seen = new Set();
+  for (const tag of baseTags) {
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+
+  return {
+    instanceId: state.nextEnvInstanceId++,
+    defId,
+    col,
+    span,
+    tags,
+    systemTiers: {},
+  };
+}
+
+export function makeEnvEventInstance(defId, state, col, span, tSec) {
+  const def = envEventDefs[defId];
+  const safeSpan = typeof span === "number" && span > 0 ? span : 1;
+  const inst = {
+    instanceId: state.nextEnvInstanceId++,
+    defId,
+    col,
+    span: safeSpan,
+    createdSec: tSec,
+  };
+  if (def?.durationSec != null) {
+    inst.expiresSec = tSec + def.durationSec;
+  }
+  return inst;
+}
+
+export function rebuildBoardOccupancy(state) {
+  if (!state) return;
+  ensureBoardState(state);
+
+  const board = state.board;
+  for (const layer of BOARD_LAYERS) {
+    board.occ[layer].fill(null);
+  }
+
+  for (const layer of BOARD_LAYERS) {
+    const anchors = board.layers[layer].anchors;
+    for (const anchor of anchors) {
+      if (!anchor) continue;
+      const col = typeof anchor.col === "number" ? anchor.col : 0;
+      const span = typeof anchor.span === "number" ? anchor.span : 1;
+      for (let offset = 0; offset < span; offset++) {
+        const occupiedCol = col + offset;
+        if (occupiedCol < 0 || occupiedCol >= board.cols) continue;
+        if (
+          board.occ[layer][occupiedCol] &&
+          board.occ[layer][occupiedCol] !== anchor
+        ) {
+          console.warn(
+            `[board] occupancy collision on ${layer} col ${occupiedCol}; overwriting.`
+          );
+        }
+        board.occ[layer][occupiedCol] = anchor;
+      }
+    }
+  }
 }
 
 export function initializeInstanceFromDef(instance, def) {
@@ -292,6 +441,7 @@ export function serializeGameState(state) {
 
   delete clean.rngNextFloat;
   delete clean.rngNextInt;
+  if (clean.board && clean.board.occ) delete clean.board.occ;
 
   // Inventories contain derived indices that cannot survive JSON cloning.
   if (clean.ownerInventories) {
@@ -315,11 +465,16 @@ export function deserializeGameState(data) {
   if (!state.rng) state.rng = { seed: 123456789 };
   if (!state.resources) state.resources = { gold: 0, food: 0, population: 0 };
   if (!state.envSlots) state.envSlots = [];
+  if (state.envSlotsEnabled == null) state.envSlotsEnabled = true;
   if (!state.envSeasons) state.envSeasons = {};
   if (!state.permanentSlots) state.permanentSlots = [];
   if (!state.characters) state.characters = [];
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
+  ensureBoardState(state);
+  ensureTilePawnsByCol(state);
+  state._boardDirty = false;
+  state._seasonChanged = false;
 
   // New integer time defaults if missing from save
   if (state.simStepIndex == null) state.simStepIndex = 0;
@@ -378,6 +533,7 @@ export function deserializeGameState(data) {
     rebuildInventoryDerived(inv);
   }
 
+  rebuildBoardOccupancy(state);
   attachRngHelpers(state);
   return state;
 }

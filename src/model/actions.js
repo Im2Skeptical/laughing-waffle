@@ -8,6 +8,8 @@ import {
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
   cmdDebugSetCap,
+  cmdSetTileTagOrder,
+  cmdDebugToggleTilePawn,
 } from "./commands.js";
 
 export const ActionKinds = {
@@ -16,7 +18,9 @@ export const ActionKinds = {
   INVENTORY_SPLIT: "inventorySplit",
   INVENTORY_STACK: "inventoryStack",
   BUILD_DESIGNATE: "buildDesignate",
+  SET_TILE_TAG_ORDER: "setTileTagOrder",
   DEBUG_SET_CAP: "debugSetCap",
+  DEBUG_TOGGLE_TILE_PAWN: "debugToggleTilePawn",
 };
 
 function ensureAPState(state) {
@@ -72,7 +76,8 @@ export function applyAction(state, action, context = {}) {
   // "Control" actions are allowed while running.
   // "Edit" actions (Player moves) require the simulation to be PAUSED.
   const isControlAction =
-    kind === ActionKinds.DEBUG_SET_CAP;
+    kind === ActionKinds.DEBUG_SET_CAP ||
+    kind === ActionKinds.DEBUG_TOGGLE_TILE_PAWN;
 
   // STRICT GATING: If not replaying, gameplay actions are FORBIDDEN unless paused.
   if (!isReplay && !isControlAction && !state.paused) {
@@ -127,8 +132,16 @@ export function applyAction(state, action, context = {}) {
       result = { ok: true, result: "designated" };
       break;
 
+    case ActionKinds.SET_TILE_TAG_ORDER:
+      result = cmdSetTileTagOrder(state, payload);
+      break;
+
     case ActionKinds.DEBUG_SET_CAP:
       result = cmdDebugSetCap(state, payload);
+      break;
+
+    case ActionKinds.DEBUG_TOGGLE_TILE_PAWN:
+      result = cmdDebugToggleTilePawn(state, payload);
       break;
 
     default:
