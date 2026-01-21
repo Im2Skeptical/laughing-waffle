@@ -24,6 +24,10 @@ export function createTooltipView({ layer, interaction }) {
     const { x, y } = anchor;
     const aw = anchor.width ?? 0;
     const ah = anchor.height ?? 0;
+    const scale =
+      (spec && Number.isFinite(spec.scale) ? spec.scale : null) ??
+      (anchor && Number.isFinite(anchor.scale) ? anchor.scale : null) ??
+      1;
 
     if (hideTimeoutId !== null) {
       clearTimeout(hideTimeoutId);
@@ -69,12 +73,15 @@ export function createTooltipView({ layer, interaction }) {
     bg.drawRoundedRect(0, 0, totalWidth, totalHeight, 8);
     bg.endFill();
 
+    const scaledWidth = totalWidth * scale;
+    const scaledHeight = totalHeight * scale;
+
     // ------------ placement: LEFT of the anchor rect ------------
     const margin = 12;
 
     // default: to the left, vertically centred on the anchor rect
-    let posX = x - totalWidth - margin;
-    let posY = y + (ah ? (ah - totalHeight) / 2 : 0);
+    let posX = x - scaledWidth - margin;
+    let posY = y + (ah ? (ah - scaledHeight) / 2 : 0);
 
     // If that would go off-screen on the left, flip to the right side
     if (posX < 10) {
@@ -82,16 +89,17 @@ export function createTooltipView({ layer, interaction }) {
     }
 
     // Clamp inside the design rect
-    if (posX + totalWidth > DESIGN_WIDTH - 10) {
-      posX = DESIGN_WIDTH - totalWidth - 10;
+    if (posX + scaledWidth > DESIGN_WIDTH - 10) {
+      posX = DESIGN_WIDTH - scaledWidth - 10;
     }
     if (posY < 10) posY = 10;
-    if (posY + totalHeight > DESIGN_HEIGHT - 10) {
-      posY = DESIGN_HEIGHT - totalHeight - 10;
+    if (posY + scaledHeight > DESIGN_HEIGHT - 10) {
+      posY = DESIGN_HEIGHT - scaledHeight - 10;
     }
 
     container.x = posX;
     container.y = posY;
+    container.scale.set(scale);
     container.visible = true;
   }
 

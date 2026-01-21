@@ -17,6 +17,11 @@ import {
   EVENT_HEIGHT,
   PERM_WIDTH,
   PERM_HEIGHT,
+  GAMEPIECE_HOVER_SCALE,
+  GAMEPIECE_SHADOW_COLOR,
+  GAMEPIECE_SHADOW_ALPHA,
+  GAMEPIECE_SHADOW_OFFSET_X,
+  GAMEPIECE_SHADOW_OFFSET_Y,
   TILE_ROW_Y,
   EVENT_ROW_Y,
   PERM_ROW_Y,
@@ -32,6 +37,7 @@ import {
  *  - tileLayer: PIXI.Container
  *  - eventLayer: PIXI.Container
  *  - permanentsLayer: PIXI.Container
+ *  - hoverLayer?: PIXI.Container
  *  - getGameState: () => gameState
  *  - interaction: interactionController
  *  - tooltipView
@@ -44,6 +50,7 @@ export function createBoardView(opts) {
     tileLayer,
     eventLayer,
     permanentsLayer,
+    hoverLayer,
     getGameState,
     interaction,
     tooltipView,
@@ -56,6 +63,301 @@ export function createBoardView(opts) {
   const eventViews = new Map();
   /** @type {Map<number, BoardPermView>} */
   const permViews = new Map();
+
+  if (tileLayer) tileLayer.sortableChildren = true;
+  if (eventLayer) eventLayer.sortableChildren = true;
+  if (permanentsLayer) permanentsLayer.sortableChildren = true;
+  if (hoverLayer) hoverLayer.sortableChildren = true;
+
+  const TAG_PILL_HEIGHT = 16;
+  const TAG_PILL_RADIUS = 8;
+  const TAG_PILL_PAD_X = 8;
+  const TAG_PILL_GAP = 4;
+  const TAG_PILL_MAX_WIDTH = TILE_WIDTH - 16;
+  const TAG_PILL_BG = 0x1f263d;
+  const TAG_PILL_BORDER = 0x101524;
+  const TAG_PILL_TEXT = 0xe6eef9;
+  const TAG_DRAG_SCALE = 1.06;
+  const TAG_DRAG_BUMP = 6;
+  let activeTagDrag = null;
+
+  function attachHoverFx(container, width, height, radius = 8) {
+    const content = new PIXI.Container();
+    content.pivot.set(width / 2, height / 2);
+    content.position.set(width / 2, height / 2);
+
+    const shadow = new PIXI.Graphics()
+      .beginFill(GAMEPIECE_SHADOW_COLOR, GAMEPIECE_SHADOW_ALPHA)
+      .drawRoundedRect(
+        GAMEPIECE_SHADOW_OFFSET_X,
+        GAMEPIECE_SHADOW_OFFSET_Y,
+        width,
+        height,
+        radius
+      )
+      .endFill();
+    shadow.visible = false;
+    content.addChild(shadow);
+
+    container.addChild(content);
+
+    function setActive(active) {
+      const scale = active ? GAMEPIECE_HOVER_SCALE : 1;
+      content.scale.set(scale);
+      shadow.visible = active && GAMEPIECE_SHADOW_ALPHA > 0;
+      container.zIndex = active ? 20 : 0;
+    }
+
+    return { content, setActive };
+  }
+
+  function getScaledAnchorRect(container, width, height, scale) {
+    const s = Number.isFinite(scale) ? scale : 1;
+    const cx = container.x + width / 2;
+    const cy = container.y + height / 2;
+    const scaledWidth = width * s;
+    const scaledHeight = height * s;
+    return {
+      x: cx - scaledWidth / 2,
+      y: cy - scaledHeight / 2,
+      width: scaledWidth,
+      height: scaledHeight,
+      scale: s,
+      centerX: cx,
+      centerY: cy,
+    };
+  }
+
+  function elevateForHover(container) {
+    if (!hoverLayer || container.parent === hoverLayer) return;
+    container.__hoverParent = container.parent;
+    container.__hoverIndex =
+      container.parent?.getChildIndex?.(container) ?? null;
+    hoverLayer.addChild(container);
+  }
+
+  function restoreFromHover(container) {
+    if (!hoverLayer || container.parent !== hoverLayer) return;
+    const parent = container.__hoverParent;
+    const index = Number.isFinite(container.__hoverIndex)
+      ? Math.min(parent?.children?.length ?? 0, container.__hoverIndex)
+      : null;
+    if (parent) {
+      if (index == null) {
+        parent.addChild(container);
+      } else {
+        parent.addChildAt(container, index);
+      }
+    }
+    container.__hoverParent = null;
+    container.__hoverIndex = null;
+  }
+
+  function setHoverContext(kind, col, span, anchor) {
+    interaction?.setHovered?.({
+      kind,
+      col,
+      span,
+      centerX: anchor.centerX,
+      centerY: anchor.centerY,
+      scale: anchor.scale,
+      anchor,
+    });
+  }
+
+  function clearHoverContext() {
+    interaction?.clearHovered?.();
+  }
+
+  function removeFromParent(container) {
+    if (container?.parent) container.parent.removeChild(container);
+  }
+
+  function dispatchTagOrder(envCol, tagIds) {
+    if (!dispatchAction) return;
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
+    dispatchAction(ActionKinds.SET_TILE_TAG_ORDER, { envCol, tagIds });
+  }
+
+  function buildTagLozenge(tag) {
+    const container = new PIXI.Container();
+    container.eventMode = "static";
+    container.cursor = "grab";
+
+    const text = new PIXI.Text(tag, {
+      fill: TAG_PILL_TEXT,
+      fontSize: 10,
+      wordWrap: false,
+    });
+
+    const width = Math.min(
+      TAG_PILL_MAX_WIDTH,
+      Math.ceil(text.width + TAG_PILL_PAD_X * 2)
+    );
+    const height = TAG_PILL_HEIGHT;
+
+    const bg = new PIXI.Graphics()
+      .lineStyle(1, TAG_PILL_BORDER, 0.9)
+      .beginFill(TAG_PILL_BG, 0.95)
+      .drawRoundedRect(0, 0, width, height, TAG_PILL_RADIUS)
+      .endFill();
+
+    text.x = TAG_PILL_PAD_X;
+    text.y = Math.round((height - text.height) / 2);
+
+    container.addChild(bg, text);
+    container.hitArea = new PIXI.Rectangle(0, 0, width, height);
+
+    return { container, tag, width, height };
+  }
+
+  function layoutTagEntries(view) {
+    const entries = view.tagEntries || [];
+    const drag = view.tagDrag;
+    const rowStep = TAG_PILL_HEIGHT + TAG_PILL_GAP;
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (drag && entry === drag.entry) continue;
+
+      let adjustedIndex = i;
+      if (drag) {
+        if (i > drag.startIndex && i <= drag.targetIndex) {
+          adjustedIndex = i - 1;
+        } else if (i < drag.startIndex && i >= drag.targetIndex) {
+          adjustedIndex = i + 1;
+        }
+      }
+
+      let y = adjustedIndex * rowStep;
+      if (drag && adjustedIndex >= drag.targetIndex) {
+        y += TAG_DRAG_BUMP;
+      }
+
+      entry.container.x = 0;
+      entry.container.y = y;
+      entry.container.scale.set(1);
+      entry.container.alpha = 1;
+      entry.container.zIndex = 0;
+      entry.container.cursor = "grab";
+    }
+  }
+
+  function endTagDrag(view, commit, globalPos = null) {
+    const drag = view.tagDrag;
+    if (!drag) return;
+
+    drag.entry.container.scale.set(1);
+    drag.entry.container.alpha = 1;
+    drag.entry.container.zIndex = 0;
+    drag.entry.container.cursor = "grab";
+
+    if (commit && drag.targetIndex !== drag.startIndex) {
+      const tags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
+      if (tags.length === view.tagEntries.length) {
+        const [moved] = tags.splice(drag.startIndex, 1);
+        tags.splice(drag.targetIndex, 0, moved);
+        dispatchTagOrder(view.col, tags);
+      }
+    }
+
+    if (drag.stageMove) {
+      app.stage.off("pointermove", drag.stageMove);
+      app.stage.off("pointerup", drag.stageUp);
+      app.stage.off("pointerupoutside", drag.stageUp);
+    }
+
+    view.tagDrag = null;
+    if (activeTagDrag === view) activeTagDrag = null;
+    layoutTagEntries(view);
+
+    if (globalPos && view.hoverAnchor) {
+      const { x, y, width, height } = view.hoverAnchor;
+      const inside =
+        globalPos.x >= x &&
+        globalPos.x <= x + width &&
+        globalPos.y >= y &&
+        globalPos.y <= y + height;
+      if (!inside) {
+        view.isHovered = false;
+        view.hoverAnchor = null;
+        view.setHoverActive?.(false);
+        restoreFromHover(view.container);
+        clearHoverContext();
+        tooltipView?.hide?.();
+      }
+    }
+  }
+
+  function startTagDrag(view, entry, ev) {
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
+    if (!view.isHovered) return;
+
+    if (activeTagDrag && activeTagDrag !== view) {
+      endTagDrag(activeTagDrag, false);
+    }
+
+    ev?.stopPropagation?.();
+
+    const entries = view.tagEntries || [];
+    const startIndex = entries.indexOf(entry);
+    if (startIndex < 0) return;
+
+    const local = view.tagContainer.toLocal(ev.data.global);
+    const offsetY = local.y - entry.container.y;
+
+    const dragState = {
+      entry,
+      startIndex,
+      targetIndex: startIndex,
+      offsetY,
+      stageMove: null,
+      stageUp: null,
+    };
+
+    view.tagDrag = dragState;
+    activeTagDrag = view;
+
+    entry.container.scale.set(TAG_DRAG_SCALE);
+    entry.container.alpha = 0.95;
+    entry.container.zIndex = 10;
+    entry.container.cursor = "grabbing";
+
+    const onMove = (moveEv) => {
+      const drag = view.tagDrag;
+      if (!drag) return;
+      const localPos = view.tagContainer.toLocal(moveEv.data.global);
+      const rowStep = TAG_PILL_HEIGHT + TAG_PILL_GAP;
+      const maxY = Math.max(0, (entries.length - 1) * rowStep);
+      const nextY = Math.max(0, Math.min(maxY, localPos.y - drag.offsetY));
+      drag.entry.container.y = nextY;
+
+      const centerY = nextY + TAG_PILL_HEIGHT / 2;
+      const nextIndex = Math.max(
+        0,
+        Math.min(entries.length - 1, Math.floor(centerY / rowStep))
+      );
+
+      if (nextIndex !== drag.targetIndex) {
+        drag.targetIndex = nextIndex;
+        layoutTagEntries(view);
+      }
+    };
+
+    const onUp = (upEv) => {
+      upEv?.stopPropagation?.();
+      endTagDrag(view, true, upEv?.data?.global ?? null);
+    };
+
+    dragState.stageMove = onMove;
+    dragState.stageUp = onUp;
+
+    app.stage.on("pointermove", onMove);
+    app.stage.on("pointerup", onUp);
+    app.stage.on("pointerupoutside", onUp);
+
+    layoutTagEntries(view);
+  }
 
   // --------------------------------------------------------
   // UI helpers
@@ -171,32 +473,6 @@ export function createBoardView(opts) {
   }
 
   // --------------------------------------------------------
-  // Tag reorder helper
-  // --------------------------------------------------------
-
-  function tryReorderTag(envCol, tagIndex, direction) {
-    if (!dispatchAction) return;
-    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
-
-    const state = getGameState?.();
-    const tile = state?.board?.occ?.tile?.[envCol];
-    const tags = Array.isArray(tile?.tags) ? tile.tags.slice() : [];
-    if (tags.length < 2) return;
-
-    const nextIndex = tagIndex + direction;
-    if (nextIndex < 0 || nextIndex >= tags.length) return;
-
-    const tmp = tags[tagIndex];
-    tags[tagIndex] = tags[nextIndex];
-    tags[nextIndex] = tmp;
-
-    dispatchAction(ActionKinds.SET_TILE_TAG_ORDER, {
-      envCol,
-      tagIds: tags,
-    });
-  }
-
-  // --------------------------------------------------------
   // Tile view
   // --------------------------------------------------------
 
@@ -205,52 +481,44 @@ export function createBoardView(opts) {
     view.tagSignature = tags.join("|");
 
     view.tagContainer.removeChildren();
+    view.tagEntries = [];
+    view.tagContainer.sortableChildren = true;
+
+    if (view.tagDrag) {
+      endTagDrag(view, false);
+    }
+
+    const rowStep = TAG_PILL_HEIGHT + TAG_PILL_GAP;
+    const maxY = TILE_HEIGHT - view.tagStartY - TAG_PILL_HEIGHT;
 
     let y = 0;
     for (let i = 0; i < tags.length; i++) {
-      const tag = tags[i];
+      if (y > maxY) break;
 
-      const tagText = new PIXI.Text(tag, {
-        fill: 0x101010,
-        fontSize: 10,
-        wordWrap: true,
-        wordWrapWidth: TILE_WIDTH - 36,
-      });
-      tagText.x = 8;
-      tagText.y = y;
-      view.tagContainer.addChild(tagText);
-
-      const up = new PIXI.Text("^", {
-        fill: 0x1a1a1a,
-        fontSize: 10,
-      });
-      up.eventMode = "static";
-      up.cursor = "pointer";
-      up.x = TILE_WIDTH - 24;
-      up.y = y;
-      up.on("pointertap", (ev) => {
+      const entry = buildTagLozenge(tags[i]);
+      entry.container.y = y;
+      entry.container.on("pointerdown", (ev) => {
         ev?.stopPropagation?.();
-        tryReorderTag(view.col, i, -1);
+        startTagDrag(view, entry, ev);
       });
-      view.tagContainer.addChild(up);
-
-      const down = new PIXI.Text("v", {
-        fill: 0x1a1a1a,
-        fontSize: 10,
-      });
-      down.eventMode = "static";
-      down.cursor = "pointer";
-      down.x = TILE_WIDTH - 14;
-      down.y = y;
-      down.on("pointertap", (ev) => {
+      entry.container.on("pointerup", (ev) => {
         ev?.stopPropagation?.();
-        tryReorderTag(view.col, i, 1);
       });
-      view.tagContainer.addChild(down);
+      entry.container.on("pointerupoutside", (ev) => {
+        ev?.stopPropagation?.();
+      });
+      entry.container.on("pointermove", (ev) => {
+        if (view.tagDrag?.entry !== entry) return;
+        ev?.stopPropagation?.();
+      });
 
-      y += 14;
-      if (view.tagStartY + y > TILE_HEIGHT - 12) break;
+      view.tagContainer.addChild(entry.container);
+      view.tagEntries.push(entry);
+
+      y += rowStep;
     }
+
+    layoutTagEntries(view);
   }
 
   function buildTileView(tileInst, col) {
@@ -259,15 +527,21 @@ export function createBoardView(opts) {
     const cont = new PIXI.Container();
     cont.eventMode = "static";
     cont.cursor = "pointer";
+    const { content, setActive: setHoverActive } = attachHoverFx(
+      cont,
+      TILE_WIDTH,
+      TILE_HEIGHT,
+      8
+    );
 
-    cont.addChild(
+    content.addChild(
       new PIXI.Graphics()
         .beginFill(0x3a3a3a)
         .drawRoundedRect(0, 0, TILE_WIDTH, TILE_HEIGHT, 8)
         .endFill()
     );
 
-    cont.addChild(
+    content.addChild(
       new PIXI.Graphics()
         .beginFill(color)
         .drawRoundedRect(3, 3, TILE_WIDTH - 6, TILE_HEIGHT - 6, 6)
@@ -282,7 +556,7 @@ export function createBoardView(opts) {
     });
     titleText.x = 6;
     titleText.y = 6;
-    cont.addChild(titleText);
+    content.addChild(titleText);
 
     const descText = new PIXI.Text(desc, {
       fill: 0x101010,
@@ -292,15 +566,16 @@ export function createBoardView(opts) {
     });
     descText.x = 6;
     descText.y = titleText.y + titleText.height + 2;
-    cont.addChild(descText);
+    content.addChild(descText);
 
     const tagContainer = new PIXI.Container();
     const tagStartY = Math.min(
       TILE_HEIGHT - 14,
       descText.y + descText.height + 2
     );
+    tagContainer.x = 6;
     tagContainer.y = tagStartY;
-    cont.addChild(tagContainer);
+    content.addChild(tagContainer);
 
     const pawnBadge = new PIXI.Container();
     const pawnBg = new PIXI.Graphics()
@@ -316,22 +591,42 @@ export function createBoardView(opts) {
     pawnBadge.x = TILE_WIDTH - 12;
     pawnBadge.y = 12;
     pawnBadge.visible = false;
-    cont.addChild(pawnBadge);
+    content.addChild(pawnBadge);
 
-    cont.on("pointerenter", () => {
-      if (!interaction?.canShowHoverUI?.()) return;
-      tooltipView?.show?.(
-        {
-          title,
-          lines: desc ? [desc] : [],
-        },
-        { x: cont.x, y: cont.y, width: TILE_WIDTH, height: TILE_HEIGHT }
-      );
-    });
+      cont.on("pointerenter", () => {
+        if (!interaction?.canShowHoverUI?.()) return;
+        setHoverActive(true);
+        elevateForHover(cont);
+        const anchor = getScaledAnchorRect(
+          cont,
+          TILE_WIDTH,
+          TILE_HEIGHT,
+          GAMEPIECE_HOVER_SCALE
+        );
+        const anchorCol = Number.isFinite(tileInst.col)
+          ? Math.floor(tileInst.col)
+          : col;
+        const span =
+          Number.isFinite(tileInst.span) && tileInst.span > 0
+            ? Math.floor(tileInst.span)
+            : 1;
+        setHoverContext("tile", anchorCol, span, anchor);
+        tooltipView?.show?.(
+          {
+            title,
+            lines: desc ? [desc] : [],
+            scale: GAMEPIECE_HOVER_SCALE,
+          },
+          anchor
+        );
+      });
 
-    cont.on("pointerleave", () => {
-      tooltipView?.hide?.();
-    });
+      cont.on("pointerleave", () => {
+        setHoverActive(false);
+        restoreFromHover(cont);
+        clearHoverContext();
+        tooltipView?.hide?.();
+      });
 
     const pos = layoutBoardColPos(app.screen.width, col, TILE_WIDTH, TILE_ROW_Y);
     cont.x = pos.x;
@@ -343,9 +638,12 @@ export function createBoardView(opts) {
       container: cont,
       tile: tileInst,
       col,
+      setHoverActive,
       tagContainer,
       tagStartY,
       tagSignature: "",
+      tagEntries: [],
+      tagDrag: null,
       pawnBadge,
       pawnText,
     };
@@ -355,6 +653,7 @@ export function createBoardView(opts) {
   }
 
   function updateTileView(view, tileInst, pawnCount) {
+    view.tile = tileInst;
     const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
     const signature = tags.join("|");
     if (signature !== view.tagSignature) {
@@ -384,15 +683,22 @@ export function createBoardView(opts) {
 
     const cont = new PIXI.Container();
     cont.eventMode = "static";
+    cont.cursor = "pointer";
+    const { content, setActive: setHoverActive } = attachHoverFx(
+      cont,
+      width,
+      EVENT_HEIGHT,
+      8
+    );
 
-    cont.addChild(
+    content.addChild(
       new PIXI.Graphics()
         .beginFill(0x2f2f2f)
         .drawRoundedRect(0, 0, width, EVENT_HEIGHT, 8)
         .endFill()
     );
 
-    cont.addChild(
+    content.addChild(
       new PIXI.Graphics()
         .beginFill(color)
         .drawRoundedRect(3, 3, width - 6, EVENT_HEIGHT - 6, 6)
@@ -407,7 +713,7 @@ export function createBoardView(opts) {
     });
     titleText.x = 6;
     titleText.y = 4;
-    cont.addChild(titleText);
+    content.addChild(titleText);
 
     const descText = new PIXI.Text(desc, {
       fill: 0x101010,
@@ -417,7 +723,7 @@ export function createBoardView(opts) {
     });
     descText.x = 6;
     descText.y = titleText.y + titleText.height + 1;
-    cont.addChild(descText);
+    content.addChild(descText);
 
     const remainingText = new PIXI.Text("", {
       fill: 0x101010,
@@ -425,7 +731,35 @@ export function createBoardView(opts) {
     });
     remainingText.x = 6;
     remainingText.y = EVENT_HEIGHT - 16;
-    cont.addChild(remainingText);
+    content.addChild(remainingText);
+
+    cont.on("pointerenter", () => {
+      if (!interaction?.canShowHoverUI?.()) return;
+      setHoverActive(true);
+      elevateForHover(cont);
+      const anchor = getScaledAnchorRect(
+        cont,
+        width,
+        EVENT_HEIGHT,
+        GAMEPIECE_HOVER_SCALE
+      );
+      setHoverContext("event", col, span, anchor);
+      tooltipView?.show?.(
+        {
+          title,
+          lines: desc ? [desc] : [],
+          scale: GAMEPIECE_HOVER_SCALE,
+        },
+        anchor
+      );
+    });
+
+    cont.on("pointerleave", () => {
+      setHoverActive(false);
+      restoreFromHover(cont);
+      clearHoverContext();
+      tooltipView?.hide?.();
+    });
 
     const startX =
       span > 1
@@ -440,6 +774,7 @@ export function createBoardView(opts) {
       container: cont,
       event: eventInst,
       remainingText,
+      setHoverActive,
     };
   }
 
@@ -469,15 +804,21 @@ export function createBoardView(opts) {
     const cont = new PIXI.Container();
     cont.eventMode = "static";
     cont.cursor = "pointer";
+    const { content, setActive: setHoverActive } = attachHoverFx(
+      cont,
+      width,
+      height,
+      10
+    );
 
-    cont.addChild(
+    content.addChild(
       new PIXI.Graphics()
         .beginFill(0x3a3a3a)
         .drawRoundedRect(0, 0, width, height, 10)
         .endFill()
     );
 
-    cont.addChild(
+    content.addChild(
       new PIXI.Graphics()
         .beginFill(color)
         .drawRoundedRect(3, 3, width - 6, height - 6, 8)
@@ -492,7 +833,7 @@ export function createBoardView(opts) {
     });
     titleText.x = 6;
     titleText.y = 6;
-    cont.addChild(titleText);
+    content.addChild(titleText);
 
     let y = titleText.y + titleText.height + 2;
     for (const line of lines) {
@@ -504,7 +845,7 @@ export function createBoardView(opts) {
       });
       t.x = 6;
       t.y = y;
-      cont.addChild(t);
+      content.addChild(t);
       y += t.height + 1;
       if (y > height - 40) break;
     }
@@ -512,7 +853,7 @@ export function createBoardView(opts) {
     let meterViews = [];
     if (meters.length > 0) {
       meterViews = createMeters(
-        cont,
+        content,
         meters,
         permInst,
         y + 2,
@@ -527,23 +868,35 @@ export function createBoardView(opts) {
 
     cont.on("pointerenter", () => {
       if (!interaction?.canShowHoverUI?.()) return;
+      setHoverActive(true);
+      elevateForHover(cont);
+      const anchor = getScaledAnchorRect(
+        cont,
+        width,
+        height,
+        GAMEPIECE_HOVER_SCALE
+      );
+      setHoverContext("permanent", col, span, anchor);
 
       tooltipView?.show?.(
-        { title, lines },
-        { x: cont.x, y: cont.y, width, height }
+        { title, lines, scale: GAMEPIECE_HOVER_SCALE },
+        anchor
       );
 
       if (inventoryView && permHasInventory()) {
         inventoryView.showOnHover(permInst.instanceId, {
-          x: cont.x,
-          y: cont.y,
-          width,
-          height,
+          x: anchor.x,
+          y: anchor.y,
+          width: anchor.width,
+          height: anchor.height,
         });
       }
     });
 
     cont.on("pointerleave", () => {
+      setHoverActive(false);
+      restoreFromHover(cont);
+      clearHoverContext();
       tooltipView?.hide?.();
       if (inventoryView && permHasInventory()) {
         inventoryView.hideOnHoverOut(permInst.instanceId);
@@ -594,18 +947,18 @@ export function createBoardView(opts) {
       const tileInst = tileOcc?.[col] || null;
       const view = tileViews[col];
 
-      if (!tileInst) {
-        if (view) {
-          tileLayer.removeChild(view.container);
-          tileViews[col] = undefined;
+        if (!tileInst) {
+          if (view) {
+            removeFromParent(view.container);
+            tileViews[col] = undefined;
+          }
+          continue;
         }
-        continue;
-      }
 
-      if (!view || view.tile.instanceId !== tileInst.instanceId) {
-        if (view) tileLayer.removeChild(view.container);
-        tileViews[col] = buildTileView(tileInst, col);
-      }
+        if (!view || view.tile.instanceId !== tileInst.instanceId) {
+          if (view) removeFromParent(view.container);
+          tileViews[col] = buildTileView(tileInst, col);
+        }
 
       const activeView = tileViews[col];
       if (activeView) {
@@ -630,21 +983,21 @@ export function createBoardView(opts) {
       const id = eventInst.instanceId ?? col;
       seen.add(id);
 
-      const existing = eventViews.get(id);
-      if (!existing || existing.event.instanceId !== eventInst.instanceId) {
-        if (existing) eventLayer.removeChild(existing.container);
-        eventViews.set(id, buildEventView(eventInst, col));
-      }
+        const existing = eventViews.get(id);
+        if (!existing || existing.event.instanceId !== eventInst.instanceId) {
+          if (existing) removeFromParent(existing.container);
+          eventViews.set(id, buildEventView(eventInst, col));
+        }
 
       const view = eventViews.get(id);
       if (view) updateEventRemaining(view, state);
     }
 
-    for (const [id, view] of eventViews.entries()) {
-      if (seen.has(id)) continue;
-      eventLayer.removeChild(view.container);
-      eventViews.delete(id);
-    }
+      for (const [id, view] of eventViews.entries()) {
+        if (seen.has(id)) continue;
+        removeFromParent(view.container);
+        eventViews.delete(id);
+      }
   }
 
   function syncPermanents(state, cols) {
@@ -663,18 +1016,18 @@ export function createBoardView(opts) {
       const id = permInst.instanceId ?? col;
       seen.add(id);
 
-      const existing = permViews.get(id);
-      if (!existing || existing.perm.instanceId !== permInst.instanceId) {
-        if (existing) permanentsLayer.removeChild(existing.container);
-        permViews.set(id, buildPermanentView(permInst, col));
-      }
+        const existing = permViews.get(id);
+        if (!existing || existing.perm.instanceId !== permInst.instanceId) {
+          if (existing) removeFromParent(existing.container);
+          permViews.set(id, buildPermanentView(permInst, col));
+        }
     }
 
-    for (const [id, view] of permViews.entries()) {
-      if (seen.has(id)) continue;
-      permanentsLayer.removeChild(view.container);
-      permViews.delete(id);
-    }
+      for (const [id, view] of permViews.entries()) {
+        if (seen.has(id)) continue;
+        removeFromParent(view.container);
+        permViews.delete(id);
+      }
 
     for (const view of permViews.values()) {
       if (view.meterViews.length > 0) {
@@ -691,6 +1044,7 @@ export function createBoardView(opts) {
     tileLayer.removeChildren();
     eventLayer.removeChildren();
     permanentsLayer.removeChildren();
+    hoverLayer?.removeChildren?.();
     tileViews.length = 0;
     eventViews.clear();
     permViews.clear();

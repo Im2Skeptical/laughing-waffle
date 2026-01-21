@@ -16,6 +16,12 @@ export const EVENT_HEIGHT = 150;
 export const PERM_WIDTH = 112;
 export const PERM_HEIGHT = 168;
 
+export const GAMEPIECE_HOVER_SCALE = 2.0;
+export const GAMEPIECE_SHADOW_COLOR = 0x000000;
+export const GAMEPIECE_SHADOW_ALPHA = 0.25;
+export const GAMEPIECE_SHADOW_OFFSET_X = 6;
+export const GAMEPIECE_SHADOW_OFFSET_Y = 6;
+
 export const TILE_ROW_Y = 400;
 export const EVENT_ROW_Y = TILE_ROW_Y + TILE_HEIGHT + 20;
 export const HUB_ROW_Y = EVENT_ROW_Y + EVENT_HEIGHT + 60;

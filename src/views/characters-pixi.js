@@ -18,6 +18,11 @@ import {
   TILE_ROW_Y,
   layoutBoardColPos,
   layoutPermPos,
+  GAMEPIECE_HOVER_SCALE,
+  GAMEPIECE_SHADOW_COLOR,
+  GAMEPIECE_SHADOW_ALPHA,
+  GAMEPIECE_SHADOW_OFFSET_X,
+  GAMEPIECE_SHADOW_OFFSET_Y,
 } from "./layout-pixi.js";
 
 export function createCharactersView(opts) {
@@ -48,6 +53,8 @@ export function createCharactersView(opts) {
   let focusGhost = null;
   let focusedCharId = null;
 
+  if (layer) layer.sortableChildren = true;
+
   // ---------------------------------------------------------------------------
   // Safe adapters (so missing wiring doesn't crash)
   // ---------------------------------------------------------------------------
@@ -59,6 +66,7 @@ export function createCharactersView(opts) {
     startDrag: () => {},
     endDrag: () => {},
     getDragged: () => null,
+    getHovered: () => null,
   };
 
   function getStateSafe() {
@@ -101,6 +109,73 @@ export function createCharactersView(opts) {
   function emitDropped(payload) {
     const cb = onCharacterDropped || onDropCharacter || null;
     if (typeof cb === "function") cb(payload);
+  }
+
+  function getHoverInfoForSlot(row, col) {
+    const hover =
+      typeof interactionSafe.getHovered === "function"
+        ? interactionSafe.getHovered()
+        : null;
+    if (!hover || typeof hover !== "object") return null;
+    const span =
+      Number.isFinite(hover.span) && hover.span > 0
+        ? Math.floor(hover.span)
+        : 1;
+    if (
+      row === "env" &&
+      hover.kind === "tile" &&
+      col >= hover.col &&
+      col < hover.col + span
+    ) {
+      return hover;
+    }
+    if (
+      row === "hub" &&
+      hover.kind === "permanent" &&
+      col >= hover.col &&
+      col < hover.col + span
+    ) {
+      return hover;
+    }
+    return null;
+  }
+
+  function applyHoverTransform(pos, hover) {
+    if (!hover) return { x: pos.x, y: pos.y, scale: 1 };
+    const scale = Number.isFinite(hover.scale) ? hover.scale : 1;
+    const cx = Number.isFinite(hover.centerX) ? hover.centerX : pos.x;
+    const cy = Number.isFinite(hover.centerY) ? hover.centerY : pos.y;
+    return {
+      x: cx + (pos.x - cx) * scale,
+      y: cy + (pos.y - cy) * scale,
+      scale,
+    };
+  }
+
+  function getEffectiveScale(view) {
+    const attached = Number.isFinite(view.attachedScale) ? view.attachedScale : 1;
+    const hover = view.selfHover ? GAMEPIECE_HOVER_SCALE : 1;
+    return Math.max(attached, hover);
+  }
+
+  function applyCharacterScale(view) {
+    const scale = getEffectiveScale(view);
+    view.container.scale.set(scale);
+    view.shadow.visible = scale > 1 && GAMEPIECE_SHADOW_ALPHA > 0;
+    view.container.zIndex = scale > 1 ? 20 : 0;
+  }
+
+  function getScaledAnchorFromCenter(cx, cy, width, height, scale) {
+    const s = Number.isFinite(scale) ? scale : 1;
+    const scaledWidth = width * s;
+    const scaledHeight = height * s;
+    return {
+      x: cx - scaledWidth / 2,
+      y: cy - scaledHeight / 2,
+      width: scaledWidth,
+      height: scaledHeight,
+      scale: s,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -216,6 +291,7 @@ export function createCharactersView(opts) {
         entry.row === "env"
           ? getBasePosForEnvCol(entry.col)
           : getBasePosForHubCol(entry.col);
+      const hoverInfo = getHoverInfoForSlot(entry.row, entry.col);
       const n = entry.list.length;
       if (n === 0) continue;
 
@@ -226,8 +302,15 @@ export function createCharactersView(opts) {
 
         const view = viewsById.get(char.id);
         if (!view) return;
-        view.container.x = base.x + startOffset + i * FAN_SPACING;
-        view.container.y = base.y;
+        const rawPos = {
+          x: base.x + startOffset + i * FAN_SPACING,
+          y: base.y,
+        };
+        const scaledPos = applyHoverTransform(rawPos, hoverInfo);
+        view.container.x = scaledPos.x;
+        view.container.y = scaledPos.y;
+        view.attachedScale = scaledPos.scale;
+        applyCharacterScale(view);
       });
     }
   }
@@ -248,6 +331,17 @@ export function createCharactersView(opts) {
     container.cursor = "pointer";
 
     const fillColor = typeof char.color === "number" ? char.color : 0xaa66ff;
+
+    const shadow = new PIXI.Graphics()
+      .beginFill(GAMEPIECE_SHADOW_COLOR, GAMEPIECE_SHADOW_ALPHA)
+      .drawCircle(
+        GAMEPIECE_SHADOW_OFFSET_X,
+        GAMEPIECE_SHADOW_OFFSET_Y,
+        RADIUS + 2
+      )
+      .endFill();
+    shadow.visible = false;
+    container.addChild(shadow);
 
     const gfx = new PIXI.Graphics()
       .beginFill(fillColor)
@@ -271,30 +365,42 @@ export function createCharactersView(opts) {
     layer.addChild(container);
 
     // -----------------------------------------------------------------------
+    const view = {
+      container,
+      char,
+      outline,
+      shadow,
+      selfHover: false,
+      attachedScale: 1,
+    };
+
+    // -----------------------------------------------------------------------
     // Hover UI
     // -----------------------------------------------------------------------
     function showHover() {
       if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI())
         return;
+      view.selfHover = true;
+      applyCharacterScale(view);
 
       const tt = getTooltipSafe();
-      tt?.show?.(makeCharTooltipSpec(char), {
-        x: container.x - RADIUS,
-        y: container.y - RADIUS,
-        width: RADIUS * 2,
-        height: RADIUS * 2,
-      });
+      const scale = getEffectiveScale(view);
+      const anchor = getScaledAnchorFromCenter(
+        container.x,
+        container.y,
+        RADIUS * 2,
+        RADIUS * 2,
+        scale
+      );
+      tt?.show?.({ ...makeCharTooltipSpec(char), scale }, anchor);
 
       const inv = getInvSafe();
-      inv?.showOnHover?.(char.id, {
-        x: container.x - RADIUS,
-        y: container.y - RADIUS,
-        width: RADIUS * 2,
-        height: RADIUS * 2,
-      });
+      inv?.showOnHover?.(char.id, anchor);
     }
 
     function hideHover() {
+      view.selfHover = false;
+      applyCharacterScale(view);
       const inv = getInvSafe();
       inv?.hideOnHoverOut?.(char.id);
 
@@ -338,6 +444,9 @@ export function createCharactersView(opts) {
     function tryStartDrag() {
       dragging = true;
       interactionSafe.startDrag?.({ type: "character", id: char.id });
+      view.selfHover = false;
+      view.attachedScale = 1;
+      applyCharacterScale(view);
       hideHover();
     }
 
@@ -395,7 +504,8 @@ export function createCharactersView(opts) {
       }
     }
 
-    viewsById.set(char.id, { container, char, outline });
+    applyCharacterScale(view);
+    viewsById.set(char.id, view);
   }
 
   // ---------------------------------------------------------------------------
