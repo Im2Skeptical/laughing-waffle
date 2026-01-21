@@ -78,11 +78,6 @@ function findNearestCheckpointSec(cpMap, atOrBeforeSec) {
   return best >= 0 ? best : 0;
 }
 
-// Legacy export name kept for compatibility, but boundaryIndex is treated as tSec.
-export function getStateAtBoundary(tl, boundaryIndex) {
-  return getStateAtSecond(tl, boundaryIndex);
-}
-
 export function getStateAtSecond(tl, tSec) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
   const s = clampSec(tSec);
@@ -393,11 +388,6 @@ export function buildMetricGraphCacheFromTimeline(tl, opts = null) {
   };
 }
 
-// Convenience builder for a full cache: realized history + cursor-anchored window.
-export function buildGoldGraphCacheFromTimeline(tl, opts = null) {
-  return buildMetricGraphCacheFromTimeline(tl, opts);
-}
-
 export function getStateAtBoundaryFromGraphCache(cache, tl, boundaryIndex) {
   if (!cache || !isValidTimeline(tl)) return null;
   const s = clampSec(boundaryIndex);
@@ -446,18 +436,3 @@ export function getStateAtBoundaryFromGraphCache(cache, tl, boundaryIndex) {
   return rebuilt.state;
 }
 
-export function buildGoldGraphHistoryCacheFromTimeline(tl, opts = null) {
-  return buildMetricGraphHistoryCacheFromTimeline(tl, opts);
-}
-
-export function buildGoldGraphWindowFromTimeline(tl, baseBoundary, opts = null) {
-  return buildMetricGraphWindowFromTimeline(tl, baseBoundary, opts);
-}
-
-export function getStateAtBoundaryFromGoldGraphCache(
-  cache,
-  tl,
-  boundaryIndex
-) {
-  return getStateAtBoundaryFromGraphCache(cache, tl, boundaryIndex);
-}

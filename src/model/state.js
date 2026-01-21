@@ -120,7 +120,7 @@ export function createEmptyState(seed = 123456789) {
     simStepIndex: 0,
     tSec: 0,
 
-    // Renamed remaining clock (legacy field kept until full migration).
+    // Remaining seconds in the current season (derived from seasonClockSec).
     seasonTimeRemaining: 0,
     seasonDurationSec: SEASON_DURATION_SEC,
 
@@ -162,7 +162,7 @@ export function createEmptyState(seed = 123456789) {
   return state;
 }
 
-// Singleton used by the running game (kept for compatibility at the app edge only)
+// Singleton used by the running game at the app edge.
 export const gameState = createEmptyState();
 
 // =============================================================================
@@ -428,12 +428,6 @@ function stripTransientFromEnvSlots(envSlots) {
   }
 }
 
-function stripLegacyTransientFromInventories(ownerInventories) {
-  for (const inv of Object.values(ownerInventories || {})) {
-    for (const item of inv?.items || []) delete item._needsUiRefresh;
-  }
-}
-
 function rebuildInventoryDerived(inv) {
   if (!inv) return;
 
@@ -490,17 +484,9 @@ export function serializeGameState(state) {
 
   delete clean.rngNextFloat;
   delete clean.rngNextInt;
-  delete clean.planningIndex;
   delete clean._boardDirty;
   delete clean._seasonChanged;
-  delete clean.tilePawnsByCol;
   if (clean.board && clean.board.occ) delete clean.board.occ;
-  if (
-    clean.currentSeasonDeck &&
-    Object.prototype.hasOwnProperty.call(clean.currentSeasonDeck, "discard")
-  ) {
-    delete clean.currentSeasonDeck.discard;
-  }
 
   // Inventories contain derived indices that cannot survive JSON cloning.
   if (clean.ownerInventories) {
@@ -538,20 +524,11 @@ export function deserializeGameState(data) {
     if (!Array.isArray(state.currentSeasonDeck.deck)) {
       state.currentSeasonDeck.deck = [];
     }
-    if (Object.prototype.hasOwnProperty.call(state.currentSeasonDeck, "discard")) {
-      delete state.currentSeasonDeck.discard;
-    }
     if (typeof state.currentSeasonDeck.seasonKey !== "string") {
       state.currentSeasonDeck.seasonKey = getCurrentSeasonKey(state);
     }
   }
   ensureBoardState(state);
-  if (Object.prototype.hasOwnProperty.call(state, "tilePawnsByCol")) {
-    delete state.tilePawnsByCol;
-  }
-  if (Object.prototype.hasOwnProperty.call(state, "planningIndex")) {
-    delete state.planningIndex;
-  }
   state._boardDirty = false;
   state._seasonChanged = false;
 
@@ -570,7 +547,7 @@ export function deserializeGameState(data) {
   // Season clock defaults
   if (state.seasonClockSec == null) state.seasonClockSec = 0;
 
-  // Defaults / legacy bridging
+  // Ensure defaults
   if (state.seasonDurationSec == null)
     state.seasonDurationSec = SEASON_DURATION_SEC;
 
@@ -605,8 +582,6 @@ export function deserializeGameState(data) {
   }
 
   stripTransientFromEnvSlots(state.envSlots);
-  stripLegacyTransientFromInventories(state.ownerInventories);
-
   // Rebuild derived inventory indices after JSON clone / replay.
   for (const inv of Object.values(state.ownerInventories)) {
     rebuildInventoryDerived(inv);
@@ -636,17 +611,6 @@ export function validateState(state) {
   if (!cols || cols <= 0) {
     errors.push("board.cols invalid");
     return { ok: false, errors, warnings };
-  }
-
-  if (Object.prototype.hasOwnProperty.call(state, "tilePawnsByCol")) {
-    errors.push("tilePawnsByCol should not exist");
-  }
-
-  if (
-    state.currentSeasonDeck &&
-    Object.prototype.hasOwnProperty.call(state.currentSeasonDeck, "discard")
-  ) {
-    errors.push("currentSeasonDeck.discard should not exist");
   }
 
   const chars = Array.isArray(state.characters) ? state.characters : [];

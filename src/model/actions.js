@@ -1,6 +1,6 @@
 // src/model/actions.js
 // Registry of all valid timeline actions.
-// Centralizes dispatch, validation, and legacy alias handling.
+// Centralizes dispatch and validation.
 
 import {
   cmdPlaceCharacter,

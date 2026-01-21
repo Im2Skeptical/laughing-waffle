@@ -122,7 +122,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   return state;
 }
 
-// Back-compat: mutate an existing state object in-place (views call initGameState(gameState, "testing"))
+// Mutate an existing state object in-place (views call initGameState(gameState, "testing")).
 export function initGameState(state, setupId = "testing") {
   const fresh = createInitialState(setupId, null);
   Object.keys(state).forEach((k) => delete state[k]);

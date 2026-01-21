@@ -7,7 +7,7 @@ import {
   buildMetricGraphCacheFromTimeline,
   buildMetricGraphWindowFromTimeline,
   getStateAtBoundaryFromGraphCache,
-  getStateAtBoundary,
+  getStateAtSecond,
 } from "./projection.js";
 
 import { GRAPH_METRICS } from "./graph-metrics.js";
@@ -44,7 +44,6 @@ export function createTimeGraphController({
   let horizonSecCur = horizonSec;
 
   // Change detection
-  let lastKnownActionsLen = 0;
   let lastKnownMaxReachedSec = 0;
   let lastKnownForecastBaseSec = 0;
   let lastKnownRevision = 0;
@@ -165,7 +164,7 @@ export function createTimeGraphController({
 
     const t = clampSec(sec);
 
-    const rebuilt = getStateAtBoundary(tl, t);
+      const rebuilt = getStateAtSecond(tl, t);
     if (!rebuilt?.ok) return false;
 
     const s = rebuilt.state;
@@ -232,7 +231,6 @@ export function createTimeGraphController({
 
     cache.maxReachedSec = clampSec(cache.maxReachedSec ?? frontierSec);
 
-    lastKnownActionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
     lastKnownMaxReachedSec = frontierSec;
     lastKnownForecastBaseSec = frontierSec;
     lastKnownRevision = tlRev;
@@ -259,7 +257,6 @@ export function createTimeGraphController({
       return { ok: true, reason: "deferred" };
     }
 
-    const actionsLen = Array.isArray(tl.actions) ? tl.actions.length : 0;
     const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
     const cursorSec = clampSec(cs.tSec ?? 0);
     const tlRev = getTimelineRevision(tl);
@@ -284,7 +281,6 @@ export function createTimeGraphController({
       if (!okPatch) return buildFullCache();
 
       lastKnownRevision = tlRev;
-      lastKnownActionsLen = actionsLen;
       lastKnownMaxReachedSec = maxReachedSec;
 
       // Force forecast rebuild from new frontier
@@ -297,10 +293,7 @@ export function createTimeGraphController({
     }
 
     // 1) Normal extension: no structural change, frontier advanced
-    if (
-      actionsLen === lastKnownActionsLen &&
-      maxReachedSec >= lastKnownMaxReachedSec
-    ) {
+    if (maxReachedSec >= lastKnownMaxReachedSec) {
       const ok = extendHistoryTo(maxReachedSec);
       if (!ok) return buildFullCache();
 
@@ -311,30 +304,7 @@ export function createTimeGraphController({
       return { ok: true };
     }
 
-    // 2) Branching/edit detected by action list length change (legacy fallback)
-    if (actionsLen !== lastKnownActionsLen) {
-      const prevMax = clampSec(cache.maxReachedSec ?? 0);
-      const trimTarget = Math.min(prevMax, maxReachedSec);
-      trimHistoryTo(trimTarget);
-
-      const okExtend = extendHistoryTo(maxReachedSec);
-      if (!okExtend) return buildFullCache();
-
-      const okPatch = patchHistoryAtSecond(cursorSec);
-      if (!okPatch) return buildFullCache();
-
-      lastKnownActionsLen = actionsLen;
-      lastKnownMaxReachedSec = maxReachedSec;
-
-      lastKnownForecastBaseSec = -1;
-      cache.window = null;
-      ensureForecastFromFrontier(true);
-
-      dirty = false;
-      return { ok: true };
-    }
-
-    // 3) Cursor-only movement: cache remains valid
+    // 2) Cursor-only movement: cache remains valid
     if (reason === "scrubCommit") {
       dirty = false;
       return { ok: true };
@@ -402,7 +372,7 @@ export function createTimeGraphController({
       if (cached) return cached;
     }
 
-    const rebuilt = getStateAtBoundary(tl, sec);
+    const rebuilt = getStateAtSecond(tl, sec);
     if (rebuilt?.ok) return rebuilt.state;
 
     if (!cache) return null;

@@ -7,10 +7,10 @@
 import { serializeGameState, deserializeGameState } from "../state.js";
 import {
   createTimelineFromInitialState,
-  rebuildStateAtBoundary,
+  rebuildStateAtSecond,
 } from "../timeline.js";
 import { updateGame, createInitialState } from "../game-model.js";
-import { buildGoldGraphWindowFromTimeline } from "../projection.js";
+import { buildMetricGraphWindowFromTimeline } from "../projection.js";
 import { canonicalizeSnapshot } from "../canonicalize.js";
 
 const DT_STEP = 1 / 60;
@@ -99,11 +99,11 @@ function testRebuildConsistency() {
 
     // Note: We test empty timeline rebuilding here.
     // Adding ActionKinds.START_NEXT_TURN to the timeline is invalid
-    // because simulation (season start) is implicit in the boundary transition.
+    // because simulation (season start) is implicit at second boundaries.
 
     // Rebuild twice
-    const res1 = rebuildStateAtBoundary(tl, 0);
-    const res2 = rebuildStateAtBoundary(tl, 0);
+    const res1 = rebuildStateAtSecond(tl, 0);
+    const res2 = rebuildStateAtSecond(tl, 0);
 
     if (!res1.ok || !res2.ok) throw new Error("Rebuild failed");
 
@@ -128,7 +128,7 @@ function testLiveVsReplay() {
     const tl = createTimelineFromInitialState(liveState);
 
     // Ensure we start from a clean, canonical planning snapshot.
-    // This matches what replay does (rebuildStateAtBoundary calls canonicalize first).
+    // This matches what replay does (rebuildStateAtSecond calls canonicalize first).
     canonicalizeSnapshot(liveState, 0);
 
     const startSec = liveState.tSec ?? 0;
@@ -139,20 +139,19 @@ function testLiveVsReplay() {
     // Do not use applyAction (which is for planning phase actions).
 
     // 3. Run Live Loop (mirrors timeline.js::simulateOneSeason EXACTLY)
-    const startBoundarySec = liveState.tSec ?? 0;
     const ticksPerSecond = 60; // 1 second == 60 ticks
-    const ticksToRun = (targetSec - startBoundarySec) * ticksPerSecond;
+    const ticksToRun = (targetSec - startSec) * ticksPerSecond;
 
     for (let i = 0; i < ticksToRun; i++) {
       updateGame(DT_STEP, liveState);
     }
 
     if ((liveState.tSec ?? 0) < targetSec) {
-      throw new Error("Live sim failed to reach target boundary");
+      throw new Error("Live sim failed to reach target second");
     }
 
     // 4. Canonicalize Live Result
-    // RebuildStateAtBoundary ends with a hard canonicalize call.
+    // RebuildStateAtSecond ends with a hard canonicalize call.
     // We must do the same to Live to ensure apples-to-apples comparison
     // (clearing transient floating point noise or flags).
     canonicalizeSnapshot(liveState, targetSec);
@@ -161,7 +160,7 @@ function testLiveVsReplay() {
 
     // 5. Rebuild from Timeline (Replay)
 
-    const rebuildRes = rebuildStateAtBoundary(tl, targetSec, {
+    const rebuildRes = rebuildStateAtSecond(tl, targetSec, {
       dtStep: DT_STEP,
     });
     if (!rebuildRes.ok) throw new Error("Rebuild failed: " + rebuildRes.reason);
@@ -203,30 +202,30 @@ function testProjectionVsReplay() {
     const s0 = createInitialState(TEST_SEED + 1);
     const tl = createTimelineFromInitialState(s0);
 
-    const baseBoundary = 0;
-    const targetBoundary = 1; // Project 1 season forward
+    const baseSec = 0;
+    const targetSec = 1; // Project 1 season forward
 
     // 1. Generate Projection
     // This simulates PURELY from 0 -> 1 using the projection logic.
-    const winRes = buildGoldGraphWindowFromTimeline(tl, baseBoundary, {
+    const winRes = buildMetricGraphWindowFromTimeline(tl, baseSec, {
       horizon: 5,
       dtStep: DT_STEP,
     });
 
     if (!winRes.ok) throw new Error("Projection failed: " + winRes.reason);
 
-    // Extract the state data for boundary 1
-    const projectedData = winRes.stateDataByBoundary.get(targetBoundary);
+    // Extract the state data for second 1
+    const projectedData = winRes.stateDataByBoundary.get(targetSec);
     if (!projectedData)
       throw new Error(
-        "Projection yielded no data for boundary " + targetBoundary
+        "Projection yielded no data for second " + targetSec
       );
 
     const projectedState = deserializeGameState(projectedData);
     const projHash = computeStateHash(projectedState);
 
     // 2. Generate Replay
-    const rebuildRes = rebuildStateAtBoundary(tl, targetBoundary, {
+    const rebuildRes = rebuildStateAtSecond(tl, targetSec, {
       dtStep: DT_STEP,
     });
     if (!rebuildRes.ok) throw new Error("Rebuild failed: " + rebuildRes.reason);

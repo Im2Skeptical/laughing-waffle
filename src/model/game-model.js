@@ -83,7 +83,7 @@ export function updateGame(dt, state) {
   }
 
   if (s.envSlotsEnabled !== false) {
-    // Legacy env slot behavior (Stage 3 debug can disable via envSlotsEnabled).
+    // Env slot behavior (can disable via envSlotsEnabled).
     for (let i = 0; i < s.envSlots.length; i++) {
       const slot = s.envSlots[i];
       const env = slot.env;

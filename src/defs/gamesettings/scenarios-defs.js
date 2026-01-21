@@ -32,7 +32,7 @@ export const setupDefs = {
       { defId: "storehouse", hubCol: 9 },
     ],
 
-    // legacy env cards (static; no deck refill)
+    // Env cards (static; no deck refill)
     envSlots: [null, null, null, null, null],
 
     // characters placed by board column

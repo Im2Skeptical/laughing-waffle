@@ -68,7 +68,7 @@ function getApIncomePerSecond(state, tSec) {
 export function cmdAdvanceSeason(state) {
   const oldSeasonKey = getCurrentSeasonKey(state);
 
-  // 1) Legacy env cards: apply season-end cleanup
+  // 1) Env cards: apply season-end cleanup
   // Make sure any season-end cleanup runs before we swap the season.
   if (state.envSlots && state.envSlots.length > 0) {
     for (let i = 0; i < state.envSlots.length; i++) {
@@ -175,13 +175,13 @@ export function cmdTickSimulation(state, dt) {
   // 2. Advance Game Simulation
   const scaledDt = dt;
 
-  // Legacy float axis
+  // Float axis accumulator
   state.simTime = (state.simTime ?? 0) + scaledDt;
 
   // Season progression: time-based, not boundary-based.
   advancedSeasonCount = maybeAdvanceSeasonBySimTime(state, scaledDt);
 
-  // Legacy remaining-time fields (HUD/debug). Keep them deterministic.
+  // Remaining-time fields (HUD/debug). Keep them deterministic.
   const dur =
     typeof state.seasonDurationSec === "number" && state.seasonDurationSec > 0
       ? state.seasonDurationSec
