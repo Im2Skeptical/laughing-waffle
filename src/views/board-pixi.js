@@ -455,6 +455,12 @@ export function createBoardView(opts) {
 
   function buildPermanentView(permInst, col) {
     const { title, lines, color, meters } = getPermUi(permInst);
+    const span =
+      Number.isFinite(permInst.span) && permInst.span > 0
+        ? Math.floor(permInst.span)
+        : 1;
+    const width = PERM_WIDTH * span + BOARD_COL_GAP * (span - 1);
+    const height = PERM_HEIGHT;
 
     const cont = new PIXI.Container();
     cont.eventMode = "static";
@@ -463,14 +469,14 @@ export function createBoardView(opts) {
     cont.addChild(
       new PIXI.Graphics()
         .beginFill(0x3a3a3a)
-        .drawRoundedRect(0, 0, PERM_WIDTH, PERM_HEIGHT, 10)
+        .drawRoundedRect(0, 0, width, height, 10)
         .endFill()
     );
 
     cont.addChild(
       new PIXI.Graphics()
         .beginFill(color)
-        .drawRoundedRect(3, 3, PERM_WIDTH - 6, PERM_HEIGHT - 6, 8)
+        .drawRoundedRect(3, 3, width - 6, height - 6, 8)
         .endFill()
     );
 
@@ -478,7 +484,7 @@ export function createBoardView(opts) {
       fill: 0xffffff,
       fontSize: 12,
       wordWrap: true,
-      wordWrapWidth: PERM_WIDTH - 12,
+      wordWrapWidth: width - 12,
     });
     titleText.x = 6;
     titleText.y = 6;
@@ -490,13 +496,13 @@ export function createBoardView(opts) {
         fill: 0x000000,
         fontSize: 10,
         wordWrap: true,
-        wordWrapWidth: PERM_WIDTH - 12,
+        wordWrapWidth: width - 12,
       });
       t.x = 6;
       t.y = y;
       cont.addChild(t);
       y += t.height + 1;
-      if (y > PERM_HEIGHT - 40) break;
+      if (y > height - 40) break;
     }
 
     let meterViews = [];
@@ -506,7 +512,7 @@ export function createBoardView(opts) {
         meters,
         permInst,
         y + 2,
-        PERM_WIDTH - 14
+        width - 14
       ).meterViews;
     }
 
@@ -520,15 +526,15 @@ export function createBoardView(opts) {
 
       tooltipView?.show?.(
         { title, lines },
-        { x: cont.x, y: cont.y, width: PERM_WIDTH, height: PERM_HEIGHT }
+        { x: cont.x, y: cont.y, width, height }
       );
 
       if (inventoryView && permHasInventory()) {
         inventoryView.showOnHover(permInst.instanceId, {
           x: cont.x,
           y: cont.y,
-          width: PERM_WIDTH,
-          height: PERM_HEIGHT,
+          width,
+          height,
         });
       }
     });
@@ -546,7 +552,10 @@ export function createBoardView(opts) {
       }
     });
 
-    const pos = layoutBoardColPos(app.screen.width, col, PERM_WIDTH, PERM_ROW_Y);
+    const pos =
+      span > 1
+        ? { x: getBoardColumnX(app.screen.width, col), y: PERM_ROW_Y }
+        : layoutBoardColPos(app.screen.width, col, PERM_WIDTH, PERM_ROW_Y);
     cont.x = pos.x;
     cont.y = pos.y;
 

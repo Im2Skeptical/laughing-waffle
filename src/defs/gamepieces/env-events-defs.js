@@ -8,8 +8,11 @@ export const envEventDefs = {
     name: "Rain",
     ui: { description: "Light seasonal rainfall." },
     class: "effect",
+    defaultSpan: 3,
     durationSec: 32,
-    onEnter: { op: "AddResource", resource: "water", amount: 1 },
+    onEnter: [
+      { op: "AddTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+    ],
   },
   event_flooding: {
     id: "event_flooding",
@@ -55,6 +58,18 @@ export const envEventDefs = {
     class: "effect",
     durationSec: 32,
     onEnter: { op: "AddResource", resource: "scrap", amount: 1 },
+  },
+  event_storm: {
+    id: "event_storm",
+    kind: "envEvent",
+    name: "Storm",
+    ui: { description: "High winds batter a wide stretch of land." },
+    class: "effect",
+    defaultSpan: 2,
+    durationSec: 6,
+    onEnter: [
+      { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+    ],
   },
   event_bloom: {
     id: "event_bloom",

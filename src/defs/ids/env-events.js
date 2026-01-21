@@ -6,6 +6,7 @@ export const ENV_EVENT_IDS = Object.freeze({
   EVENT_FROST: "event_frost",
   EVENT_HEATWAVE: "event_heatwave",
   EVENT_DUSTSTORM: "event_duststorm",
+  EVENT_STORM: "event_storm",
   EVENT_BLOOM: "event_bloom",
   EVENT_MISTY_MORNING: "event_misty_morning",
   EVENT_CLEAR_SKIES: "event_clear_skies",

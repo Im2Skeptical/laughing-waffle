@@ -208,17 +208,41 @@ function getColIndex(spec, fallback, maxCols) {
 
 function buildPermanentSlots(setup, boardCols, state) {
   const slots = new Array(boardCols).fill(null).map(() => ({ permanent: null }));
+  const occupiedBy = new Array(boardCols).fill(null);
   const specs = Array.isArray(setup.permanents) ? setup.permanents : [];
   for (let i = 0; i < specs.length; i++) {
     const spec = specs[i];
     if (!spec?.defId) continue;
-    const col = getColIndex(spec, i, boardCols);
+    const def = permanentDefs[spec.defId];
+    const span =
+      Number.isFinite(spec.span) && spec.span > 0
+        ? Math.floor(spec.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+          ? Math.floor(def.defaultSpan)
+          : 1;
+    if (span > boardCols) continue;
+    let col = getColIndex(spec, i, boardCols);
     if (col < 0 || col >= boardCols) continue;
+    if (col + span > boardCols) col = boardCols - span;
+
+    let blocked = false;
+    for (let offset = 0; offset < span; offset++) {
+      if (occupiedBy[col + offset] != null) {
+        blocked = true;
+        break;
+      }
+    }
+    if (blocked) continue;
+
+    const permanent = makePermanentInstance(spec.defId, state);
     slots[col] = {
       x: spec.x,
       y: spec.y,
-      permanent: makePermanentInstance(spec.defId, state),
+      permanent,
     };
+    for (let offset = 0; offset < span; offset++) {
+      occupiedBy[col + offset] = permanent.instanceId;
+    }
   }
   return slots;
 }

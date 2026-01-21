@@ -7,6 +7,7 @@ export const permanentDefs = {
     name: "Farm",
     color: 0x4caf50,
     baseOutput: { food: 1 },
+    defaultSpan: 3,
     tags: ["permanent", "farm"],
     behaviors: [],
     ui: {
@@ -66,6 +67,7 @@ export const permanentDefs = {
     name: "Storehouse",
     color: 0x90caf9,
     baseOutput: {},
+    defaultSpan: 2,
     tags: ["permanent", "storehouse", "hasInventory"],
     inventory: { cols: 10, rows: 10 },
     behaviors: [],

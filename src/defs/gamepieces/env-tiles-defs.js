@@ -12,22 +12,26 @@ export const envTileDefs = {
       spring: [
         { defId: "event_rain", weight: 4 },
         { defId: "event_bloom", weight: 2 },
+        { defId: "event_storm", weight: 20 },
         { defId: "event_deer_herd", weight: 1 },
       ],
       summer: [
         { defId: "event_heatwave", weight: 2 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_fish_school", weight: 2 },
+        { defId: "event_storm", weight: 20 },
       ],
       autumn: [
         { defId: "event_flooding", weight: 3 },
         { defId: "event_misty_morning", weight: 1 },
         { defId: "event_boar", weight: 1 },
+        { defId: "event_storm", weight: 20 },
       ],
       winter: [
         { defId: "event_frost", weight: 3 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_wolves", weight: 1 },
+        { defId: "event_storm", weight: 20 },
       ],
     },
   },
@@ -42,21 +46,25 @@ export const envTileDefs = {
         { defId: "event_rain", weight: 3 },
         { defId: "event_fish_school", weight: 3 },
         { defId: "event_migratory_birds", weight: 2 },
+        { defId: "event_storm", weight: 20 },
       ],
       summer: [
         { defId: "event_fish_school", weight: 3 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_heatwave", weight: 1 },
+        { defId: "event_storm", weight: 20 },
       ],
       autumn: [
         { defId: "event_flooding", weight: 2 },
         { defId: "event_misty_morning", weight: 2 },
         { defId: "event_migratory_birds", weight: 1 },
+        { defId: "event_storm", weight: 20 },
       ],
       winter: [
         { defId: "event_frost", weight: 2 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_fish_school", weight: 1 },
+        { defId: "event_storm", weight: 20 },
       ],
     },
   },
@@ -70,6 +78,7 @@ export const envTileDefs = {
       spring: [
         { defId: "event_rain", weight: 2 },
         { defId: "event_bloom", weight: 2 },
+        { defId: "event_storm", weight: 1 },
         { defId: "event_clear_skies", weight: 1 },
       ],
       summer: [
@@ -174,6 +183,7 @@ export const envTileDefs = {
     seasonTables: {
       spring: [
         { defId: "event_bloom", weight: 2 },
+        { defId: "event_storm", weight: 1 },
         { defId: "event_deer_herd", weight: 2 },
       ],
       summer: [

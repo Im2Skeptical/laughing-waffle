@@ -26,10 +26,10 @@ export const setupDefs = {
 
     // permanents placed by board column
     permanents: [
-      { defId: "farm", col: 4 },
-      { defId: "mine", col: 5 },
+      { defId: "farm", col: 0 },
+      { defId: "mine", col: 3 },
       { defId: "storehouse", col: 6 },
-      { defId: "storehouse", col: 7 },
+      { defId: "storehouse", col: 9 },
     ],
 
     // legacy env cards (static; no deck refill)
@@ -80,9 +80,9 @@ export const setupDefs = {
     },
 
     permanents: [
-      { defId: "farm", col: 5 },
+      { defId: "farm", col: 1 },
       { defId: "mine", col: 5 },
-      { defId: "storehouse", col: 6 },
+      { defId: "storehouse", col: 7 },
     ],
 
     envSlots: ["flood_autumn", "flood_autumn", null, null, "rock"],

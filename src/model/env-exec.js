@@ -85,12 +85,8 @@ function pickRandomEventCol(state, span) {
   }
 
   if (!candidates.length) return null;
-  if (typeof state.rngNextInt === "function") {
-    return candidates[state.rngNextInt(0, candidates.length - 1)];
-  }
-
-  const idx = Math.floor(Math.random() * candidates.length);
-  return candidates[idx];
+  if (typeof state.rngNextInt !== "function") return candidates[0];
+  return candidates[state.rngNextInt(0, candidates.length - 1)];
 }
 
 export function stepEnvSecond(state, tSec) {

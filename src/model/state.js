@@ -171,9 +171,14 @@ export const gameState = createEmptyState();
 
 export function makePermanentInstance(defId, state) {
   const def = permanentDefs[defId];
+  const span =
+    Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+      ? Math.floor(def.defaultSpan)
+      : 1;
   const inst = {
     instanceId: state.nextPermanentInstanceId++,
     defId,
+    span,
     props: {},
   };
   initializeInstanceFromDef(inst, def);
@@ -227,6 +232,18 @@ export function makeEnvEventInstance(defId, state, col, span, tSec) {
 export function rebuildBoardOccupancy(state) {
   if (!state) return;
   ensureBoardState(state);
+  for (const slot of state.permanentSlots) {
+    const perm = slot?.permanent;
+    if (!perm) continue;
+    const def = permanentDefs[perm.defId];
+    const fallbackSpan =
+      Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    if (!Number.isFinite(perm.span) || perm.span <= 0) {
+      perm.span = fallbackSpan;
+    }
+  }
 
   syncPermanentAnchors(state);
 
@@ -346,11 +363,9 @@ function getOrderedTileAnchors(state) {
 
 function shuffleDeckInPlace(state, deck) {
   if (!Array.isArray(deck) || deck.length < 2) return;
-  const useRng = typeof state?.rngNextInt === "function";
+  if (typeof state?.rngNextInt !== "function") return;
   for (let i = deck.length - 1; i > 0; i--) {
-    const j = useRng
-      ? state.rngNextInt(0, i)
-      : Math.floor(Math.random() * (i + 1));
+    const j = state.rngNextInt(0, i);
     if (i === j) continue;
     const tmp = deck[i];
     deck[i] = deck[j];
