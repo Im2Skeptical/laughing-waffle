@@ -79,7 +79,11 @@ export function createBoardView(opts) {
   const TAG_PILL_TEXT = 0xe6eef9;
   const TAG_DRAG_SCALE = 1.06;
   const TAG_DRAG_BUMP = 6;
+  const TAG_DRAG_RELEASE_PAD = 12;
   let activeTagDrag = null;
+  let activeHover = null;
+  let lastPointerPos = null;
+  let stagePointerMoveHandler = null;
 
   function attachHoverFx(container, width, height, radius = 8) {
     const content = new PIXI.Container();
@@ -167,6 +171,148 @@ export function createBoardView(opts) {
 
   function clearHoverContext() {
     interaction?.clearHovered?.();
+  }
+
+  function trackPointerPos(ev) {
+    const p = ev?.data?.global;
+    if (!p) return;
+    lastPointerPos = { x: p.x, y: p.y };
+  }
+
+  function setActiveHover(next) {
+    if (!next?.view) return;
+    if (activeHover?.view === next.view) return;
+    activeHover?.clear?.();
+    activeHover = next;
+  }
+
+  function clearActiveHover(view) {
+    if (!activeHover) return;
+    if (view && activeHover.view !== view) return;
+    activeHover.clear?.();
+    activeHover = null;
+  }
+
+  function isPointerInsideView(view, globalPos, pad = 0) {
+    if (!view?.container || !globalPos) return false;
+    const bounds = view.container.getBounds();
+    const minX = bounds.x - pad;
+    const minY = bounds.y - pad;
+    const maxX = bounds.x + bounds.width + pad;
+    const maxY = bounds.y + bounds.height + pad;
+    return (
+      globalPos.x >= minX &&
+      globalPos.x <= maxX &&
+      globalPos.y >= minY &&
+      globalPos.y <= maxY
+    );
+  }
+
+  function clearTileHover(view) {
+    if (!view) return;
+    if (view.hoverHoldMove) {
+      app.stage.off("pointermove", view.hoverHoldMove);
+      view.hoverHoldMove = null;
+    }
+    view.holdHover = false;
+    view.setHoverActive?.(false);
+    restoreFromHover(view.container);
+    view.isHovered = false;
+    view.hoverAnchor = null;
+    clearHoverContext();
+    tooltipView?.hide?.();
+  }
+
+  function clearEventHover(view) {
+    if (!view) return;
+    view.setHoverActive?.(false);
+    restoreFromHover(view.container);
+    clearHoverContext();
+    tooltipView?.hide?.();
+  }
+
+  function clearPermHover(view) {
+    if (!view) return;
+    view.setHoverActive?.(false);
+    restoreFromHover(view.container);
+    clearHoverContext();
+    tooltipView?.hide?.();
+    if (inventoryView && view.permHasInventory?.()) {
+      inventoryView.hideOnHoverOut(view.perm.instanceId);
+    }
+  }
+
+  function holdHoverAfterTagDrag(view) {
+    if (!view) return;
+    if (view.hoverHoldMove) {
+      app.stage.off("pointermove", view.hoverHoldMove);
+      view.hoverHoldMove = null;
+    }
+    view.holdHover = true;
+    const onMove = (moveEv) => {
+      view.holdHover = false;
+      app.stage.off("pointermove", onMove);
+      view.hoverHoldMove = null;
+      if (
+        !isPointerInsideView(
+          view,
+          moveEv?.data?.global,
+          TAG_DRAG_RELEASE_PAD
+        )
+      ) {
+        clearTileHover(view);
+        if (activeHover?.view === view) activeHover = null;
+      }
+    };
+    view.hoverHoldMove = onMove;
+    app.stage.on("pointermove", onMove);
+  }
+
+  function applyTileHover(view) {
+    if (!view?.container || !view?.tile) return;
+    const { title, desc } = getTileUi(view.tile);
+    view.setHoverActive?.(true);
+    elevateForHover(view.container);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      TILE_WIDTH,
+      TILE_HEIGHT,
+      GAMEPIECE_HOVER_SCALE
+    );
+    const anchorCol = Number.isFinite(view.tile.col)
+      ? Math.floor(view.tile.col)
+      : view.col;
+    const span =
+      Number.isFinite(view.tile.span) && view.tile.span > 0
+        ? Math.floor(view.tile.span)
+        : 1;
+    view.isHovered = true;
+    view.hoverAnchor = anchor;
+    setHoverContext("tile", anchorCol, span, anchor);
+    tooltipView?.show?.(
+      {
+        title,
+        lines: desc ? [desc] : [],
+        scale: GAMEPIECE_HOVER_SCALE,
+      },
+      anchor
+    );
+  }
+
+  function restoreHoverAfterRebuild(pendingHover, pointerPos) {
+    if (!pendingHover || !pointerPos) return;
+    if (!interaction?.canShowHoverUI?.()) return;
+    if (pendingHover.kind !== "tile") return;
+    const view = tileViews[pendingHover.col];
+    if (!view) return;
+    if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
+    setActiveHover({
+      view,
+      kind: "tile",
+      col: pendingHover.col,
+      clear: () => clearTileHover(view),
+    });
+    applyTileHover(view);
   }
 
   function removeFromParent(container) {
@@ -271,20 +417,17 @@ export function createBoardView(opts) {
     if (activeTagDrag === view) activeTagDrag = null;
     layoutTagEntries(view);
 
-    if (globalPos && view.hoverAnchor) {
-      const { x, y, width, height } = view.hoverAnchor;
-      const inside =
-        globalPos.x >= x &&
-        globalPos.x <= x + width &&
-        globalPos.y >= y &&
-        globalPos.y <= y + height;
+    if (globalPos) {
+      const inside = isPointerInsideView(
+        view,
+        globalPos,
+        TAG_DRAG_RELEASE_PAD
+      );
       if (!inside) {
-        view.isHovered = false;
-        view.hoverAnchor = null;
-        view.setHoverActive?.(false);
-        restoreFromHover(view.container);
-        clearHoverContext();
-        tooltipView?.hide?.();
+        clearTileHover(view);
+        if (activeHover?.view === view) activeHover = null;
+      } else {
+        holdHoverAfterTagDrag(view);
       }
     }
   }
@@ -345,7 +488,6 @@ export function createBoardView(opts) {
     };
 
     const onUp = (upEv) => {
-      upEv?.stopPropagation?.();
       endTagDrag(view, true, upEv?.data?.global ?? null);
     };
 
@@ -501,16 +643,6 @@ export function createBoardView(opts) {
         ev?.stopPropagation?.();
         startTagDrag(view, entry, ev);
       });
-      entry.container.on("pointerup", (ev) => {
-        ev?.stopPropagation?.();
-      });
-      entry.container.on("pointerupoutside", (ev) => {
-        ev?.stopPropagation?.();
-      });
-      entry.container.on("pointermove", (ev) => {
-        if (view.tagDrag?.entry !== entry) return;
-        ev?.stopPropagation?.();
-      });
 
       view.tagContainer.addChild(entry.container);
       view.tagEntries.push(entry);
@@ -595,37 +727,24 @@ export function createBoardView(opts) {
 
       cont.on("pointerenter", () => {
         if (!interaction?.canShowHoverUI?.()) return;
-        setHoverActive(true);
-        elevateForHover(cont);
-        const anchor = getScaledAnchorRect(
-          cont,
-          TILE_WIDTH,
-          TILE_HEIGHT,
-          GAMEPIECE_HOVER_SCALE
-        );
-        const anchorCol = Number.isFinite(tileInst.col)
-          ? Math.floor(tileInst.col)
+        if (activeTagDrag && activeTagDrag !== view) return;
+        const anchorCol = Number.isFinite(view.tile?.col)
+          ? Math.floor(view.tile.col)
           : col;
-        const span =
-          Number.isFinite(tileInst.span) && tileInst.span > 0
-            ? Math.floor(tileInst.span)
-            : 1;
-        setHoverContext("tile", anchorCol, span, anchor);
-        tooltipView?.show?.(
-          {
-            title,
-            lines: desc ? [desc] : [],
-            scale: GAMEPIECE_HOVER_SCALE,
-          },
-          anchor
-        );
+        setActiveHover({
+          view,
+          kind: "tile",
+          col: anchorCol,
+          clear: () => clearTileHover(view),
+        });
+        if (view.isHovered) return;
+        applyTileHover(view);
       });
 
       cont.on("pointerleave", () => {
-        setHoverActive(false);
-        restoreFromHover(cont);
-        clearHoverContext();
-        tooltipView?.hide?.();
+        if (view.tagDrag || view.holdHover) return;
+        if (activeHover?.view && activeHover.view !== view) return;
+        clearActiveHover(view);
       });
 
     const pos = layoutBoardColPos(app.screen.width, col, TILE_WIDTH, TILE_ROW_Y);
@@ -634,19 +753,23 @@ export function createBoardView(opts) {
 
     tileLayer.addChild(cont);
 
-    const view = {
-      container: cont,
-      tile: tileInst,
-      col,
-      setHoverActive,
-      tagContainer,
-      tagStartY,
-      tagSignature: "",
-      tagEntries: [],
-      tagDrag: null,
-      pawnBadge,
-      pawnText,
-    };
+      const view = {
+        container: cont,
+        tile: tileInst,
+        col,
+        setHoverActive,
+        tagContainer,
+        tagStartY,
+        tagSignature: "",
+        tagEntries: [],
+        tagDrag: null,
+        isHovered: false,
+        hoverAnchor: null,
+        holdHover: false,
+        hoverHoldMove: null,
+        pawnBadge,
+        pawnText,
+      };
 
     rebuildTileTags(view, tileInst);
     return view;
@@ -733,8 +856,22 @@ export function createBoardView(opts) {
     remainingText.y = EVENT_HEIGHT - 16;
     content.addChild(remainingText);
 
+    const view = {
+      container: cont,
+      event: eventInst,
+      remainingText,
+      setHoverActive,
+    };
+
     cont.on("pointerenter", () => {
       if (!interaction?.canShowHoverUI?.()) return;
+      if (activeTagDrag) return;
+      setActiveHover({
+        view,
+        kind: "event",
+        col,
+        clear: () => clearEventHover(view),
+      });
       setHoverActive(true);
       elevateForHover(cont);
       const anchor = getScaledAnchorRect(
@@ -755,10 +892,8 @@ export function createBoardView(opts) {
     });
 
     cont.on("pointerleave", () => {
-      setHoverActive(false);
-      restoreFromHover(cont);
-      clearHoverContext();
-      tooltipView?.hide?.();
+      if (activeHover?.view && activeHover.view !== view) return;
+      clearActiveHover(view);
     });
 
     const startX =
@@ -770,12 +905,7 @@ export function createBoardView(opts) {
 
     eventLayer.addChild(cont);
 
-    return {
-      container: cont,
-      event: eventInst,
-      remainingText,
-      setHoverActive,
-    };
+    return view;
   }
 
   function updateEventRemaining(view, state) {
@@ -866,8 +996,23 @@ export function createBoardView(opts) {
       return !!s?.ownerInventories?.[permInst.instanceId];
     }
 
+    const view = {
+      container: cont,
+      perm: permInst,
+      meterViews,
+      permHasInventory,
+      setHoverActive,
+    };
+
     cont.on("pointerenter", () => {
       if (!interaction?.canShowHoverUI?.()) return;
+      if (activeTagDrag) return;
+      setActiveHover({
+        view,
+        kind: "permanent",
+        col,
+        clear: () => clearPermHover(view),
+      });
       setHoverActive(true);
       elevateForHover(cont);
       const anchor = getScaledAnchorRect(
@@ -894,13 +1039,8 @@ export function createBoardView(opts) {
     });
 
     cont.on("pointerleave", () => {
-      setHoverActive(false);
-      restoreFromHover(cont);
-      clearHoverContext();
-      tooltipView?.hide?.();
-      if (inventoryView && permHasInventory()) {
-        inventoryView.hideOnHoverOut(permInst.instanceId);
-      }
+      if (activeHover?.view && activeHover.view !== view) return;
+      clearActiveHover(view);
     });
 
     cont.on("pointertap", () => {
@@ -918,7 +1058,7 @@ export function createBoardView(opts) {
 
     permanentsLayer.addChild(cont);
 
-    return { container: cont, perm: permInst, meterViews };
+    return view;
   }
 
   // --------------------------------------------------------
@@ -947,18 +1087,22 @@ export function createBoardView(opts) {
       const tileInst = tileOcc?.[col] || null;
       const view = tileViews[col];
 
-        if (!tileInst) {
-          if (view) {
-            removeFromParent(view.container);
-            tileViews[col] = undefined;
-          }
-          continue;
+      if (!tileInst) {
+        if (view) {
+          if (activeHover?.view === view) clearActiveHover(view);
+          removeFromParent(view.container);
+          tileViews[col] = undefined;
         }
+        continue;
+      }
 
-        if (!view || view.tile.instanceId !== tileInst.instanceId) {
-          if (view) removeFromParent(view.container);
-          tileViews[col] = buildTileView(tileInst, col);
+      if (!view || view.tile?.defId !== tileInst.defId) {
+        if (view) {
+          if (activeHover?.view === view) clearActiveHover(view);
+          removeFromParent(view.container);
         }
+        tileViews[col] = buildTileView(tileInst, col);
+      }
 
       const activeView = tileViews[col];
       if (activeView) {
@@ -995,6 +1139,7 @@ export function createBoardView(opts) {
 
       for (const [id, view] of eventViews.entries()) {
         if (seen.has(id)) continue;
+        if (activeHover?.view === view) clearActiveHover(view);
         removeFromParent(view.container);
         eventViews.delete(id);
       }
@@ -1025,6 +1170,7 @@ export function createBoardView(opts) {
 
       for (const [id, view] of permViews.entries()) {
         if (seen.has(id)) continue;
+        if (activeHover?.view === view) clearActiveHover(view);
         removeFromParent(view.container);
         permViews.delete(id);
       }
@@ -1041,6 +1187,14 @@ export function createBoardView(opts) {
   // --------------------------------------------------------
 
   function rebuildAll() {
+    const pendingHover = activeHover
+      ? { kind: activeHover.kind, col: activeHover.col }
+      : null;
+    const pendingPointer = lastPointerPos
+      ? { x: lastPointerPos.x, y: lastPointerPos.y }
+      : null;
+    if (activeHover) clearActiveHover();
+
     tileLayer.removeChildren();
     eventLayer.removeChildren();
     permanentsLayer.removeChildren();
@@ -1059,6 +1213,8 @@ export function createBoardView(opts) {
     syncTiles(s, cols);
     syncEvents(s, cols);
     syncPermanents(s, hubCols);
+
+    restoreHoverAfterRebuild(pendingHover, pendingPointer);
   }
 
   // --------------------------------------------------------
@@ -1078,7 +1234,12 @@ export function createBoardView(opts) {
     syncPermanents(s, hubCols);
   }
 
-  function init() {}
+  function init() {
+    if (!stagePointerMoveHandler) {
+      stagePointerMoveHandler = (ev) => trackPointerPos(ev);
+      app.stage.on("pointermove", stagePointerMoveHandler);
+    }
+  }
 
   return { init, rebuildAll, update };
 }
