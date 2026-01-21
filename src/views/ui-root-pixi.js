@@ -37,6 +37,7 @@ const runner = createSimRunner({
   onInvalidate: (reason) => {
     timeGraphController.handleInvalidate(reason);
     if (goldGraphView?.isOpen()) goldGraphView.render();
+    if (foodGraphView?.isOpen()) foodGraphView.render();
     if (apGraphView?.isOpen()) apGraphView.render();
     // Force a check on inventory UI in case state changed
     inventoryView?.update?.();
@@ -116,7 +117,7 @@ function refreshOpenInventoryWindows() {
 }
 
 const interactionController = createInteractionController({
-  // Stage 5: phase is a normalized semantic label derived from paused by policy.
+  // Phase is derived from paused by policy.
   getPhase: () => runner.getCursorState().phase,
 });
 
@@ -252,6 +253,19 @@ let goldGraphView = createMetricGraphView({
   openPosition: { x: 350, y: 280 },
 });
 
+let foodGraphView = createMetricGraphView({
+  app,
+  layer: uiLayers.controlsLayer,
+  controller: timeGraphController,
+  metric: GRAPH_METRICS.food,
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  setPreviewState: (s) => runner.setPreviewState(s),
+  clearPreviewState: () => runner.clearPreviewState(),
+  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
+  openPosition: { x: 350, y: 460 },
+});
+
 let apGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
@@ -294,6 +308,11 @@ const chromeView = createChromeView({
     runner.clearPreviewState();
     if (!goldGraphView.isOpen()) goldGraphView.open();
     else goldGraphView.close();
+  },
+  onFoodClick: () => {
+    runner.clearPreviewState();
+    if (!foodGraphView.isOpen()) foodGraphView.open();
+    else foodGraphView.close();
   },
   onApClick: () => {
     runner.clearPreviewState();
@@ -365,11 +384,15 @@ app.ticker.add((delta) => {
   actionLogView.update(frameDt);
   debugView.update();
 
-  const anyGraphOpen = goldGraphView.isOpen() || apGraphView.isOpen();
+  const anyGraphOpen =
+    goldGraphView.isOpen() ||
+    foodGraphView.isOpen() ||
+    apGraphView.isOpen();
   timeGraphController.setActive?.(anyGraphOpen);
   if (anyGraphOpen) {
     timeGraphController.update();
     if (goldGraphView.isOpen()) goldGraphView.render();
+    if (foodGraphView.isOpen()) foodGraphView.render();
     if (apGraphView.isOpen()) apGraphView.render();
   }
 });

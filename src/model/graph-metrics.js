@@ -1,6 +1,8 @@
 // src/model/graph-metrics.js
 // Metric definitions for time graphs.
 
+import { getTotalFoodFromEdibles } from "./query.js";
+
 export const GRAPH_METRICS = {
   gold: {
     id: "gold",
@@ -11,6 +13,26 @@ export const GRAPH_METRICS = {
         label: "Gold",
         color: 0xffd966,
         getValue: (state) => state?.resources?.gold ?? state?.gold ?? 0,
+        formatValue: (value) =>
+          Number.isFinite(value) ? value.toFixed(1) : "0.0",
+      },
+    ],
+  },
+  food: {
+    id: "food",
+    label: "Food",
+    series: [
+      {
+        id: "food",
+        label: "Food",
+        color: 0x66cc77,
+        getValue: (state) => {
+          const base = state?.resources?.food ?? 0;
+          const edible = getTotalFoodFromEdibles(state);
+          const baseSafe = Number.isFinite(base) ? base : 0;
+          const edibleSafe = Number.isFinite(edible) ? edible : 0;
+          return baseSafe + edibleSafe;
+        },
         formatValue: (value) =>
           Number.isFinite(value) ? value.toFixed(1) : "0.0",
       },
@@ -57,7 +79,7 @@ function mergeSeries(metrics) {
 GRAPH_METRICS.all = {
   id: "all",
   label: "All",
-  series: mergeSeries([GRAPH_METRICS.gold, GRAPH_METRICS.ap]),
+  series: mergeSeries([GRAPH_METRICS.gold, GRAPH_METRICS.food, GRAPH_METRICS.ap]),
 };
 
 export function getGraphMetric(metricId) {

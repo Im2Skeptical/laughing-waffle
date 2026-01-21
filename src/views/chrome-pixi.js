@@ -20,8 +20,9 @@ export function createChromeView({
   isPausePending,
   getApPreview,
 
-  // Stage 3: optional click handler for opening the gold graph
+  // Stage 3: optional click handlers for opening graphs
   onGoldClick,
+  onFoodClick,
   onApClick,
 
   // Time lever (optional)
@@ -46,6 +47,16 @@ export function createChromeView({
 
   goldHit.on("pointertap", () => {
     if (typeof onGoldClick === "function") onGoldClick();
+  });
+
+  const foodHit = new PIXI.Graphics();
+  foodHit.eventMode = "static";
+  foodHit.cursor = "pointer";
+  foodHit.alpha = 0;
+  layer.addChild(foodHit);
+
+  foodHit.on("pointertap", () => {
+    if (typeof onFoodClick === "function") onFoodClick();
   });
 
   const apHit = new PIXI.Graphics();
@@ -148,6 +159,13 @@ export function createChromeView({
 
   // ---------- 3. HUD update ----------
 
+  function measureTextWidth(text) {
+    const metrics = PIXI.TextMetrics?.measureText?.(text, resourceText.style);
+    if (metrics && Number.isFinite(metrics.width)) return metrics.width;
+    const fontSize = Number(resourceText.style?.fontSize) || 16;
+    return text.length * fontSize * 0.6;
+  }
+
   function update() {
     const s = getGameState();
     const preview =
@@ -211,12 +229,17 @@ export function createChromeView({
       1
     )}  AP: ${curAp}/${capAp}`;
 
+    const goldSegment = `Gold: ${s.resources.gold.toFixed(1)}  `;
+    const foodSegment = `Food: ${foodTotal.toFixed(1)}  `;
+
+    const goldWidth = measureTextWidth(goldSegment);
+    const foodWidth = measureTextWidth(foodSegment);
+
     // Position and size the gold hit area over the left section of the HUD line.
-    // Approximate width for "Gold: 00000.0" plus padding.
     const gx = resourceText.x;
     const gy = resourceText.y;
-    const hitW = 240;
     const hitH = 34;
+    const hitW = Math.max(1, Math.ceil(goldWidth));
 
     goldHit.clear();
     goldHit.beginFill(0xffffff);
@@ -226,6 +249,16 @@ export function createChromeView({
     // Only show pointer cursor/click affordance if handler exists
     goldHit.eventMode = typeof onGoldClick === "function" ? "static" : "none";
     goldHit.cursor = typeof onGoldClick === "function" ? "pointer" : "default";
+
+    const foodHitW = Math.max(1, Math.ceil(foodWidth));
+    const foodHitX = gx + hitW;
+    foodHit.clear();
+    foodHit.beginFill(0xffffff);
+    foodHit.drawRect(foodHitX, gy - 2, foodHitW, hitH);
+    foodHit.endFill();
+
+    foodHit.eventMode = typeof onFoodClick === "function" ? "static" : "none";
+    foodHit.cursor = typeof onFoodClick === "function" ? "pointer" : "default";
 
     const apHitW = 150;
     const apHitX = Math.max(gx, gx + resourceText.width - apHitW);

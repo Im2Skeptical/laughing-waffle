@@ -92,7 +92,7 @@ function syncPermanentAnchors(state) {
 }
 
 // =============================================================================
-// PHASE / PAUSE POLICY (Stage 5)
+// PHASE / PAUSE POLICY
 // =============================================================================
 
 // Single source of truth for pause → phase semantics.
@@ -120,7 +120,7 @@ export function createEmptyState(seed = 123456789) {
     simStepIndex: 0,
     tSec: 0,
 
-    // Stage 5: renamed remaining clock (legacy field kept until full migration)
+    // Renamed remaining clock (legacy field kept until full migration).
     seasonTimeRemaining: 0,
     seasonDurationSec: SEASON_DURATION_SEC,
 
@@ -540,13 +540,13 @@ export function deserializeGameState(data) {
   // Season clock defaults
   if (state.seasonClockSec == null) state.seasonClockSec = 0;
 
-  // Stage 5 defaults / legacy bridging
+  // Defaults / legacy bridging
   if (state.seasonDurationSec == null)
     state.seasonDurationSec = SEASON_DURATION_SEC;
 
   if (state.paused == null) state.paused = false;
 
-  // Stage 5: normalize phase policy after paused is known.
+  // Normalize phase after paused is known.
   syncPhaseToPaused(state);
 
   if (state.apCapOverride) {

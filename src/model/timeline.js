@@ -504,7 +504,7 @@ export function truncateTimelineAfterBoundary(tl, boundaryIndex) {
 
   tl._memoGuardSig = computeTimelineMutationSig(tl);
 
-  // Stage 5: rebuild index after truncation
+  // Rebuild index after truncation
   rebuildActionsBySecIndex(tl);
 
   return { ok: true };
