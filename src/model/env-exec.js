@@ -56,6 +56,43 @@ function hasPawnOnCol(state, col) {
   return false;
 }
 
+function pickRandomEventCol(state, span) {
+  if (!state?.board) return null;
+  const board = state.board;
+  const cols = Number.isFinite(board.cols) ? Math.floor(board.cols) : 0;
+  const safeSpan =
+    Number.isFinite(span) && span > 0 ? Math.floor(span) : 1;
+  if (cols <= 0 || safeSpan > cols) return null;
+
+  const eventOcc = board.occ?.event;
+  const tileOcc = board.occ?.tile;
+  const candidates = [];
+
+  for (let col = 0; col <= cols - safeSpan; col++) {
+    let ok = true;
+    for (let offset = 0; offset < safeSpan; offset++) {
+      const idx = col + offset;
+      if (Array.isArray(eventOcc) && eventOcc[idx]) {
+        ok = false;
+        break;
+      }
+      if (Array.isArray(tileOcc) && !tileOcc[idx]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) candidates.push(col);
+  }
+
+  if (!candidates.length) return null;
+  if (typeof state.rngNextInt === "function") {
+    return candidates[state.rngNextInt(0, candidates.length - 1)];
+  }
+
+  const idx = Math.floor(Math.random() * candidates.length);
+  return candidates[idx];
+}
+
 export function stepEnvSecond(state, tSec) {
   if (!state || !state.board) return;
 
@@ -115,27 +152,20 @@ export function stepEnvSecond(state, tSec) {
     if (entry) {
       const def = envEventDefs[entry.defId];
       if (def) {
-        const col = Number.isFinite(entry.col) ? Math.floor(entry.col) : 0;
         const span =
           Number.isFinite(def.defaultSpan) && def.defaultSpan > 0
             ? Math.floor(def.defaultSpan)
             : 1;
 
-        const occ = board.occ?.event;
-        let blocked = false;
-        if (Array.isArray(occ)) {
-          for (let offset = 0; offset < span; offset++) {
-            const occCol = col + offset;
-            if (occCol < 0 || occCol >= board.cols) continue;
-            if (occ[occCol]) {
-              blocked = true;
-              break;
-            }
-          }
-        }
-
-        if (!blocked) {
-          const anchor = makeEnvEventInstance(entry.defId, state, col, span, tSec);
+        const col = pickRandomEventCol(state, span);
+        if (col != null) {
+          const anchor = makeEnvEventInstance(
+            entry.defId,
+            state,
+            col,
+            span,
+            tSec
+          );
           board.layers.event.anchors.push(anchor);
           needsRebuild = true;
         }

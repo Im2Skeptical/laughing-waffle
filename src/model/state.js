@@ -344,6 +344,20 @@ function getOrderedTileAnchors(state) {
   return ordered.map((entry) => entry.anchor);
 }
 
+function shuffleDeckInPlace(state, deck) {
+  if (!Array.isArray(deck) || deck.length < 2) return;
+  const useRng = typeof state?.rngNextInt === "function";
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = useRng
+      ? state.rngNextInt(0, i)
+      : Math.floor(Math.random() * (i + 1));
+    if (i === j) continue;
+    const tmp = deck[i];
+    deck[i] = deck[j];
+    deck[j] = tmp;
+  }
+}
+
 export function buildSeasonDeckForCurrentSeason(state) {
   if (!state) return null;
   const seasonKey = getCurrentSeasonKey(state);
@@ -358,10 +372,11 @@ export function buildSeasonDeckForCurrentSeason(state) {
     const defId = pickWeightedDefId(state, table);
     if (!defId) continue;
 
-    const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
-    deck.push({ defId, col });
+    deck.push({ defId });
   }
 
+  // Shuffle so draw order is not tied to tile columns.
+  shuffleDeckInPlace(state, deck);
   state.currentSeasonDeck = { seasonKey, deck };
   return state.currentSeasonDeck;
 }
