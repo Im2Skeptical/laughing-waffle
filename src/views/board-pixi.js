@@ -573,8 +573,8 @@ export function createBoardView(opts) {
     const counts = new Array(countLen).fill(0);
     const chars = Array.isArray(state?.characters) ? state.characters : [];
     for (const ch of chars) {
-      const col = Number.isFinite(ch?.slotIndex)
-        ? Math.floor(ch.slotIndex)
+      const col = Number.isFinite(ch?.tileCol)
+        ? Math.floor(ch.tileCol)
         : null;
       if (col == null || col < 0 || col >= counts.length) continue;
       counts[col] += 1;

@@ -6,4 +6,5 @@ export const ENV_TAG_IDS = Object.freeze({
   FORAGEABLE: "forageable",
   GRAZABLE: "grazable",
   MINEABLE: "mineable",
+  BLOCKED: "blocked",
 });

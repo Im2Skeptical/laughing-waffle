@@ -651,10 +651,24 @@ export function validateState(state) {
 
   const chars = Array.isArray(state.characters) ? state.characters : [];
   for (const ch of chars) {
-    if (!Number.isFinite(ch?.slotIndex)) continue;
-    const col = Math.floor(ch.slotIndex);
-    if (col < 0 || col >= cols) {
-      errors.push(`character slotIndex out of bounds: ${ch.id ?? "unknown"}`);
+    const hasSlot = Number.isFinite(ch?.slotIndex);
+    const hasTile = Number.isFinite(ch?.tileCol);
+    if (hasSlot && hasTile) {
+      warnings.push(
+        `character has both slotIndex and tileCol: ${ch.id ?? "unknown"}`
+      );
+    }
+    if (hasSlot) {
+      const col = Math.floor(ch.slotIndex);
+      if (col < 0 || col >= cols) {
+        errors.push(`character slotIndex out of bounds: ${ch.id ?? "unknown"}`);
+      }
+    }
+    if (hasTile) {
+      const col = Math.floor(ch.tileCol);
+      if (col < 0 || col >= cols) {
+        errors.push(`character tileCol out of bounds: ${ch.id ?? "unknown"}`);
+      }
     }
   }
 

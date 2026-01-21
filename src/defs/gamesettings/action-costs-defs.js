@@ -5,6 +5,9 @@ export const INTENT_AP_COSTS = {
   itemTransfer: 10,
   currencyTransfer: 5,
   pawnMove: 20,
+  pawnMoveSameRow: 20,
+  pawnMoveHubToEnv: 40,
+  pawnMoveEnvToHub: 30,
   buildDesignate: 20,
 };
 

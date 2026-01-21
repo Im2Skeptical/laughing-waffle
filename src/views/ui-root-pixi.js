@@ -13,7 +13,14 @@ import { createCharactersView } from "./characters-pixi.js";
 import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
-import { BOARD_COLS, getBoardColumnCenterX } from "./layout-pixi.js";
+import {
+  BOARD_COLS,
+  PERM_HEIGHT,
+  PERM_ROW_Y,
+  TILE_HEIGHT,
+  TILE_ROW_Y,
+  getBoardColumnCenterX,
+} from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
 import {
@@ -215,6 +222,10 @@ const charactersView = createCharactersView({
     runner.isPreviewing?.()
       ? null
       : actionPlanner?.getCharacterOverrideSlot?.(charId) ?? null,
+  getPreviewPlacement: (charId) =>
+    runner.isPreviewing?.()
+      ? null
+      : actionPlanner?.getCharacterOverridePlacement?.(charId) ?? null,
   onCharacterDropped({ charId, dropPos }) {
     const cols = Number.isFinite(runner.getState()?.board?.cols)
       ? Math.floor(runner.getState().board.cols)
@@ -230,12 +241,26 @@ const charactersView = createCharactersView({
         bestIndex = col;
       }
     }
-    if (bestIndex != null) {
+    if (bestIndex == null) return;
+
+    const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
+    const permCenterY = PERM_ROW_Y + PERM_HEIGHT / 2;
+    const distToTile = Math.abs(dropPos.y - tileCenterY);
+    const distToPerm = Math.abs(dropPos.y - permCenterY);
+    const targetRow = distToTile <= distToPerm ? "env" : "hub";
+
+    if (targetRow === "env") {
       actionPlanner?.setPawnMoveIntent?.({
         charId,
-        toSlotIndex: bestIndex,
+        toTileCol: bestIndex,
       });
+      return;
     }
+
+    actionPlanner?.setPawnMoveIntent?.({
+      charId,
+      toSlotIndex: bestIndex,
+    });
   },
 });
 

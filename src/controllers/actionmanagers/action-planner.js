@@ -2,6 +2,7 @@
 // Stateful planner: holds editable intents for a single tSec.
 
 import { ActionKinds } from "../../model/actions.js";
+import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import {
   IntentKinds,
   makeItemTransferIntent,
@@ -27,6 +28,24 @@ function cloneIntent(intent) {
     toPlacement: clonePlacement(intent.toPlacement),
     baselinePlacement: clonePlacement(intent.baselinePlacement),
   };
+}
+
+function makePawnPlacement({ slotIndex, tileCol } = {}) {
+  const slot =
+    Number.isFinite(slotIndex) ? Math.floor(slotIndex) : null;
+  const tile =
+    Number.isFinite(tileCol) ? Math.floor(tileCol) : null;
+  if (tile != null) return { tileCol: tile };
+  if (slot != null) return { slotIndex: slot };
+  return null;
+}
+
+function normalizePawnPlacement(value) {
+  if (!value || typeof value !== "object") return null;
+  return makePawnPlacement({
+    slotIndex: value.slotIndex,
+    tileCol: value.tileCol,
+  });
 }
 
 function normalizeApCost(value) {
@@ -230,20 +249,30 @@ export function createActionPlanner({
           payload.slotIndex ??
           payload.slot ??
           null;
+        const toTileCol =
+          payload.toTileCol ??
+          payload.tileCol ??
+          null;
         const fromSlotIndex =
           payload.fromSlotIndex != null ? payload.fromSlotIndex : null;
+        const fromTileCol =
+          payload.fromTileCol != null ? payload.fromTileCol : null;
+
+        const fromPlacement =
+          normalizePawnPlacement(payload.fromPlacement) ??
+          makePawnPlacement({ slotIndex: fromSlotIndex, tileCol: fromTileCol });
+        const toPlacement =
+          normalizePawnPlacement(payload.toPlacement) ??
+          makePawnPlacement({ slotIndex: toSlotIndex, tileCol: toTileCol });
 
         const subjectKey = `pawn:${charId}`;
         const intent = makePawnMoveIntent({
           id: subjectKey,
           subjectKey,
           charId,
-          fromPlacement:
-            fromSlotIndex != null ? { slotIndex: fromSlotIndex } : null,
-          toPlacement:
-            toSlotIndex != null ? { slotIndex: toSlotIndex } : null,
-          baselinePlacement:
-            toSlotIndex != null ? { slotIndex: toSlotIndex } : null,
+          fromPlacement,
+          toPlacement,
+          baselinePlacement: clonePlacement(toPlacement),
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
           source: "timeline",
         });
@@ -425,17 +454,23 @@ export function createActionPlanner({
     for (const [key, baseIntent] of baselineIntents.entries()) {
       if (baseIntent.kind !== IntentKinds.PAWN_MOVE) continue;
       const cur = intents.get(key);
-      const baseTo = baseIntent.toPlacement?.slotIndex ?? null;
-      const baseFrom = baseIntent.fromPlacement?.slotIndex ?? null;
+      const baseTo = baseIntent.toPlacement ?? null;
+      const baseFrom = baseIntent.fromPlacement ?? null;
       if (!cur) {
-        if (baseFrom != null) {
-          cache.characterOverrides.set(baseIntent.charId, baseFrom);
+        if (baseFrom) {
+          cache.characterOverrides.set(
+            baseIntent.charId,
+            clonePlacement(baseFrom)
+          );
         }
         continue;
       }
-      const curTo = cur.toPlacement?.slotIndex ?? null;
-      if (curTo != null && curTo !== baseTo) {
-        cache.characterOverrides.set(baseIntent.charId, curTo);
+      const curTo = cur.toPlacement ?? null;
+      if (curTo && !placementEquals(curTo, baseTo)) {
+        cache.characterOverrides.set(
+          baseIntent.charId,
+          clonePlacement(curTo)
+        );
       }
     }
 
@@ -443,10 +478,13 @@ export function createActionPlanner({
       if (curIntent.kind !== IntentKinds.PAWN_MOVE) continue;
       if (baselineIntents.has(key)) continue;
 
-      const baseFrom = curIntent.baselinePlacement?.slotIndex ?? null;
-      const curTo = curIntent.toPlacement?.slotIndex ?? null;
-      if (curTo != null && curTo !== baseFrom) {
-        cache.characterOverrides.set(curIntent.charId, curTo);
+      const baseFrom = curIntent.baselinePlacement ?? null;
+      const curTo = curIntent.toPlacement ?? null;
+      if (curTo && !placementEquals(curTo, baseFrom)) {
+        cache.characterOverrides.set(
+          curIntent.charId,
+          clonePlacement(curTo)
+        );
       }
     }
   }
@@ -626,13 +664,32 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
-  function setPawnMoveIntent({ charId, fromSlotIndex, toSlotIndex }) {
+  function setPawnMoveIntent({
+    charId,
+    fromSlotIndex,
+    fromTileCol,
+    toSlotIndex,
+    toTileCol,
+  }) {
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
     if (charId == null) return { ok: false, reason: "noChar" };
-    if (!Number.isFinite(toSlotIndex)) {
-      return { ok: false, reason: "badSlotIndex" };
+    if (!Number.isFinite(toSlotIndex) && !Number.isFinite(toTileCol)) {
+      return { ok: false, reason: "badTarget" };
+    }
+    if (Number.isFinite(toTileCol)) {
+      const col = Math.floor(toTileCol);
+      const tile = state?.board?.occ?.tile?.[col] ?? null;
+      if (!tile) return { ok: false, reason: "noTile" };
+      const tags = Array.isArray(tile.tags) ? tile.tags : [];
+      for (const tag of tags) {
+        const def = envTagDefs[tag];
+        const aff = Array.isArray(def?.affordances) ? def.affordances : [];
+        if (aff.includes("noOccupy")) {
+          return { ok: false, reason: "tileBlocked" };
+        }
+      }
     }
 
     const subjectKey = `pawn:${charId}`;
@@ -643,19 +700,32 @@ export function createActionPlanner({
 
     if (!fromPlacement) {
       const ch = state.characters?.find((c) => c.id === charId);
-      if (ch) fromPlacement = { slotIndex: ch.slotIndex };
+      if (ch) {
+        fromPlacement = makePawnPlacement({
+          slotIndex: ch.slotIndex,
+          tileCol: ch.tileCol,
+        });
+      }
     }
 
-    if (!fromPlacement && Number.isFinite(fromSlotIndex)) {
-      fromPlacement = { slotIndex: fromSlotIndex };
+    if (!fromPlacement && (Number.isFinite(fromSlotIndex) || Number.isFinite(fromTileCol))) {
+      fromPlacement = makePawnPlacement({
+        slotIndex: fromSlotIndex,
+        tileCol: fromTileCol,
+      });
     }
+
+    const toPlacement = makePawnPlacement({
+      slotIndex: toSlotIndex,
+      tileCol: toTileCol,
+    });
 
     const intent = makePawnMoveIntent({
       id: subjectKey,
       subjectKey,
       charId,
       fromPlacement,
-      toPlacement: { slotIndex: toSlotIndex },
+      toPlacement,
       baselinePlacement: baselinePlacement || clonePlacement(fromPlacement),
       apCostOverride:
         existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
@@ -732,20 +802,32 @@ export function createActionPlanner({
           apCost,
         });
       } else if (intent.kind === IntentKinds.PAWN_MOVE) {
-        const toSlot = intent.toPlacement?.slotIndex;
-        if (toSlot == null) continue;
+        const toPlacement = intent.toPlacement ?? null;
+        const toSlot = toPlacement?.slotIndex ?? null;
+        const toTileCol = toPlacement?.tileCol ?? null;
+        if (toSlot == null && toTileCol == null) continue;
         const apCost =
           intent?.id != null && Number.isFinite(costById[intent.id])
             ? costById[intent.id]
             : estimateIntentApCost(intent, { stateStart: state });
+        const payload = {
+          charId: intent.charId,
+          fromPlacement: clonePlacement(intent.fromPlacement),
+          toPlacement: clonePlacement(toPlacement),
+        };
+        if (toSlot != null) {
+          payload.slotIndex = toSlot;
+          payload.toSlotIndex = toSlot;
+          payload.fromSlotIndex = intent.fromPlacement?.slotIndex ?? null;
+        }
+        if (toTileCol != null) {
+          payload.tileCol = toTileCol;
+          payload.toTileCol = toTileCol;
+          payload.fromTileCol = intent.fromPlacement?.tileCol ?? null;
+        }
         actions.push({
           kind: ActionKinds.PLACE_CHARACTER,
-          payload: {
-            charId: intent.charId,
-            slotIndex: toSlot,
-            fromSlotIndex: intent.fromPlacement?.slotIndex ?? null,
-            toSlotIndex: toSlot,
-          },
+          payload,
           apCost,
         });
       } else if (intent.kind === IntentKinds.BUILD_DESIGNATE) {
@@ -842,9 +924,14 @@ export function createActionPlanner({
         }
       );
     },
-    getCharacterOverrideSlot(charId) {
+    getCharacterOverridePlacement(charId) {
       ensureCaches();
       return cache.characterOverrides.get(charId) ?? null;
+    },
+    getCharacterOverrideSlot(charId) {
+      ensureCaches();
+      const placement = cache.characterOverrides.get(charId) ?? null;
+      return placement?.slotIndex ?? null;
     },
     hasItemTransferIntent(itemId) {
       return hasItemTransferIntent(itemId);

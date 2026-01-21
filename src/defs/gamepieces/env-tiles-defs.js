@@ -127,7 +127,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "River",
     ui: { description: "Flowing water and aquatic life." },
-    baseTags: ["fishable"],
+    baseTags: ["fishable", "blocked"],
     seasonTables: {
       spring: [
         { defId: "event_rain", weight: 2 },

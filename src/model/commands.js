@@ -2,6 +2,7 @@
 // public mutation APIs (cmd*) + move rules
 
 import { permanentDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import {
   SEASON_DURATION_SEC,
   AP_INCOME_PER_SEC,
@@ -351,15 +352,37 @@ export function cmdStackItemsInOwner(
 // CHARACTER PLACEMENT
 // =============================================================================
 
-export function cmdPlaceCharacterInSlot(state, { charId, slotIndex }) {
+export function cmdPlaceCharacterInSlot(state, payload = {}) {
+  const { charId, slotIndex } = payload;
   const ch = state.characters.find((c) => c.id === charId);
   if (!ch) return { ok: false, reason: "noCharacter" };
 
-  if (typeof slotIndex !== "number" || !Number.isFinite(slotIndex)) {
-    return { ok: false, reason: "badSlotIndex" };
+  const toPlacement =
+    payload.toPlacement ||
+    (Number.isFinite(payload.toTileCol) || Number.isFinite(payload.tileCol)
+      ? {
+          tileCol: Number.isFinite(payload.toTileCol)
+            ? payload.toTileCol
+            : payload.tileCol,
+        }
+      : Number.isFinite(payload.toSlotIndex) || Number.isFinite(slotIndex)
+      ? {
+          slotIndex: Number.isFinite(payload.toSlotIndex)
+            ? payload.toSlotIndex
+            : slotIndex,
+        }
+      : null);
+
+  if (!toPlacement) {
+    return { ok: false, reason: "badPlacement" };
   }
 
-  const col = Math.floor(slotIndex);
+  const isEnvTarget = Number.isFinite(toPlacement.tileCol);
+  const rawCol = isEnvTarget ? toPlacement.tileCol : toPlacement.slotIndex;
+  if (!Number.isFinite(rawCol)) {
+    return { ok: false, reason: "badSlotIndex" };
+  }
+  const col = Math.floor(rawCol);
   const cols = Number.isFinite(state?.board?.cols)
     ? Math.floor(state.board.cols)
     : Array.isArray(state.permanentSlots)
@@ -368,7 +391,24 @@ export function cmdPlaceCharacterInSlot(state, { charId, slotIndex }) {
 
   if (col < 0 || col >= cols) return { ok: false, reason: "badSlotIndex" };
 
+  if (isEnvTarget) {
+    const tile = state?.board?.occ?.tile?.[col] ?? null;
+    if (!tile) return { ok: false, reason: "noTile" };
+    const tags = Array.isArray(tile.tags) ? tile.tags : [];
+    for (const tag of tags) {
+      const def = envTagDefs[tag];
+      const aff = Array.isArray(def?.affordances) ? def.affordances : [];
+      if (aff.includes("noOccupy")) {
+        return { ok: false, reason: "tileBlocked" };
+      }
+    }
+    ch.tileCol = col;
+    ch.slotIndex = null;
+    return { ok: true, result: "placed", charId, tileCol: col };
+  }
+
   ch.slotIndex = col;
+  ch.tileCol = null;
   return { ok: true, result: "placed", charId, slotIndex: col };
 }
 

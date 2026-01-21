@@ -2,6 +2,7 @@
 // View-model helpers for action log rows and navigation.
 
 import { itemDefs, permanentDefs } from "../../defs/gamepieces/gamepieces-defs.js";
+import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { IntentKinds } from "./action-intents.js";
 import {
@@ -35,6 +36,44 @@ function formatSlotName(slotIndex, state) {
   return `Slot ${slotIndex}`;
 }
 
+function formatTileName(tileCol, state) {
+  const col = Math.floor(tileCol);
+  const tile = state?.board?.occ?.tile?.[col];
+  const def = tile ? envTileDefs[tile.defId] : null;
+  return def?.name || tile?.defId || `Tile ${col}`;
+}
+
+function formatPlacementName(placement, state) {
+  if (!placement) return "Location";
+  if (Number.isFinite(placement.tileCol)) {
+    return formatTileName(placement.tileCol, state);
+  }
+  if (Number.isFinite(placement.slotIndex)) {
+    return formatSlotName(placement.slotIndex, state);
+  }
+  return "Location";
+}
+
+function resolvePlacementFromPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  if (payload.toPlacement) return payload.toPlacement;
+  if (Number.isFinite(payload.toTileCol) || Number.isFinite(payload.tileCol)) {
+    return {
+      tileCol: Number.isFinite(payload.toTileCol)
+        ? payload.toTileCol
+        : payload.tileCol,
+    };
+  }
+  if (Number.isFinite(payload.toSlotIndex) || Number.isFinite(payload.slotIndex)) {
+    return {
+      slotIndex: Number.isFinite(payload.toSlotIndex)
+        ? payload.toSlotIndex
+        : payload.slotIndex,
+    };
+  }
+  return null;
+}
+
 function describeIntent(intent, state, getOwnerLabel) {
   if (!intent) return "";
   switch (intent.kind) {
@@ -47,7 +86,7 @@ function describeIntent(intent, state, getOwnerLabel) {
     }
     case IntentKinds.PAWN_MOVE: {
       const pawnName = formatPawnName(intent.charId, state);
-      const dest = formatSlotName(intent.toPlacement?.slotIndex, state);
+      const dest = formatPlacementName(intent.toPlacement, state);
       return `${pawnName} > ${dest}`;
     }
     case IntentKinds.BUILD_DESIGNATE: {
@@ -228,7 +267,8 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       desc = `${itemName} > ${dest}`;
     } else if (kind === ActionKinds.PLACE_CHARACTER) {
       const pawnName = formatPawnName(payload.charId, state);
-      const dest = formatSlotName(payload.slotIndex, state);
+      const placement = resolvePlacementFromPayload(payload);
+      const dest = formatPlacementName(placement, state);
       desc = `${pawnName} > ${dest}`;
     } else if (kind === ActionKinds.BUILD_DESIGNATE) {
       desc = `Build ${payload.defId || payload.buildKey || "Plan"}`;

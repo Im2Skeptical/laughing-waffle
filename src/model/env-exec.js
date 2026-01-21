@@ -50,7 +50,7 @@ function isIntentEligible(intent, seasonKey, tile, hasPawn) {
 function hasPawnOnCol(state, col) {
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   for (const ch of chars) {
-    const slot = Number.isFinite(ch?.slotIndex) ? Math.floor(ch.slotIndex) : null;
+    const slot = Number.isFinite(ch?.tileCol) ? Math.floor(ch.tileCol) : null;
     if (slot === col) return true;
   }
   return false;

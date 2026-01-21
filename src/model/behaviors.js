@@ -45,7 +45,12 @@ function preconditionsPass(beh, state, ctx) {
     const slotIndex = ctx.slotIndex;
     if (typeof slotIndex !== "number") return false;
 
-    const hasChar = state.characters?.some((c) => c.slotIndex === slotIndex);
+    const hasChar = state.characters?.some(
+      (c) =>
+        Number.isFinite(c.slotIndex) &&
+        c.tileCol == null &&
+        c.slotIndex === slotIndex
+    );
     if (!hasChar) return false;
   }
 

@@ -66,13 +66,26 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.board.layers.tile.anchors = buildTileAnchors(setup, boardCols, state);
 
   // characters
-  state.characters = (setup.characters || []).map((c, index) => ({
-    id: state.nextCharacterId++,
-    name: c.name,
-    color: c.color,
-    slotIndex: getColIndex(c, index, boardCols),
-    props: {},
-  }));
+  state.characters = (setup.characters || []).map((c, index) => {
+    const wantsEnvRow =
+      c?.row === "env" || Number.isFinite(c?.tileCol) || Number.isFinite(c?.envCol);
+    const envCol = wantsEnvRow
+      ? getColIndex(
+          { ...c, col: c.tileCol ?? c.envCol ?? c.col },
+          index,
+          boardCols
+        )
+      : null;
+    const hubCol = wantsEnvRow ? null : getColIndex(c, index, boardCols);
+    return {
+      id: state.nextCharacterId++,
+      name: c.name,
+      color: c.color,
+      slotIndex: hubCol,
+      tileCol: envCol,
+      props: {},
+    };
+  });
 
   // inventories
   state.ownerInventories = {};

@@ -7,7 +7,7 @@ import {
   getItemQuantity,
   isCurrencyKind,
 } from "./action-currency-utils.js";
-import { placementEquals } from "./action-placement-utils.js";
+import { getPlacementRow, placementEquals } from "./action-placement-utils.js";
 
 function getCurrencyGroupInfoForIntent(intent) {
   if (!intent || intent.kind !== "itemTransfer") return null;
@@ -38,6 +38,27 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
     }
     case "pawnMove": {
       if (placementEquals(intent.fromPlacement, intent.toPlacement)) return 0;
+      const fromRow = getPlacementRow(intent.fromPlacement);
+      const toRow = getPlacementRow(intent.toPlacement);
+      if (fromRow && toRow) {
+        if (fromRow === toRow) {
+          return INTENT_AP_COSTS.pawnMoveSameRow ?? INTENT_AP_COSTS.pawnMove ?? 0;
+        }
+        if (fromRow === "hub" && toRow === "env") {
+          return (
+            INTENT_AP_COSTS.pawnMoveHubToEnv ??
+            INTENT_AP_COSTS.pawnMove ??
+            0
+          );
+        }
+        if (fromRow === "env" && toRow === "hub") {
+          return (
+            INTENT_AP_COSTS.pawnMoveEnvToHub ??
+            INTENT_AP_COSTS.pawnMove ??
+            0
+          );
+        }
+      }
       return INTENT_AP_COSTS.pawnMove ?? 0;
     }
     case "buildDesignate": {

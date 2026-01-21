@@ -72,4 +72,11 @@ export const envTagDefs = {
       },
     ],
   },
+  blocked: {
+    id: "blocked",
+    kind: "envTag",
+    ui: { name: "Blocked", description: "Cannot be occupied by pawns." },
+    affordances: ["noOccupy"],
+    intents: [],
+  },
 };
