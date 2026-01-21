@@ -383,11 +383,13 @@ export function cmdPlaceCharacter(state, payload = {}) {
     return { ok: false, reason: "badHubCol" };
   }
   const col = Math.floor(rawCol);
-  const cols = Number.isFinite(state?.board?.cols)
+  const envCols = Number.isFinite(state?.board?.cols)
     ? Math.floor(state.board.cols)
-    : Array.isArray(state.permanentSlots)
-      ? state.permanentSlots.length
-      : 0;
+    : 0;
+  const hubCols = Array.isArray(state?.permanentSlots)
+    ? state.permanentSlots.length
+    : 0;
+  const cols = isEnvTarget ? envCols : hubCols;
 
   if (col < 0 || col >= cols) {
     return { ok: false, reason: isEnvTarget ? "badEnvCol" : "badHubCol" };

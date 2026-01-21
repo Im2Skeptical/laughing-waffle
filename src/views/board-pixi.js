@@ -1,5 +1,5 @@
 // board-pixi.js
-// Renders tiles/events/permanents aligned to a 12-column board.
+// Renders tiles/events on a 12-column board, with a separate hub row layout.
 // VIEW-ONLY: no direct state mutation.
 
 import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
@@ -9,6 +9,8 @@ import { ActionKinds } from "../model/actions.js";
 import {
   BOARD_COLS,
   BOARD_COL_GAP,
+  HUB_COLS,
+  HUB_COL_GAP,
   TILE_WIDTH,
   TILE_HEIGHT,
   EVENT_WIDTH,
@@ -19,7 +21,9 @@ import {
   EVENT_ROW_Y,
   PERM_ROW_Y,
   getBoardColumnX,
+  getHubColumnX,
   layoutBoardColPos,
+  layoutHubColPos,
 } from "./layout-pixi.js";
 
 /**
@@ -459,7 +463,7 @@ export function createBoardView(opts) {
       Number.isFinite(permInst.span) && permInst.span > 0
         ? Math.floor(permInst.span)
         : 1;
-    const width = PERM_WIDTH * span + BOARD_COL_GAP * (span - 1);
+    const width = PERM_WIDTH * span + HUB_COL_GAP * (span - 1);
     const height = PERM_HEIGHT;
 
     const cont = new PIXI.Container();
@@ -554,8 +558,8 @@ export function createBoardView(opts) {
 
     const pos =
       span > 1
-        ? { x: getBoardColumnX(app.screen.width, col), y: PERM_ROW_Y }
-        : layoutBoardColPos(app.screen.width, col, PERM_WIDTH, PERM_ROW_Y);
+        ? { x: getHubColumnX(app.screen.width, col), y: PERM_ROW_Y }
+        : layoutHubColPos(app.screen.width, col, PERM_WIDTH, PERM_ROW_Y);
     cont.x = pos.x;
     cont.y = pos.y;
 
@@ -695,9 +699,12 @@ export function createBoardView(opts) {
     if (!s?.board) return;
 
     const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
+    const hubCols = Array.isArray(s.permanentSlots)
+      ? s.permanentSlots.length
+      : HUB_COLS;
     syncTiles(s, cols);
     syncEvents(s, cols);
-    syncPermanents(s, cols);
+    syncPermanents(s, hubCols);
   }
 
   // --------------------------------------------------------
@@ -709,9 +716,12 @@ export function createBoardView(opts) {
     if (!s?.board) return;
 
     const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
+    const hubCols = Array.isArray(s.permanentSlots)
+      ? s.permanentSlots.length
+      : HUB_COLS;
     syncTiles(s, cols);
     syncEvents(s, cols);
-    syncPermanents(s, cols);
+    syncPermanents(s, hubCols);
   }
 
   function init() {}

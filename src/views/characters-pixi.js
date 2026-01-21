@@ -12,6 +12,7 @@
 
 import {
   BOARD_COLS,
+  HUB_COLS,
   PERM_WIDTH,
   TILE_WIDTH,
   TILE_ROW_Y,
@@ -71,10 +72,21 @@ export function createCharactersView(opts) {
     return s?.characters || s?.chars || s?.characterList || s?.party || [];
   }
 
-  function getBoardColsSafe() {
+  function getEnvColsSafe() {
     const s = getStateSafe();
     const cols = Number.isFinite(s?.board?.cols) ? Math.floor(s.board.cols) : null;
     return cols != null ? cols : BOARD_COLS;
+  }
+
+  function getHubColsSafe() {
+    if (typeof getPermanentSlots === "function") {
+      const slots = getPermanentSlots() || [];
+      if (Array.isArray(slots) && slots.length > 0) return slots.length;
+    }
+    const s = getStateSafe();
+    const slots = s?.permanentSlots;
+    if (Array.isArray(slots) && slots.length > 0) return slots.length;
+    return HUB_COLS;
   }
 
   function getInvSafe() {
@@ -97,7 +109,7 @@ export function createCharactersView(opts) {
 
   // Centre above a permanent card at hubCol
   function getBasePosForHubCol(hubCol) {
-    const cols = getBoardColsSafe();
+    const cols = getHubColsSafe();
 
     if (!cols || hubCol == null || hubCol < 0 || hubCol >= cols) {
       return { x: 200 + (hubCol ?? 0) * 220, y: 380 };
@@ -111,7 +123,7 @@ export function createCharactersView(opts) {
 
   // Centre above an env tile at envCol
   function getBasePosForEnvCol(envCol) {
-    const cols = getBoardColsSafe();
+    const cols = getEnvColsSafe();
     if (!cols || envCol == null || envCol < 0 || envCol >= cols) {
       return { x: 200 + (envCol ?? 0) * 220, y: 220 };
     }

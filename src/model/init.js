@@ -15,6 +15,8 @@ import {
 
 import { Inventory, initializeItemFromDef } from "./inventory-model.js";
 
+const HUB_COLS = 10;
+
 // Create a fully-initialized GameState snapshot
 // - scenario can be a setupId string OR a raw setup object (from scenarios-defs style)
 export function createInitialState(scenario = "testing", seed = null) {
@@ -53,10 +55,11 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.nextCharacterId = 101;
 
   const boardCols = getBoardColsFromSetup(setup, state);
+  const hubCols = getHubColsFromSetup(setup);
   ensureBoardCols(state, boardCols);
 
   // permanents
-  state.permanentSlots = buildPermanentSlots(setup, boardCols, state);
+  state.permanentSlots = buildPermanentSlots(setup, hubCols, state);
 
   // env slots
   state.envSlots = (setup.envSlots || []).map((envDefId) => ({
@@ -73,7 +76,7 @@ export function createInitialState(scenario = "testing", seed = null) {
       : null;
     const hubCol = wantsEnvRow
       ? null
-      : getColIndex({ hubCol: c.hubCol }, index, boardCols);
+      : getColIndex({ hubCol: c.hubCol }, index, hubCols);
     return {
       id: state.nextCharacterId++,
       name: c.name,
@@ -187,6 +190,12 @@ function getBoardColsFromSetup(setup, state) {
   return Number.isFinite(state?.board?.cols) ? Math.floor(state.board.cols) : 12;
 }
 
+function getHubColsFromSetup(setup) {
+  const candidate = setup?.hub?.cols;
+  if (Number.isFinite(candidate)) return Math.max(1, Math.floor(candidate));
+  return HUB_COLS;
+}
+
 function ensureBoardCols(state, cols) {
   if (!state?.board) return;
   if (state.board.cols === cols) return;
@@ -221,9 +230,9 @@ function getColIndex(spec, fallback, maxCols) {
   return Math.max(0, col);
 }
 
-function buildPermanentSlots(setup, boardCols, state) {
-  const slots = new Array(boardCols).fill(null).map(() => ({ permanent: null }));
-  const occupiedBy = new Array(boardCols).fill(null);
+function buildPermanentSlots(setup, hubCols, state) {
+  const slots = new Array(hubCols).fill(null).map(() => ({ permanent: null }));
+  const occupiedBy = new Array(hubCols).fill(null);
   const specs = Array.isArray(setup.permanents) ? setup.permanents : [];
   for (let i = 0; i < specs.length; i++) {
     const spec = specs[i];
@@ -235,10 +244,10 @@ function buildPermanentSlots(setup, boardCols, state) {
         : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
           ? Math.floor(def.defaultSpan)
           : 1;
-    if (span > boardCols) continue;
-    let hubCol = getColIndex(spec, i, boardCols);
-    if (hubCol < 0 || hubCol >= boardCols) continue;
-    if (hubCol + span > boardCols) hubCol = boardCols - span;
+    if (span > hubCols) continue;
+    let hubCol = getColIndex(spec, i, hubCols);
+    if (hubCol < 0 || hubCol >= hubCols) continue;
+    if (hubCol + span > hubCols) hubCol = hubCols - span;
 
     let blocked = false;
     for (let offset = 0; offset < span; offset++) {

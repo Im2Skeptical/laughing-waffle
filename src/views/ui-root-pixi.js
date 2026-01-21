@@ -15,11 +15,13 @@ import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
 import {
   BOARD_COLS,
+  HUB_COLS,
   PERM_HEIGHT,
   PERM_ROW_Y,
   TILE_HEIGHT,
   TILE_ROW_Y,
   getBoardColumnCenterX,
+  getHubColumnCenterX,
 } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
@@ -227,13 +229,28 @@ const charactersView = createCharactersView({
       ? null
       : actionPlanner?.getCharacterOverridePlacement?.(charId) ?? null,
   onCharacterDropped({ charId, dropPos }) {
-    const cols = Number.isFinite(runner.getState()?.board?.cols)
-      ? Math.floor(runner.getState().board.cols)
+    const state = runner.getState();
+    const envCols = Number.isFinite(state?.board?.cols)
+      ? Math.floor(state.board.cols)
       : BOARD_COLS;
+    const hubCols = Array.isArray(state?.permanentSlots)
+      ? state.permanentSlots.length
+      : HUB_COLS;
+
+    const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
+    const permCenterY = PERM_ROW_Y + PERM_HEIGHT / 2;
+    const distToTile = Math.abs(dropPos.y - tileCenterY);
+    const distToPerm = Math.abs(dropPos.y - permCenterY);
+    const targetRow = distToTile <= distToPerm ? "env" : "hub";
+
+    const colCount = targetRow === "env" ? envCols : hubCols;
+    const getCenterX =
+      targetRow === "env" ? getBoardColumnCenterX : getHubColumnCenterX;
+
     let bestIndex = null;
     let bestDist2 = Infinity;
-    for (let col = 0; col < cols; col++) {
-      const cx = getBoardColumnCenterX(app.screen.width, col);
+    for (let col = 0; col < colCount; col++) {
+      const cx = getCenterX(app.screen.width, col);
       const dx = dropPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {
@@ -242,12 +259,6 @@ const charactersView = createCharactersView({
       }
     }
     if (bestIndex == null) return;
-
-    const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
-    const permCenterY = PERM_ROW_Y + PERM_HEIGHT / 2;
-    const distToTile = Math.abs(dropPos.y - tileCenterY);
-    const distToPerm = Math.abs(dropPos.y - permCenterY);
-    const targetRow = distToTile <= distToPerm ? "env" : "hub";
 
     if (targetRow === "env") {
       actionPlanner?.setPawnMoveIntent?.({

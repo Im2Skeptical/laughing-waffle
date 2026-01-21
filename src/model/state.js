@@ -612,6 +612,9 @@ export function validateState(state) {
     errors.push("board.cols invalid");
     return { ok: false, errors, warnings };
   }
+  const hubCols = Array.isArray(state.permanentSlots)
+    ? state.permanentSlots.length
+    : 0;
 
   const chars = Array.isArray(state.characters) ? state.characters : [];
   for (const ch of chars) {
@@ -624,7 +627,7 @@ export function validateState(state) {
     }
     if (hasHub) {
       const col = Math.floor(ch.hubCol);
-      if (col < 0 || col >= cols) {
+      if (col < 0 || col >= hubCols) {
         errors.push(`character hubCol out of bounds: ${ch.id ?? "unknown"}`);
       }
     }
