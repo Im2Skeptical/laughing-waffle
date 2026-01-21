@@ -26,10 +26,10 @@ export const setupDefs = {
 
     // permanents placed by board column
     permanents: [
-      { defId: "farm", col: 0 },
-      { defId: "mine", col: 3 },
-      { defId: "storehouse", col: 6 },
-      { defId: "storehouse", col: 9 },
+      { defId: "farm", hubCol: 0 },
+      { defId: "mine", hubCol: 3 },
+      { defId: "storehouse", hubCol: 6 },
+      { defId: "storehouse", hubCol: 9 },
     ],
 
     // legacy env cards (static; no deck refill)
@@ -37,8 +37,8 @@ export const setupDefs = {
 
     // characters placed by board column
     characters: [
-      { name: "Char 1", color: 0xff9999, col: 4 },
-      { name: "Char 2", color: 0x9999ff, col: 5 },
+      { name: "Char 1", color: 0xff9999, hubCol: 4 },
+      { name: "Char 2", color: 0x9999ff, hubCol: 5 },
     ],
 
     // inventories keyed by owner selector:
@@ -46,7 +46,7 @@ export const setupDefs = {
     // owner: { type: "character", index: 0 } means "1st character in characters array"
     inventories: [
       {
-        owner: { type: "permanent", col: 6 },
+        owner: { type: "permanent", hubCol: 6 },
         items: [
           { kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "grain", quantity: 20, gridX: 1, gridY: 0 },
@@ -80,14 +80,14 @@ export const setupDefs = {
     },
 
     permanents: [
-      { defId: "farm", col: 1 },
-      { defId: "mine", col: 5 },
-      { defId: "storehouse", col: 7 },
+      { defId: "farm", hubCol: 1 },
+      { defId: "mine", hubCol: 5 },
+      { defId: "storehouse", hubCol: 7 },
     ],
 
     envSlots: ["flood_autumn", "flood_autumn", null, null, "rock"],
 
-    characters: [{ name: "Char 1", color: 0xff9999, col: 4 }],
+    characters: [{ name: "Char 1", color: 0xff9999, hubCol: 4 }],
 
     inventories: [],
   },

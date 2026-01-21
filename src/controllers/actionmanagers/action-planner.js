@@ -30,21 +30,19 @@ function cloneIntent(intent) {
   };
 }
 
-function makePawnPlacement({ slotIndex, tileCol } = {}) {
-  const slot =
-    Number.isFinite(slotIndex) ? Math.floor(slotIndex) : null;
-  const tile =
-    Number.isFinite(tileCol) ? Math.floor(tileCol) : null;
-  if (tile != null) return { tileCol: tile };
-  if (slot != null) return { slotIndex: slot };
+function makePawnPlacement({ hubCol, envCol } = {}) {
+  const hub = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
+  const env = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+  if (env != null) return { envCol: env };
+  if (hub != null) return { hubCol: hub };
   return null;
 }
 
 function normalizePawnPlacement(value) {
   if (!value || typeof value !== "object") return null;
   return makePawnPlacement({
-    slotIndex: value.slotIndex,
-    tileCol: value.tileCol,
+    hubCol: value.hubCol,
+    envCol: value.envCol,
   });
 }
 
@@ -244,26 +242,25 @@ export function createActionPlanner({
         const charId = payload.charId ?? null;
         if (charId == null) continue;
 
-        const toSlotIndex =
-          payload.toSlotIndex ??
-          payload.slotIndex ??
-          payload.slot ??
+        const toHubCol =
+          payload.toHubCol ??
+          payload.hubCol ??
           null;
-        const toTileCol =
-          payload.toTileCol ??
-          payload.tileCol ??
+        const toEnvCol =
+          payload.toEnvCol ??
+          payload.envCol ??
           null;
-        const fromSlotIndex =
-          payload.fromSlotIndex != null ? payload.fromSlotIndex : null;
-        const fromTileCol =
-          payload.fromTileCol != null ? payload.fromTileCol : null;
+        const fromHubCol =
+          payload.fromHubCol != null ? payload.fromHubCol : null;
+        const fromEnvCol =
+          payload.fromEnvCol != null ? payload.fromEnvCol : null;
 
         const fromPlacement =
           normalizePawnPlacement(payload.fromPlacement) ??
-          makePawnPlacement({ slotIndex: fromSlotIndex, tileCol: fromTileCol });
+          makePawnPlacement({ hubCol: fromHubCol, envCol: fromEnvCol });
         const toPlacement =
           normalizePawnPlacement(payload.toPlacement) ??
-          makePawnPlacement({ slotIndex: toSlotIndex, tileCol: toTileCol });
+          makePawnPlacement({ hubCol: toHubCol, envCol: toEnvCol });
 
         const subjectKey = `pawn:${charId}`;
         const intent = makePawnMoveIntent({
@@ -666,20 +663,20 @@ export function createActionPlanner({
 
   function setPawnMoveIntent({
     charId,
-    fromSlotIndex,
-    fromTileCol,
-    toSlotIndex,
-    toTileCol,
+    fromHubCol,
+    fromEnvCol,
+    toHubCol,
+    toEnvCol,
   }) {
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
     if (charId == null) return { ok: false, reason: "noChar" };
-    if (!Number.isFinite(toSlotIndex) && !Number.isFinite(toTileCol)) {
+    if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
     }
-    if (Number.isFinite(toTileCol)) {
-      const col = Math.floor(toTileCol);
+    if (Number.isFinite(toEnvCol)) {
+      const col = Math.floor(toEnvCol);
       const tile = state?.board?.occ?.tile?.[col] ?? null;
       if (!tile) return { ok: false, reason: "noTile" };
       const tags = Array.isArray(tile.tags) ? tile.tags : [];
@@ -702,22 +699,22 @@ export function createActionPlanner({
       const ch = state.characters?.find((c) => c.id === charId);
       if (ch) {
         fromPlacement = makePawnPlacement({
-          slotIndex: ch.slotIndex,
-          tileCol: ch.tileCol,
+          hubCol: ch.hubCol,
+          envCol: ch.envCol,
         });
       }
     }
 
-    if (!fromPlacement && (Number.isFinite(fromSlotIndex) || Number.isFinite(fromTileCol))) {
+    if (!fromPlacement && (Number.isFinite(fromHubCol) || Number.isFinite(fromEnvCol))) {
       fromPlacement = makePawnPlacement({
-        slotIndex: fromSlotIndex,
-        tileCol: fromTileCol,
+        hubCol: fromHubCol,
+        envCol: fromEnvCol,
       });
     }
 
     const toPlacement = makePawnPlacement({
-      slotIndex: toSlotIndex,
-      tileCol: toTileCol,
+      hubCol: toHubCol,
+      envCol: toEnvCol,
     });
 
     const intent = makePawnMoveIntent({
@@ -803,9 +800,9 @@ export function createActionPlanner({
         });
       } else if (intent.kind === IntentKinds.PAWN_MOVE) {
         const toPlacement = intent.toPlacement ?? null;
-        const toSlot = toPlacement?.slotIndex ?? null;
-        const toTileCol = toPlacement?.tileCol ?? null;
-        if (toSlot == null && toTileCol == null) continue;
+        const toHubCol = toPlacement?.hubCol ?? null;
+        const toEnvCol = toPlacement?.envCol ?? null;
+        if (toHubCol == null && toEnvCol == null) continue;
         const apCost =
           intent?.id != null && Number.isFinite(costById[intent.id])
             ? costById[intent.id]
@@ -815,15 +812,15 @@ export function createActionPlanner({
           fromPlacement: clonePlacement(intent.fromPlacement),
           toPlacement: clonePlacement(toPlacement),
         };
-        if (toSlot != null) {
-          payload.slotIndex = toSlot;
-          payload.toSlotIndex = toSlot;
-          payload.fromSlotIndex = intent.fromPlacement?.slotIndex ?? null;
+        if (toHubCol != null) {
+          payload.hubCol = toHubCol;
+          payload.toHubCol = toHubCol;
+          payload.fromHubCol = intent.fromPlacement?.hubCol ?? null;
         }
-        if (toTileCol != null) {
-          payload.tileCol = toTileCol;
-          payload.toTileCol = toTileCol;
-          payload.fromTileCol = intent.fromPlacement?.tileCol ?? null;
+        if (toEnvCol != null) {
+          payload.envCol = toEnvCol;
+          payload.toEnvCol = toEnvCol;
+          payload.fromEnvCol = intent.fromPlacement?.envCol ?? null;
         }
         actions.push({
           kind: ActionKinds.PLACE_CHARACTER,
@@ -928,10 +925,10 @@ export function createActionPlanner({
       ensureCaches();
       return cache.characterOverrides.get(charId) ?? null;
     },
-    getCharacterOverrideSlot(charId) {
+    getCharacterOverrideHubCol(charId) {
       ensureCaches();
       const placement = cache.characterOverrides.get(charId) ?? null;
-      return placement?.slotIndex ?? null;
+      return placement?.hubCol ?? null;
     },
     hasItemTransferIntent(itemId) {
       return hasItemTransferIntent(itemId);

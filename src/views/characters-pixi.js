@@ -36,7 +36,7 @@ export function createCharactersView(opts) {
     getGameState,
     onDropCharacter,
     getFocusIntent,
-    getPreviewSlotIndex,
+    getPreviewHubCol,
     getPreviewPlacement,
   } = opts;
 
@@ -95,29 +95,29 @@ export function createCharactersView(opts) {
   // Positioning
   // ---------------------------------------------------------------------------
 
-  // Centre above a permanent card at slotIndex
-  function getBasePosForSlotIndex(slotIndex) {
+  // Centre above a permanent card at hubCol
+  function getBasePosForHubCol(hubCol) {
     const cols = getBoardColsSafe();
 
-    if (!cols || slotIndex == null || slotIndex < 0 || slotIndex >= cols) {
-      return { x: 200 + (slotIndex ?? 0) * 220, y: 380 };
+    if (!cols || hubCol == null || hubCol < 0 || hubCol >= cols) {
+      return { x: 200 + (hubCol ?? 0) * 220, y: 380 };
     }
 
-    const pos = layoutPermPos(app.screen.width, slotIndex);
+    const pos = layoutPermPos(app.screen.width, hubCol);
     const centerX = pos.x + PERM_WIDTH / 2;
     const topY = pos.y;
     return { x: centerX, y: topY - 30 };
   }
 
-  // Centre above an env tile at tileCol
-  function getBasePosForTileCol(tileCol) {
+  // Centre above an env tile at envCol
+  function getBasePosForEnvCol(envCol) {
     const cols = getBoardColsSafe();
-    if (!cols || tileCol == null || tileCol < 0 || tileCol >= cols) {
-      return { x: 200 + (tileCol ?? 0) * 220, y: 220 };
+    if (!cols || envCol == null || envCol < 0 || envCol >= cols) {
+      return { x: 200 + (envCol ?? 0) * 220, y: 220 };
     }
     const pos = layoutBoardColPos(
       app.screen.width,
-      tileCol,
+      envCol,
       TILE_WIDTH,
       TILE_ROW_Y
     );
@@ -162,32 +162,32 @@ export function createCharactersView(opts) {
       let placement = null;
       if (typeof getPreviewPlacement === "function") {
         placement = getPreviewPlacement(char.id);
-      } else if (typeof getPreviewSlotIndex === "function") {
-        const overrideIdx = getPreviewSlotIndex(char.id);
-        if (overrideIdx != null) placement = { slotIndex: overrideIdx };
+      } else if (typeof getPreviewHubCol === "function") {
+        const overrideIdx = getPreviewHubCol(char.id);
+        if (overrideIdx != null) placement = { hubCol: overrideIdx };
       }
 
-      const tileCol = placement
-        ? Number.isFinite(placement.tileCol)
-          ? placement.tileCol
+      const envCol = placement
+        ? Number.isFinite(placement.envCol)
+          ? placement.envCol
           : null
-        : Number.isFinite(char.tileCol)
-        ? char.tileCol
+        : Number.isFinite(char.envCol)
+        ? char.envCol
         : null;
-      const slotIndex = placement
-        ? Number.isFinite(placement.slotIndex)
-          ? placement.slotIndex
+      const hubCol = placement
+        ? Number.isFinite(placement.hubCol)
+          ? placement.hubCol
           : null
-        : Number.isFinite(char.slotIndex)
-        ? char.slotIndex
+        : Number.isFinite(char.hubCol)
+        ? char.hubCol
         : null;
 
-      const row = Number.isFinite(tileCol)
+      const row = Number.isFinite(envCol)
         ? "env"
-        : Number.isFinite(slotIndex)
+        : Number.isFinite(hubCol)
         ? "hub"
         : null;
-      const col = Number.isFinite(tileCol) ? tileCol : slotIndex;
+      const col = Number.isFinite(envCol) ? envCol : hubCol;
       if (row == null || col == null) continue;
 
       const key = `${row}:${col}`;
@@ -202,8 +202,8 @@ export function createCharactersView(opts) {
     for (const entry of slotsToChars.values()) {
       const base =
         entry.row === "env"
-          ? getBasePosForTileCol(entry.col)
-          : getBasePosForSlotIndex(entry.col);
+          ? getBasePosForEnvCol(entry.col)
+          : getBasePosForHubCol(entry.col);
       const n = entry.list.length;
       if (n === 0) continue;
 
@@ -226,9 +226,9 @@ export function createCharactersView(opts) {
   function createCharacterView(char) {
     const container = new PIXI.Container();
 
-    const pos = Number.isFinite(char.tileCol)
-      ? getBasePosForTileCol(char.tileCol)
-      : getBasePosForSlotIndex(char.slotIndex);
+    const pos = Number.isFinite(char.envCol)
+      ? getBasePosForEnvCol(char.envCol)
+      : getBasePosForHubCol(char.hubCol);
     container.x = pos.x;
     container.y = pos.y;
 
@@ -426,13 +426,13 @@ export function createCharactersView(opts) {
     }
 
     if (intent && intent.kind === "pawnMove") {
-      const fromSlot = intent.fromPlacement?.slotIndex;
-      const fromTile = intent.fromPlacement?.tileCol;
-      if (fromSlot != null || fromTile != null) {
+      const fromHub = intent.fromPlacement?.hubCol;
+      const fromEnv = intent.fromPlacement?.envCol;
+      if (fromHub != null || fromEnv != null) {
         const pos =
-          fromTile != null
-            ? getBasePosForTileCol(fromTile)
-            : getBasePosForSlotIndex(fromSlot);
+          fromEnv != null
+            ? getBasePosForEnvCol(fromEnv)
+            : getBasePosForHubCol(fromHub);
         if (!focusGhost) {
           focusGhost = new PIXI.Graphics();
           focusGhost.lineStyle(2, 0x7fd0ff, 1);

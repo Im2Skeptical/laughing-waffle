@@ -309,5 +309,5 @@ type EnvEventInstance = {
 
 ```
 
-CmdSetTileTagOrder { tileCol: number, tagIds: string[] }
+CmdSetTileTagOrder { envCol: number, tagIds: string[] }
 

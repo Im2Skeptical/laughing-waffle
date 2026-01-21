@@ -218,10 +218,10 @@ const charactersView = createCharactersView({
   inventoryView,
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
-  getPreviewSlotIndex: (charId) =>
+  getPreviewHubCol: (charId) =>
     runner.isPreviewing?.()
       ? null
-      : actionPlanner?.getCharacterOverrideSlot?.(charId) ?? null,
+      : actionPlanner?.getCharacterOverrideHubCol?.(charId) ?? null,
   getPreviewPlacement: (charId) =>
     runner.isPreviewing?.()
       ? null
@@ -252,14 +252,14 @@ const charactersView = createCharactersView({
     if (targetRow === "env") {
       actionPlanner?.setPawnMoveIntent?.({
         charId,
-        toTileCol: bestIndex,
+        toEnvCol: bestIndex,
       });
       return;
     }
 
     actionPlanner?.setPawnMoveIntent?.({
       charId,
-      toSlotIndex: bestIndex,
+      toHubCol: bestIndex,
     });
   },
 });

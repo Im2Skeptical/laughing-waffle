@@ -26,7 +26,7 @@ import {
   cmdTickSimulation,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
-  cmdPlaceCharacterInSlot,
+  cmdPlaceCharacter,
   cmdSetPaused,
   cmdSetTileTagOrder,
   canOwnerAcceptItem,
@@ -57,7 +57,7 @@ export function updateGame(dt, state) {
     const ops =
       runBehaviorsOnInstance(perm, def, dt, s, {
         kind: "permanent",
-        slotIndex: i,
+        hubCol: i,
       }) || [];
 
     for (const op of ops) {
@@ -126,8 +126,8 @@ export function tryMoveItemBetweenOwners(state, args) {
   return cmdMoveItemBetweenOwners(state, args);
 }
 
-export function placeCharacterInSlot(state, args) {
-  return cmdPlaceCharacterInSlot(state, args);
+export function placeCharacter(state, args) {
+  return cmdPlaceCharacter(state, args);
 }
 
 export function splitStackAndPlace(state, args) {
@@ -175,7 +175,7 @@ export {
   cmdTickSimulation,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
-  cmdPlaceCharacterInSlot,
+  cmdPlaceCharacter,
   cmdSetPaused,
   cmdSetTileTagOrder,
   canOwnerAcceptItem,

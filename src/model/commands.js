@@ -217,11 +217,11 @@ export function cmdSetPaused(state, paused) {
 // TILE TAG ORDERING
 // =============================================================================
 
-export function cmdSetTileTagOrder(state, { tileCol, tagIds }) {
-  if (!Number.isFinite(tileCol)) return { ok: false, reason: "badTileCol" };
+export function cmdSetTileTagOrder(state, { envCol, tagIds }) {
+  if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
   if (!Array.isArray(tagIds)) return { ok: false, reason: "badTagIds" };
 
-  const col = Math.floor(tileCol);
+  const col = Math.floor(envCol);
   const tile = state.board?.occ?.tile?.[col];
   if (!tile) return { ok: false, reason: "noTile" };
 
@@ -245,7 +245,7 @@ export function cmdSetTileTagOrder(state, { tileCol, tagIds }) {
   }
 
   tile.tags = ordered;
-  return { ok: true, result: "tagOrderSet", tileCol: col };
+  return { ok: true, result: "tagOrderSet", envCol: col };
 }
 
 // =============================================================================
@@ -352,24 +352,24 @@ export function cmdStackItemsInOwner(
 // CHARACTER PLACEMENT
 // =============================================================================
 
-export function cmdPlaceCharacterInSlot(state, payload = {}) {
-  const { charId, slotIndex } = payload;
+export function cmdPlaceCharacter(state, payload = {}) {
+  const { charId, hubCol } = payload;
   const ch = state.characters.find((c) => c.id === charId);
   if (!ch) return { ok: false, reason: "noCharacter" };
 
   const toPlacement =
     payload.toPlacement ||
-    (Number.isFinite(payload.toTileCol) || Number.isFinite(payload.tileCol)
+    (Number.isFinite(payload.toEnvCol) || Number.isFinite(payload.envCol)
       ? {
-          tileCol: Number.isFinite(payload.toTileCol)
-            ? payload.toTileCol
-            : payload.tileCol,
+          envCol: Number.isFinite(payload.toEnvCol)
+            ? payload.toEnvCol
+            : payload.envCol,
         }
-      : Number.isFinite(payload.toSlotIndex) || Number.isFinite(slotIndex)
+      : Number.isFinite(payload.toHubCol) || Number.isFinite(hubCol)
       ? {
-          slotIndex: Number.isFinite(payload.toSlotIndex)
-            ? payload.toSlotIndex
-            : slotIndex,
+          hubCol: Number.isFinite(payload.toHubCol)
+            ? payload.toHubCol
+            : hubCol,
         }
       : null);
 
@@ -377,10 +377,10 @@ export function cmdPlaceCharacterInSlot(state, payload = {}) {
     return { ok: false, reason: "badPlacement" };
   }
 
-  const isEnvTarget = Number.isFinite(toPlacement.tileCol);
-  const rawCol = isEnvTarget ? toPlacement.tileCol : toPlacement.slotIndex;
+  const isEnvTarget = Number.isFinite(toPlacement.envCol);
+  const rawCol = isEnvTarget ? toPlacement.envCol : toPlacement.hubCol;
   if (!Number.isFinite(rawCol)) {
-    return { ok: false, reason: "badSlotIndex" };
+    return { ok: false, reason: "badHubCol" };
   }
   const col = Math.floor(rawCol);
   const cols = Number.isFinite(state?.board?.cols)
@@ -389,7 +389,9 @@ export function cmdPlaceCharacterInSlot(state, payload = {}) {
       ? state.permanentSlots.length
       : 0;
 
-  if (col < 0 || col >= cols) return { ok: false, reason: "badSlotIndex" };
+  if (col < 0 || col >= cols) {
+    return { ok: false, reason: isEnvTarget ? "badEnvCol" : "badHubCol" };
+  }
 
   if (isEnvTarget) {
     const tile = state?.board?.occ?.tile?.[col] ?? null;
@@ -402,14 +404,14 @@ export function cmdPlaceCharacterInSlot(state, payload = {}) {
         return { ok: false, reason: "tileBlocked" };
       }
     }
-    ch.tileCol = col;
-    ch.slotIndex = null;
-    return { ok: true, result: "placed", charId, tileCol: col };
+    ch.envCol = col;
+    ch.hubCol = null;
+    return { ok: true, result: "placed", charId, envCol: col };
   }
 
-  ch.slotIndex = col;
-  ch.tileCol = null;
-  return { ok: true, result: "placed", charId, slotIndex: col };
+  ch.hubCol = col;
+  ch.envCol = null;
+  return { ok: true, result: "placed", charId, hubCol: col };
 }
 
 // =============================================================================

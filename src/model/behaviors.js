@@ -18,7 +18,7 @@ export const triggerHandlers = {
 const MAX_TIMED_TRIGGER_FIRES_PER_UPDATE = 8;
 
 // ctx (optional):
-// - { kind: "permanent", slotIndex: number } for permanent slots
+// - { kind: "permanent", hubCol: number } for hub slots
 // - { kind: "env" } for env slots
 export function runBehaviorsOnInstance(instance, def, dt, state, ctx = null) {
   const ops = [];
@@ -42,14 +42,14 @@ export function runBehaviorsOnInstance(instance, def, dt, state, ctx = null) {
 function preconditionsPass(beh, state, ctx) {
   if (beh.requiresOccupant) {
     if (!ctx || ctx.kind !== "permanent") return false;
-    const slotIndex = ctx.slotIndex;
-    if (typeof slotIndex !== "number") return false;
+    const hubCol = ctx.hubCol;
+    if (typeof hubCol !== "number") return false;
 
     const hasChar = state.characters?.some(
       (c) =>
-        Number.isFinite(c.slotIndex) &&
-        c.tileCol == null &&
-        c.slotIndex === slotIndex
+        Number.isFinite(c.hubCol) &&
+        c.envCol == null &&
+        c.hubCol === hubCol
     );
     if (!hasChar) return false;
   }
@@ -75,7 +75,7 @@ function handleTimedTrigger(entity, def, props, dt, state, ctx) {
     return null;
 
   const targetKind = ctx?.kind === "permanent" ? "permanent" : "env";
-  const slotIndex = ctx?.kind === "permanent" ? ctx.slotIndex : undefined;
+  const hubCol = ctx?.kind === "permanent" ? ctx.hubCol : undefined;
 
   // Compute fires deterministically, with a cap.
   const timerAfter = startTimer - dt;
@@ -110,7 +110,7 @@ function handleTimedTrigger(entity, def, props, dt, state, ctx) {
     prop: timerKey,
     value: newTimer,
   };
-  if (slotIndex != null) setTimerOp.slotIndex = slotIndex;
+  if (hubCol != null) setTimerOp.hubCol = hubCol;
 
   if (ops.length === 0) return setTimerOp;
   ops.push(setTimerOp);
@@ -123,7 +123,7 @@ function handleTimedLife(entity, def, props, dt, state, ctx) {
   if (!timerKey || eprops[timerKey] == null) return null;
 
   const targetKind = ctx?.kind === "permanent" ? "permanent" : "env";
-  const slotIndex = ctx?.kind === "permanent" ? ctx.slotIndex : undefined;
+  const hubCol = ctx?.kind === "permanent" ? ctx.hubCol : undefined;
 
   const timer = eprops[timerKey] - dt;
   if (timer <= 0) {
@@ -131,7 +131,7 @@ function handleTimedLife(entity, def, props, dt, state, ctx) {
   }
 
   const op = { op: "SetProp", targetKind, prop: timerKey, value: timer };
-  if (slotIndex != null) op.slotIndex = slotIndex;
+  if (hubCol != null) op.hubCol = hubCol;
   return op;
 }
 
@@ -145,7 +145,7 @@ function handleTimedTransform(entity, def, props, dt, state, ctx) {
   if (!timerKey || !targetDefId || eprops[timerKey] == null) return null;
 
   const targetKind = ctx?.kind === "permanent" ? "permanent" : "env";
-  const slotIndex = ctx?.kind === "permanent" ? ctx.slotIndex : undefined;
+  const hubCol = ctx?.kind === "permanent" ? ctx.hubCol : undefined;
 
   const timer = eprops[timerKey] - dt;
   if (timer <= 0) {
@@ -153,7 +153,7 @@ function handleTimedTransform(entity, def, props, dt, state, ctx) {
   }
 
   const op = { op: "SetProp", targetKind, prop: timerKey, value: timer };
-  if (slotIndex != null) op.slotIndex = slotIndex;
+  if (hubCol != null) op.hubCol = hubCol;
   return op;
 }
 
@@ -205,12 +205,8 @@ function handleMineFuelTrigger(entity, def, state) {
 export function resetTimedTriggersOnPermanents(state) {
   const ops = [];
 
-  for (
-    let slotIndex = 0;
-    slotIndex < state.permanentSlots.length;
-    slotIndex++
-  ) {
-    const slot = state.permanentSlots[slotIndex];
+  for (let hubCol = 0; hubCol < state.permanentSlots.length; hubCol++) {
+    const slot = state.permanentSlots[hubCol];
     const perm = slot.permanent;
     if (!perm) continue;
 
@@ -233,14 +229,14 @@ export function resetTimedTriggersOnPermanents(state) {
         ops.push({
           op: "SetProp",
           targetKind: "permanent",
-          slotIndex,
+          hubCol,
           prop: periodKey,
           value: newPeriod,
         });
         ops.push({
           op: "SetProp",
           targetKind: "permanent",
-          slotIndex,
+          hubCol,
           prop: timerKey,
           value: newPeriod,
         });

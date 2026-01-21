@@ -40,7 +40,7 @@ export function layoutBoardColPos(screenWidth, col, width, rowY) {
 }
 
 /**
- * Returns the top-left position of the permanent slot card at index i.
+ * Returns the top-left position of the hub slot card at index i.
  * @param {number} screenWidth
  * @param {number} i
  */

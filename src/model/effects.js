@@ -508,10 +508,10 @@ export function runEffect(state, rawEffect, context) {
       }
 
       if (context.kind === "game" && effect.targetKind === "permanent") {
-        const slotIndex = effect.slotIndex;
-        if (typeof slotIndex !== "number") return false;
+        const hubCol = effect.hubCol;
+        if (typeof hubCol !== "number") return false;
 
-        const slot = state.permanentSlots?.[slotIndex];
+        const slot = state.permanentSlots?.[hubCol];
         const perm = slot?.permanent;
         if (!perm) return false;
 
@@ -561,10 +561,10 @@ export function runEffect(state, rawEffect, context) {
       }
 
       if (context.kind === "game" && effect.targetKind === "permanent") {
-        const slotIndex = effect.slotIndex;
-        if (typeof slotIndex !== "number") return false;
+        const hubCol = effect.hubCol;
+        if (typeof hubCol !== "number") return false;
 
-        const slot = state.permanentSlots?.[slotIndex];
+        const slot = state.permanentSlots?.[hubCol];
         const perm = slot?.permanent;
         if (!perm) return false;
 

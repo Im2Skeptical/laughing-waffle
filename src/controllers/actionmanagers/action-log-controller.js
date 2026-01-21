@@ -25,19 +25,19 @@ function formatPawnName(charId, state) {
   return ch?.name || `Char ${charId}`;
 }
 
-function formatSlotName(slotIndex, state) {
+function formatHubName(hubCol, state) {
   const slots = state?.permanentSlots || [];
-  const slot = slots[slotIndex];
+  const slot = slots[hubCol];
   const perm = slot?.permanent;
   if (perm) {
     const def = permanentDefs[perm.defId];
-    return def?.name || def?.id || `Slot ${slotIndex}`;
+    return def?.name || def?.id || `Hub ${hubCol}`;
   }
-  return `Slot ${slotIndex}`;
+  return `Hub ${hubCol}`;
 }
 
-function formatTileName(tileCol, state) {
-  const col = Math.floor(tileCol);
+function formatTileName(envCol, state) {
+  const col = Math.floor(envCol);
   const tile = state?.board?.occ?.tile?.[col];
   const def = tile ? envTileDefs[tile.defId] : null;
   return def?.name || tile?.defId || `Tile ${col}`;
@@ -45,11 +45,11 @@ function formatTileName(tileCol, state) {
 
 function formatPlacementName(placement, state) {
   if (!placement) return "Location";
-  if (Number.isFinite(placement.tileCol)) {
-    return formatTileName(placement.tileCol, state);
+  if (Number.isFinite(placement.envCol)) {
+    return formatTileName(placement.envCol, state);
   }
-  if (Number.isFinite(placement.slotIndex)) {
-    return formatSlotName(placement.slotIndex, state);
+  if (Number.isFinite(placement.hubCol)) {
+    return formatHubName(placement.hubCol, state);
   }
   return "Location";
 }
@@ -57,18 +57,18 @@ function formatPlacementName(placement, state) {
 function resolvePlacementFromPayload(payload) {
   if (!payload || typeof payload !== "object") return null;
   if (payload.toPlacement) return payload.toPlacement;
-  if (Number.isFinite(payload.toTileCol) || Number.isFinite(payload.tileCol)) {
+  if (Number.isFinite(payload.toEnvCol) || Number.isFinite(payload.envCol)) {
     return {
-      tileCol: Number.isFinite(payload.toTileCol)
-        ? payload.toTileCol
-        : payload.tileCol,
+      envCol: Number.isFinite(payload.toEnvCol)
+        ? payload.toEnvCol
+        : payload.envCol,
     };
   }
-  if (Number.isFinite(payload.toSlotIndex) || Number.isFinite(payload.slotIndex)) {
+  if (Number.isFinite(payload.toHubCol) || Number.isFinite(payload.hubCol)) {
     return {
-      slotIndex: Number.isFinite(payload.toSlotIndex)
-        ? payload.toSlotIndex
-        : payload.slotIndex,
+      hubCol: Number.isFinite(payload.toHubCol)
+        ? payload.toHubCol
+        : payload.hubCol,
     };
   }
   return null;

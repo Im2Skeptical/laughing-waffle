@@ -3,7 +3,7 @@
 // Centralizes dispatch, validation, and legacy alias handling.
 
 import {
-  cmdPlaceCharacterInSlot,
+  cmdPlaceCharacter,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
@@ -102,7 +102,7 @@ export function applyAction(state, action, context = {}) {
 
   switch (kind) {
     case ActionKinds.PLACE_CHARACTER:
-      result = cmdPlaceCharacterInSlot(state, payload);
+      result = cmdPlaceCharacter(state, payload);
       break;
 
     case ActionKinds.INVENTORY_MOVE:

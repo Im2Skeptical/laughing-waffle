@@ -67,22 +67,19 @@ export function createInitialState(scenario = "testing", seed = null) {
 
   // characters
   state.characters = (setup.characters || []).map((c, index) => {
-    const wantsEnvRow =
-      c?.row === "env" || Number.isFinite(c?.tileCol) || Number.isFinite(c?.envCol);
+    const wantsEnvRow = c?.row === "env" || Number.isFinite(c?.envCol);
     const envCol = wantsEnvRow
-      ? getColIndex(
-          { ...c, col: c.tileCol ?? c.envCol ?? c.col },
-          index,
-          boardCols
-        )
+      ? getColIndex({ envCol: c.envCol }, index, boardCols)
       : null;
-    const hubCol = wantsEnvRow ? null : getColIndex(c, index, boardCols);
+    const hubCol = wantsEnvRow
+      ? null
+      : getColIndex({ hubCol: c.hubCol }, index, boardCols);
     return {
       id: state.nextCharacterId++,
       name: c.name,
       color: c.color,
-      slotIndex: hubCol,
-      tileCol: envCol,
+      hubCol,
+      envCol,
       props: {},
     };
   });
@@ -152,7 +149,7 @@ function applySetupInventories(state, setup) {
 
     if (owner.type === "permanent") {
       const idx =
-        Number.isFinite(owner.col) || Number.isFinite(owner.slotIndex)
+        Number.isFinite(owner.hubCol)
           ? getColIndex(owner, owner.index ?? 0, permIdsInOrder.length)
           : owner.index;
       ownerId = permIdsInOrder[idx];
@@ -210,8 +207,13 @@ function ensureBoardCols(state, cols) {
 }
 
 function getColIndex(spec, fallback, maxCols) {
-  const raw =
-    Number.isFinite(spec?.col) ? spec.col : Number.isFinite(spec?.slotIndex) ? spec.slotIndex : fallback;
+  const raw = Number.isFinite(spec?.hubCol)
+    ? spec.hubCol
+    : Number.isFinite(spec?.envCol)
+    ? spec.envCol
+    : Number.isFinite(spec?.col)
+    ? spec.col
+    : fallback;
   const col = Number.isFinite(raw) ? Math.floor(raw) : 0;
   if (Number.isFinite(maxCols) && maxCols > 0) {
     return Math.max(0, Math.min(maxCols - 1, col));
@@ -234,13 +236,13 @@ function buildPermanentSlots(setup, boardCols, state) {
           ? Math.floor(def.defaultSpan)
           : 1;
     if (span > boardCols) continue;
-    let col = getColIndex(spec, i, boardCols);
-    if (col < 0 || col >= boardCols) continue;
-    if (col + span > boardCols) col = boardCols - span;
+    let hubCol = getColIndex(spec, i, boardCols);
+    if (hubCol < 0 || hubCol >= boardCols) continue;
+    if (hubCol + span > boardCols) hubCol = boardCols - span;
 
     let blocked = false;
     for (let offset = 0; offset < span; offset++) {
-      if (occupiedBy[col + offset] != null) {
+      if (occupiedBy[hubCol + offset] != null) {
         blocked = true;
         break;
       }
@@ -248,13 +250,13 @@ function buildPermanentSlots(setup, boardCols, state) {
     if (blocked) continue;
 
     const permanent = makePermanentInstance(spec.defId, state);
-    slots[col] = {
+    slots[hubCol] = {
       x: spec.x,
       y: spec.y,
       permanent,
     };
     for (let offset = 0; offset < span; offset++) {
-      occupiedBy[col + offset] = permanent.instanceId;
+      occupiedBy[hubCol + offset] = permanent.instanceId;
     }
   }
   return slots;

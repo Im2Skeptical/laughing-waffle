@@ -170,12 +170,12 @@ export function createBoardView(opts) {
   // Tag reorder helper
   // --------------------------------------------------------
 
-  function tryReorderTag(tileCol, tagIndex, direction) {
+  function tryReorderTag(envCol, tagIndex, direction) {
     if (!dispatchAction) return;
     if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
 
     const state = getGameState?.();
-    const tile = state?.board?.occ?.tile?.[tileCol];
+    const tile = state?.board?.occ?.tile?.[envCol];
     const tags = Array.isArray(tile?.tags) ? tile.tags.slice() : [];
     if (tags.length < 2) return;
 
@@ -187,7 +187,7 @@ export function createBoardView(opts) {
     tags[nextIndex] = tmp;
 
     dispatchAction(ActionKinds.SET_TILE_TAG_ORDER, {
-      tileCol,
+      envCol,
       tagIds: tags,
     });
   }
@@ -573,8 +573,8 @@ export function createBoardView(opts) {
     const counts = new Array(countLen).fill(0);
     const chars = Array.isArray(state?.characters) ? state.characters : [];
     for (const ch of chars) {
-      const col = Number.isFinite(ch?.tileCol)
-        ? Math.floor(ch.tileCol)
+      const col = Number.isFinite(ch?.envCol)
+        ? Math.floor(ch.envCol)
         : null;
       if (col == null || col < 0 || col >= counts.length) continue;
       counts[col] += 1;
