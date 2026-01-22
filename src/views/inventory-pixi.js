@@ -20,6 +20,19 @@ const INNER_PADDING = 8;
 const DEFAULT_COLS = 5;
 const DEFAULT_ROWS = 3;
 const DEFAULT_CELL_SIZE = 40;
+const ITEM_TIER_BORDER_WIDTH = 2;
+const ITEM_TIER_BORDER_COLORS = {
+  bronze: 0x8b6a3f,
+  silver: 0xbfc9d9,
+  gold: 0xf2d16b,
+  diamond: 0x7fd0ff,
+  default: 0x6f6f6f,
+};
+
+function getItemTierBorderColor(item, def) {
+  const tier = item?.tier ?? def?.defaultTier ?? null;
+  return ITEM_TIER_BORDER_COLORS[tier] ?? ITEM_TIER_BORDER_COLORS.default;
+}
 
 export function createInventoryView({
   layer,
@@ -463,6 +476,7 @@ export function createInventoryView({
 
     const def = itemDefs[item.kind];
     const color = def?.color ?? 0x999999;
+    const borderColor = getItemTierBorderColor(item, def);
 
     const box = new PIXI.Graphics();
     box.beginFill(color);
@@ -475,6 +489,17 @@ export function createInventoryView({
     );
     box.endFill();
     c.addChild(box);
+
+    const border = new PIXI.Graphics();
+    border.lineStyle(ITEM_TIER_BORDER_WIDTH, borderColor, 1);
+    border.drawRoundedRect(
+      0,
+      0,
+      item.width * cellSize - 2,
+      item.height * cellSize - 2,
+      5
+    );
+    c.addChild(border);
 
     c.bg = box;
     c.bg.__baseTint = 0xffffff;
@@ -644,6 +669,13 @@ export function createInventoryView({
     const c = new PIXI.Container();
     c.addChild(g);
     c.zIndex = 9999;
+
+    const def = itemDefs[item.kind];
+    const borderColor = getItemTierBorderColor(item, def);
+    const border = new PIXI.Graphics();
+    border.lineStyle(ITEM_TIER_BORDER_WIDTH, borderColor, 1);
+    border.drawRoundedRect(0, 0, w - 2, h - 2, 5);
+    c.addChild(border);
 
     const global = win.body.toGlobal({
       x: item.gridX * cellSize,
