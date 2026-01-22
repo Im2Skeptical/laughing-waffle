@@ -5,6 +5,7 @@
 import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import {
   BOARD_COLS,
@@ -78,6 +79,7 @@ export function createBoardView(opts) {
   const TAG_PILL_PAD_X = 8;
   const TAG_PILL_GAP = 4;
   const TAG_PILL_MAX_WIDTH = TILE_WIDTH - 16;
+  const TAG_PILL_WIDTH = TAG_PILL_MAX_WIDTH;
   const TAG_PILL_BG = 0x1f263d;
   const TAG_PILL_BORDER = 0x101524;
   const TAG_PILL_TEXT = 0xe6eef9;
@@ -370,20 +372,18 @@ export function createBoardView(opts) {
   }
 
   function buildTagLozenge(tag) {
+    const label = getTagLabel(tag);
     const container = new PIXI.Container();
     container.eventMode = "static";
     container.cursor = "grab";
 
-    const text = new PIXI.Text(tag, {
+    const text = new PIXI.Text(label, {
       fill: TAG_PILL_TEXT,
       fontSize: 10,
       wordWrap: false,
     });
 
-    const width = Math.min(
-      TAG_PILL_MAX_WIDTH,
-      Math.ceil(text.width + TAG_PILL_PAD_X * 2)
-    );
+    const width = TAG_PILL_WIDTH;
     const height = TAG_PILL_HEIGHT;
 
     const bg = new PIXI.Graphics()
@@ -392,7 +392,7 @@ export function createBoardView(opts) {
       .drawRoundedRect(0, 0, width, height, TAG_PILL_RADIUS)
       .endFill();
 
-    text.x = TAG_PILL_PAD_X;
+    text.x = Math.round((width - text.width) / 2);
     text.y = Math.round((height - text.height) / 2);
 
     container.addChild(bg, text);
@@ -558,6 +558,11 @@ export function createBoardView(opts) {
     return { def, title, desc, color, tags };
   }
 
+  function getTagLabel(tagId) {
+    const def = envTagDefs[tagId];
+    return def?.ui?.name || tagId;
+  }
+
   function getEventUi(eventInst) {
     const def = envEventDefs[eventInst.defId];
     const title = def?.name || eventInst.defId || "Event";
@@ -679,7 +684,9 @@ export function createBoardView(opts) {
     }
 
     const rowStep = TAG_PILL_HEIGHT + TAG_PILL_GAP;
-    const maxY = TILE_HEIGHT - view.tagStartY - TAG_PILL_HEIGHT;
+    const tagMaxY =
+      typeof view.tagMaxY === "number" ? view.tagMaxY : TILE_HEIGHT - 12;
+    const maxY = Math.max(0, tagMaxY - view.tagStartY - TAG_PILL_HEIGHT);
 
     let y = 0;
     for (let i = 0; i < tags.length; i++) {
@@ -762,15 +769,16 @@ export function createBoardView(opts) {
       wordWrapWidth: TILE_WIDTH - 12,
     });
     descText.x = 6;
-    descText.y = titleText.y + titleText.height + 2;
+    descText.y = Math.max(6, TILE_HEIGHT - descText.height - 6);
     content.addChild(descText);
 
     const tagContainer = new PIXI.Container();
-    const tagStartY = Math.min(
-      TILE_HEIGHT - 14,
-      descText.y + descText.height + 2
+    const tagStartY = titleText.y + titleText.height + 4;
+    const tagMaxY = descText.y - 6;
+    tagContainer.x = Math.max(
+      0,
+      Math.round((TILE_WIDTH - TAG_PILL_WIDTH) / 2)
     );
-    tagContainer.x = 6;
     tagContainer.y = tagStartY;
     content.addChild(tagContainer);
 
@@ -826,10 +834,11 @@ export function createBoardView(opts) {
         tile: tileInst,
         col,
         setHoverActive,
-        tagContainer,
-        tagStartY,
-        tagSignature: "",
-        tagEntries: [],
+      tagContainer,
+      tagStartY,
+      tagMaxY,
+      tagSignature: "",
+      tagEntries: [],
         tagDrag: null,
         hoverTextNodes,
         hoverTextBaseNodes,

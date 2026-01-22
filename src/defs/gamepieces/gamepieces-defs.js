@@ -69,7 +69,7 @@ export const hubStructureDefs = {
     baseOutput: {},
     defaultSpan: 2,
     tags: ["hubStructure", "storehouse", "hasInventory"],
-    inventory: { cols: 10, rows: 10 },
+    inventory: { cols: 5, rows: 10 },
     behaviors: [],
     ui: {
       title: "Storehouse",

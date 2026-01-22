@@ -5,7 +5,7 @@ export const envTagDefs = {
   farmable: {
     id: "farmable",
     kind: "envTag",
-    ui: { name: "Farmable", description: "Basic crop work." },
+    ui: { name: "Farm", description: "Basic crop work." },
     systems: ["fertility", "hydration", "growth"],
     intents: [
       {
@@ -19,7 +19,7 @@ export const envTagDefs = {
   fishable: {
     id: "fishable",
     kind: "envTag",
-    ui: { name: "Fishable", description: "Accessible fishing grounds." },
+    ui: { name: "Fish", description: "Accessible fishing grounds." },
     systems: ["fishDensity", "hydration"],
     intents: [
       {
@@ -33,7 +33,7 @@ export const envTagDefs = {
   forageable: {
     id: "forageable",
     kind: "envTag",
-    ui: { name: "Forageable", description: "Wild edibles are present." },
+    ui: { name: "Forage", description: "Wild edibles are present." },
     systems: ["growth", "turfDensity"],
     intents: [
       {
@@ -47,7 +47,7 @@ export const envTagDefs = {
   grazable: {
     id: "grazable",
     kind: "envTag",
-    ui: { name: "Grazable", description: "Open turf for herd grazing." },
+    ui: { name: "Graze", description: "Open turf for herd grazing." },
     systems: ["turfDensity", "growth"],
     intents: [
       {
@@ -61,7 +61,7 @@ export const envTagDefs = {
   mineable: {
     id: "mineable",
     kind: "envTag",
-    ui: { name: "Mineable", description: "Exposed seams can be worked." },
+    ui: { name: "Mine", description: "Exposed seams can be worked." },
     systems: ["mineralRarity"],
     intents: [
       {
