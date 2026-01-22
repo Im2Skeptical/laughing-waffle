@@ -13,8 +13,8 @@ export const TILE_WIDTH = 100;
 export const TILE_HEIGHT = 150;
 export const EVENT_WIDTH = 100;
 export const EVENT_HEIGHT = 150;
-export const PERM_WIDTH = 112;
-export const PERM_HEIGHT = 168;
+export const HUB_STRUCTURE_WIDTH = 112;
+export const HUB_STRUCTURE_HEIGHT = 168;
 
 export const GAMEPIECE_HOVER_SCALE = 2.0;
 export const GAMEPIECE_SHADOW_COLOR = 0x000000;
@@ -25,7 +25,7 @@ export const GAMEPIECE_SHADOW_OFFSET_Y = 6;
 export const TILE_ROW_Y = 400;
 export const EVENT_ROW_Y = TILE_ROW_Y + TILE_HEIGHT + 20;
 export const HUB_ROW_Y = EVENT_ROW_Y + EVENT_HEIGHT + 60;
-export const PERM_ROW_Y = HUB_ROW_Y;
+export const HUB_STRUCTURE_ROW_Y = HUB_ROW_Y;
 
 function getBoardTotalWidth() {
   return BOARD_COLS * BOARD_COL_WIDTH + (BOARD_COLS - 1) * BOARD_COL_GAP;
@@ -74,10 +74,15 @@ export function layoutHubColPos(screenWidth, col, width, rowY) {
 }
 
 /**
- * Returns the top-left position of the hub slot card at index i.
+ * Returns the top-left position of the hub structure card at index i.
  * @param {number} screenWidth
  * @param {number} i
  */
-export function layoutPermPos(screenWidth, i) {
-  return layoutHubColPos(screenWidth, i, PERM_WIDTH, PERM_ROW_Y);
+export function layoutHubStructurePos(screenWidth, i) {
+  return layoutHubColPos(
+    screenWidth,
+    i,
+    HUB_STRUCTURE_WIDTH,
+    HUB_STRUCTURE_ROW_Y
+  );
 }

@@ -6,18 +6,18 @@
 // VIEW-ONLY: does NOT depend on model slot.x/slot.y. Positions are derived
 // from the same layout math used by board-pixi.js.
 //
-// Compatibility:
-// - Supports both older opts { getCharacters, getPermanentSlots, interaction, tooltipView, inventoryView, onCharacterDropped }
-// - And newer opts { getGameState, onDropCharacter } (used by current ui-root-pixi.js)
+// Wiring:
+// - opts { getCharacters, getHubSlots, interaction, tooltipView, inventoryView, onCharacterDropped }
+// - Or opts { getGameState, onDropCharacter } (used by current ui-root-pixi.js)
 
 import {
   BOARD_COLS,
   HUB_COLS,
-  PERM_WIDTH,
+  HUB_STRUCTURE_WIDTH,
   TILE_WIDTH,
   TILE_ROW_Y,
   layoutBoardColPos,
-  layoutPermPos,
+  layoutHubStructurePos,
   GAMEPIECE_HOVER_SCALE,
   GAMEPIECE_SHADOW_COLOR,
   GAMEPIECE_SHADOW_ALPHA,
@@ -33,7 +33,7 @@ export function createCharactersView(opts) {
 
     // old shape
     getCharacters,
-    getPermanentSlots,
+    getHubSlots,
     interaction,
     tooltipView,
     inventoryView,
@@ -89,12 +89,12 @@ export function createCharactersView(opts) {
   }
 
   function getHubColsSafe() {
-    if (typeof getPermanentSlots === "function") {
-      const slots = getPermanentSlots() || [];
+    if (typeof getHubSlots === "function") {
+      const slots = getHubSlots() || [];
       if (Array.isArray(slots) && slots.length > 0) return slots.length;
     }
     const s = getStateSafe();
-    const slots = s?.permanentSlots;
+    const slots = s?.hub?.slots;
     if (Array.isArray(slots) && slots.length > 0) return slots.length;
     return HUB_COLS;
   }
@@ -133,7 +133,7 @@ export function createCharactersView(opts) {
     }
     if (
       row === "hub" &&
-      hover.kind === "permanent" &&
+      hover.kind === "hub" &&
       col >= hover.col &&
       col < hover.col + span
     ) {
@@ -214,7 +214,7 @@ export function createCharactersView(opts) {
   // Positioning
   // ---------------------------------------------------------------------------
 
-  // Centre above a permanent card at hubCol
+  // Centre above a hub structure card at hubCol
   function getBasePosForHubCol(hubCol) {
     const cols = getHubColsSafe();
 
@@ -222,8 +222,8 @@ export function createCharactersView(opts) {
       return { x: 200 + (hubCol ?? 0) * 220, y: 380 };
     }
 
-    const pos = layoutPermPos(app.screen.width, hubCol);
-    const centerX = pos.x + PERM_WIDTH / 2;
+    const pos = layoutHubStructurePos(app.screen.width, hubCol);
+    const centerX = pos.x + HUB_STRUCTURE_WIDTH / 2;
     const topY = pos.y;
     return { x: centerX, y: topY - 30 };
   }
@@ -253,7 +253,7 @@ export function createCharactersView(opts) {
       title: char.name || `Character ${char.id ?? ""}`,
       lines: [
         "Moves between hub and env tiles.",
-        "Activates the permanent it sits on in the hub.",
+        "Activates the hub structure it sits on in the hub.",
         "Has its own inventory.",
       ],
     };

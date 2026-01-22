@@ -1,6 +1,6 @@
 // src/views/ui-root-pixi.js
 import { getCurrentSeasonData } from "../model/game-model.js";
-import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
@@ -16,8 +16,8 @@ import { createMetricGraphView } from "./timegraphs-pixi.js";
 import {
   BOARD_COLS,
   HUB_COLS,
-  PERM_HEIGHT,
-  PERM_ROW_Y,
+  HUB_STRUCTURE_HEIGHT,
+  HUB_STRUCTURE_ROW_Y,
   TILE_HEIGHT,
   TILE_ROW_Y,
   getBoardColumnCenterX,
@@ -95,7 +95,7 @@ resizeCanvas();
 const uiLayers = {
   tileLayer: new PIXI.Container(),
   eventLayer: new PIXI.Container(),
-  permanentsLayer: new PIXI.Container(),
+  hubStructuresLayer: new PIXI.Container(),
   characterLayer: new PIXI.Container(),
   controlsLayer: new PIXI.Container(),
   hoverLayer: new PIXI.Container(),
@@ -110,7 +110,7 @@ app.stage.hitArea = app.screen;
 app.stage.addChild(
   uiLayers.tileLayer,
   uiLayers.eventLayer,
-  uiLayers.permanentsLayer,
+  uiLayers.hubStructuresLayer,
   uiLayers.characterLayer,
   uiLayers.controlsLayer,
   uiLayers.hoverLayer,
@@ -143,13 +143,13 @@ const inventoryView = createInventoryView({
   tooltipView,
   getOwnerLabel(ownerId) {
     const state = runner.getState();
-    const permSlot = state.permanentSlots.find(
-      (s) => s.permanent && s.permanent.instanceId === ownerId
+    const hubSlot = state.hub.slots.find(
+      (s) => s.structure && s.structure.instanceId === ownerId
     );
-    if (permSlot) {
-      const perm = permSlot.permanent;
-      const def = permanentDefs[perm.defId];
-      return def?.name || def?.id || `Permanent ${ownerId}`;
+    if (hubSlot) {
+      const structure = hubSlot.structure;
+      const def = hubStructureDefs[structure.defId];
+      return def?.name || def?.id || `Hub ${ownerId}`;
     }
     const ch = state.characters.find((c) => c.id === ownerId);
     if (ch) return ch.name || `Char ${ownerId}`;
@@ -202,7 +202,7 @@ const boardView = createBoardView({
   app,
   tileLayer: uiLayers.tileLayer,
   eventLayer: uiLayers.eventLayer,
-  permanentsLayer: uiLayers.permanentsLayer,
+  hubStructuresLayer: uiLayers.hubStructuresLayer,
   hoverLayer: uiLayers.hoverLayer,
   getGameState: () => runner.getState(),
   interaction: interactionController,
@@ -218,7 +218,7 @@ const charactersView = createCharactersView({
   layer: uiLayers.characterLayer,
   hoverLayer: uiLayers.hoverLayer,
   getCharacters: () => runner.getState().characters,
-  getPermanentSlots: () => runner.getState().permanentSlots,
+  getHubSlots: () => runner.getState().hub.slots,
   getGameState: () => runner.getState(),
   interaction: interactionController,
   tooltipView,
@@ -238,15 +238,15 @@ const charactersView = createCharactersView({
     const envCols = Number.isFinite(state?.board?.cols)
       ? Math.floor(state.board.cols)
       : BOARD_COLS;
-    const hubCols = Array.isArray(state?.permanentSlots)
-      ? state.permanentSlots.length
+    const hubCols = Array.isArray(state?.hub?.slots)
+      ? state.hub.slots.length
       : HUB_COLS;
 
     const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
-    const permCenterY = PERM_ROW_Y + PERM_HEIGHT / 2;
+    const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT / 2;
     const distToTile = Math.abs(dropPos.y - tileCenterY);
-    const distToPerm = Math.abs(dropPos.y - permCenterY);
-    const targetRow = distToTile <= distToPerm ? "env" : "hub";
+    const distToHub = Math.abs(dropPos.y - hubCenterY);
+    const targetRow = distToTile <= distToHub ? "env" : "hub";
 
     const colCount = targetRow === "env" ? envCols : hubCols;
     const getCenterX =
@@ -386,13 +386,13 @@ const actionLogView = createActionLogView({
   onJumpToSecond: (tSec) => runner.browseCursorSecond?.(tSec),
   getOwnerLabel(ownerId) {
     const state = runner.getState();
-    const permSlot = state.permanentSlots.find(
-      (s) => s.permanent && s.permanent.instanceId === ownerId
+    const hubSlot = state.hub.slots.find(
+      (s) => s.structure && s.structure.instanceId === ownerId
     );
-    if (permSlot) {
-      const perm = permSlot.permanent;
-      const def = permanentDefs[perm.defId];
-      return def?.name || def?.id || `Permanent ${ownerId}`;
+    if (hubSlot) {
+      const structure = hubSlot.structure;
+      const def = hubStructureDefs[structure.defId];
+      return def?.name || def?.id || `Hub ${ownerId}`;
     }
     const ch = state.characters.find((c) => c.id === ownerId);
     if (ch) return ch.name || `Char ${ownerId}`;

@@ -1,6 +1,6 @@
 // init.js — scenario/setup assembly (NO core exports here besides init/createInitialState)
 
-import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 
@@ -8,7 +8,7 @@ import {
   createEmptyState,
   makeEnvInstance,
   makeEnvTileInstance,
-  makePermanentInstance,
+  makeHubStructureInstance,
   buildSeasonDeckForCurrentSeason,
   rebuildBoardOccupancy,
 } from "./state.js";
@@ -49,7 +49,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   };
 
   // reset ids for deterministic scenario creation
-  state.nextPermanentInstanceId = 1;
+  state.nextHubStructureInstanceId = 1;
   state.nextEnvInstanceId = 1;
   state.nextItemId = 1;
   state.nextCharacterId = 101;
@@ -57,9 +57,13 @@ export function createInitialState(scenario = "testing", seed = null) {
   const boardCols = getBoardColsFromSetup(setup, state);
   const hubCols = getHubColsFromSetup(setup);
   ensureBoardCols(state, boardCols);
+  if (!state.hub || typeof state.hub !== "object") {
+    state.hub = { cols: hubCols, slots: [] };
+  }
+  state.hub.cols = hubCols;
 
-  // permanents
-  state.permanentSlots = buildPermanentSlots(setup, hubCols, state);
+  // hub structures
+  state.hub.slots = buildHubSlots(setup, hubCols, state);
 
   // env slots
   state.envSlots = (setup.envSlots || []).map((envDefId) => ({
@@ -90,11 +94,11 @@ export function createInitialState(scenario = "testing", seed = null) {
   // inventories
   state.ownerInventories = {};
 
-  // permanent inventories
-  for (const slot of state.permanentSlots) {
-    const perm = slot.permanent;
-    if (!perm) continue;
-    const def = permanentDefs[perm.defId];
+  // hub structure inventories
+  for (const slot of state.hub.slots) {
+    const structure = slot.structure;
+    if (!structure) continue;
+    const def = hubStructureDefs[structure.defId];
     const hasInventory = def?.tags?.includes("hasInventory") && def.inventory;
     if (!hasInventory) continue;
 
@@ -103,7 +107,7 @@ export function createInitialState(scenario = "testing", seed = null) {
     const inv = Inventory.create(cols, rows);
     Inventory.init(inv);
     inv.version = 0;
-    state.ownerInventories[perm.instanceId] = inv;
+    state.ownerInventories[structure.instanceId] = inv;
   }
 
   // character inventories
@@ -139,8 +143,8 @@ function applySetupInventories(state, setup) {
   const invSpecs = setup.inventories || [];
   if (invSpecs.length === 0) return;
 
-  const permIdsInOrder = state.permanentSlots.map(
-    (s) => s?.permanent?.instanceId ?? null
+  const hubStructureIdsInOrder = state.hub.slots.map(
+    (s) => s?.structure?.instanceId ?? null
   );
   const charIdsInOrder = state.characters.map((c) => c.id);
 
@@ -150,14 +154,17 @@ function applySetupInventories(state, setup) {
 
     let ownerId = null;
 
-    if (owner.type === "permanent") {
+    if (owner.type === "hubStructure") {
       const idx =
         Number.isFinite(owner.hubCol)
-          ? getColIndex(owner, owner.index ?? 0, permIdsInOrder.length)
+          ? getColIndex(owner, owner.index ?? 0, hubStructureIdsInOrder.length)
           : owner.index;
-      ownerId = permIdsInOrder[idx];
-    } else if (owner.type === "permanentSlot") {
-      ownerId = permIdsInOrder[getColIndex(owner, owner.index ?? 0, permIdsInOrder.length)];
+      ownerId = hubStructureIdsInOrder[idx];
+    } else if (owner.type === "hubSlot") {
+      ownerId =
+        hubStructureIdsInOrder[
+          getColIndex(owner, owner.index ?? 0, hubStructureIdsInOrder.length)
+        ];
     } else if (owner.type === "character") {
       ownerId = charIdsInOrder[owner.index];
     }
@@ -201,12 +208,12 @@ function ensureBoardCols(state, cols) {
   if (state.board.cols === cols) return;
   state.board.cols = cols;
   if (!state.board.layers) {
-    state.board.layers = { tile: { anchors: [] }, event: { anchors: [] }, permanent: { anchors: [] } };
+    state.board.layers = { tile: { anchors: [] }, event: { anchors: [] } };
   }
   if (!state.board.occ) {
-    state.board.occ = { tile: [], event: [], permanent: [] };
+    state.board.occ = { tile: [], event: [] };
   }
-  for (const layer of ["tile", "event", "permanent"]) {
+  for (const layer of ["tile", "event"]) {
     state.board.occ[layer] = new Array(cols).fill(null);
     if (!state.board.layers[layer]) state.board.layers[layer] = { anchors: [] };
     if (!Array.isArray(state.board.layers[layer].anchors)) {
@@ -230,14 +237,16 @@ function getColIndex(spec, fallback, maxCols) {
   return Math.max(0, col);
 }
 
-function buildPermanentSlots(setup, hubCols, state) {
-  const slots = new Array(hubCols).fill(null).map(() => ({ permanent: null }));
+function buildHubSlots(setup, hubCols, state) {
+  const slots = new Array(hubCols).fill(null).map(() => ({ structure: null }));
   const occupiedBy = new Array(hubCols).fill(null);
-  const specs = Array.isArray(setup.permanents) ? setup.permanents : [];
+  const specs = Array.isArray(setup?.hub?.structures)
+    ? setup.hub.structures
+    : [];
   for (let i = 0; i < specs.length; i++) {
     const spec = specs[i];
     if (!spec?.defId) continue;
-    const def = permanentDefs[spec.defId];
+    const def = hubStructureDefs[spec.defId];
     const span =
       Number.isFinite(spec.span) && spec.span > 0
         ? Math.floor(spec.span)
@@ -258,14 +267,14 @@ function buildPermanentSlots(setup, hubCols, state) {
     }
     if (blocked) continue;
 
-    const permanent = makePermanentInstance(spec.defId, state);
+    const structure = makeHubStructureInstance(spec.defId, state);
     slots[hubCol] = {
       x: spec.x,
       y: spec.y,
-      permanent,
+      structure,
     };
     for (let offset = 0; offset < span; offset++) {
-      occupiedBy[hubCol + offset] = permanent.instanceId;
+      occupiedBy[hubCol + offset] = structure.instanceId;
     }
   }
   return slots;

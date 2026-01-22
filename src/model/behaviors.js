@@ -1,6 +1,6 @@
 // behaviors.js — behaviors return EffectOps (no side channels)
 
-import { envCardDefs, permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envCardDefs, hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 
 export const behaviorHandlers = {
   TimedTrigger: handleTimedTrigger,
@@ -18,7 +18,7 @@ export const triggerHandlers = {
 const MAX_TIMED_TRIGGER_FIRES_PER_UPDATE = 8;
 
 // ctx (optional):
-// - { kind: "permanent", hubCol: number } for hub slots
+// - { kind: "hub", hubCol: number } for hub slots
 // - { kind: "env" } for env slots
 export function runBehaviorsOnInstance(instance, def, dt, state, ctx = null) {
   const ops = [];
@@ -41,7 +41,7 @@ export function runBehaviorsOnInstance(instance, def, dt, state, ctx = null) {
 
 function preconditionsPass(beh, state, ctx) {
   if (beh.requiresOccupant) {
-    if (!ctx || ctx.kind !== "permanent") return false;
+    if (!ctx || ctx.kind !== "hub") return false;
     const hubCol = ctx.hubCol;
     if (typeof hubCol !== "number") return false;
 
@@ -74,8 +74,9 @@ function handleTimedTrigger(entity, def, props, dt, state, ctx) {
   if (typeof startTimer !== "number" || !Number.isFinite(startTimer))
     return null;
 
-  const targetKind = ctx?.kind === "permanent" ? "permanent" : "env";
-  const hubCol = ctx?.kind === "permanent" ? ctx.hubCol : undefined;
+  const isHub = ctx?.kind === "hub";
+  const hubCol = isHub ? ctx.hubCol : null;
+  if (isHub && typeof hubCol !== "number") return null;
 
   // Compute fires deterministically, with a cap.
   const timerAfter = startTimer - dt;
@@ -104,13 +105,8 @@ function handleTimedTrigger(entity, def, props, dt, state, ctx) {
   // over subsequent frames, bounded by the same cap (deterministic backpressure).
   const newTimer = timerAfter + fireCount * period;
 
-  const setTimerOp = {
-    op: "SetProp",
-    targetKind,
-    prop: timerKey,
-    value: newTimer,
-  };
-  if (hubCol != null) setTimerOp.hubCol = hubCol;
+  const setTimerOp = { op: "SetProp", prop: timerKey, value: newTimer };
+  if (isHub) setTimerOp.target = { at: { layer: "hub", col: hubCol } };
 
   if (ops.length === 0) return setTimerOp;
   ops.push(setTimerOp);
@@ -122,16 +118,17 @@ function handleTimedLife(entity, def, props, dt, state, ctx) {
   const { timerKey } = props;
   if (!timerKey || eprops[timerKey] == null) return null;
 
-  const targetKind = ctx?.kind === "permanent" ? "permanent" : "env";
-  const hubCol = ctx?.kind === "permanent" ? ctx.hubCol : undefined;
+  const isHub = ctx?.kind === "hub";
+  const hubCol = isHub ? ctx.hubCol : null;
+  if (isHub && typeof hubCol !== "number") return null;
 
   const timer = eprops[timerKey] - dt;
   if (timer <= 0) {
     return { op: "KillEnv" };
   }
 
-  const op = { op: "SetProp", targetKind, prop: timerKey, value: timer };
-  if (hubCol != null) op.hubCol = hubCol;
+  const op = { op: "SetProp", prop: timerKey, value: timer };
+  if (isHub) op.target = { at: { layer: "hub", col: hubCol } };
   return op;
 }
 
@@ -144,16 +141,17 @@ function handleTimedTransform(entity, def, props, dt, state, ctx) {
   const { timerKey, targetDefId } = props;
   if (!timerKey || !targetDefId || eprops[timerKey] == null) return null;
 
-  const targetKind = ctx?.kind === "permanent" ? "permanent" : "env";
-  const hubCol = ctx?.kind === "permanent" ? ctx.hubCol : undefined;
+  const isHub = ctx?.kind === "hub";
+  const hubCol = isHub ? ctx.hubCol : null;
+  if (isHub && typeof hubCol !== "number") return null;
 
   const timer = eprops[timerKey] - dt;
   if (timer <= 0) {
     return { op: "TransformEnv", targetDefId };
   }
 
-  const op = { op: "SetProp", targetKind, prop: timerKey, value: timer };
-  if (hubCol != null) op.hubCol = hubCol;
+  const op = { op: "SetProp", prop: timerKey, value: timer };
+  if (isHub) op.target = { at: { layer: "hub", col: hubCol } };
   return op;
 }
 
@@ -202,15 +200,16 @@ function handleMineFuelTrigger(entity, def, state) {
 
 // =============================================================================
 
-export function resetTimedTriggersOnPermanents(state) {
+export function resetTimedTriggersOnHubStructures(state) {
   const ops = [];
 
-  for (let hubCol = 0; hubCol < state.permanentSlots.length; hubCol++) {
-    const slot = state.permanentSlots[hubCol];
-    const perm = slot.permanent;
-    if (!perm) continue;
+  const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (let hubCol = 0; hubCol < slots.length; hubCol++) {
+    const slot = slots[hubCol];
+    const structure = slot.structure;
+    if (!structure) continue;
 
-    const def = permanentDefs[perm.defId];
+    const def = hubStructureDefs[structure.defId];
     if (!def?.behaviors) continue;
 
     for (const beh of def.behaviors) {
@@ -219,7 +218,7 @@ export function resetTimedTriggersOnPermanents(state) {
       const { timerKey, periodKey, defaultPeriod } = beh.props || {};
       if (!timerKey || !periodKey) continue;
 
-      const pprops = perm.props;
+      const pprops = structure.props;
       const newPeriod =
         typeof pprops[periodKey] === "number"
           ? pprops[periodKey]
@@ -228,15 +227,13 @@ export function resetTimedTriggersOnPermanents(state) {
       if (typeof newPeriod === "number") {
         ops.push({
           op: "SetProp",
-          targetKind: "permanent",
-          hubCol,
+          target: { at: { layer: "hub", col: hubCol } },
           prop: periodKey,
           value: newPeriod,
         });
         ops.push({
           op: "SetProp",
-          targetKind: "permanent",
-          hubCol,
+          target: { at: { layer: "hub", col: hubCol } },
           prop: timerKey,
           value: newPeriod,
         });

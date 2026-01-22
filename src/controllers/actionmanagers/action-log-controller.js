@@ -1,7 +1,7 @@
 // src/controllers/actionmanagers/action-log-controller.js
 // View-model helpers for action log rows and navigation.
 
-import { itemDefs, permanentDefs } from "../../defs/gamepieces/gamepieces-defs.js";
+import { itemDefs, hubStructureDefs } from "../../defs/gamepieces/gamepieces-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { IntentKinds } from "./action-intents.js";
@@ -26,11 +26,11 @@ function formatPawnName(charId, state) {
 }
 
 function formatHubName(hubCol, state) {
-  const slots = state?.permanentSlots || [];
+  const slots = state?.hub?.slots || [];
   const slot = slots[hubCol];
-  const perm = slot?.permanent;
-  if (perm) {
-    const def = permanentDefs[perm.defId];
+  const structure = slot?.structure;
+  if (structure) {
+    const def = hubStructureDefs[structure.defId];
     return def?.name || def?.id || `Hub ${hubCol}`;
   }
   return `Hub ${hubCol}`;

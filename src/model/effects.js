@@ -86,11 +86,16 @@ function addStackedUnits(state, inv, kind, amount) {
 function resolveBoardTargets(state, targetSpec, context) {
   if (!targetSpec || typeof targetSpec !== "object") return [];
 
+  const getOccLayer = (layer) => {
+    if (layer === "hub") return state.hub?.occ;
+    return state.board?.occ?.[layer];
+  };
+
   if (targetSpec.at && typeof targetSpec.at === "object") {
     const layer = targetSpec.at.layer;
     const col = targetSpec.at.col;
     if (!layer || !Number.isFinite(col)) return [];
-    const occ = state.board?.occ?.[layer];
+    const occ = getOccLayer(layer);
     if (!Array.isArray(occ)) return [];
     const idx = Math.floor(col);
     const target = occ[idx];
@@ -101,7 +106,7 @@ function resolveBoardTargets(state, targetSpec, context) {
     const layer = targetSpec.layer;
     const source = context?.source;
     if (!layer || !source) return [];
-    const occ = state.board?.occ?.[layer];
+    const occ = getOccLayer(layer);
     if (!Array.isArray(occ)) return [];
 
     const startCol = Number.isFinite(source.col) ? Math.floor(source.col) : 0;
@@ -400,8 +405,8 @@ export function runEffect(state, rawEffect, context) {
       const next = anchors.filter((anchor) => {
         if (!anchor) return true;
         if (anchor.instanceId != null && targetIds.has(anchor.instanceId)) {
-          return false;
-        }
+  return false;
+}
         if (targetRefs.has(anchor)) return false;
         return true;
       });
@@ -507,27 +512,27 @@ export function runEffect(state, rawEffect, context) {
         return true;
       }
 
-      if (context.kind === "game" && effect.targetKind === "permanent") {
-        const hubCol = effect.hubCol;
-        if (typeof hubCol !== "number") return false;
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
 
-        const slot = state.permanentSlots?.[hubCol];
-        const perm = slot?.permanent;
-        if (!perm) return false;
-
-        perm.props[prop] = value;
-
-        if (typeof effect.min === "number" && perm.props[prop] < effect.min) {
-          perm.props[prop] = effect.min;
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        if (!target.props || typeof target.props !== "object") {
+          target.props = {};
         }
-        if (typeof effect.max === "number" && perm.props[prop] > effect.max) {
-          perm.props[prop] = effect.max;
-        }
+        target.props[prop] = value;
 
-        return true;
+        if (typeof effect.min === "number" && target.props[prop] < effect.min) {
+          target.props[prop] = effect.min;
+        }
+        if (typeof effect.max === "number" && target.props[prop] > effect.max) {
+          target.props[prop] = effect.max;
+        }
+        changed = true;
       }
 
-      return false;
+      return changed;
     }
 
     case "AddProp": {
@@ -560,27 +565,28 @@ export function runEffect(state, rawEffect, context) {
         return true;
       }
 
-      if (context.kind === "game" && effect.targetKind === "permanent") {
-        const hubCol = effect.hubCol;
-        if (typeof hubCol !== "number") return false;
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
 
-        const slot = state.permanentSlots?.[hubCol];
-        const perm = slot?.permanent;
-        if (!perm) return false;
-
-        perm.props[prop] = (perm.props[prop] ?? 0) + amt;
-
-        if (typeof effect.min === "number" && perm.props[prop] < effect.min) {
-          perm.props[prop] = effect.min;
-        }
-        if (typeof effect.max === "number" && perm.props[prop] > effect.max) {
-          perm.props[prop] = effect.max;
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        if (!target.props || typeof target.props !== "object") {
+          target.props = {};
         }
 
-        return true;
+        target.props[prop] = (target.props[prop] ?? 0) + amt;
+
+        if (typeof effect.min === "number" && target.props[prop] < effect.min) {
+          target.props[prop] = effect.min;
+        }
+        if (typeof effect.max === "number" && target.props[prop] > effect.max) {
+          target.props[prop] = effect.max;
+        }
+        changed = true;
       }
 
-      return false;
+      return changed;
     }
 
     default:

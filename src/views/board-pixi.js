@@ -2,7 +2,7 @@
 // Renders tiles/events on a 12-column board, with a separate hub row layout.
 // VIEW-ONLY: no direct state mutation.
 
-import { permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { ActionKinds } from "../model/actions.js";
@@ -15,8 +15,8 @@ import {
   TILE_HEIGHT,
   EVENT_WIDTH,
   EVENT_HEIGHT,
-  PERM_WIDTH,
-  PERM_HEIGHT,
+  HUB_STRUCTURE_WIDTH,
+  HUB_STRUCTURE_HEIGHT,
   GAMEPIECE_HOVER_SCALE,
   GAMEPIECE_SHADOW_COLOR,
   GAMEPIECE_SHADOW_ALPHA,
@@ -24,7 +24,7 @@ import {
   GAMEPIECE_SHADOW_OFFSET_Y,
   TILE_ROW_Y,
   EVENT_ROW_Y,
-  PERM_ROW_Y,
+  HUB_STRUCTURE_ROW_Y,
   getBoardColumnX,
   getHubColumnX,
   layoutBoardColPos,
@@ -36,7 +36,7 @@ import {
  *  - app: PIXI.Application
  *  - tileLayer: PIXI.Container
  *  - eventLayer: PIXI.Container
- *  - permanentsLayer: PIXI.Container
+ *  - hubStructuresLayer: PIXI.Container
  *  - hoverLayer?: PIXI.Container
  *  - getGameState: () => gameState
  *  - interaction: interactionController
@@ -50,7 +50,7 @@ export function createBoardView(opts) {
     app,
     tileLayer,
     eventLayer,
-    permanentsLayer,
+    hubStructuresLayer,
     hoverLayer,
     getGameState,
     interaction,
@@ -63,12 +63,13 @@ export function createBoardView(opts) {
   const tileViews = [];
   /** @type {Map<number, BoardEventView>} */
   const eventViews = new Map();
-  /** @type {Map<number, BoardPermView>} */
-  const permViews = new Map();
+  /** @type {Map<number, BoardHubStructureView>} */
+  const hubStructureViews = new Map();
+  const hubSlotViews = [];
 
   if (tileLayer) tileLayer.sortableChildren = true;
   if (eventLayer) eventLayer.sortableChildren = true;
-  if (permanentsLayer) permanentsLayer.sortableChildren = true;
+  if (hubStructuresLayer) hubStructuresLayer.sortableChildren = true;
   if (hoverLayer) hoverLayer.sortableChildren = true;
 
   const TAG_PILL_HEIGHT = 16;
@@ -233,14 +234,14 @@ export function createBoardView(opts) {
     tooltipView?.hide?.();
   }
 
-  function clearPermHover(view) {
+  function clearHubStructureHover(view) {
     if (!view) return;
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
     clearHoverContext();
     tooltipView?.hide?.();
-    if (inventoryView && view.permHasInventory?.()) {
-      inventoryView.hideOnHoverOut(view.perm.instanceId);
+    if (inventoryView && view.structureHasInventory?.()) {
+      inventoryView.hideOnHoverOut(view.structure.instanceId);
     }
   }
 
@@ -537,22 +538,26 @@ export function createBoardView(opts) {
     return { def, title, desc, color };
   }
 
-  function getPermUi(permInst) {
-    const def = permanentDefs[permInst.defId];
+  function getHubStructureUi(structureInst) {
+    const def = hubStructureDefs[structureInst.defId];
     const ui = def?.ui || {};
     const title =
-      (typeof ui.title === "function" ? ui.title(permInst, def) : ui.title) ||
+      (typeof ui.title === "function"
+        ? ui.title(structureInst, def)
+        : ui.title) ||
       def?.name ||
-      permInst.defId;
+      structureInst.defId;
     const lines = (ui.lines || [])
-      .map((line) => (typeof line === "function" ? line(permInst, def) : line))
+      .map((line) =>
+        typeof line === "function" ? line(structureInst, def) : line
+      )
       .filter(Boolean);
     const meters = Array.isArray(ui.meters) ? ui.meters : [];
     return { def, title, lines, color: def?.color ?? 0x336699, meters };
   }
 
   // --------------------------------------------------------
-  // Meter helpers (permanents only)
+  // Meter helpers (hub structures only)
   // --------------------------------------------------------
 
   function createMeters(container, meters, inst, startY, maxWidth) {
@@ -931,18 +936,20 @@ export function createBoardView(opts) {
   // Permanent view
   // --------------------------------------------------------
 
-  function buildPermanentView(permInst, col) {
-    const { title, lines, color, meters } = getPermUi(permInst);
+  function buildHubStructureView(structureInst, col) {
+    const { title, lines, color, meters } =
+      getHubStructureUi(structureInst);
     const span =
-      Number.isFinite(permInst.span) && permInst.span > 0
-        ? Math.floor(permInst.span)
+      Number.isFinite(structureInst.span) && structureInst.span > 0
+        ? Math.floor(structureInst.span)
         : 1;
-    const width = PERM_WIDTH * span + HUB_COL_GAP * (span - 1);
-    const height = PERM_HEIGHT;
+    const width = HUB_STRUCTURE_WIDTH * span + HUB_COL_GAP * (span - 1);
+    const height = HUB_STRUCTURE_HEIGHT;
 
     const cont = new PIXI.Container();
     cont.eventMode = "static";
     cont.cursor = "pointer";
+    cont.zIndex = 1;
     const { content, setActive: setHoverActive } = attachHoverFx(
       cont,
       width,
@@ -994,22 +1001,22 @@ export function createBoardView(opts) {
       meterViews = createMeters(
         content,
         meters,
-        permInst,
+        structureInst,
         y + 2,
         width - 14
       ).meterViews;
     }
 
-    function permHasInventory() {
+    function structureHasInventory() {
       const s = getGameState?.();
-      return !!s?.ownerInventories?.[permInst.instanceId];
+      return !!s?.ownerInventories?.[structureInst.instanceId];
     }
 
     const view = {
       container: cont,
-      perm: permInst,
+      structure: structureInst,
       meterViews,
-      permHasInventory,
+      structureHasInventory,
       setHoverActive,
     };
 
@@ -1018,9 +1025,9 @@ export function createBoardView(opts) {
       if (activeTagDrag) return;
       setActiveHover({
         view,
-        kind: "permanent",
+        kind: "hub",
         col,
-        clear: () => clearPermHover(view),
+        clear: () => clearHubStructureHover(view),
       });
       setHoverActive(true);
       elevateForHover(cont);
@@ -1030,15 +1037,15 @@ export function createBoardView(opts) {
         height,
         GAMEPIECE_HOVER_SCALE
       );
-      setHoverContext("permanent", col, span, anchor);
+      setHoverContext("hub", col, span, anchor);
 
       tooltipView?.show?.(
         { title, lines, scale: GAMEPIECE_HOVER_SCALE },
         anchor
       );
 
-      if (inventoryView && permHasInventory()) {
-        inventoryView.showOnHover(permInst.instanceId, {
+      if (inventoryView && structureHasInventory()) {
+        inventoryView.showOnHover(structureInst.instanceId, {
           x: anchor.x,
           y: anchor.y,
           width: anchor.width,
@@ -1053,19 +1060,24 @@ export function createBoardView(opts) {
     });
 
     cont.on("pointertap", () => {
-      if (inventoryView && permHasInventory()) {
-        inventoryView.togglePinned(permInst.instanceId);
+      if (inventoryView && structureHasInventory()) {
+        inventoryView.togglePinned(structureInst.instanceId);
       }
     });
 
     const pos =
       span > 1
-        ? { x: getHubColumnX(app.screen.width, col), y: PERM_ROW_Y }
-        : layoutHubColPos(app.screen.width, col, PERM_WIDTH, PERM_ROW_Y);
+        ? { x: getHubColumnX(app.screen.width, col), y: HUB_STRUCTURE_ROW_Y }
+        : layoutHubColPos(
+            app.screen.width,
+            col,
+            HUB_STRUCTURE_WIDTH,
+            HUB_STRUCTURE_ROW_Y
+          );
     cont.x = pos.x;
     cont.y = pos.y;
 
-    permanentsLayer.addChild(cont);
+    hubStructuresLayer.addChild(cont);
 
     return view;
   }
@@ -1154,39 +1166,98 @@ export function createBoardView(opts) {
       }
   }
 
-  function syncPermanents(state, cols) {
-    const occ = state?.board?.occ?.permanent;
+  function buildHubSlotView(col) {
+    const cont = new PIXI.Container();
+    cont.eventMode = "none";
+    cont.zIndex = 0;
+    const bg = new PIXI.Graphics()
+      .lineStyle(2, 0x2a2f3d, 0.85)
+      .beginFill(0x1a1f2a, 0.35)
+      .drawRoundedRect(
+        0,
+        0,
+        HUB_STRUCTURE_WIDTH,
+        HUB_STRUCTURE_HEIGHT,
+        10
+      )
+      .endFill();
+    cont.addChild(bg);
+
+    const pos = layoutHubColPos(
+      app.screen.width,
+      col,
+      HUB_STRUCTURE_WIDTH,
+      HUB_STRUCTURE_ROW_Y
+    );
+    cont.x = pos.x;
+    cont.y = pos.y;
+
+    hubStructuresLayer.addChild(cont);
+    return cont;
+  }
+
+  function syncHubSlots(cols) {
+    for (let col = 0; col < cols; col++) {
+      let view = hubSlotViews[col];
+      if (!view) {
+        view = buildHubSlotView(col);
+        hubSlotViews[col] = view;
+      } else {
+        const pos = layoutHubColPos(
+          app.screen.width,
+          col,
+          HUB_STRUCTURE_WIDTH,
+          HUB_STRUCTURE_ROW_Y
+        );
+        view.x = pos.x;
+        view.y = pos.y;
+      }
+    }
+
+    for (let i = cols; i < hubSlotViews.length; i++) {
+      removeFromParent(hubSlotViews[i]);
+    }
+    hubSlotViews.length = cols;
+  }
+
+  function syncHubStructures(state, cols) {
+    const occ = state?.hub?.occ;
     const seen = new Set();
 
-    for (let col = 0; col < cols; col++) {
-      const permInst = occ?.[col] || null;
-      if (!permInst) continue;
+    syncHubSlots(cols);
 
-      const anchorCol = Number.isFinite(permInst.col)
-        ? Math.floor(permInst.col)
+    for (let col = 0; col < cols; col++) {
+      const structureInst = occ?.[col] || null;
+      if (!structureInst) continue;
+
+      const anchorCol = Number.isFinite(structureInst.col)
+        ? Math.floor(structureInst.col)
         : col;
       if (anchorCol !== col) continue;
 
-      const id = permInst.instanceId ?? col;
+      const id = structureInst.instanceId ?? col;
       seen.add(id);
 
-        const existing = permViews.get(id);
-        if (!existing || existing.perm.instanceId !== permInst.instanceId) {
+        const existing = hubStructureViews.get(id);
+        if (
+          !existing ||
+          existing.structure.instanceId !== structureInst.instanceId
+        ) {
           if (existing) removeFromParent(existing.container);
-          permViews.set(id, buildPermanentView(permInst, col));
+          hubStructureViews.set(id, buildHubStructureView(structureInst, col));
         }
     }
 
-      for (const [id, view] of permViews.entries()) {
+      for (const [id, view] of hubStructureViews.entries()) {
         if (seen.has(id)) continue;
         if (activeHover?.view === view) clearActiveHover(view);
         removeFromParent(view.container);
-        permViews.delete(id);
+        hubStructureViews.delete(id);
       }
 
-    for (const view of permViews.values()) {
+    for (const view of hubStructureViews.values()) {
       if (view.meterViews.length > 0) {
-        updateMeters(view.meterViews, view.perm);
+        updateMeters(view.meterViews, view.structure);
       }
     }
   }
@@ -1206,22 +1277,23 @@ export function createBoardView(opts) {
 
     tileLayer.removeChildren();
     eventLayer.removeChildren();
-    permanentsLayer.removeChildren();
+    hubStructuresLayer.removeChildren();
     hoverLayer?.removeChildren?.();
     tileViews.length = 0;
     eventViews.clear();
-    permViews.clear();
+    hubStructureViews.clear();
+    hubSlotViews.length = 0;
 
     const s = getGameState?.();
     if (!s?.board) return;
 
     const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
-    const hubCols = Array.isArray(s.permanentSlots)
-      ? s.permanentSlots.length
+    const hubCols = Array.isArray(s?.hub?.slots)
+      ? s.hub.slots.length
       : HUB_COLS;
     syncTiles(s, cols);
     syncEvents(s, cols);
-    syncPermanents(s, hubCols);
+    syncHubStructures(s, hubCols);
 
     restoreHoverAfterRebuild(pendingHover, pendingPointer);
   }
@@ -1235,12 +1307,12 @@ export function createBoardView(opts) {
     if (!s?.board) return;
 
     const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
-    const hubCols = Array.isArray(s.permanentSlots)
-      ? s.permanentSlots.length
+    const hubCols = Array.isArray(s?.hub?.slots)
+      ? s.hub.slots.length
       : HUB_COLS;
     syncTiles(s, cols);
     syncEvents(s, cols);
-    syncPermanents(s, hubCols);
+    syncHubStructures(s, hubCols);
   }
 
   function init() {
@@ -1259,8 +1331,8 @@ export function createBoardView(opts) {
  * @property {any} event
  * @property {PIXI.Text} remainingText
  *
- * @typedef {Object} BoardPermView
+ * @typedef {Object} BoardHubStructureView
  * @property {PIXI.Container} container
- * @property {any} perm
+ * @property {any} structure
  * @property {Array<any>} meterViews
  */

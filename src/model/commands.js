@@ -1,7 +1,7 @@
 // src/model/commands.js
 // public mutation APIs (cmd*) + move rules
 
-import { permanentDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import {
   SEASON_DURATION_SEC,
@@ -24,7 +24,7 @@ import {
 
 import { stepEnvSecond } from "./env-exec.js";
 
-import { resetTimedTriggersOnPermanents } from "./behaviors.js";
+import { resetTimedTriggersOnHubStructures } from "./behaviors.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
 
 const TICKS_PER_SEC = 60;
@@ -100,11 +100,11 @@ export function cmdAdvanceSeason(state) {
   state.currentSeasonDeck = null;
   buildSeasonDeckForCurrentSeason(state);
 
-  // 4) process item/permanent seasonal effects
+  // 4) process item/hub-structure seasonal effects
   processSeasonChangeForItems(state);
 
   // 5) reset season-scoped triggers
-  resetTimedTriggersOnPermanents(state);
+  resetTimedTriggersOnHubStructures(state);
 
   return { ok: true, oldSeasonKey, newSeasonKey };
 }
@@ -386,8 +386,8 @@ export function cmdPlaceCharacter(state, payload = {}) {
   const envCols = Number.isFinite(state?.board?.cols)
     ? Math.floor(state.board.cols)
     : 0;
-  const hubCols = Array.isArray(state?.permanentSlots)
-    ? state.permanentSlots.length
+  const hubCols = Array.isArray(state?.hub?.slots)
+    ? state.hub.slots.length
     : 0;
   const cols = isEnvTarget ? envCols : hubCols;
 
@@ -466,10 +466,11 @@ export function cmdDebugSetCap(state, { cap, points, enabled } = {}) {
 // =============================================================================
 
 function getOwnerKindAndDef(state, ownerId) {
-  for (const slot of state.permanentSlots) {
-    if (slot.permanent && slot.permanent.instanceId === ownerId) {
-      const def = permanentDefs[slot.permanent.defId];
-      return { kind: "permanent", def };
+  const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (const slot of slots) {
+    if (slot.structure && slot.structure.instanceId === ownerId) {
+      const def = hubStructureDefs[slot.structure.defId];
+      return { kind: "hubStructure", def };
     }
   }
 
@@ -496,7 +497,7 @@ export function canOwnerAcceptItem(state, ownerId, item) {
     return true;
   }
 
-  if (kind === "permanent" && def) {
+  if (kind === "hubStructure" && def) {
     const rules = def.inventoryRules;
     if (!rules) return true;
     if (rules.allowedAll) return true;

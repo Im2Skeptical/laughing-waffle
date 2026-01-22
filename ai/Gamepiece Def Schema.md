@@ -21,7 +21,7 @@ type Tier = "bronze" | "silver" | "gold" | "diamond";
 ### Layer
 
 ```js
-type Layer = "tile" | "event" | "permanent";
+type Layer = "tile" | "event" | "hub";
 ```
 
 ### TargetSpec
@@ -263,7 +263,7 @@ type EffectOp =
 
 ```
 
-### Example (multi-span storm affecting permanents)
+### Example (multi-span storm affecting hub structures)
 
 ```js
 {

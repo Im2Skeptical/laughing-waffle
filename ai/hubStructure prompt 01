@@ -1,0 +1,196 @@
+You are a Codex coding agent working in an existing JavaScript single-player deterministic game (PixiJS rendering; pure-JS authoritative model). You will implement a focused refactor.
+
+## Refactor Goal Summary
+
+We are renaming the concept currently called “permanents” to **hub structures** (because “permanent” will later mean truly permanent time-travel/meta objects). At the same time we will **eliminate the current dual-representation** where hub structures are canonical in `permanentSlots[]` but also mirrored into `board.layers.permanent`.
+
+We are choosing **Option B**: keep a **hub slots array as canonical storage**, because empty hub slots must be visible in the UI as capacity/affordance.
+
+### End-state requirements (non-negotiable)
+
+1. **Terminology rename**
+
+   * Anything currently named “permanent” in the hub sense becomes **hubStructure** / **hub** terminology.
+   * The env-board remains “tile/event” terminology.
+
+2. **No dual-representation**
+
+   * Hub structures must be canonical in **exactly one** authoritative location:
+     `state.hub.slots[]` (or similarly named array).
+   * Any “anchors” or occupancy structures for hub must be **derived-only**, rebuilt deterministically.
+
+3. **Zones are explicit**
+
+   * Env zone remains `state.board` with layers `{ tile, event }`.
+   * Hub zone becomes separate: `state.hub` (not part of env board).
+   * Do **not** keep `board.layers.permanent` or `board.occ.permanent`.
+
+4. **Determinism, serialization, replay**
+
+   * GameState remains 100% JSON-serializable.
+   * Derived fields stripped on serialize and rebuilt on deserialize/canonicalize.
+   * Replay/projection must produce identical results.
+
+5. **No migration shims**
+
+   * You can break compatibility with old saves/actions; this is a prototype.
+   * Remove old naming cleanly rather than supporting both.
+
+---
+
+## Target Data Model (implement this)
+
+### `state.board` (env board)
+
+* `state.board.cols`
+* `state.board.layers.tile.anchors[]`
+* `state.board.layers.event.anchors[]`
+* `state.board.occ.tile[]` (derived)
+* `state.board.occ.event[]` (derived)
+
+### `state.hub` (hub zone)
+
+* `state.hub.cols` (or derive from `hub.slots.length`)
+* `state.hub.slots[]` where each slot:
+
+  * `{ structure: HubStructureInstance | null }`
+* `state.hub.anchors[]` (derived, optional but recommended for uniform occupancy fill)
+* `state.hub.occ[]` (derived)
+* Hub occupancy should reflect `structure.col` + `structure.span` where:
+
+  * `structure.col` must always equal its slot index (authoritative constraint)
+  * `span` can be supported, but the slot index remains the “home col”
+  * collisions should warn in DEV like current board occupancy collision warnings
+
+### Hub structures
+
+* `hubStructureDefs` registry replaces `permanentDefs`
+* Instances: `{ instanceId, defId, col, span, props }`
+
+---
+
+## Implementation Tasks (do these in order)
+
+### A) Rename defs and references
+
+1. Rename imports/usages of `permanentDefs` → `hubStructureDefs`
+2. Rename “permanent” instance creation helpers:
+
+   * `makePermanentInstance` → `makeHubStructureInstance`
+3. Rename slot arrays:
+
+   * `state.permanentSlots` → `state.hub.slots`
+
+Update any UI label text, variable names, function names, comments accordingly.
+
+### B) Update state.js to new hub model
+
+In `src/model/state.js`:
+
+1. Update `createEmptyState()` to include `hub`:
+
+   * `hub: { slots: [], cols: <initial>, occ: [...], anchors: [...] }`
+2. Remove:
+
+   * `permanentSlots`
+   * `board.layers.permanent`
+   * `board.occ.permanent`
+   * `syncPermanentAnchors()`
+3. Add:
+
+   * `ensureHubState(state)`
+   * `rebuildHubOccupancy(state)` derived rebuild
+4. Update `rebuildBoardOccupancy(state)` to:
+
+   * only handle `tile/event` on board
+   * also call `rebuildHubOccupancy(state)` (or create `rebuildOccupancy` that does both)
+5. Update `serializeGameState` / `deserializeGameState`:
+
+   * strip derived hub fields (`hub.occ`, `hub.anchors` if derived)
+   * rebuild hub derived fields after load
+6. Update `validateState` to validate hub occupancy (similar to board layers validation)
+
+### C) Update canonicalize.js
+
+In `canonicalizeSnapshot(state)` ensure it rebuilds:
+
+* board occupancy
+* hub occupancy
+* phase normalization
+
+### D) Update effects targeting
+
+In `src/model/effects.js`:
+
+1. Replace `resolveBoardTargets()` with a resolver that supports:
+
+   * env board layers: `"tile"`, `"event"`
+   * hub layer: `"hub"`
+
+     * target should resolve via `state.hub.occ[col]`
+2. Remove legacy `targetKind: "permanent"` code paths in `SetProp` / `AddProp`
+
+   * Replace with unified board-style targeting:
+
+     * require `effect.target` for hub structures, e.g. `{ at: { layer:"hub", col:X } }`
+   * Keep existing behavior for env if relevant.
+
+### E) Update commands
+
+In `src/model/commands.js`:
+
+1. Replace all `permanentSlots` logic with `state.hub.slots`.
+2. Update owner/inventory acceptance resolution:
+
+   * When ownerId matches a hub structure instanceId, resolve def via `hubStructureDefs`.
+3. Character placement logic:
+
+   * Hub placement should validate against hub bounds via `state.hub.slots.length`.
+4. Any command that previously referenced “hubCol” can keep the payload name `hubCol` (ok), but it should point into hub slots.
+
+### F) Update game-model tick behaviors over hub structures
+
+In `src/model/game-model.js`:
+
+* Replace loops over `permanentSlots` with loops over `state.hub.slots`.
+* Run behaviors on `slot.structure` instances.
+
+### G) Update views to use hub slots
+
+In `src/views/ui-root-pixi.js` and any directly referenced helpers:
+
+* Replace `getPermanentSlots` usages with `getHubSlots`.
+* Replace any `state.permanentSlots.length` with `state.hub.slots.length`.
+* Any owner labeling logic should detect hub structures via hub slots.
+* Board view / character view / layout should still show empty hub slots (this is why slots exist).
+
+### H) Update actions.js
+
+In `src/model/actions.js`:
+
+* Rename any action kinds or apply logic that refer to “permanent” in the hub sense.
+* Ensure dispatchers call renamed commands and operate on new state shape.
+
+---
+
+## Constraints / Guardrails
+
+* Do not introduce Maps/Sets into authoritative state.
+* Do not call `Math.random`.
+* Any derived indexes (occupancy, anchors) must be stripped on serialize.
+* Any added DEV validation should be gated by existing DEV flag patterns.
+* Keep changes coherent and remove old dead code, do not leave dual systems.
+
+---
+
+## Deliverables
+
+1. Provide a short “What changed / Why / Smoke tests” section.
+2. Smoke tests must include:
+
+   * Start new game: hub renders with empty slots
+   * Place/build a hub structure, then scrub time / rebuild state at second, confirm it persists
+   * Trigger an effect targeting hub at a column (if any existing content uses it; otherwise add a small debug action/effect to validate)
+   * Run determinism suite (if available in debug UI)
+
+---

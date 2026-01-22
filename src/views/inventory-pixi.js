@@ -1,7 +1,7 @@
 //
 // inventory-pixi.js
 // Inventory UI system (Pixi).
-// - Renders inventories for generic "owners" (permanents, characters, etc.)
+// - Renders inventories for generic "owners" (hub structures, characters, etc.)
 // - Handles drag/drop + stack splitting.
 // - Does NOT contain game rules; delegates legality + mutation to the model.
 //

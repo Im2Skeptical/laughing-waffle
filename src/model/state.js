@@ -2,14 +2,15 @@
 // Model-only. No view imports.
 
 import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
-import { envCardDefs, permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envCardDefs, hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { attachRngHelpers } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 
 const BOARD_COLS = 12;
-const BOARD_LAYERS = ["tile", "event", "permanent"];
+const BOARD_LAYERS = ["tile", "event"];
+const HUB_COLS = 10;
 
 // Board contract: layers.*.anchors are authoritative placements.
 // board.occ.* is derived in rebuildBoardOccupancy and stripped on serialize.
@@ -26,13 +27,21 @@ function createBoardState(cols = BOARD_COLS) {
     layers: {
       tile: { anchors: [] },
       event: { anchors: [] },
-      permanent: { anchors: [] },
     },
     occ: {
       tile: new Array(cols).fill(null),
       event: new Array(cols).fill(null),
-      permanent: new Array(cols).fill(null),
     },
+  };
+}
+
+function createHubState(cols = HUB_COLS) {
+  const safeCols = Number.isFinite(cols) && cols > 0 ? Math.floor(cols) : HUB_COLS;
+  return {
+    cols: safeCols,
+    slots: new Array(safeCols).fill(null).map(() => ({ structure: null })),
+    anchors: [],
+    occ: new Array(safeCols).fill(null),
   };
 }
 
@@ -50,6 +59,7 @@ function ensureBoardState(state) {
   if (!board.layers || typeof board.layers !== "object") {
     board.layers = {};
   }
+  if (board.layers.permanent) delete board.layers.permanent;
 
   for (const layer of BOARD_LAYERS) {
     if (!board.layers[layer] || typeof board.layers[layer] !== "object") {
@@ -63,6 +73,7 @@ function ensureBoardState(state) {
   if (!board.occ || typeof board.occ !== "object") {
     board.occ = {};
   }
+  if (board.occ.permanent) delete board.occ.permanent;
 
   for (const layer of BOARD_LAYERS) {
     if (!Array.isArray(board.occ[layer]) || board.occ[layer].length !== cols) {
@@ -71,24 +82,41 @@ function ensureBoardState(state) {
   }
 }
 
-function syncPermanentAnchors(state) {
-  if (!state) return;
-  const board = state.board;
-  const slots = Array.isArray(state.permanentSlots)
-    ? state.permanentSlots
-    : [];
-  if (!board?.layers?.permanent) return;
-
-  const anchors = [];
-  for (let i = 0; i < slots.length; i++) {
-    const perm = slots[i]?.permanent;
-    if (!perm) continue;
-    perm.col = i;
-    perm.span =
-      Number.isFinite(perm.span) && perm.span > 0 ? Math.floor(perm.span) : 1;
-    anchors.push(perm);
+export function ensureHubState(state) {
+  if (!state.hub || typeof state.hub !== "object") {
+    state.hub = createHubState();
+    return;
   }
-  board.layers.permanent.anchors = anchors;
+
+  const hub = state.hub;
+  if (!Array.isArray(hub.slots)) hub.slots = [];
+
+  const slotsLen = hub.slots.length;
+  const colHint =
+    Number.isFinite(hub.cols) && hub.cols > 0 ? Math.floor(hub.cols) : 0;
+  const cols = slotsLen > 0 ? slotsLen : colHint > 0 ? colHint : HUB_COLS;
+
+  if (slotsLen === 0) {
+    hub.slots = new Array(cols).fill(null).map(() => ({ structure: null }));
+  }
+
+  hub.cols = Array.isArray(hub.slots) ? hub.slots.length : cols;
+
+  for (let i = 0; i < hub.slots.length; i++) {
+    const slot = hub.slots[i];
+    if (!slot || typeof slot !== "object") {
+      hub.slots[i] = { structure: null };
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(slot, "structure")) {
+      slot.structure = null;
+    }
+  }
+
+  if (!Array.isArray(hub.anchors)) hub.anchors = [];
+  if (!Array.isArray(hub.occ) || hub.occ.length !== hub.cols) {
+    hub.occ = new Array(hub.cols).fill(null);
+  }
 }
 
 // =============================================================================
@@ -139,9 +167,8 @@ export function createEmptyState(seed = 123456789) {
     resources: { gold: 0, food: 0, population: 0 },
 
     board: createBoardState(),
-
-    permanentSlots: [],
-    nextPermanentInstanceId: 1,
+    hub: createHubState(),
+    nextHubStructureInstanceId: 1,
 
     envSlots: [],
     envSlotsEnabled: false,
@@ -169,14 +196,14 @@ export const gameState = createEmptyState();
 // INSTANCE CREATION (core; used by init + effects)
 // =============================================================================
 
-export function makePermanentInstance(defId, state) {
-  const def = permanentDefs[defId];
+export function makeHubStructureInstance(defId, state) {
+  const def = hubStructureDefs[defId];
   const span =
     Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
       ? Math.floor(def.defaultSpan)
       : 1;
   const inst = {
-    instanceId: state.nextPermanentInstanceId++,
+    instanceId: state.nextHubStructureInstanceId++,
     defId,
     span,
     props: {},
@@ -232,20 +259,9 @@ export function makeEnvEventInstance(defId, state, col, span, tSec) {
 export function rebuildBoardOccupancy(state) {
   if (!state) return;
   ensureBoardState(state);
-  for (const slot of state.permanentSlots) {
-    const perm = slot?.permanent;
-    if (!perm) continue;
-    const def = permanentDefs[perm.defId];
-    const fallbackSpan =
-      Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
-        ? Math.floor(def.defaultSpan)
-        : 1;
-    if (!Number.isFinite(perm.span) || perm.span <= 0) {
-      perm.span = fallbackSpan;
-    }
-  }
-
-  syncPermanentAnchors(state);
+  ensureHubState(state);
+  if (state.permanentSlots) delete state.permanentSlots;
+  if (state.nextPermanentInstanceId) delete state.nextPermanentInstanceId;
 
   const board = state.board;
   for (const layer of BOARD_LAYERS) {
@@ -274,7 +290,65 @@ export function rebuildBoardOccupancy(state) {
     }
   }
 
+  rebuildHubOccupancy(state);
   maybeValidateState(state, "rebuildBoardOccupancy");
+}
+
+export function rebuildHubOccupancy(state) {
+  if (!state) return;
+  ensureHubState(state);
+
+  const hub = state.hub;
+  const slots = Array.isArray(hub.slots) ? hub.slots : [];
+  hub.cols = slots.length;
+
+  if (!Array.isArray(hub.anchors)) hub.anchors = [];
+  hub.anchors.length = 0;
+
+  if (!Array.isArray(hub.occ) || hub.occ.length !== hub.cols) {
+    hub.occ = new Array(hub.cols).fill(null);
+  } else {
+    hub.occ.fill(null);
+  }
+
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    if (!slot || typeof slot !== "object") {
+      slots[i] = { structure: null };
+      continue;
+    }
+    const structure = slot.structure;
+    if (!structure) continue;
+
+    const def = hubStructureDefs[structure.defId];
+    const fallbackSpan =
+      Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    if (!Number.isFinite(structure.span) || structure.span <= 0) {
+      structure.span = fallbackSpan;
+    }
+    structure.col = i;
+    hub.anchors.push(structure);
+  }
+
+  for (const anchor of hub.anchors) {
+    if (!anchor) continue;
+    const col = typeof anchor.col === "number" ? anchor.col : 0;
+    const span = typeof anchor.span === "number" ? anchor.span : 1;
+    for (let offset = 0; offset < span; offset++) {
+      const occupiedCol = col + offset;
+      if (occupiedCol < 0 || occupiedCol >= hub.cols) continue;
+      if (hub.occ[occupiedCol] && hub.occ[occupiedCol] !== anchor) {
+        if (DEV) {
+          console.warn(
+            `[hub] occupancy collision on col ${occupiedCol}; overwriting.`
+          );
+        }
+      }
+      hub.occ[occupiedCol] = anchor;
+    }
+  }
 }
 
 export function initializeInstanceFromDef(instance, def) {
@@ -487,6 +561,12 @@ export function serializeGameState(state) {
   delete clean._boardDirty;
   delete clean._seasonChanged;
   if (clean.board && clean.board.occ) delete clean.board.occ;
+  if (clean.hub) {
+    delete clean.hub.occ;
+    delete clean.hub.anchors;
+  }
+  if (clean.permanentSlots) delete clean.permanentSlots;
+  if (clean.nextPermanentInstanceId) delete clean.nextPermanentInstanceId;
 
   // Inventories contain derived indices that cannot survive JSON cloning.
   if (clean.ownerInventories) {
@@ -511,7 +591,7 @@ export function deserializeGameState(data) {
   if (!state.resources) state.resources = { gold: 0, food: 0, population: 0 };
   if (!state.envSlots) state.envSlots = [];
   if (state.envSlotsEnabled == null) state.envSlotsEnabled = false;
-  if (!state.permanentSlots) state.permanentSlots = [];
+  if (!state.hub || typeof state.hub !== "object") state.hub = createHubState();
   if (!state.characters) state.characters = [];
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
@@ -529,6 +609,7 @@ export function deserializeGameState(data) {
     }
   }
   ensureBoardState(state);
+  ensureHubState(state);
   state._boardDirty = false;
   state._seasonChanged = false;
 
@@ -538,6 +619,9 @@ export function deserializeGameState(data) {
   if (state.year == null) state.year = 1;
   if (state.actionPoints == null) state.actionPoints = 100;
   if (state.actionPointCap == null) state.actionPointCap = 100;
+  if (state.nextHubStructureInstanceId == null) {
+    state.nextHubStructureInstanceId = 1;
+  }
   if (!state.apCapOverride || typeof state.apCapOverride !== "object") {
     state.apCapOverride = null;
   } else if (state.apCapOverride.enabled === false) {
@@ -612,9 +696,11 @@ export function validateState(state) {
     errors.push("board.cols invalid");
     return { ok: false, errors, warnings };
   }
-  const hubCols = Array.isArray(state.permanentSlots)
-    ? state.permanentSlots.length
-    : 0;
+  const hub = state.hub;
+  if (!hub || typeof hub !== "object") {
+    errors.push("hub missing");
+  }
+  const hubCols = Array.isArray(hub?.slots) ? hub.slots.length : 0;
 
   const chars = Array.isArray(state.characters) ? state.characters : [];
   for (const ch of chars) {
@@ -690,6 +776,65 @@ export function validateState(state) {
       if (exp || actual) {
         errors.push(`board.occ.${layer}[${col}] mismatch`);
       }
+    }
+  }
+
+  if (!hub || typeof hub !== "object") {
+    return { ok: errors.length === 0, errors, warnings };
+  }
+
+  const hubAnchors = Array.isArray(hub.anchors) ? hub.anchors : null;
+  if (!hubAnchors) {
+    errors.push("hub.anchors missing");
+  }
+
+  if (!Array.isArray(hub.occ) || hub.occ.length !== hubCols) {
+    errors.push("hub.occ length mismatch");
+  } else if (hubAnchors) {
+    const expected = new Array(hubCols).fill(null);
+    for (const anchor of hubAnchors) {
+      if (!anchor) continue;
+      const rawCol = anchor.col;
+      if (!Number.isFinite(rawCol)) {
+        errors.push("hub anchor missing col");
+        continue;
+      }
+      const col = Math.floor(rawCol);
+      const rawSpan = anchor.span;
+      if (!Number.isFinite(rawSpan) || rawSpan <= 0) {
+        errors.push("hub anchor span invalid");
+        continue;
+      }
+      const span = Math.floor(rawSpan);
+      for (let offset = 0; offset < span; offset++) {
+        const occCol = col + offset;
+        if (occCol < 0 || occCol >= hubCols) {
+          errors.push("hub anchor out of bounds");
+          continue;
+        }
+        expected[occCol] = anchor;
+      }
+    }
+
+    for (let col = 0; col < hubCols; col++) {
+      const actual = hub.occ[col];
+      const exp = expected[col];
+      if (exp === actual) continue;
+      if (exp?.instanceId != null && actual?.instanceId != null) {
+        if (exp.instanceId === actual.instanceId) continue;
+      }
+      if (exp || actual) {
+        errors.push(`hub.occ[${col}] mismatch`);
+      }
+    }
+  }
+
+  for (let col = 0; col < hubCols; col++) {
+    const slot = hub.slots?.[col];
+    const structure = slot?.structure;
+    if (!structure) continue;
+    if (!Number.isFinite(structure.col) || Math.floor(structure.col) !== col) {
+      errors.push(`hub slot col mismatch at ${col}`);
     }
   }
 

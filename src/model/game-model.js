@@ -2,13 +2,13 @@
 // NOTE: Model APIs require explicit `state`.
 // `gameState` remains exported for app-edge wiring only.
 
-import { envCardDefs, permanentDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envCardDefs, hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 
 import {
   gameState,
   createEmptyState,
   makeEnvInstance,
-  makePermanentInstance,
+  makeHubStructureInstance,
   initializeInstanceFromDef,
   getCurrentSeasonKey,
   getCurrentSeasonData,
@@ -46,17 +46,18 @@ export function updateGame(dt, state) {
   // 2. Pause Gate
   if (s.paused) return;
 
-  // permanents: updateGame stays generic; behaviors decide via preconditions
-  for (let i = 0; i < s.permanentSlots.length; i++) {
-    const slot = s.permanentSlots[i];
-    const perm = slot.permanent;
-    if (!perm) continue;
+  // hub structures: updateGame stays generic; behaviors decide via preconditions
+  const hubSlots = Array.isArray(s.hub?.slots) ? s.hub.slots : [];
+  for (let i = 0; i < hubSlots.length; i++) {
+    const slot = hubSlots[i];
+    const structure = slot.structure;
+    if (!structure) continue;
 
-    const def = permanentDefs[perm.defId];
+    const def = hubStructureDefs[structure.defId];
 
     const ops =
-      runBehaviorsOnInstance(perm, def, dt, s, {
-        kind: "permanent",
+      runBehaviorsOnInstance(structure, def, dt, s, {
+        kind: "hub",
         hubCol: i,
       }) || [];
 
@@ -78,7 +79,7 @@ export function updateGame(dt, state) {
         continue;
       }
 
-      runEffect(s, op, { kind: "game", state: s });
+      runEffect(s, op, { kind: "game", state: s, source: structure });
     }
   }
 
@@ -165,7 +166,7 @@ export {
 
   // constructors / helpers (explicit state required by their own signatures)
   makeEnvInstance,
-  makePermanentInstance,
+  makeHubStructureInstance,
   initializeInstanceFromDef,
   getCurrentSeasonKey,
   getCurrentSeasonData,

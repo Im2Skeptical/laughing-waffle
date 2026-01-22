@@ -1,14 +1,14 @@
 // gamepieces-defs.js
-// Definitions for permanents, env cards, and items.
+// Definitions for hub structures, env cards, and items.
 
-export const permanentDefs = {
+export const hubStructureDefs = {
   farm: {
     id: "farm",
     name: "Farm",
     color: 0x4caf50,
     baseOutput: { food: 1 },
     defaultSpan: 3,
-    tags: ["permanent", "farm"],
+    tags: ["hubStructure", "farm"],
     behaviors: [],
     ui: {
       title: "Farm",
@@ -22,7 +22,7 @@ export const permanentDefs = {
     name: "Mine",
     color: 0xffc107,
     baseOutput: { gold: 1 },
-    tags: ["permanent", "producer", "mine"],
+    tags: ["hubStructure", "producer", "mine"],
     behaviors: [
       {
         kind: "TimedTrigger",
@@ -68,7 +68,7 @@ export const permanentDefs = {
     color: 0x90caf9,
     baseOutput: {},
     defaultSpan: 2,
-    tags: ["permanent", "storehouse", "hasInventory"],
+    tags: ["hubStructure", "storehouse", "hasInventory"],
     inventory: { cols: 10, rows: 10 },
     behaviors: [],
     ui: {
