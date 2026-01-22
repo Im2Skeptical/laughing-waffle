@@ -84,12 +84,37 @@ export function createBoardView(opts) {
   const TAG_DRAG_SCALE = 1.06;
   const TAG_DRAG_BUMP = 6;
   const TAG_DRAG_RELEASE_PAD = 12;
+  const BASE_TEXT_RESOLUTION = Math.max(
+    2,
+    Math.floor(globalThis?.devicePixelRatio || 1)
+  );
+  const HOVER_TEXT_RESOLUTION = Math.max(
+    BASE_TEXT_RESOLUTION,
+    Math.ceil(BASE_TEXT_RESOLUTION * GAMEPIECE_HOVER_SCALE)
+  );
   let activeTagDrag = null;
   let activeHover = null;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
 
-  function attachHoverFx(container, width, height, radius = 8) {
+  function setTextResolution(textNodes, resolution) {
+    if (!Array.isArray(textNodes)) return;
+    if (!Number.isFinite(resolution)) return;
+    for (const node of textNodes) {
+      if (!node || typeof node !== "object") continue;
+      if (node.resolution === resolution) continue;
+      node.resolution = resolution;
+      if (node.dirty != null) node.dirty = true;
+    }
+  }
+
+  function attachHoverFx(
+    container,
+    width,
+    height,
+    radius = 8,
+    getTextNodes = null
+  ) {
     const content = new PIXI.Container();
     content.pivot.set(width / 2, height / 2);
     content.position.set(width / 2, height / 2);
@@ -114,6 +139,14 @@ export function createBoardView(opts) {
       content.scale.set(scale);
       shadow.visible = active && GAMEPIECE_SHADOW_ALPHA > 0;
       container.zIndex = active ? 20 : 0;
+      const textNodes =
+        typeof getTextNodes === "function" ? getTextNodes() : getTextNodes;
+      if (textNodes) {
+        setTextResolution(
+          textNodes,
+          active ? HOVER_TEXT_RESOLUTION : BASE_TEXT_RESOLUTION
+        );
+      }
     }
 
     return { content, setActive };
@@ -365,7 +398,7 @@ export function createBoardView(opts) {
     container.addChild(bg, text);
     container.hitArea = new PIXI.Rectangle(0, 0, width, height);
 
-    return { container, tag, width, height };
+    return { container, tag, width, height, text };
   }
 
   function layoutTagEntries(view) {
@@ -665,6 +698,20 @@ export function createBoardView(opts) {
       y += rowStep;
     }
 
+    if (Array.isArray(view.hoverTextNodes)) {
+      view.hoverTextNodes.length = 0;
+      if (Array.isArray(view.hoverTextBaseNodes)) {
+        view.hoverTextNodes.push(...view.hoverTextBaseNodes);
+      }
+      for (const entry of view.tagEntries) {
+        if (entry?.text) view.hoverTextNodes.push(entry.text);
+      }
+      setTextResolution(
+        view.hoverTextNodes,
+        view.isHovered ? HOVER_TEXT_RESOLUTION : BASE_TEXT_RESOLUTION
+      );
+    }
+
     layoutTagEntries(view);
   }
 
@@ -674,11 +721,14 @@ export function createBoardView(opts) {
     const cont = new PIXI.Container();
     cont.eventMode = "static";
     cont.cursor = "pointer";
+    const hoverTextNodes = [];
+    const hoverTextBaseNodes = [];
     const { content, setActive: setHoverActive } = attachHoverFx(
       cont,
       TILE_WIDTH,
       TILE_HEIGHT,
-      8
+      8,
+      () => hoverTextNodes
     );
 
     content.addChild(
@@ -740,6 +790,9 @@ export function createBoardView(opts) {
     pawnBadge.visible = false;
     content.addChild(pawnBadge);
 
+    hoverTextBaseNodes.push(titleText, descText, pawnText);
+    hoverTextNodes.push(...hoverTextBaseNodes);
+
       cont.on("pointerenter", () => {
         if (!interaction?.canShowHoverUI?.()) return;
         if (activeTagDrag && activeTagDrag !== view) return;
@@ -778,6 +831,10 @@ export function createBoardView(opts) {
         tagSignature: "",
         tagEntries: [],
         tagDrag: null,
+        hoverTextNodes,
+        hoverTextBaseNodes,
+        titleText,
+        descText,
         isHovered: false,
         hoverAnchor: null,
         holdHover: false,
@@ -787,6 +844,7 @@ export function createBoardView(opts) {
       };
 
     rebuildTileTags(view, tileInst);
+    setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
     return view;
   }
 
@@ -823,11 +881,13 @@ export function createBoardView(opts) {
     cont.eventMode = "static";
     cont.cursor = "pointer";
     cont.zIndex = 5;
+    const hoverTextNodes = [];
     const { content, setActive: setHoverActive } = attachHoverFx(
       cont,
       width,
       EVENT_HEIGHT,
-      8
+      8,
+      () => hoverTextNodes
     );
 
     content.addChild(
@@ -872,10 +932,13 @@ export function createBoardView(opts) {
     remainingText.y = EVENT_HEIGHT - 16;
     content.addChild(remainingText);
 
+    hoverTextNodes.push(titleText, descText, remainingText);
+
     const view = {
       container: cont,
       event: eventInst,
       remainingText,
+      hoverTextNodes,
       setHoverActive,
     };
 
@@ -921,6 +984,7 @@ export function createBoardView(opts) {
 
     eventLayer.addChild(cont);
 
+    setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
     return view;
   }
 
@@ -952,11 +1016,13 @@ export function createBoardView(opts) {
     cont.eventMode = "static";
     cont.cursor = "pointer";
     cont.zIndex = 1;
+    const hoverTextNodes = [];
     const { content, setActive: setHoverActive } = attachHoverFx(
       cont,
       width,
       height,
-      10
+      10,
+      () => hoverTextNodes
     );
 
     content.addChild(
@@ -982,6 +1048,7 @@ export function createBoardView(opts) {
     titleText.x = 6;
     titleText.y = 6;
     content.addChild(titleText);
+    hoverTextNodes.push(titleText);
 
     let y = titleText.y + titleText.height + 2;
     for (const line of lines) {
@@ -994,6 +1061,7 @@ export function createBoardView(opts) {
       t.x = 6;
       t.y = y;
       content.addChild(t);
+      hoverTextNodes.push(t);
       y += t.height + 1;
       if (y > height - 40) break;
     }
@@ -1007,6 +1075,9 @@ export function createBoardView(opts) {
         y + 2,
         width - 14
       ).meterViews;
+      for (const mv of meterViews) {
+        if (mv?.labelText) hoverTextNodes.push(mv.labelText);
+      }
     }
 
     function structureHasInventory() {
@@ -1018,6 +1089,7 @@ export function createBoardView(opts) {
       container: cont,
       structure: structureInst,
       meterViews,
+      hoverTextNodes,
       structureHasInventory,
       setHoverActive,
     };
@@ -1081,6 +1153,7 @@ export function createBoardView(opts) {
 
     hubStructuresLayer.addChild(cont);
 
+    setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
     return view;
   }
 
