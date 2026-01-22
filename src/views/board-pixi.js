@@ -63,6 +63,7 @@ export function createBoardView(opts) {
   const tileViews = [];
   /** @type {Map<number, BoardEventView>} */
   const eventViews = new Map();
+  const eventSlotViews = [];
   /** @type {Map<number, BoardHubStructureView>} */
   const hubStructureViews = new Map();
   const hubSlotViews = [];
@@ -821,6 +822,7 @@ export function createBoardView(opts) {
     const cont = new PIXI.Container();
     cont.eventMode = "static";
     cont.cursor = "pointer";
+    cont.zIndex = 5;
     const { content, setActive: setHoverActive } = attachHoverFx(
       cont,
       width,
@@ -1136,6 +1138,8 @@ export function createBoardView(opts) {
     const occ = state?.board?.occ?.event;
     const seen = new Set();
 
+    syncEventSlots(cols);
+
     for (let col = 0; col < cols; col++) {
       const eventInst = occ?.[col] || null;
       if (!eventInst) continue;
@@ -1164,6 +1168,54 @@ export function createBoardView(opts) {
         removeFromParent(view.container);
         eventViews.delete(id);
       }
+  }
+
+  function buildEventSlotView(col) {
+    const cont = new PIXI.Container();
+    cont.eventMode = "none";
+    cont.zIndex = 0;
+    const bg = new PIXI.Graphics()
+      .lineStyle(1, 0x2a2f3d, 0.6)
+      .beginFill(0x1a1f2a, 0.2)
+      .drawRoundedRect(0, 0, EVENT_WIDTH, EVENT_HEIGHT, 8)
+      .endFill();
+    cont.addChild(bg);
+
+    const pos = layoutBoardColPos(
+      app.screen.width,
+      col,
+      EVENT_WIDTH,
+      EVENT_ROW_Y
+    );
+    cont.x = pos.x;
+    cont.y = pos.y;
+
+    eventLayer.addChild(cont);
+    return cont;
+  }
+
+  function syncEventSlots(cols) {
+    for (let col = 0; col < cols; col++) {
+      let view = eventSlotViews[col];
+      if (!view) {
+        view = buildEventSlotView(col);
+        eventSlotViews[col] = view;
+      } else {
+        const pos = layoutBoardColPos(
+          app.screen.width,
+          col,
+          EVENT_WIDTH,
+          EVENT_ROW_Y
+        );
+        view.x = pos.x;
+        view.y = pos.y;
+      }
+    }
+
+    for (let i = cols; i < eventSlotViews.length; i++) {
+      removeFromParent(eventSlotViews[i]);
+    }
+    eventSlotViews.length = cols;
   }
 
   function buildHubSlotView(col) {
@@ -1281,6 +1333,7 @@ export function createBoardView(opts) {
     hoverLayer?.removeChildren?.();
     tileViews.length = 0;
     eventViews.clear();
+    eventSlotViews.length = 0;
     hubStructureViews.clear();
     hubSlotViews.length = 0;
 
