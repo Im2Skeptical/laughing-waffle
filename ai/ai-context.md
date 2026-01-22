@@ -3,7 +3,7 @@
 ## 1. Project Overview
 
 **Genre**
-Deterministic, time-driven city builder with MTG-style card, permanent, and deck mechanics.
+Deterministic, time-driven city builder with MTG-style card, keyword, and deck mechanics.
 
 **Technology**
 - JavaScript (ES Modules)
@@ -18,7 +18,7 @@ A fully deterministic simulation supporting:
 
 ### Board & Gamepieces review
 
-* **4-zone board model:** time / env tiles / env events / permanents, all 12-col aligned.
+* **4-zone board model:** timegraphs / env tiles / env events / hub
 * **Env tiles:** persistent; store ordered tags + system tiers; tile defs are tier-ignorant.
 * **Tags:** ordered, unique, gameplay-relevant verbs; at most one tag intent executes per tile per second.
 * **Pawn gate:** if no pawn on tile → skip intent evaluation entirely.

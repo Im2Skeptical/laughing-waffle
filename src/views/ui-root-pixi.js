@@ -206,6 +206,7 @@ const boardView = createBoardView({
   hoverLayer: uiLayers.hoverLayer,
   getGameState: () => runner.getState(),
   interaction: interactionController,
+  actionPlanner,
   tooltipView,
   inventoryView,
   dispatchAction: (kind, payload, opts) =>
@@ -215,6 +216,7 @@ const boardView = createBoardView({
 const charactersView = createCharactersView({
   app,
   layer: uiLayers.characterLayer,
+  hoverLayer: uiLayers.hoverLayer,
   getCharacters: () => runner.getState().characters,
   getPermanentSlots: () => runner.getState().permanentSlots,
   getGameState: () => runner.getState(),

@@ -23,6 +23,7 @@
  - Fast iteration on content and mechanics 
  
  1. WORKING PREFERENCES FOR THIS CHAT 
+ - Patches are to be provided as easy to copypaste, full file replacements if possible
  - Be practical and direct 
  - Large, coherent rewrites are acceptable if they can preseve or improve functionality while improving clarity
  - Avoid piecemeal changes that obscure boundaries 

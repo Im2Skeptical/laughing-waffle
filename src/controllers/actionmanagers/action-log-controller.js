@@ -92,6 +92,10 @@ function describeIntent(intent, state, getOwnerLabel) {
     case IntentKinds.BUILD_DESIGNATE: {
       return `Build ${intent.defId || intent.buildKey || "Plan"}`;
     }
+    case IntentKinds.TILE_TAG_ORDER: {
+      const tileName = formatTileName(intent.envCol, state);
+      return `Tags > ${tileName}`;
+    }
     default:
       return intent.kind || "Action";
   }
@@ -178,6 +182,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
     if (!intent) continue;
     const intentCost = planner?.getIntentCost?.(intentId) ?? 0;
     if (intent.kind === IntentKinds.ITEM_TRANSFER && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.TILE_TAG_ORDER && intentCost <= 0) continue;
     const rowId = intentId ?? `intent:${rowsOut.length}`;
     rowsOut.push({
       id: rowId,
@@ -272,9 +277,13 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       desc = `${pawnName} > ${dest}`;
     } else if (kind === ActionKinds.BUILD_DESIGNATE) {
       desc = `Build ${payload.defId || payload.buildKey || "Plan"}`;
+    } else if (kind === ActionKinds.SET_TILE_TAG_ORDER) {
+      const tileName = formatTileName(payload.envCol, state);
+      desc = `Tags > ${tileName}`;
     }
 
     if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
+    if (kind === ActionKinds.SET_TILE_TAG_ORDER && apCost <= 0) continue;
     rowsOut.push({
       id: `${kind}:${i}`,
       description: desc,
@@ -297,6 +306,7 @@ function isLogAction(action) {
   }
   if (kind === ActionKinds.PLACE_CHARACTER) return true;
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
+  if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;
   return false;
 }
 

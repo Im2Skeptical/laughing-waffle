@@ -9,6 +9,16 @@ import {
 } from "./action-currency-utils.js";
 import { getPlacementRow, placementEquals } from "./action-placement-utils.js";
 
+function tagsEqual(a, b) {
+  const listA = Array.isArray(a) ? a : [];
+  const listB = Array.isArray(b) ? b : [];
+  if (listA.length !== listB.length) return false;
+  for (let i = 0; i < listA.length; i++) {
+    if (listA[i] !== listB[i]) return false;
+  }
+  return true;
+}
+
 function getCurrencyGroupInfoForIntent(intent) {
   if (!intent || intent.kind !== "itemTransfer") return null;
   return getCurrencyGroupInfo({
@@ -63,6 +73,10 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
     }
     case "buildDesignate": {
       return INTENT_AP_COSTS.buildDesignate ?? 0;
+    }
+    case "tileTagOrder": {
+      if (tagsEqual(intent.tagIds, intent.baselineTags)) return 0;
+      return INTENT_AP_COSTS.tileTagOrder ?? 0;
     }
     default:
       return 0;

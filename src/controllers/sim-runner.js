@@ -221,7 +221,13 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
   function isPlannerManagedAction(action) {
     if (!action || typeof action !== "object") return false;
     const kind = action.kind;
-    if (kind === "placeCharacter" || kind === "buildDesignate") return true;
+    if (
+      kind === "placeCharacter" ||
+      kind === "buildDesignate" ||
+      kind === "setTileTagOrder"
+    ) {
+      return true;
+    }
     if (kind === "inventoryMove") {
       const payload = action.payload || {};
       return payload.fromOwnerId !== payload.toOwnerId;
@@ -243,6 +249,10 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
     if (action.kind === "buildDesignate") {
       const buildKey = payload.buildKey ?? payload.targetKey ?? null;
       return buildKey != null ? `build:${buildKey}` : null;
+    }
+    if (action.kind === "setTileTagOrder") {
+      const envCol = payload.envCol ?? null;
+      return Number.isFinite(envCol) ? `tileTags:${Math.floor(envCol)}` : null;
     }
     return null;
   }

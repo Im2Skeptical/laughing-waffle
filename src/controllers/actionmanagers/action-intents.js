@@ -5,6 +5,7 @@ export const IntentKinds = {
   ITEM_TRANSFER: "itemTransfer",
   PAWN_MOVE: "pawnMove",
   BUILD_DESIGNATE: "buildDesignate",
+  TILE_TAG_ORDER: "tileTagOrder",
 };
 
 export function makeItemTransferIntent(spec = {}) {
@@ -51,6 +52,21 @@ export function makeBuildDesignateIntent(spec = {}) {
   };
 }
 
+export function makeTileTagOrderIntent(spec = {}) {
+  return {
+    kind: IntentKinds.TILE_TAG_ORDER,
+    id: spec.id ?? null,
+    subjectKey: spec.subjectKey ?? null,
+    envCol: spec.envCol ?? null,
+    tagIds: Array.isArray(spec.tagIds) ? spec.tagIds.slice() : [],
+    baselineTags: Array.isArray(spec.baselineTags)
+      ? spec.baselineTags.slice()
+      : [],
+    apCostOverride: spec.apCostOverride ?? null,
+    source: spec.source ?? "planner",
+  };
+}
+
 export function getIntentSubjectKey(intent) {
   if (!intent || typeof intent !== "object") return null;
   if (intent.subjectKey) return intent.subjectKey;
@@ -61,6 +77,10 @@ export function getIntentSubjectKey(intent) {
       return intent.charId != null ? `pawn:${intent.charId}` : null;
     case IntentKinds.BUILD_DESIGNATE:
       return intent.buildKey != null ? `build:${intent.buildKey}` : null;
+    case IntentKinds.TILE_TAG_ORDER:
+      return Number.isFinite(intent.envCol)
+        ? `tileTags:${Math.floor(intent.envCol)}`
+        : null;
     default:
       return null;
   }

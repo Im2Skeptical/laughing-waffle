@@ -40,6 +40,7 @@ import {
  *  - hoverLayer?: PIXI.Container
  *  - getGameState: () => gameState
  *  - interaction: interactionController
+ *  - actionPlanner?: actionPlanner
  *  - tooltipView
  *  - inventoryView
  *  - dispatchAction: (kind, payload, opts?) => any
@@ -53,6 +54,7 @@ export function createBoardView(opts) {
     hoverLayer,
     getGameState,
     interaction,
+    actionPlanner,
     tooltipView,
     inventoryView,
     dispatchAction,
@@ -320,9 +322,16 @@ export function createBoardView(opts) {
   }
 
   function dispatchTagOrder(envCol, tagIds) {
+    if (actionPlanner?.setTileTagOrderIntent) {
+      return actionPlanner.setTileTagOrderIntent({ envCol, tagIds });
+    }
     if (!dispatchAction) return;
     if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
-    dispatchAction(ActionKinds.SET_TILE_TAG_ORDER, { envCol, tagIds });
+    dispatchAction(
+      ActionKinds.SET_TILE_TAG_ORDER,
+      { envCol, tagIds },
+      { apCost: 10 }
+    );
   }
 
   function buildTagLozenge(tag) {

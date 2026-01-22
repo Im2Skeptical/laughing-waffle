@@ -8,6 +8,7 @@ import {
   makeItemTransferIntent,
   makePawnMoveIntent,
   makeBuildDesignateIntent,
+  makeTileTagOrderIntent,
   getIntentSubjectKey,
 } from "./action-intents.js";
 import {
@@ -27,7 +28,28 @@ function cloneIntent(intent) {
     fromPlacement: clonePlacement(intent.fromPlacement),
     toPlacement: clonePlacement(intent.toPlacement),
     baselinePlacement: clonePlacement(intent.baselinePlacement),
+    tagIds: cloneTagList(intent.tagIds),
+    baselineTags: cloneTagList(intent.baselineTags),
   };
+}
+
+function cloneTagList(tags) {
+  return Array.isArray(tags) ? tags.slice() : null;
+}
+
+function normalizeTagList(tags) {
+  if (!Array.isArray(tags)) return [];
+  return tags.filter((tag) => typeof tag === "string");
+}
+
+function tagListsEqual(a, b) {
+  const listA = Array.isArray(a) ? a : [];
+  const listB = Array.isArray(b) ? b : [];
+  if (listA.length !== listB.length) return false;
+  for (let i = 0; i < listA.length; i++) {
+    if (listA[i] !== listB[i]) return false;
+  }
+  return true;
 }
 
 function makePawnPlacement({ hubCol, envCol } = {}) {
@@ -298,6 +320,28 @@ export function createActionPlanner({
         baselineIntents.set(subjectKey, intent);
         intents.set(subjectKey, cloneIntent(intent));
         if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+      }
+
+      if (kind === ActionKinds.SET_TILE_TAG_ORDER) {
+        const envCol = payload.envCol ?? null;
+        if (!Number.isFinite(envCol)) continue;
+        const col = Math.floor(envCol);
+        const subjectKey = `tileTags:${col}`;
+        const tagIds = normalizeTagList(payload.tagIds ?? payload.tags);
+        const intent = makeTileTagOrderIntent({
+          id: subjectKey,
+          subjectKey,
+          envCol: col,
+          tagIds,
+          baselineTags: tagIds,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
       }
     }
 
@@ -765,6 +809,45 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
+  function setTileTagOrderIntent({ envCol, tagIds }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+
+    const col = Math.floor(envCol);
+    const tile = state?.board?.occ?.tile?.[col];
+    if (!tile) return { ok: false, reason: "noTile" };
+
+    const subjectKey = `tileTags:${col}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const baselineTags =
+      cloneTagList(existing?.baselineTags) ??
+      cloneTagList(existing?.tagIds) ??
+      cloneTagList(tile.tags);
+    const nextTags = normalizeTagList(tagIds);
+
+    const intent = makeTileTagOrderIntent({
+      id: subjectKey,
+      subjectKey,
+      envCol: col,
+      tagIds: nextTags,
+      baselineTags,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if (tagListsEqual(intent.tagIds, intent.baselineTags)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
   function buildCommitActions() {
     ensureActive();
     const state = getStateSafe();
@@ -838,6 +921,20 @@ export function createActionPlanner({
             buildKey: intent.buildKey,
             defId: intent.defId ?? null,
             target: intent.target ?? null,
+          },
+          apCost,
+        });
+      } else if (intent.kind === IntentKinds.TILE_TAG_ORDER) {
+        if (!Number.isFinite(intent.envCol)) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.SET_TILE_TAG_ORDER,
+          payload: {
+            envCol: Math.floor(intent.envCol),
+            tagIds: Array.isArray(intent.tagIds) ? intent.tagIds.slice() : [],
           },
           apCost,
         });
@@ -942,6 +1039,7 @@ export function createActionPlanner({
     setItemTransferIntent,
     setPawnMoveIntent,
     setBuildDesignationIntent,
+    setTileTagOrderIntent,
     removeIntent(intentId) {
       ensureActive();
       return removeIntentByKey(intentId);

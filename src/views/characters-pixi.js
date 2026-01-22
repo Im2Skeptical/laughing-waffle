@@ -29,6 +29,7 @@ export function createCharactersView(opts) {
   const {
     app,
     layer,
+    hoverLayer,
 
     // old shape
     getCharacters,
@@ -54,6 +55,7 @@ export function createCharactersView(opts) {
   let focusedCharId = null;
 
   if (layer) layer.sortableChildren = true;
+  if (hoverLayer) hoverLayer.sortableChildren = true;
 
   // ---------------------------------------------------------------------------
   // Safe adapters (so missing wiring doesn't crash)
@@ -163,6 +165,36 @@ export function createCharactersView(opts) {
     view.container.scale.set(scale);
     view.shadow.visible = scale > 1 && GAMEPIECE_SHADOW_ALPHA > 0;
     view.container.zIndex = scale > 1 ? 20 : 0;
+    if (scale > 1) {
+      elevateForHover(view);
+    } else {
+      restoreFromHover(view);
+    }
+  }
+
+  function elevateForHover(view) {
+    if (!hoverLayer || view.container.parent === hoverLayer) return;
+    view.hoverParent = view.container.parent;
+    view.hoverIndex =
+      view.container.parent?.getChildIndex?.(view.container) ?? null;
+    hoverLayer.addChild(view.container);
+  }
+
+  function restoreFromHover(view) {
+    if (!hoverLayer || view.container.parent !== hoverLayer) return;
+    const parent = view.hoverParent || layer;
+    const index = Number.isFinite(view.hoverIndex)
+      ? Math.min(parent?.children?.length ?? 0, view.hoverIndex)
+      : null;
+    if (parent) {
+      if (index == null) {
+        parent.addChild(view.container);
+      } else {
+        parent.addChildAt(view.container, index);
+      }
+    }
+    view.hoverParent = null;
+    view.hoverIndex = null;
   }
 
   function getScaledAnchorFromCenter(cx, cy, width, height, scale) {
@@ -372,6 +404,8 @@ export function createCharactersView(opts) {
       shadow,
       selfHover: false,
       attachedScale: 1,
+      hoverParent: null,
+      hoverIndex: null,
     };
 
     // -----------------------------------------------------------------------
@@ -512,6 +546,11 @@ export function createCharactersView(opts) {
   // Public API
   // ---------------------------------------------------------------------------
   function rebuildAll() {
+    for (const view of viewsById.values()) {
+      if (view.container?.parent) {
+        view.container.parent.removeChild(view.container);
+      }
+    }
     layer.removeChildren();
     viewsById.clear();
 
