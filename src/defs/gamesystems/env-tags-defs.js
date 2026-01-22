@@ -6,14 +6,14 @@ export const envTagDefs = {
     id: "farmable",
     kind: "envTag",
     ui: { name: "Farm", description: "Basic crop work." },
-    systems: ["fertility", "hydration", "growth"],
+    systems: ["growth", "hydration", "fertility"],
     intents: [],
   },
   fishable: {
     id: "fishable",
     kind: "envTag",
     ui: { name: "Fish", description: "Accessible fishing grounds." },
-    systems: ["fishDensity", "hydration"],
+    systems: ["fishStock"],
     intents: [
       {
         id: "fish",
@@ -27,7 +27,7 @@ export const envTagDefs = {
     id: "forageable",
     kind: "envTag",
     ui: { name: "Forage", description: "Wild edibles are present." },
-    systems: ["growth", "turfDensity"],
+    systems: ["wildStock"],
     intents: [
       {
         id: "forage",
@@ -41,7 +41,7 @@ export const envTagDefs = {
     id: "grazable",
     kind: "envTag",
     ui: { name: "Graze", description: "Open turf for herd grazing." },
-    systems: ["turfDensity", "growth"],
+    systems: [],
     intents: [
       {
         id: "graze",

@@ -16,17 +16,17 @@ export const envSystemDefs = {
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
   },
-  fishDensity: {
-    id: "fishDensity",
+  fishStock: {
+    id: "fishStock",
     kind: "envSystem",
-    ui: { name: "Fish Density", description: "Fish population tier." },
+    ui: { name: "Fish Stock", description: "Fish population tier." },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
   },
-  turfDensity: {
-    id: "turfDensity",
+  wildStock: {
+    id: "wildStock",
     kind: "envSystem",
-    ui: { name: "Turf Density", description: "Grassland density tier." },
+    ui: { name: "Wild Stock", description: "Wild animal population tier." },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
   },

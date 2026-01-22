@@ -7,7 +7,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Floodplains",
     ui: { description: "Lowlands shaped by seasonal overflow." },
-    baseTags: ["farmable", "forageable"],
+    baseTags: [],
     seasonTables: {
       spring: [
         { defId: "event_rain", weight: 4 },
@@ -19,19 +19,19 @@ export const envTileDefs = {
         { defId: "event_heatwave", weight: 2 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_fish_school", weight: 2 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
       ],
       autumn: [
-        { defId: "event_flooding", weight: 3 },
+        { defId: "event_flooding", weight: 50 },
         { defId: "event_misty_morning", weight: 1 },
         { defId: "event_boar", weight: 1 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
       ],
       winter: [
         { defId: "event_frost", weight: 3 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_wolves", weight: 1 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
       ],
     },
   },
@@ -46,7 +46,7 @@ export const envTileDefs = {
         { defId: "event_rain", weight: 3 },
         { defId: "event_fish_school", weight: 3 },
         { defId: "event_migratory_birds", weight: 2 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
       ],
       summer: [
         { defId: "event_fish_school", weight: 3 },
@@ -55,16 +55,16 @@ export const envTileDefs = {
         { defId: "event_storm", weight: 20 },
       ],
       autumn: [
-        { defId: "event_flooding", weight: 2 },
+        { defId: "event_flooding", weight: 50 },
         { defId: "event_misty_morning", weight: 2 },
         { defId: "event_migratory_birds", weight: 1 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
       ],
       winter: [
         { defId: "event_frost", weight: 2 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_fish_school", weight: 1 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
       ],
     },
   },
@@ -87,7 +87,7 @@ export const envTileDefs = {
         { defId: "event_fish_school", weight: 1 },
       ],
       autumn: [
-        { defId: "event_flooding", weight: 2 },
+        { defId: "event_flooding", weight: 50 },
         { defId: "event_misty_morning", weight: 1 },
         { defId: "event_boar", weight: 1 },
       ],
@@ -113,6 +113,7 @@ export const envTileDefs = {
         { defId: "event_clear_skies", weight: 2 },
       ],
       autumn: [
+        { defId: "event_flooding", weight: 50 },
         { defId: "event_misty_morning", weight: 2 },
         { defId: "event_migratory_birds", weight: 2 },
       ],
@@ -138,6 +139,7 @@ export const envTileDefs = {
         { defId: "event_clear_skies", weight: 2 },
       ],
       autumn: [
+        { defId: "event_flooding", weight: 50 },
         { defId: "event_misty_morning", weight: 2 },
         { defId: "event_migratory_birds", weight: 2 },
       ],
@@ -191,6 +193,7 @@ export const envTileDefs = {
         { defId: "event_clear_skies", weight: 1 },
       ],
       autumn: [
+        { defId: "event_flooding", weight: 50 },
         { defId: "event_boar", weight: 2 },
         { defId: "event_misty_morning", weight: 1 },
       ],

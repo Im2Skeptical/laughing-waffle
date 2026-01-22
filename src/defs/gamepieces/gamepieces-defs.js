@@ -91,9 +91,9 @@ export const itemDefs = {
     name: "Barley",
     color: 0xd4b45a,
     maxStack: 25,
-    tags: ["edible", "crop"],
+    tags: ["edible", "crop", "currency"],
     defaultWidth: 1,
-    defaultHeight: 1,
+    defaultHeight: 2,
     defaultTier: "bronze",
     ui: {
       title: "Barley",
