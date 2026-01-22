@@ -26,7 +26,7 @@ const ITEM_TIER_BORDER_COLORS = {
   silver: 0xbfc9d9,
   gold: 0xf2d16b,
   diamond: 0x7fd0ff,
-  default: 0x6f6f6f,
+  default: 0x333333,
 };
 
 function getItemTierBorderColor(item, def) {

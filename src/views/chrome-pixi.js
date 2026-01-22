@@ -212,13 +212,6 @@ export function createChromeView({
       ? apIncomePerSec.toFixed(1)
       : "0.0";
 
-    // AP Tracker Logic
-    const curAp =
-      preview && Number.isFinite(preview.remaining)
-        ? Math.floor(preview.remaining)
-        : s.actionPoints ?? 0;
-    const capAp = s.actionPointCap ?? 100;
-
     const edibleFood = getTotalFoodFromEdibles(s);
     const baseFood = Number.isFinite(s.resources.food) ? s.resources.food : 0;
     const foodTotal = baseFood + edibleFood;
@@ -227,7 +220,7 @@ export function createChromeView({
       1
     )}  Food: ${foodTotal.toFixed(1)}  Pop: ${s.resources.population.toFixed(
       1
-    )}  AP: ${curAp}/${capAp}`;
+    )}  `;
 
     const goldSegment = `Gold: ${s.resources.gold.toFixed(1)}  `;
     const foodSegment = `Food: ${foodTotal.toFixed(1)}  `;

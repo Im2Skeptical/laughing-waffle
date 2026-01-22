@@ -11,12 +11,6 @@ export function createDebugOverlay({ layer, runner }) {
   root.y = 10;
   layer.addChild(root);
 
-  const hudBg = new PIXI.Graphics();
-  hudBg.beginFill(0x000000, 0.5);
-  hudBg.drawRoundedRect(0, 0, 200, 40, 8);
-  hudBg.endFill();
-  root.addChild(hudBg);
-
   const apText = new PIXI.Text("AP: -- / --", {
     fontFamily: "Arial",
     fontSize: 18,
@@ -38,7 +32,7 @@ export function createDebugOverlay({ layer, runner }) {
   const dbgIcon = new PIXI.Text("D", { fontSize: 20, fill: 0xffffff });
   dbgIcon.x = 166;
   dbgIcon.y = 8;
-  root.addChild(dbgIcon);
+  dbgBtn.addChild(dbgIcon);
 
   const panel = new PIXI.Container();
   panel.y = 50;
@@ -75,7 +69,11 @@ export function createDebugOverlay({ layer, runner }) {
   dbgBtn.on("pointerdown", () => {
     panel.visible = !panel.visible;
   });
-
+/*
+  dbgIcon.on("pointerdown", () => {
+    panel.visible = !panel.visible;
+  });
+*/
   cheatBtn.eventMode = "static";
   cheatBtn.cursor = "pointer";
   cheatBtn.on("pointerdown", () => {
@@ -100,7 +98,7 @@ export function createDebugOverlay({ layer, runner }) {
             ? Math.floor(preview.remaining)
             : state.actionPoints ?? 0;
         const cap = state.actionPointCap ?? 100;
-        apText.text = `AP: ${cur} / ${cap}`;
+        apText.text = ``;
         apText.style.fill = cur < 20 ? 0xff5555 : 0xffd700;
       }
     },

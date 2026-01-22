@@ -16,6 +16,7 @@ import {
   HUB_STRUCTURE_WIDTH,
   TILE_WIDTH,
   TILE_ROW_Y,
+  CHARACTER_ROW_OFFSET_Y,
   layoutBoardColPos,
   layoutHubStructurePos,
   GAMEPIECE_HOVER_SCALE,
@@ -225,7 +226,7 @@ export function createCharactersView(opts) {
     const pos = layoutHubStructurePos(app.screen.width, hubCol);
     const centerX = pos.x + HUB_STRUCTURE_WIDTH / 2;
     const topY = pos.y;
-    return { x: centerX, y: topY - 30 };
+    return { x: centerX, y: topY - CHARACTER_ROW_OFFSET_Y };
   }
 
   // Centre above an env tile at envCol
@@ -242,7 +243,7 @@ export function createCharactersView(opts) {
     );
     const centerX = pos.x + TILE_WIDTH / 2;
     const topY = pos.y;
-    return { x: centerX, y: topY - 30 };
+    return { x: centerX, y: topY - CHARACTER_ROW_OFFSET_Y };
   }
 
   // ---------------------------------------------------------------------------

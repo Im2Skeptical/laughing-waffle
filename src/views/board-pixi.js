@@ -699,7 +699,7 @@ export function createBoardView(opts) {
     pawnText.anchor.set(0.5);
     pawnBadge.addChild(pawnBg, pawnText);
     pawnBadge.x = TILE_WIDTH - 12;
-    pawnBadge.y = 12;
+    pawnBadge.y = 0;
     pawnBadge.visible = false;
     content.addChild(pawnBadge);
 

@@ -18,7 +18,6 @@ export function createTilePanels(opts) {
   const tileInspector = createTileInspector(inspectorLayer);
   const cropDropdown = createCropDropdown(dropdownLayer, app);
   let inspectedTile = null;
-  let inspectedCol = null;
 
   function getCropList() {
     return Object.values(cropDefs || {}).filter(Boolean);
@@ -80,26 +79,12 @@ export function createTilePanels(opts) {
       pool.diamond ?? 0
     } G${pool.gold ?? 0} S${pool.silver ?? 0} B${pool.bronze ?? 0}`;
 
-    const nextLabel = selectedCrop === "barley" ? "Clear Crop" : "Select Barley";
-    tileInspector.buttonText.text = nextLabel;
-    tileInspector.buttonText.x =
-      10 + (tileInspector.width - 20 - tileInspector.buttonText.width) / 2;
-
-    const canEdit =
-      typeof interaction?.isPlanningPhase === "function" &&
-      interaction.isPlanningPhase();
-    tileInspector.button.eventMode = canEdit ? "static" : "none";
-    tileInspector.button.cursor = canEdit ? "pointer" : "default";
-    tileInspector.button.alpha = canEdit ? 1 : 0.5;
-    tileInspector.buttonText.alpha = canEdit ? 1 : 0.6;
+    // Inspector no longer exposes crop selection controls.
   }
 
   function showTileInspector(view, anchor) {
     if (!tileInspector || !view?.tile) return;
     inspectedTile = view.tile;
-    inspectedCol = Number.isFinite(view.tile?.col)
-      ? Math.floor(view.tile.col)
-      : view.col;
     tileInspector.container.visible = true;
     updateTileInspector();
     positionTileInspector(anchor);
@@ -108,7 +93,6 @@ export function createTilePanels(opts) {
   function hideTileInspector() {
     if (!tileInspector) return;
     inspectedTile = null;
-    inspectedCol = null;
     tileInspector.container.visible = false;
   }
 
@@ -148,31 +132,7 @@ export function createTilePanels(opts) {
     });
   }
 
-  if (tileInspector) {
-    tileInspector.button.on("pointertap", () => {
-      if (!inspectedTile || !Number.isFinite(inspectedCol)) return;
-      if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
-      const growth = inspectedTile.systemState?.growth;
-      const selectedCrop = growth?.selectedCropId ?? null;
-      const nextCrop = selectedCrop === "barley" ? null : "barley";
-
-      if (actionPlanner?.setTileCropSelectionIntent) {
-        actionPlanner.setTileCropSelectionIntent({
-          envCol: inspectedCol,
-          cropId: nextCrop,
-        });
-        return;
-      }
-
-      if (!dispatchAction) return;
-      if (selectedCrop === nextCrop) return;
-      dispatchAction(
-        ActionKinds.SET_TILE_CROP_SELECTION,
-        { envCol: inspectedCol, cropId: nextCrop },
-        { apCost: 10 }
-      );
-    });
-  }
+  // Crop selection handled via tile tag UI, not the inspector panel.
 
   return {
     showTileInspector,
@@ -190,7 +150,7 @@ function createTileInspector(layer) {
   if (!layer) return null;
 
   const width = 240;
-  const height = 160;
+  const height = 130;
   const container = new PIXI.Container();
   container.visible = false;
   container.zIndex = 30;
@@ -251,23 +211,6 @@ function createTileInspector(layer) {
   maturedText.y = 102;
   container.addChild(maturedText);
 
-  const button = new PIXI.Graphics()
-    .beginFill(0x2b3a5a)
-    .drawRoundedRect(10, height - 36, width - 20, 26, 6)
-    .endFill();
-  button.y = height - 36;
-  button.eventMode = "static";
-  button.cursor = "pointer";
-  container.addChild(button);
-
-  const buttonText = new PIXI.Text("Select Barley", {
-    fill: 0xffffff,
-    fontSize: 11,
-  });
-  buttonText.x = 10 + (width - 20 - buttonText.width) / 2;
-  buttonText.y = height - 31;
-  container.addChild(buttonText);
-
   return {
     container,
     width,
@@ -278,8 +221,6 @@ function createTileInspector(layer) {
     cropText,
     plantedText,
     maturedText,
-    button,
-    buttonText,
   };
 }
 
