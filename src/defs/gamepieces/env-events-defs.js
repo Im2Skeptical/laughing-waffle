@@ -39,7 +39,7 @@ export const envEventDefs = {
     ui: { description: "A brief cold snap." },
     class: "effect",
     durationSec: 32,
-    onEnter: { op: "AddResource", resource: "food", amount: 1 },
+    onEnter: { op: "AddResource", resource: "gold", amount: 1 },
   },
   event_heatwave: {
     id: "event_heatwave",
@@ -78,7 +78,7 @@ export const envEventDefs = {
     ui: { description: "A short burst of growth." },
     class: "effect",
     durationSec: 32,
-    onEnter: { op: "AddResource", resource: "food", amount: 1 },
+    onEnter: { op: "AddResource", resource: "gold", amount: 1 },
   },
   event_misty_morning: {
     id: "event_misty_morning",
@@ -150,6 +150,6 @@ export const envEventDefs = {
     ui: { description: "Seasonal birds rest briefly." },
     class: "animal",
     durationSec: 32,
-    onEnter: { op: "AddResource", resource: "food", amount: 1 },
+    onEnter: { op: "AddResource", resource: "gold", amount: 1 },
   },
 };
