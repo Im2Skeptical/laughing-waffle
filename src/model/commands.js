@@ -3,6 +3,7 @@
 
 import { hubStructureDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import {
   SEASON_DURATION_SEC,
   AP_INCOME_PER_SEC,
@@ -234,6 +235,88 @@ export function cmdSetTileTagOrder(state, { envCol, tagIds }) {
 
   tile.tags = ordered;
   return { ok: true, result: "tagOrderSet", envCol: col };
+}
+
+// =============================================================================
+// TILE CROP SELECTION
+// =============================================================================
+
+function ensureTileSystemState(tile) {
+  if (!tile.systemState || typeof tile.systemState !== "object") {
+    tile.systemState = {};
+  }
+  return tile.systemState;
+}
+
+function ensureGrowthState(tile) {
+  const systemState = ensureTileSystemState(tile);
+  if (!systemState.growth || typeof systemState.growth !== "object") {
+    systemState.growth = {
+      selectedCropId: null,
+      plantedBatches: [],
+      maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+    };
+  } else {
+    if (!Array.isArray(systemState.growth.plantedBatches)) {
+      systemState.growth.plantedBatches = [];
+    }
+    if (!systemState.growth.maturedPool) {
+      systemState.growth.maturedPool = {
+        bronze: 0,
+        silver: 0,
+        gold: 0,
+        diamond: 0,
+      };
+    }
+  }
+  return systemState.growth;
+}
+
+function ensureHydrationState(tile) {
+  const systemState = ensureTileSystemState(tile);
+  if (!systemState.hydration || typeof systemState.hydration !== "object") {
+    systemState.hydration = {
+      cur: 100,
+      max: 100,
+      decayPerSec: 2,
+      sumRatio: 0,
+    };
+  }
+  return systemState.hydration;
+}
+
+export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {
+  if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+  const col = Math.floor(envCol);
+  const tile = state.board?.occ?.tile?.[col];
+  if (!tile) return { ok: false, reason: "noTile" };
+  const tags = Array.isArray(tile.tags) ? tile.tags : [];
+  if (!tags.includes("farmable")) {
+    return { ok: false, reason: "notFarmable" };
+  }
+
+  const nextCropId =
+    cropId == null || cropId === "" ? null : String(cropId);
+  if (nextCropId && !cropDefs[nextCropId]) {
+    return { ok: false, reason: "badCropId" };
+  }
+
+  const growth = ensureGrowthState(tile);
+  if (growth.selectedCropId === nextCropId) {
+    return { ok: true, result: "cropUnchanged", envCol: col };
+  }
+
+  growth.selectedCropId = nextCropId;
+  if (nextCropId) {
+    ensureHydrationState(tile);
+  }
+
+  return {
+    ok: true,
+    result: "cropSelected",
+    envCol: col,
+    cropId: nextCropId,
+  };
 }
 
 // =============================================================================

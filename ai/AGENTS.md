@@ -6,7 +6,7 @@ Local instructions for Codex agents working in this repo.
 - Read `ai/ai-context.md` before making changes.
 
 ## Current goal context
-- Read `ai/Gamepiece Def Schema.md` and `ai/GameplaySystemRefactor - Goals 01.md` for the refactor stage you are working on
+- Read `ai/Farming Feature Goals.md` for the refactor stage you are working on
 
 ## Core constraints (non-negotiable)
 - Determinism: no `Math.random()`; all randomness must go through `state.rng`.

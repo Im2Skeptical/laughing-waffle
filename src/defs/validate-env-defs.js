@@ -7,6 +7,8 @@ const EFFECT_OPS = new Set([
   "RemoveTag",
   "SetSystemTier",
   "UpgradeSystemTier",
+  "SetSystemState",
+  "ClearSystemState",
   "RemoveEvent",
   "TransformEvent",
 ]);
@@ -90,6 +92,30 @@ function validateEffectSpec(effectSpec, contextLabel, tagIds, systemIds, eventId
         addIssue(
           errors,
           `${contextLabel}: ${op} system "${effect.system}" not found.`
+        );
+      }
+    }
+
+    if (op === "SetSystemState") {
+      if (!effect.system || typeof effect.system !== "string") {
+        addIssue(errors, `${contextLabel}: ${op} missing system.`);
+      } else if (!systemIds.has(effect.system)) {
+        addIssue(
+          errors,
+          `${contextLabel}: ${op} system "${effect.system}" not found.`
+        );
+      }
+    }
+
+    if (op === "ClearSystemState") {
+      if (
+        effect.systems != null &&
+        (!Array.isArray(effect.systems) ||
+          effect.systems.some((sys) => !systemIds.has(sys)))
+      ) {
+        addIssue(
+          errors,
+          `${contextLabel}: ${op} systems must reference known systems.`
         );
       }
     }

@@ -3,6 +3,7 @@
 
 import { itemDefs, hubStructureDefs } from "../../defs/gamepieces/gamepieces-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
+import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { IntentKinds } from "./action-intents.js";
 import {
@@ -13,6 +14,11 @@ import {
 function formatItemNameFromKind(kind) {
   if (kind && itemDefs[kind]) return itemDefs[kind].name || kind;
   return kind || "";
+}
+
+function formatCropName(cropId) {
+  if (!cropId) return "None";
+  return cropDefs[cropId]?.name || cropDefs[cropId]?.cropId || cropId;
 }
 
 function formatOwnerName(ownerId, getOwnerLabel) {
@@ -95,6 +101,11 @@ function describeIntent(intent, state, getOwnerLabel) {
     case IntentKinds.TILE_TAG_ORDER: {
       const tileName = formatTileName(intent.envCol, state);
       return `Tags > ${tileName}`;
+    }
+    case IntentKinds.TILE_CROP_SELECT: {
+      const tileName = formatTileName(intent.envCol, state);
+      const cropName = formatCropName(intent.cropId);
+      return `Crop > ${tileName}: ${cropName}`;
     }
     default:
       return intent.kind || "Action";
@@ -183,6 +194,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
     const intentCost = planner?.getIntentCost?.(intentId) ?? 0;
     if (intent.kind === IntentKinds.ITEM_TRANSFER && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_TAG_ORDER && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.TILE_CROP_SELECT && intentCost <= 0) continue;
     const rowId = intentId ?? `intent:${rowsOut.length}`;
     rowsOut.push({
       id: rowId,
@@ -280,10 +292,15 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     } else if (kind === ActionKinds.SET_TILE_TAG_ORDER) {
       const tileName = formatTileName(payload.envCol, state);
       desc = `Tags > ${tileName}`;
+    } else if (kind === ActionKinds.SET_TILE_CROP_SELECTION) {
+      const tileName = formatTileName(payload.envCol, state);
+      const cropName = formatCropName(payload.cropId);
+      desc = `Crop > ${tileName}: ${cropName}`;
     }
 
     if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_TAG_ORDER && apCost <= 0) continue;
+    if (kind === ActionKinds.SET_TILE_CROP_SELECTION && apCost <= 0) continue;
     rowsOut.push({
       id: `${kind}:${i}`,
       description: desc,
@@ -307,6 +324,7 @@ function isLogAction(action) {
   if (kind === ActionKinds.PLACE_CHARACTER) return true;
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
   if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;
+  if (kind === ActionKinds.SET_TILE_CROP_SELECTION) return true;
   return false;
 }
 

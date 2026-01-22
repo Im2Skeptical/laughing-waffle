@@ -204,6 +204,7 @@ const boardView = createBoardView({
   eventLayer: uiLayers.eventLayer,
   hubStructuresLayer: uiLayers.hubStructuresLayer,
   hoverLayer: uiLayers.hoverLayer,
+  inspectorLayer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
   interaction: interactionController,
   actionPlanner,

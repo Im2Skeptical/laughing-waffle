@@ -86,6 +86,25 @@ export const hubStructureDefs = {
 // --- Items (inventory things) ---
 
 export const itemDefs = {
+  barley: {
+    id: "barley",
+    name: "Barley",
+    color: 0xd4b45a,
+    maxStack: 25,
+    tags: ["edible", "crop"],
+    defaultWidth: 1,
+    defaultHeight: 1,
+    defaultTier: "bronze",
+    ui: {
+      title: "Barley",
+      lines: [
+        (item, ctx) => `Item id: ${item.id}`,
+        (item, ctx) => `Owner: ${ctx.ownerLabel}`,
+        (item) => `Quantity: ${item.quantity}`,
+        (item) => `Tier: ${item.tier ?? "bronze"}`,
+      ],
+    },
+  },
   grain: {
     id: "grain",
     name: "Grain",

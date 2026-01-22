@@ -3,12 +3,14 @@
 
 import { ActionKinds } from "../../model/actions.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
+import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import {
   IntentKinds,
   makeItemTransferIntent,
   makePawnMoveIntent,
   makeBuildDesignateIntent,
   makeTileTagOrderIntent,
+  makeTileCropSelectIntent,
   getIntentSubjectKey,
 } from "./action-intents.js";
 import {
@@ -71,6 +73,11 @@ function normalizePawnPlacement(value) {
 function normalizeApCost(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.floor(value));
+}
+
+function normalizeCropId(value) {
+  if (value == null || value === "") return null;
+  return String(value);
 }
 
 export function createActionPlanner({
@@ -334,6 +341,28 @@ export function createActionPlanner({
           envCol: col,
           tagIds,
           baselineTags: tagIds,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
+      if (kind === ActionKinds.SET_TILE_CROP_SELECTION) {
+        const envCol = payload.envCol ?? null;
+        if (!Number.isFinite(envCol)) continue;
+        const col = Math.floor(envCol);
+        const subjectKey = `tileCrop:${col}`;
+        const cropId = normalizeCropId(payload.cropId);
+        const intent = makeTileCropSelectIntent({
+          id: subjectKey,
+          subjectKey,
+          envCol: col,
+          cropId,
+          baselineCropId: cropId,
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
           source: "timeline",
         });
@@ -848,6 +877,52 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
+  function setTileCropSelectionIntent({ envCol, cropId }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+
+    const col = Math.floor(envCol);
+    const tile = state?.board?.occ?.tile?.[col];
+    if (!tile) return { ok: false, reason: "noTile" };
+    const tags = Array.isArray(tile.tags) ? tile.tags : [];
+    if (!tags.includes("farmable")) {
+      return { ok: false, reason: "notFarmable" };
+    }
+
+    const nextCropId = normalizeCropId(cropId);
+    if (nextCropId && !cropDefs[nextCropId]) {
+      return { ok: false, reason: "badCropId" };
+    }
+
+    const subjectKey = `tileCrop:${col}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const tileCropId = tile.systemState?.growth?.selectedCropId ?? null;
+    const baselineCropId =
+      existing?.baselineCropId ?? existing?.cropId ?? tileCropId;
+
+    const intent = makeTileCropSelectIntent({
+      id: subjectKey,
+      subjectKey,
+      envCol: col,
+      cropId: nextCropId,
+      baselineCropId,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if ((intent.cropId ?? null) === (intent.baselineCropId ?? null)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
   function buildCommitActions() {
     ensureActive();
     const state = getStateSafe();
@@ -935,6 +1010,20 @@ export function createActionPlanner({
           payload: {
             envCol: Math.floor(intent.envCol),
             tagIds: Array.isArray(intent.tagIds) ? intent.tagIds.slice() : [],
+          },
+          apCost,
+        });
+      } else if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
+        if (!Number.isFinite(intent.envCol)) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.SET_TILE_CROP_SELECTION,
+          payload: {
+            envCol: Math.floor(intent.envCol),
+            cropId: intent.cropId ?? null,
           },
           apCost,
         });
@@ -1040,6 +1129,7 @@ export function createActionPlanner({
     setPawnMoveIntent,
     setBuildDesignationIntent,
     setTileTagOrderIntent,
+    setTileCropSelectionIntent,
     removeIntent(intentId) {
       ensureActive();
       return removeIntentByKey(intentId);

@@ -10,6 +10,7 @@ import {
   rebuildBoardOccupancy,
 } from "./state.js";
 import { runEffect } from "./effects.js";
+import { stepFarmingSecond } from "./farming.js";
 
 const EVENT_CADENCE_SEC = 5;
 
@@ -168,6 +169,8 @@ export function stepEnvSecond(state, tSec) {
       }
     }
   }
+
+  stepFarmingSecond(state, tSec);
 
   const cols = board.cols ?? 12;
   const tileOcc = board.occ?.tile;

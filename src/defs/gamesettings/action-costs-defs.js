@@ -10,5 +10,6 @@ export const INTENT_AP_COSTS = {
   pawnMoveEnvToHub: 30,
   buildDesignate: 20,
   tileTagOrder: 10,
+  tileCropSelect: 10,
 };
 

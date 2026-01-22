@@ -228,6 +228,7 @@ export function makeEnvTileInstance(defId, state, col, span = 1) {
     span,
     tags,
     systemTiers: {},
+    systemState: {},
   };
 }
 

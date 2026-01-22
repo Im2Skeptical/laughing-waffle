@@ -37,6 +37,7 @@ export const Inventory = {
       width: config.width || 1,
       height: config.height || 1,
       quantity: config.quantity ?? 1,
+      tier: config.tier ?? null,
       expiryTurn: config.expiryTurn ?? null,
       gridX: config.gridX ?? 0,
       gridY: config.gridY ?? 0,
@@ -169,6 +170,7 @@ export function initializeItemFromDef(state, item) {
 
   if (def.defaultWidth != null) item.width = def.defaultWidth;
   if (def.defaultHeight != null) item.height = def.defaultHeight;
+  if (def.defaultTier != null && item.tier == null) item.tier = def.defaultTier;
 
   const maxStack = def.maxStack != null ? def.maxStack : 999;
   if (item.quantity > maxStack) item.quantity = maxStack;
@@ -182,7 +184,8 @@ export function getItemMaxStack(item) {
 export function canStackItems(a, b) {
   if (!a || !b) return false;
   if (a.kind !== b.kind) return false;
-  return (a.seasonsToExpire ?? null) === (b.seasonsToExpire ?? null);
+  if ((a.seasonsToExpire ?? null) !== (b.seasonsToExpire ?? null)) return false;
+  return (a.tier ?? null) === (b.tier ?? null);
 }
 
 export function splitStack(state, inv, item, amount) {
@@ -199,6 +202,7 @@ export function splitStack(state, inv, item, amount) {
     gridX: item.gridX,
     gridY: item.gridY,
     quantity: amount,
+    tier: item.tier ?? null,
     seasonsToExpire: item.seasonsToExpire ?? null,
   };
 
@@ -232,6 +236,7 @@ export function trySplitStackAndPlace(state, inv, item, amount) {
     gridX: item.gridX,
     gridY: item.gridY,
     quantity: splitAmount,
+    tier: item.tier ?? null,
     seasonsToExpire: item.seasonsToExpire ?? null,
   };
 

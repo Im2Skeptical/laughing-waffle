@@ -28,6 +28,7 @@ import {
   cmdPlaceCharacter,
   cmdSetPaused,
   cmdSetTileTagOrder,
+  cmdSetTileCropSelection,
   canOwnerAcceptItem,
 } from "./commands.js";
 
@@ -131,6 +132,7 @@ export {
   cmdPlaceCharacter,
   cmdSetPaused,
   cmdSetTileTagOrder,
+  cmdSetTileCropSelection,
   canOwnerAcceptItem,
 };
 

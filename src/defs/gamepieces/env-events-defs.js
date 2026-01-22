@@ -21,16 +21,47 @@ export const envEventDefs = {
     ui: { description: "Overflow briefly changes the terrain." },
     class: "effect",
     durationSec: 32,
-    onEnter: {
-      op: "AddTag",
-      target: { ref: "self", layer: "tile" },
-      tag: "fishable",
-    },
-    onExit: {
-      op: "RemoveTag",
-      target: { ref: "self", layer: "tile" },
-      tag: "fishable",
-    },
+    onEnter: [
+      { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+      { op: "AddTag", target: { ref: "self", layer: "tile" }, tag: "fishable" },
+      {
+        op: "ClearSystemState",
+        target: { ref: "self", layer: "tile" },
+        systems: ["growth", "hydration"],
+      },
+    ],
+    onExit: [
+      { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "fishable" },
+      { op: "AddTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+      {
+        op: "SetSystemTier",
+        target: { ref: "self", layer: "tile" },
+        system: "hydration",
+        tier: "silver",
+      },
+      {
+        op: "SetSystemTier",
+        target: { ref: "self", layer: "tile" },
+        system: "fertility",
+        tier: "silver",
+      },
+      {
+        op: "SetSystemState",
+        target: { ref: "self", layer: "tile" },
+        system: "hydration",
+        value: { cur: 100, max: 100, decayPerSec: 2, sumRatio: 0 },
+      },
+      {
+        op: "SetSystemState",
+        target: { ref: "self", layer: "tile" },
+        system: "growth",
+        value: {
+          selectedCropId: null,
+          plantedBatches: [],
+          maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+        },
+      },
+    ],
   },
   event_frost: {
     id: "event_frost",
@@ -69,6 +100,11 @@ export const envEventDefs = {
     durationSec: 6,
     onEnter: [
       { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+      {
+        op: "ClearSystemState",
+        target: { ref: "self", layer: "tile" },
+        systems: ["growth", "hydration"],
+      },
     ],
   },
   event_bloom: {

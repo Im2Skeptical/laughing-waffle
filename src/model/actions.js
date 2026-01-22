@@ -9,6 +9,7 @@ import {
   cmdStackItemsInOwner,
   cmdDebugSetCap,
   cmdSetTileTagOrder,
+  cmdSetTileCropSelection,
 } from "./commands.js";
 
 export const ActionKinds = {
@@ -18,6 +19,7 @@ export const ActionKinds = {
   INVENTORY_STACK: "inventoryStack",
   BUILD_DESIGNATE: "buildDesignate",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
+  SET_TILE_CROP_SELECTION: "setTileCropSelection",
   DEBUG_SET_CAP: "debugSetCap",
 };
 
@@ -38,7 +40,8 @@ function getActionApCost(action) {
     kind === ActionKinds.INVENTORY_MOVE ||
     kind === ActionKinds.INVENTORY_SPLIT ||
     kind === ActionKinds.INVENTORY_STACK ||
-    kind === ActionKinds.BUILD_DESIGNATE
+    kind === ActionKinds.BUILD_DESIGNATE ||
+    kind === ActionKinds.SET_TILE_CROP_SELECTION
   ) {
     console.warn(
       "Action missing apCost; defaulting to 0 for replay safety.",
@@ -130,6 +133,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.SET_TILE_TAG_ORDER:
       result = cmdSetTileTagOrder(state, payload);
+      break;
+
+    case ActionKinds.SET_TILE_CROP_SELECTION:
+      result = cmdSetTileCropSelection(state, payload);
       break;
 
     case ActionKinds.DEBUG_SET_CAP:

@@ -7,14 +7,7 @@ export const envTagDefs = {
     kind: "envTag",
     ui: { name: "Farm", description: "Basic crop work." },
     systems: ["fertility", "hydration", "growth"],
-    intents: [
-      {
-        id: "farm",
-        verb: "farm",
-        requires: { season: ["spring", "summer"] },
-        effect: { op: "AddResource", resource: "food", amount: 1 },
-      },
-    ],
+    intents: [],
   },
   fishable: {
     id: "fishable",

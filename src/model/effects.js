@@ -35,6 +35,11 @@ function getExpiryTargetKind(def) {
   return null;
 }
 
+function cloneSerializable(value) {
+  if (value == null || typeof value !== "object") return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
 function sampleBinomial(state, trials, chance) {
   if (!Number.isFinite(trials) || trials <= 0) return 0;
   if (!Number.isFinite(chance) || chance <= 0) return 0;
@@ -319,6 +324,60 @@ export function runEffect(state, rawEffect, context) {
       return changed;
     }
 
+    case "SetSystemState": {
+      const systemId = effect.system;
+      if (!systemId || typeof systemId !== "string") return false;
+
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      let changed = false;
+      const rawValue = effect.value ?? effect.state ?? null;
+
+      for (const target of targets) {
+        if (!target) continue;
+        if (!target.systemState || typeof target.systemState !== "object") {
+          target.systemState = {};
+        }
+        target.systemState[systemId] = cloneSerializable(rawValue);
+        changed = true;
+      }
+
+      return changed;
+    }
+
+    case "ClearSystemState": {
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      let changed = false;
+      const systems = Array.isArray(effect.systems) ? effect.systems : null;
+
+      for (const target of targets) {
+        if (!target) continue;
+        if (!target.systemState || typeof target.systemState !== "object") {
+          continue;
+        }
+
+        if (!systems || systems.length === 0) {
+          if (Object.keys(target.systemState).length > 0) {
+            target.systemState = {};
+            changed = true;
+          }
+          continue;
+        }
+
+        for (const sys of systems) {
+          if (Object.prototype.hasOwnProperty.call(target.systemState, sys)) {
+            delete target.systemState[sys];
+            changed = true;
+          }
+        }
+      }
+
+      return changed;
+    }
+
     case "UpgradeSystemTier": {
       const systemId = effect.system;
       if (!systemId || typeof systemId !== "string") return false;
@@ -584,6 +643,7 @@ function handleSplitStack(state, effect, context) {
     gridX: item.gridX,
     gridY: item.gridY,
     quantity: splitAmount,
+    tier: item.tier ?? null,
     seasonsToExpire: item.seasonsToExpire ?? null,
   };
 
