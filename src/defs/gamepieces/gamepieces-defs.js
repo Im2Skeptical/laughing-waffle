@@ -1,5 +1,5 @@
 // gamepieces-defs.js
-// Definitions for hub structures, env cards, and items.
+// Definitions for hub structures and items.
 
 export const hubStructureDefs = {
   farm: {
@@ -38,8 +38,8 @@ export const hubStructureDefs = {
     ui: {
       title: "Mine",
       lines: [
-        "Consumes rocks from above to generate gold.",
-        (inst, def) => `+${def.baseOutput.gold} gold per rock per trigger.`,
+        "Generates gold based on mineable tiles across the board.",
+        (inst, def) => `+${def.baseOutput.gold} gold per mineable tile per trigger.`,
         (inst, def) => {
           const timed = (def.behaviors || []).find(
             (b) => b.kind === "TimedTrigger"
@@ -77,132 +77,6 @@ export const hubStructureDefs = {
         "Holds stored grain and goods.",
         "Hover: open inventory (if not pinned).",
         "Click: toggle inventory window.",
-      ],
-      meters: [],
-    },
-  },
-};
-
-// --- Env card helpers ---
-
-function makeSeasonalBarrenDef(id, displayName, color) {
-  return {
-    id,
-    name: displayName,
-    color,
-    tags: ["env", "barren"],
-    behaviors: [
-      {
-        kind: "TimedLife",
-        props: {
-          timerKey: "timer",
-          defaultLife: 5,
-        },
-      },
-    ],
-    ui: {
-      title: displayName,
-      lines: [
-        "No effect.",
-        (inst) =>
-          inst.props.timer != null
-            ? `Expires in ${inst.props.timer.toFixed(1)}s.`
-            : "",
-      ],
-      meters: [],
-    },
-  };
-}
-
-// --- Environment cards (top row) ---
-
-export const envCardDefs = {
-  rock: {
-    id: "rock",
-    name: "Rock",
-    color: 0xaaaaaa,
-    tags: ["env", "fuelSource:rock"],
-    behaviors: [
-      {
-        kind: "HasPool",
-        props: {
-          poolKey: "pool",
-          defaultPool: 10,
-        },
-      },
-    ],
-    ui: {
-      title: "Rock",
-      lines: [
-        "Acts as fuel for mines.",
-        (inst) => `Remaining pool: ${inst.props.pool ?? 0}.`,
-      ],
-      meters: [{ label: "Pool", prop: "pool" }],
-    },
-  },
-
-  barren_spring: makeSeasonalBarrenDef(
-    "barren_spring",
-    "Spring Barren",
-    0x66bb6a
-  ),
-  barren_summer: makeSeasonalBarrenDef(
-    "barren_summer",
-    "Summer Barren",
-    0xffb300
-  ),
-  barren_autumn: makeSeasonalBarrenDef(
-    "barren_autumn",
-    "Autumn Barren",
-    0xff7043
-  ),
-  barren_winter: makeSeasonalBarrenDef(
-    "barren_winter",
-    "Winter Barren",
-    0x90a4ae
-  ),
-
-  fertile_soil: {
-    id: "fertile_soil",
-    name: "Fertile Soil",
-    color: 0x8bc34a,
-    tags: ["env", "fertile"],
-    behaviors: [],
-    seasonEnd: { op: "SeasonEndRecycleAs", targetDefId: "flood_autumn" },
-    ui: {
-      title: "Fertile Soil",
-      lines: [
-        "Rich soil.",
-        "Future: boosts farms planted here.",
-        "Reverts to flood card at season end.",
-      ],
-      meters: [],
-    },
-  },
-
-  flood_autumn: {
-    id: "flood_autumn",
-    name: "Autumn Flood",
-    color: 0x42a5f5,
-    tags: ["env", "flood"],
-    behaviors: [
-      {
-        kind: "TimedTransform",
-        props: {
-          timerKey: "timer",
-          defaultTime: 4,
-          targetDefId: "fertile_soil",
-        },
-      },
-    ],
-    ui: {
-      title: "Autumn Flood",
-      lines: [
-        "Seasonal flooding.",
-        (inst) =>
-          inst.props.timer != null
-            ? `Becomes Fertile Soil in ${inst.props.timer.toFixed(1)}s.`
-            : "Becomes Fertile Soil soon.",
       ],
       meters: [],
     },

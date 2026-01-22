@@ -35,9 +35,6 @@ export const setupDefs = {
       ],
     },
 
-    // Env cards (static; no deck refill)
-    envSlots: [null, null, null, null, null],
-
     // characters placed by board column
     characters: [
       { name: "Char 1", color: 0xff9999, hubCol: 4 },
@@ -90,8 +87,6 @@ export const setupDefs = {
         { defId: "storehouse", hubCol: 7 },
       ],
     },
-
-    envSlots: ["flood_autumn", "flood_autumn", null, null, "rock"],
 
     characters: [{ name: "Char 1", color: 0xff9999, hubCol: 4 }],
 

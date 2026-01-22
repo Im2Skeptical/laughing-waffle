@@ -2,12 +2,11 @@
 // NOTE: Model APIs require explicit `state`.
 // `gameState` remains exported for app-edge wiring only.
 
-import { envCardDefs, hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 
 import {
   gameState,
   createEmptyState,
-  makeEnvInstance,
   makeHubStructureInstance,
   initializeInstanceFromDef,
   getCurrentSeasonKey,
@@ -62,56 +61,10 @@ export function updateGame(dt, state) {
       }) || [];
 
     for (const op of ops) {
-      // Explicit env targeting
-      if (
-        op &&
-        (op.targetKind === "env" || typeof op.envSlotIndex === "number")
-      ) {
-        const idx = op.envSlotIndex;
-        const envSlot = typeof idx === "number" ? s.envSlots?.[idx] : null;
-        if (envSlot && envSlot.env) {
-          runEffect(s, op, {
-            kind: "env",
-            slot: envSlot,
-            state: s,
-          });
-        }
-        continue;
-      }
-
       runEffect(s, op, { kind: "game", state: s, source: structure });
     }
   }
 
-  if (s.envSlotsEnabled !== false) {
-    // Env slot behavior (can disable via envSlotsEnabled).
-    for (let i = 0; i < s.envSlots.length; i++) {
-      const slot = s.envSlots[i];
-      const env = slot.env;
-
-      if (env) {
-        const def = envCardDefs[env.defId];
-
-        const ops =
-          runBehaviorsOnInstance(env, def, dt, s, { kind: "env" }) || [];
-
-        for (const op of ops) {
-          const targetSlot =
-            op && typeof op.envSlotIndex === "number"
-              ? s.envSlots?.[op.envSlotIndex] || slot
-              : slot;
-
-          runEffect(s, op, {
-            kind: "env",
-            slot: targetSlot,
-            state: s,
-          });
-
-          if (!slot.env) break;
-        }
-      }
-    }
-  }
 }
 
 // =============================================================================
@@ -165,7 +118,6 @@ export {
   createInitialState,
 
   // constructors / helpers (explicit state required by their own signatures)
-  makeEnvInstance,
   makeHubStructureInstance,
   initializeInstanceFromDef,
   getCurrentSeasonKey,

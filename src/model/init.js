@@ -6,7 +6,6 @@ import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 
 import {
   createEmptyState,
-  makeEnvInstance,
   makeEnvTileInstance,
   makeHubStructureInstance,
   buildSeasonDeckForCurrentSeason,
@@ -64,11 +63,6 @@ export function createInitialState(scenario = "testing", seed = null) {
 
   // hub structures
   state.hub.slots = buildHubSlots(setup, hubCols, state);
-
-  // env slots
-  state.envSlots = (setup.envSlots || []).map((envDefId) => ({
-    env: envDefId ? makeEnvInstance(envDefId, state) : null,
-  }));
 
   state.board.layers.tile.anchors = buildTileAnchors(setup, boardCols, state);
 

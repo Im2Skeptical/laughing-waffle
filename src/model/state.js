@@ -2,7 +2,7 @@
 // Model-only. No view imports.
 
 import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
-import { envCardDefs, hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { attachRngHelpers } from "./rng.js";
@@ -170,8 +170,6 @@ export function createEmptyState(seed = 123456789) {
     hub: createHubState(),
     nextHubStructureInstanceId: 1,
 
-    envSlots: [],
-    envSlotsEnabled: false,
     currentSeasonDeck: null,
     nextEnvInstanceId: 1,
 
@@ -208,13 +206,6 @@ export function makeHubStructureInstance(defId, state) {
     span,
     props: {},
   };
-  initializeInstanceFromDef(inst, def);
-  return inst;
-}
-
-export function makeEnvInstance(defId, state) {
-  const def = envCardDefs[defId];
-  const inst = { instanceId: state.nextEnvInstanceId++, defId, props: {} };
   initializeInstanceFromDef(inst, def);
   return inst;
 }
@@ -493,15 +484,6 @@ export function drawSeasonDeckEntry(state) {
 // SERIALIZATION (core-only)
 // =============================================================================
 
-function stripTransientFromEnvSlots(envSlots) {
-  for (const slot of envSlots || []) {
-    const env = slot?.env;
-    if (!env) continue;
-    delete env._emitEffect;
-    delete env._emitEffects;
-  }
-}
-
 function rebuildInventoryDerived(inv) {
   if (!inv) return;
 
@@ -567,6 +549,8 @@ export function serializeGameState(state) {
   }
   if (clean.permanentSlots) delete clean.permanentSlots;
   if (clean.nextPermanentInstanceId) delete clean.nextPermanentInstanceId;
+  if (clean.envSlots) delete clean.envSlots;
+  if (clean.envSlotsEnabled != null) delete clean.envSlotsEnabled;
 
   // Inventories contain derived indices that cannot survive JSON cloning.
   if (clean.ownerInventories) {
@@ -589,8 +573,8 @@ export function deserializeGameState(data) {
   // Ensure defaults
   if (!state.rng) state.rng = { seed: 123456789 };
   if (!state.resources) state.resources = { gold: 0, food: 0, population: 0 };
-  if (!state.envSlots) state.envSlots = [];
-  if (state.envSlotsEnabled == null) state.envSlotsEnabled = false;
+  if (state.envSlots) delete state.envSlots;
+  if (state.envSlotsEnabled != null) delete state.envSlotsEnabled;
   if (!state.hub || typeof state.hub !== "object") state.hub = createHubState();
   if (!state.characters) state.characters = [];
   if (!state.seasons) state.seasons = SEASONS;
@@ -665,7 +649,6 @@ export function deserializeGameState(data) {
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
   }
 
-  stripTransientFromEnvSlots(state.envSlots);
   // Rebuild derived inventory indices after JSON clone / replay.
   for (const inv of Object.values(state.ownerInventories)) {
     rebuildInventoryDerived(inv);

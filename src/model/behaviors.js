@@ -1,12 +1,11 @@
 // behaviors.js — behaviors return EffectOps (no side channels)
 
-import { envCardDefs, hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 
 export const behaviorHandlers = {
   TimedTrigger: handleTimedTrigger,
-  TimedLife: handleTimedLife,
   HasPool: handleHasPool,
-  TimedTransform: handleTimedTransform,
 };
 
 export const triggerHandlers = {
@@ -19,7 +18,6 @@ const MAX_TIMED_TRIGGER_FIRES_PER_UPDATE = 8;
 
 // ctx (optional):
 // - { kind: "hub", hubCol: number } for hub slots
-// - { kind: "env" } for env slots
 export function runBehaviorsOnInstance(instance, def, dt, state, ctx = null) {
   const ops = [];
 
@@ -113,46 +111,8 @@ function handleTimedTrigger(entity, def, props, dt, state, ctx) {
   return ops;
 }
 
-function handleTimedLife(entity, def, props, dt, state, ctx) {
-  const eprops = entity.props;
-  const { timerKey } = props;
-  if (!timerKey || eprops[timerKey] == null) return null;
-
-  const isHub = ctx?.kind === "hub";
-  const hubCol = isHub ? ctx.hubCol : null;
-  if (isHub && typeof hubCol !== "number") return null;
-
-  const timer = eprops[timerKey] - dt;
-  if (timer <= 0) {
-    return { op: "KillEnv" };
-  }
-
-  const op = { op: "SetProp", prop: timerKey, value: timer };
-  if (isHub) op.target = { at: { layer: "hub", col: hubCol } };
-  return op;
-}
-
 function handleHasPool() {
   return null;
-}
-
-function handleTimedTransform(entity, def, props, dt, state, ctx) {
-  const eprops = entity.props;
-  const { timerKey, targetDefId } = props;
-  if (!timerKey || !targetDefId || eprops[timerKey] == null) return null;
-
-  const isHub = ctx?.kind === "hub";
-  const hubCol = isHub ? ctx.hubCol : null;
-  if (isHub && typeof hubCol !== "number") return null;
-
-  const timer = eprops[timerKey] - dt;
-  if (timer <= 0) {
-    return { op: "TransformEnv", targetDefId };
-  }
-
-  const op = { op: "SetProp", prop: timerKey, value: timer };
-  if (isHub) op.target = { at: { layer: "hub", col: hubCol } };
-  return op;
 }
 
 // =============================================================================
@@ -161,41 +121,30 @@ function handleTimedTransform(entity, def, props, dt, state, ctx) {
 
 function handleMineFuelTrigger(entity, def, state) {
   const baseGold = def.baseOutput?.gold || 0;
+  if (!baseGold) return null;
 
-  const rockSlotIndexes = [];
-  for (let i = 0; i < state.envSlots.length; i++) {
-    const s = state.envSlots[i];
-    const env = s.env;
-    if (!env) continue;
-    const envDef = envCardDefs[env.defId];
-    if (envDef.tags?.includes("fuelSource:rock") && env.props.pool > 0) {
-      rockSlotIndexes.push(i);
-    }
+  const anchors = Array.isArray(state?.board?.layers?.tile?.anchors)
+    ? state.board.layers.tile.anchors
+    : [];
+
+  let mineableCount = 0;
+  for (const tile of anchors) {
+    if (!tile) continue;
+    const tags = Array.isArray(tile.tags)
+      ? tile.tags
+      : Array.isArray(envTileDefs[tile.defId]?.baseTags)
+        ? envTileDefs[tile.defId].baseTags
+        : [];
+    if (tags.includes("mineable")) mineableCount += 1;
   }
 
-  if (rockSlotIndexes.length === 0) return null;
+  if (mineableCount <= 0) return null;
 
-  const ops = [];
-
-  ops.push({
+  return {
     op: "AddResource",
     resource: "gold",
-    amount: baseGold * rockSlotIndexes.length,
-  });
-
-  for (const envSlotIndex of rockSlotIndexes) {
-    ops.push({
-      op: "AddEnvProp",
-      targetKind: "env",
-      envSlotIndex,
-      prop: "pool",
-      amount: -1,
-      min: 0,
-      killIfZero: true,
-    });
-  }
-
-  return ops;
+    amount: baseGold * mineableCount,
+  };
 }
 
 // =============================================================================

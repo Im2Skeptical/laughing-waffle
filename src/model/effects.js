@@ -1,6 +1,6 @@
 // effects.js — EffectOp interpreter + seasonEnd + item expiry + inventory ops
 
-import { envCardDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
@@ -9,7 +9,6 @@ import {
   canStackItems,
   getItemMaxStack,
 } from "./inventory-model.js";
-import { makeEnvInstance } from "./state.js";
 
 const SYSTEM_TIER_LADDER = ["bronze", "silver", "gold", "diamond"];
 
@@ -90,6 +89,20 @@ function resolveBoardTargets(state, targetSpec, context) {
     if (layer === "hub") return state.hub?.occ;
     return state.board?.occ?.[layer];
   };
+
+  if (targetSpec.all === true) {
+    const layer = targetSpec.layer;
+    if (!layer) return [];
+    if (layer === "hub") {
+      const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : null;
+      if (anchors) return anchors.filter(Boolean);
+      const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+      return slots.map((slot) => slot?.structure).filter(Boolean);
+    }
+    const anchors = state.board?.layers?.[layer]?.anchors;
+    if (!Array.isArray(anchors)) return [];
+    return anchors.filter(Boolean);
+  }
 
   if (targetSpec.at && typeof targetSpec.at === "object") {
     const layer = targetSpec.at.layer;
@@ -175,39 +188,6 @@ export function runEffect(state, rawEffect, context) {
       const out = handleSplitStack(state, effect, context);
       context.out = out;
       return !!out?.ok;
-    }
-
-    // ================= ENV CORE OPS =================
-
-    case "KillEnv": {
-      if (context.kind !== "env") return false;
-      const { slot } = context;
-      if (!slot || !slot.env) return false;
-
-      slot.env = null;
-      return true;
-    }
-
-    case "SeasonEndRecycleAs": {
-      if (context.kind !== "env") return false;
-      const { slot } = context;
-      if (!slot || !slot.env) return false;
-
-      const targetDefId = effect.targetDefId || slot.env.defId;
-      slot.env = null;
-      return true;
-    }
-
-    case "TransformEnv": {
-      if (context.kind !== "env") return false;
-      const { slot } = context;
-      if (!slot || !slot.env) return false;
-
-      const targetDefId = effect.targetDefId;
-      if (!targetDefId) return false;
-
-      slot.env = makeEnvInstance(targetDefId, state);
-      return true;
     }
 
     // --- Item season-expiry ops ---
@@ -452,65 +432,12 @@ export function runEffect(state, rawEffect, context) {
       return changed;
     }
 
-    // ================= ENV PROP OPS =================
-
-    case "AddEnvProp": {
-      if (context.kind !== "env") return false;
-      const { slot } = context;
-      if (!slot || !slot.env) return false;
-
-      const prop = effect.prop;
-      const amt = effect.amount ?? 0;
-      if (!prop || typeof amt !== "number") return false;
-
-      const env = slot.env;
-      env.props[prop] = (env.props[prop] ?? 0) + amt;
-
-      if (typeof effect.min === "number" && env.props[prop] < effect.min) {
-        env.props[prop] = effect.min;
-      }
-      if (typeof effect.max === "number" && env.props[prop] > effect.max) {
-        env.props[prop] = effect.max;
-      }
-
-      if (effect.killIfZero && env.props[prop] <= 0) {
-        runEffect(state, { op: "KillEnv" }, { kind: "env", slot });
-      }
-
-      return true;
-    }
-
     // ================= GENERIC PROP OPS =================
 
     case "SetProp": {
       const prop = effect.prop;
       const value = effect.value;
       if (!prop || typeof value !== "number") return false;
-
-      if (context.kind === "env") {
-        const { slot } = context;
-        if (!slot || !slot.env) return false;
-
-        const env = slot.env;
-        env.props[prop] = value;
-
-        if (typeof effect.min === "number" && env.props[prop] < effect.min) {
-          env.props[prop] = effect.min;
-        }
-        if (typeof effect.max === "number" && env.props[prop] > effect.max) {
-          env.props[prop] = effect.max;
-        }
-
-        if (effect.killIfZero && env.props[prop] <= 0) {
-          runEffect(
-            state,
-            { op: "KillEnv" },
-            { kind: "env", slot }
-          );
-        }
-
-        return true;
-      }
 
       const targets = resolveBoardTargets(state, effect.target, context);
       if (!targets.length) return false;
@@ -539,31 +466,6 @@ export function runEffect(state, rawEffect, context) {
       const prop = effect.prop;
       const amt = effect.amount ?? 0;
       if (!prop || typeof amt !== "number") return false;
-
-      if (context.kind === "env") {
-        const { slot } = context;
-        if (!slot || !slot.env) return false;
-
-        const env = slot.env;
-        env.props[prop] = (env.props[prop] ?? 0) + amt;
-
-        if (typeof effect.min === "number" && env.props[prop] < effect.min) {
-          env.props[prop] = effect.min;
-        }
-        if (typeof effect.max === "number" && env.props[prop] > effect.max) {
-          env.props[prop] = effect.max;
-        }
-
-        if (effect.killIfZero && env.props[prop] <= 0) {
-          runEffect(
-            state,
-            { op: "KillEnv" },
-            { kind: "env", slot }
-          );
-        }
-
-        return true;
-      }
 
       const targets = resolveBoardTargets(state, effect.target, context);
       if (!targets.length) return false;
@@ -858,18 +760,8 @@ function handleMoveItem(state, effect, context) {
 }
 
 // =============================================================================
-// Existing season-end + expiry hooks
+// Existing expiry hooks
 // =============================================================================
-
-export function applySeasonEndForEnvCard(state, slot) {
-  const env = slot.env;
-  if (!env) return;
-
-  const def = envCardDefs[env.defId];
-  const rule = normalizeEffectSpec(def.seasonEnd) || { op: "KillEnv" };
-
-  runEffect(state, rule, { kind: "env", slot });
-}
 
 export function processSeasonChangeForItems(state) {
   for (const inv of Object.values(state.ownerInventories)) {

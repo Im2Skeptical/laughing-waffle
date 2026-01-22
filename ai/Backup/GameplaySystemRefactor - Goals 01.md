@@ -32,13 +32,13 @@ The main screen consists of four horizontal zones:
    * Transient env events / animals
    * Spawned from season decks
 
-4. **City / Permanents Zone**
+4. **Hub Structures Zone**
 
-   * 12-column grid
+   * Separate column space from env tiles/events
    * Player-built structures
-   * Largely unchanged mechanically
+   * Cross-zone targeting is global, not same-column
 
-All three gameplay zones (2–4) share a **12-column grid** to support “same-column” reasoning.
+Env tiles/events and hub structures do **not** share a column grid; treat them as separate spaces.
 
 ---
 
@@ -313,3 +313,4 @@ The design intentionally prioritizes:
 * emergent behavior
 
 ---
+

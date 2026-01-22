@@ -357,7 +357,7 @@ Return: files changed + documented collision/consumption policy.
 
 ## Prompt — Stage 5: UI reads from `state.board.occ` and supports reorder/placement
 
-You are a Codex refactor agent. Update Pixi UI to render the new three gameplay rows (tiles/events/permanents) aligned to 12 columns. Use Option B2 board as the source of truth.
+You are a Codex refactor agent. Update Pixi UI to render the new three gameplay rows (tiles/events/permanents), with tiles/events on the env grid and hub structures on their own column space. Use Option B2 board as the source of truth.
 
 ### Objective
 

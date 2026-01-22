@@ -136,7 +136,7 @@ Rules:
 
 ---
 
-### Stage 5 — UI + interaction migration (12-col unified board)
+### Stage 5 - UI + interaction migration (separate column spaces)
 
 **Goal:** Make the new 4-zone board fully playable and legible:
 
@@ -146,11 +146,11 @@ Rules:
 
 **Work:**
 
-* Update board view/layout to 12-col shared grid across:
+* Update board view/layout to render:
 
-  * env tiles row
-  * env events row
-  * permanents row
+  * env tiles row on the env grid
+  * env events row on the env grid
+  * hub structures row on the hub grid (not column-aligned with env)
 * Render:
 
   * tile identity + ordered tag stack
@@ -181,3 +181,4 @@ Rules:
 * Stage 3 implements the core “new gameplay loop” without season complexity yet.
 * Stage 4 swaps the seasonal generation model in one contained step.
 * Stage 5 is UI + interaction migration, kept last to avoid debugging UI during core rule churn.
+

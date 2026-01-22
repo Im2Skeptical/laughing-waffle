@@ -17,7 +17,6 @@ import {
 
 import {
   runEffect,
-  applySeasonEndForEnvCard,
   processSeasonChangeForItems,
   processSecondChangeForItems,
 } from "./effects.js";
@@ -68,18 +67,7 @@ function getApIncomePerSecond(state, tSec) {
 export function cmdAdvanceSeason(state) {
   const oldSeasonKey = getCurrentSeasonKey(state);
 
-  // 1) Env cards: apply season-end cleanup
-  // Make sure any season-end cleanup runs before we swap the season.
-  if (state.envSlots && state.envSlots.length > 0) {
-    for (let i = 0; i < state.envSlots.length; i++) {
-      const slot = state.envSlots[i];
-      if (slot?.env) {
-        applySeasonEndForEnvCard(state, slot);
-      }
-    }
-  }
-
-  // 2) advance season index deterministically
+  // 1) advance season index deterministically
   const seasons = state.seasons || [];
   if (!seasons.length) return { ok: false, reason: "noSeasons" };
 
@@ -96,14 +84,14 @@ export function cmdAdvanceSeason(state) {
 
   const newSeasonKey = getCurrentSeasonKey(state);
 
-  // 3) build new season deck (tile-driven)
+  // 2) build new season deck (tile-driven)
   state.currentSeasonDeck = null;
   buildSeasonDeckForCurrentSeason(state);
 
-  // 4) process item/hub-structure seasonal effects
+  // 3) process item/hub-structure seasonal effects
   processSeasonChangeForItems(state);
 
-  // 5) reset season-scoped triggers
+  // 4) reset season-scoped triggers
   resetTimedTriggersOnHubStructures(state);
 
   return { ok: true, oldSeasonKey, newSeasonKey };
