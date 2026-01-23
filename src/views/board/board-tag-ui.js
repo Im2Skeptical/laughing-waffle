@@ -279,6 +279,26 @@ export function createTagUi(opts) {
     tooltipView.show({ title: label, lines }, bounds);
   }
 
+  function flashSystemRow(row) {
+    if (!row?.flashOverlay) return;
+    if (row.flashTimeout) {
+      clearTimeout(row.flashTimeout);
+      row.flashTimeout = null;
+    }
+    row.flashOverlay.clear();
+    row.flashOverlay
+      .lineStyle(2, 0xff4f5e, 1)
+      .beginFill(0x8a1f2a, 0.25)
+      .drawRoundedRect(0, 0, TAG_PILL_WIDTH, SYSTEM_ROW_HEIGHT, 4)
+      .endFill();
+    row.flashOverlay.alpha = 1;
+    row.flashOverlay.visible = true;
+    row.flashTimeout = setTimeout(() => {
+      row.flashOverlay.visible = false;
+      row.flashTimeout = null;
+    }, 160);
+  }
+
   function buildSystemRow(view, systemId) {
     const ui = getSystemUi(systemId);
     const container = new PIXI.Container();
@@ -342,6 +362,10 @@ export function createTagUi(opts) {
     labelText.y = barY - 2;
     container.addChild(labelText);
 
+    const flashOverlay = new PIXI.Graphics();
+    flashOverlay.visible = false;
+    container.addChild(flashOverlay);
+
     icon.on("pointerover", () => {
       showTooltipForSystem(view.tile, systemId, icon.getBounds());
     });
@@ -349,15 +373,7 @@ export function createTagUi(opts) {
       tooltipView?.hide?.();
     });
 
-    if (systemId === "growth") {
-      container.cursor = "pointer";
-      container.on("pointerdown", (ev) => {
-        ev?.stopPropagation?.();
-        openCropDropdown(view, container.getBounds());
-      });
-    }
-
-    return {
+    const row = {
       systemId,
       container,
       icon,
@@ -370,7 +386,26 @@ export function createTagUi(opts) {
       uiColor: ui.color,
       lastCropId: null,
       lastMaturedMax: 0,
+      flashOverlay,
+      flashTimeout: null,
     };
+
+    if (systemId === "growth") {
+      container.cursor = "pointer";
+      container.on("pointerdown", (ev) => {
+        ev?.stopPropagation?.();
+        const canEdit =
+          typeof interaction?.isPlanningPhase === "function" &&
+          interaction.isPlanningPhase();
+        if (!canEdit) {
+          flashSystemRow(row);
+          return;
+        }
+        openCropDropdown?.(view, container.getBounds());
+      });
+    }
+
+    return row;
   }
 
   function buildTagEntry(view, tagId) {
@@ -560,7 +595,7 @@ export function createTagUi(opts) {
       const canEdit =
         typeof interaction?.isPlanningPhase === "function" &&
         interaction.isPlanningPhase();
-      row.container.cursor = "pointer";
+      row.container.cursor = canEdit ? "pointer" : "not-allowed";
       row.container.alpha = canEdit ? 1 : 0.8;
 
       const growth = tileInst?.systemState?.growth || {};

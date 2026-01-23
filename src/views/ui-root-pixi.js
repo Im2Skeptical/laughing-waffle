@@ -198,6 +198,17 @@ const inventoryView = createInventoryView({
     ),
 });
 
+function togglePause() {
+  const paused = runner.getCursorState().paused;
+  if (paused) {
+    runner.setTimeScaleTarget?.(1, { unpause: true });
+    runner.setPaused(false);
+  } else {
+    runner.setTimeScaleTarget?.(0, { requestPause: true });
+    runner.setPaused(true);
+  }
+}
+
 const boardView = createBoardView({
   app,
   tileLayer: uiLayers.tileLayer,
@@ -335,16 +346,7 @@ const chromeView = createChromeView({
   getGameState: () => runner.getState(),
   getCurrentSeasonData,
   getApPreview: () => actionPlanner?.getApPreview?.() ?? null,
-  togglePause: () => {
-    const paused = runner.getCursorState().paused;
-    if (paused) {
-      runner.setTimeScaleTarget?.(1, { unpause: true });
-      runner.setPaused(false);
-    } else {
-      runner.setTimeScaleTarget?.(0, { requestPause: true });
-      runner.setPaused(true);
-    }
-  },
+  togglePause,
   isPausePending: () => runner.isPausePending?.() ?? false,
   onGoldClick: () => {
     runner.clearPreviewState();
@@ -412,6 +414,29 @@ chromeView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
 apGraphView.open();
+
+function isTypingTarget(target) {
+  if (!target || typeof target !== "object") return false;
+  const tag = target.tagName;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    target.isContentEditable === true
+  );
+}
+
+function handleGlobalKeyDown(ev) {
+  if (!ev) return;
+  if (ev.repeat) return;
+  const code = ev.code || "";
+  const key = ev.key || "";
+  if (code !== "Space" && key !== " ") return;
+  if (isTypingTarget(ev.target)) return;
+  ev.preventDefault();
+  togglePause();
+}
+
+window.addEventListener("keydown", handleGlobalKeyDown);
 
 app.ticker.add((delta) => {
   const frameDt = delta / 60;

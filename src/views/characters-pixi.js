@@ -173,6 +173,25 @@ export function createCharactersView(opts) {
     }
   }
 
+  function flashDragBlocked(view) {
+    if (!view?.flashRing) return;
+    if (view.flashTimeout) {
+      clearTimeout(view.flashTimeout);
+      view.flashTimeout = null;
+    }
+    view.flashRing.clear();
+    view.flashRing
+      .lineStyle(2, 0xff4f5e, 1)
+      .beginFill(0x8a1f2a, 0.25)
+      .drawCircle(0, 0, RADIUS + 4)
+      .endFill();
+    view.flashRing.visible = true;
+    view.flashTimeout = setTimeout(() => {
+      view.flashRing.visible = false;
+      view.flashTimeout = null;
+    }, 160);
+  }
+
   function elevateForHover(view) {
     if (!hoverLayer || view.container.parent === hoverLayer) return;
     view.hoverParent = view.container.parent;
@@ -395,6 +414,10 @@ export function createCharactersView(opts) {
     label.anchor.set(0.5);
     container.addChild(label);
 
+    const flashRing = new PIXI.Graphics();
+    flashRing.visible = false;
+    container.addChild(flashRing);
+
     layer.addChild(container);
 
     // -----------------------------------------------------------------------
@@ -403,6 +426,8 @@ export function createCharactersView(opts) {
       char,
       outline,
       shadow,
+      flashRing,
+      flashTimeout: null,
       selfHover: false,
       attachedScale: 1,
       hoverParent: null,
@@ -464,8 +489,10 @@ export function createCharactersView(opts) {
       if (
         interactionSafe.canDragCharacter &&
         !interactionSafe.canDragCharacter()
-      )
+      ) {
+        flashDragBlocked(view);
         return;
+      }
 
       const g = ev.data.global;
       pointerDownPos = { x: g.x, y: g.y };
