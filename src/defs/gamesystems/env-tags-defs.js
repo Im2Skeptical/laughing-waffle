@@ -24,6 +24,11 @@ export const envTagDefs = {
         effect: { op: "FarmPlant" },
       },
     ],
+    passives: [
+      /*
+      things on tick/season change/ whatever timing / and don't require pawns
+*/
+    ]
   },
   fishable: {
     id: "fishable",
