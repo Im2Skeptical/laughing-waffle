@@ -3,6 +3,7 @@
 
 import { hubStructureDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import {
   SEASON_DURATION_SEC,
@@ -248,41 +249,34 @@ function ensureTileSystemState(tile) {
   return tile.systemState;
 }
 
-function ensureGrowthState(tile) {
+function cloneSerializable(value) {
+  if (value == null || typeof value !== "object") return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function ensureSystemState(tile, systemId) {
   const systemState = ensureTileSystemState(tile);
-  if (!systemState.growth || typeof systemState.growth !== "object") {
-    systemState.growth = {
-      selectedCropId: null,
-      plantedBatches: [],
-      maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
-    };
-  } else {
-    if (!Array.isArray(systemState.growth.plantedBatches)) {
-      systemState.growth.plantedBatches = [];
-    }
-    if (!systemState.growth.maturedPool) {
-      systemState.growth.maturedPool = {
-        bronze: 0,
-        silver: 0,
-        gold: 0,
-        diamond: 0,
-      };
-    }
+  if (!systemState[systemId] || typeof systemState[systemId] !== "object") {
+    const defaults = envSystemDefs[systemId]?.stateDefaults ?? {};
+    systemState[systemId] = cloneSerializable(defaults);
   }
-  return systemState.growth;
+  return systemState[systemId];
+}
+
+function ensureGrowthState(tile) {
+  const growth = ensureSystemState(tile, "growth");
+  if (!Object.prototype.hasOwnProperty.call(growth, "selectedCropId")) {
+    growth.selectedCropId = null;
+  }
+  if (!Array.isArray(growth.processes)) growth.processes = [];
+  if (!growth.maturedPool || typeof growth.maturedPool !== "object") {
+    growth.maturedPool = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
+  }
+  return growth;
 }
 
 function ensureHydrationState(tile) {
-  const systemState = ensureTileSystemState(tile);
-  if (!systemState.hydration || typeof systemState.hydration !== "object") {
-    systemState.hydration = {
-      cur: 100,
-      max: 100,
-      decayPerSec: 2,
-      sumRatio: 0,
-    };
-  }
-  return systemState.hydration;
+  return ensureSystemState(tile, "hydration");
 }
 
 export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {

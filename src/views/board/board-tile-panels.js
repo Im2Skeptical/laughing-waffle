@@ -73,7 +73,7 @@ export function createTilePanels(opts) {
     const selectedCrop = growth.selectedCropId ?? null;
     tileInspector.cropText.text = `Crop: ${selectedCrop ?? "None"}`;
     tileInspector.plantedText.text = `Planted: ${
-      Array.isArray(growth.plantedBatches) ? growth.plantedBatches.length : 0
+      Array.isArray(growth.processes) ? growth.processes.length : 0
     }`;
     tileInspector.maturedText.text = `Matured: D${
       pool.diamond ?? 0

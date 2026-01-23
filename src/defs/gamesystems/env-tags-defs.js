@@ -11,24 +11,93 @@ export const envTagDefs = {
       {
         id: "farmHarvest",
         verb: "harvest",
-        requires: { hasMaturedPool: true }, 
-        effect: { op: "FarmHarvest" },
+        requires: { hasMaturedPool: true },
+        effect: {
+          op: "TransferUnits",
+          system: "growth",
+          poolKey: "maturedPool",
+          target: { kind: "tileOccupants" },
+          defRegistry: "crops",
+          defIdFromSystemKey: "selectedCropId",
+          amountFromDefKey: "harvestUnitsPerSec",
+          perOwner: true,
+          tierOrder: "desc",
+        },
       },
       {
         id: "farmPlant",
         verb: "plant",
         requires: { 
-          hasMaturedPool: false, 
-          season: ["winter", "autumn"], 
+          hasMaturedPool: false,
+          season: ["autumn", "winter"]  
         },
-        effect: { op: "FarmPlant" },
+        effect: [
+          {
+            op: "ConsumeItem",
+            system: "growth",
+            target: { kind: "tileOccupants" },
+            defRegistry: "crops",
+            defIdFromSystemKey: "selectedCropId",
+            amountFromDefKey: "plantSeedPerSec",
+            perOwner: true,
+            outVar: "seedConsumed",
+          },
+          {
+            op: "CreateProcess",
+            system: "growth",
+            defRegistry: "crops",
+            defIdFromSystemKey: "selectedCropId",
+            amountVar: "seedConsumed",
+            durationFromDefKey: "maturitySec",
+            processType: "cropGrowth",
+            queueKey: "processes",
+            captureSystem: "hydration",
+            captureKey: "sumRatio",
+            captureAs: "sumAtStart",
+          },
+        ],
       },
     ],
     passives: [
-      /*
-      things on tick/season change/ whatever timing / and don't require pawns
-*/
-    ]
+      {
+        id: "farmHydrationTick",
+        timing: { cadenceSec: 1 },
+        effect: [
+          {
+            op: "AddToSystemState",
+            system: "hydration",
+            key: "cur",
+            amountFromKey: "decayPerSec",
+            amountScale: -1,
+          },
+          {
+            op: "ClampSystemState",
+            system: "hydration",
+            key: "cur",
+            min: 0,
+            maxKey: "max",
+          },
+          {
+            op: "AccumulateRatio",
+            system: "hydration",
+            numeratorKey: "cur",
+            denominatorKey: "max",
+            targetKey: "sumRatio",
+          },
+        ],
+      },
+      {
+        id: "farmProcessFinalize",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "FinalizeProcess",
+          system: "growth",
+          queueKey: "processes",
+          poolKey: "maturedPool",
+          processType: "cropGrowth",
+        },
+      },
+    ],
   },
   fishable: {
     id: "fishable",

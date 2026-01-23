@@ -61,7 +61,7 @@ export const envEventDefs = {
         system: "growth",
         value: {
           selectedCropId: null,
-          plantedBatches: [],
+          processes: [],
           maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
         },
       },

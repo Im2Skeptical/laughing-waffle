@@ -13,9 +13,7 @@ import { runEffect } from "./effects.js";
 
 const EVENT_CADENCE_SEC = 5;
 
-function isIntentEligible(intent, seasonKey, tile, hasPawn) {
-  if (!intent || typeof intent !== "object") return false;
-  const requires = intent.requires;
+function requirementsPass(requires, seasonKey, tile, hasPawn) {
   if (!requires || typeof requires !== "object") return true;
 
   if (Array.isArray(requires.season) && requires.season.length > 0) {
@@ -57,6 +55,23 @@ function isIntentEligible(intent, seasonKey, tile, hasPawn) {
   }
 
   return true;
+}
+
+function timingPass(timing, state, tSec) {
+  if (!timing || typeof timing !== "object") return true;
+  const cadenceSec = Number.isFinite(timing.cadenceSec)
+    ? Math.max(1, Math.floor(timing.cadenceSec))
+    : null;
+  const onSeasonChange = timing.onSeasonChange === true;
+
+  if (!cadenceSec && !onSeasonChange) return true;
+
+  const cadenceMatch =
+    cadenceSec != null && Number.isFinite(tSec)
+      ? tSec % cadenceSec === 0
+      : false;
+  const seasonMatch = onSeasonChange && state?._seasonChanged === true;
+  return cadenceMatch || seasonMatch;
 }
 
 function hasPawnOnCol(state, col) {
@@ -187,24 +202,52 @@ export function stepEnvSecond(state, tSec) {
     const tile = tileOcc?.[col];
     if (!tile) continue;
     const hasPawn = hasPawnOnCol(state, col);
+    const tags = Array.isArray(tile.tags) ? tile.tags : [];
+
+    const baseContext = {
+      kind: "game",
+      state,
+      source: tile,
+      tSec,
+      envCol: col,
+    };
+
+    for (const tagId of tags) {
+      const tagDef = envTagDefs[tagId];
+      if (!tagDef) continue;
+      const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
+      for (const passive of passives) {
+        if (!passive || typeof passive !== "object") continue;
+        if (!timingPass(passive.timing, state, tSec)) continue;
+        if (
+          passive.requires &&
+          !requirementsPass(passive.requires, seasonKey, tile, hasPawn)
+        ) {
+          continue;
+        }
+        if (passive.effect) {
+          runEffect(state, passive.effect, { ...baseContext });
+        }
+      }
+    }
+
     if (!hasPawn) continue;
 
-    const tags = Array.isArray(tile.tags) ? tile.tags : [];
     let executed = false;
     for (const tagId of tags) {
       const tagDef = envTagDefs[tagId];
       if (!tagDef) continue;
       const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
       for (const intent of intents) {
-        if (!isIntentEligible(intent, seasonKey, tile, hasPawn)) continue;
+        if (!intent || typeof intent !== "object") continue;
+        if (
+          intent.requires &&
+          !requirementsPass(intent.requires, seasonKey, tile, hasPawn)
+        ) {
+          continue;
+        }
         if (intent.effect) {
-          runEffect(state, intent.effect, {
-            kind: "game",
-            state,
-            source: tile,
-            tSec,
-            envCol: col,
-          });
+          runEffect(state, intent.effect, { ...baseContext });
         }
         executed = true;
         break;

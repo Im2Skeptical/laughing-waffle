@@ -223,24 +223,29 @@ export function createTagUi(opts) {
           lines.push(`Quality odds: ${odds}`);
         }
       }
-      const batches = Array.isArray(growth.plantedBatches)
-        ? growth.plantedBatches
+      const processes = Array.isArray(growth.processes)
+        ? growth.processes
         : [];
-      if (batches.length) {
-        const oldest = batches.reduce(
-          (acc, b) =>
-            acc == null || b.plantedSec < acc.plantedSec ? b : acc,
+      if (processes.length) {
+        const oldest = processes.reduce(
+          (acc, p) =>
+            acc == null || p.startSec < acc.startSec ? p : acc,
           null
         );
         if (oldest) {
-          const maturity = cropDefs[oldest.cropId]?.maturitySec ?? 32;
+          const fallback =
+            Number.isFinite(cropDef?.maturitySec) ? cropDef.maturitySec : 32;
+          const duration = Number.isFinite(oldest.durationSec)
+            ? Math.floor(oldest.durationSec)
+            : fallback;
           const nowSec = Math.floor(getGameState?.()?.tSec ?? 0);
-          const remaining = Math.max(
+          const elapsed = Math.max(
             0,
-            maturity - Math.floor(nowSec - oldest.plantedSec)
+            Math.floor(nowSec - Math.floor(oldest.startSec ?? nowSec))
           );
-          lines.push(`Planting: ${batches.length} batch(es)`);
-          lines.push(`Matures in ~${maturity}s`);
+          const remaining = Math.max(0, duration - elapsed);
+          lines.push(`Planting: ${processes.length} process(es)`);
+          lines.push(`Matures in ~${duration}s`);
           if (Number.isFinite(remaining)) {
             lines.push(`ETA: ${remaining}s`);
           }
@@ -651,21 +656,28 @@ export function createTagUi(opts) {
       }
 
       row.lastMaturedMax = 0;
-      const batches = Array.isArray(growth.plantedBatches)
-        ? growth.plantedBatches
+      const processes = Array.isArray(growth.processes)
+        ? growth.processes
         : [];
-      if (batches.length > 0) {
-        const oldest = batches.reduce(
-          (acc, b) =>
-            acc == null || b.plantedSec < acc.plantedSec ? b : acc,
+      if (processes.length > 0) {
+        const oldest = processes.reduce(
+          (acc, p) =>
+            acc == null || p.startSec < acc.startSec ? p : acc,
           null
         );
         if (oldest) {
-          const maturity = cropDef?.maturitySec ?? 32;
+          const fallback =
+            Number.isFinite(cropDef?.maturitySec) ? cropDef.maturitySec : 32;
+          const duration = Number.isFinite(oldest.durationSec)
+            ? Math.floor(oldest.durationSec)
+            : fallback;
           const nowSec = Math.floor(getGameState?.()?.tSec ?? 0);
-          const elapsed = Math.max(0, Math.floor(nowSec - oldest.plantedSec));
-          const remaining = Math.max(0, maturity - elapsed);
-          const ratio = clamp01(elapsed / Math.max(1, maturity));
+          const elapsed = Math.max(
+            0,
+            Math.floor(nowSec - Math.floor(oldest.startSec ?? nowSec))
+          );
+          const remaining = Math.max(0, duration - elapsed);
+          const ratio = clamp01(elapsed / Math.max(1, duration));
           row.labelText.text = `Maturing ${remaining}s`;
           drawSystemBar(row, ratio, GROWTH_BAR_COLORS.maturing);
           return;

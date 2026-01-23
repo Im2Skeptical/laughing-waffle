@@ -8,11 +8,17 @@ const EFFECT_OPS = new Set([
   "SetSystemTier",
   "UpgradeSystemTier",
   "SetSystemState",
+  "AddToSystemState",
+  "ClampSystemState",
+  "AccumulateRatio",
   "ClearSystemState",
   "RemoveEvent",
   "TransformEvent",
-  "FarmPlant",
-  "FarmHarvest",
+  "ConsumeItem",
+  "TransferUnits",
+  "SpawnItem",
+  "CreateProcess",
+  "FinalizeProcess",
 ]);
 
 const REQUIRED_TIERS = ["bronze", "silver", "gold", "diamond"];
@@ -87,18 +93,17 @@ function validateEffectSpec(effectSpec, contextLabel, tagIds, systemIds, eventId
       }
     }
 
-    if (op === "SetSystemTier" || op === "UpgradeSystemTier") {
-      if (!effect.system || typeof effect.system !== "string") {
-        addIssue(errors, `${contextLabel}: ${op} missing system.`);
-      } else if (!systemIds.has(effect.system)) {
-        addIssue(
-          errors,
-          `${contextLabel}: ${op} system "${effect.system}" not found.`
-        );
-      }
-    }
-
-    if (op === "SetSystemState") {
+    if (
+      op === "SetSystemTier" ||
+      op === "UpgradeSystemTier" ||
+      op === "SetSystemState" ||
+      op === "AddToSystemState" ||
+      op === "ClampSystemState" ||
+      op === "AccumulateRatio" ||
+      op === "CreateProcess" ||
+      op === "FinalizeProcess" ||
+      op === "TransferUnits"
+    ) {
       if (!effect.system || typeof effect.system !== "string") {
         addIssue(errors, `${contextLabel}: ${op} missing system.`);
       } else if (!systemIds.has(effect.system)) {
@@ -174,6 +179,34 @@ export function validateEnvDefs({ tags, systems, tiles, events }) {
               eventIds,
               errors
             );
+          }
+        }
+      }
+
+      if (Array.isArray(def.passives)) {
+        for (const passive of def.passives) {
+          if (!passive || typeof passive !== "object") continue;
+          if (passive.effect) {
+            validateEffectSpec(
+              passive.effect,
+              `envTags: "${def.id}" passive "${passive.id}"`,
+              tagIds,
+              systemIds,
+              eventIds,
+              errors
+            );
+          }
+          const timing = passive.timing;
+          if (timing && typeof timing === "object") {
+            if (
+              timing.cadenceSec != null &&
+              (!Number.isFinite(timing.cadenceSec) || timing.cadenceSec < 1)
+            ) {
+              addIssue(
+                errors,
+                `envTags: "${def.id}" passive "${passive.id}" cadenceSec must be >= 1.`
+              );
+            }
           }
         }
       }

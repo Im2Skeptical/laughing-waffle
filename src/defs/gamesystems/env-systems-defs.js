@@ -15,6 +15,7 @@ export const envSystemDefs = {
     ui: { name: "Hydration", description: "Soil moisture" },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: { cur: 100, max: 100, decayPerSec: 2, sumRatio: 0 },
   },
   fishStock: {
     id: "fishStock",
@@ -43,6 +44,17 @@ export const envSystemDefs = {
     ui: { name: "Growth", description: "Crop growth" },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+      selectedCropId: null,
+      processes: [],
+      maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+    },
+    hydrationCurveByTier: {
+      bronze: { A: 0.85, P: 1.8 },
+      silver: { A: 1.0, P: 1.45 },
+      gold: { A: 1.1, P: 1.2 },
+      diamond: { A: 1.2, P: 1.05 },
+    },
   },
   reserves: {
     id: "reserves",
