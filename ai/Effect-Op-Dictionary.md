@@ -9,8 +9,8 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
   - `{ all: true, layer: "tile" }`
 - `context.kind`:
   - `"game"` for env tags/passives/intents and env events.
+  - `"item"` for item passives.
   - `"inventoryMove"`, `"inventoryStack"`, `"inventorySplit"` for inventory commands.
-  - `"itemSeasonExpiry"` for seasonal expiry transforms.
 - `defRegistry` resolution:
   - `defRegistry`: `"crops"`, `"items"`, `"envSystems"`
   - `defId`: explicit def id
@@ -43,15 +43,32 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Required: `ownerId`, `itemId`, `amount`.
 - Optional: `targetGX`, `targetGY`.
 
-### TransformTo
-- Purpose: transform an item on season expiry (e.g., grain -> rot).
-- Context: `context.kind = "itemSeasonExpiry"`.
-- Required: `targetKind`.
-
 ## Game Ops
 ### AddResource
 - Purpose: add a numeric resource to `state.resources`.
 - Required: `resource`, `amount`.
+
+## Item Ops
+### TransformItem
+- Purpose: transform an item into another kind (keeps quantity).
+- Context: `context.kind = "item"`.
+- Required: `targetKind`.
+
+### RemoveItem
+- Purpose: remove an item from its inventory.
+- Context: `context.kind = "item"`.
+
+### ExpireItemChance
+- Purpose: remove a random quantity from an item stack using a per-unit chance.
+- Context: `context.kind = "item"`.
+- Required: `chance` (0..1).
+- Optional: `chanceFromDefKey`, `targetKind` (spawn result kind).
+- Notes: uses deterministic RNG via `state.rng`.
+
+### TickItemSeasonExpiry
+- Purpose: decrement `item.seasonsToExpire` and transform/remove when it reaches 0.
+- Context: `context.kind = "item"`.
+- Optional: `targetKind` (transform); if omitted, item is removed.
 
 ## System Ops
 ### AddToSystemState
@@ -178,3 +195,8 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Passives run per tile regardless of pawn occupancy and may include `timing`.
 - Intents run only when a pawn is present and only the first eligible intent per tile executes each second (tag order priority).
 - Gating belongs in `env-exec` via `requires` (never inside ops).
+
+## Execution Notes (Items)
+- Item defs can declare `passives` with `timing` (cadence or season change).
+- Passives run via `processSecondChangeForItems` and `processSeasonChangeForItems`.
+- Item passives run with `context.kind = "item"` and receive `{ inv, item, ownerId, tSec }`.

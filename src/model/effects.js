@@ -30,14 +30,6 @@ function bumpInvVersion(inv) {
   inv.version = (inv.version ?? 0) + 1;
 }
 
-function getExpiryTargetKind(def) {
-  if (!def) return null;
-  if (def.expiryToKind) return def.expiryToKind;
-  const seasonExpiry = normalizeEffectSpec(def.seasonExpiry);
-  if (seasonExpiry?.op === "TransformTo") return seasonExpiry.targetKind ?? null;
-  return null;
-}
-
 function cloneSerializable(value) {
   if (value == null || typeof value !== "object") return value;
   return JSON.parse(JSON.stringify(value));
@@ -332,6 +324,55 @@ function setTagDisabled(target, tagId, disabled) {
   return wasDisabled;
 }
 
+function itemTimingPass(timing, state, tSec, mode) {
+  if (mode === "season") {
+    return timing?.onSeasonChange === true;
+  }
+  if (!timing || typeof timing !== "object") return true;
+  if (timing.onSeasonChange === true) return false;
+  if (Number.isFinite(timing.cadenceSec)) {
+    const cadence = Math.max(1, Math.floor(timing.cadenceSec));
+    return Number.isFinite(tSec) ? tSec % cadence === 0 : false;
+  }
+  return true;
+}
+
+function runItemPassives(state, inv, ownerId, item, tSec, mode) {
+  const def = itemDefs[item?.kind];
+  const passives = Array.isArray(def?.passives) ? def.passives : [];
+  if (!passives.length) return false;
+
+  let changed = false;
+  const initialKind = item.kind;
+  const baseContext = {
+    kind: "item",
+    state,
+    inv,
+    item,
+    ownerId,
+    tSec,
+  };
+
+  for (const passive of passives) {
+    if (!passive || typeof passive !== "object") continue;
+    if (!itemTimingPass(passive.timing, state, tSec, mode)) continue;
+    if (passive.effect) {
+      runEffect(state, passive.effect, { ...baseContext });
+    }
+
+    if (!inv.itemsById?.[item.id]) {
+      changed = true;
+      break;
+    }
+    if (item.kind !== initialKind) {
+      changed = true;
+      break;
+    }
+  }
+
+  return changed;
+}
+
 function sampleBinomial(state, trials, chance) {
   if (!Number.isFinite(trials) || trials <= 0) return 0;
   if (!Number.isFinite(chance) || chance <= 0) return 0;
@@ -487,10 +528,21 @@ export function runEffect(state, rawEffect, context) {
       return !!out?.ok;
     }
 
-    // --- Item season-expiry ops ---
+    // ================= GAME OPS =================
 
-    case "TransformTo": {
-      if (context.kind !== "itemSeasonExpiry") return false;
+    case "AddResource": {
+      const key = effect.resource;
+      const amt = effect.amount ?? 0;
+      if (!key || typeof amt !== "number") return false;
+
+      state.resources[key] = (state.resources[key] ?? 0) + amt;
+      return true;
+    }
+
+    // ================= ITEM OPS =================
+
+    case "TransformItem": {
+      if (!context || context.kind !== "item") return false;
       const { inv, item } = context;
       if (!inv || !item) return false;
 
@@ -508,19 +560,87 @@ export function runEffect(state, rawEffect, context) {
       item.seasonsToExpire = null;
 
       Inventory.occupyCellsForItem(inv, item);
+      bumpInvVersion(inv);
+      return true;
+    }
+
+    case "RemoveItem": {
+      if (!context || context.kind !== "item") return false;
+      const { inv, item } = context;
+      if (!inv || !item) return false;
+      Inventory.removeItem(inv, item.id);
+      bumpInvVersion(inv);
+      return true;
+    }
+
+    case "ExpireItemChance": {
+      if (!context || context.kind !== "item") return false;
+      const { inv, item } = context;
+      if (!inv || !item) return false;
+
+      const itemDef = itemDefs[item.kind] || null;
+      let chance = effect.chance;
+      if (!Number.isFinite(chance) && effect.chanceFromDefKey && itemDef) {
+        chance = itemDef[effect.chanceFromDefKey];
+      }
+      if (!Number.isFinite(chance) || chance <= 0) return false;
+
+      const qty = Math.floor(item.quantity ?? 0);
+      if (qty <= 0) return false;
+
+      const expired = sampleBinomial(state, qty, chance);
+      if (expired <= 0) return false;
+
+      const targetKind = effect.targetKind;
+      if (expired >= qty) {
+        Inventory.removeItem(inv, item.id);
+        if (targetKind) {
+          addStackedUnits(state, inv, targetKind, qty);
+        }
+      } else {
+        item.quantity = qty - expired;
+        if (targetKind) {
+          addStackedUnits(state, inv, targetKind, expired);
+        }
+      }
 
       bumpInvVersion(inv);
       return true;
     }
 
-    // ================= GAME OPS =================
+    case "TickItemSeasonExpiry": {
+      if (!context || context.kind !== "item") return false;
+      const { inv, item } = context;
+      if (!inv || !item) return false;
 
-    case "AddResource": {
-      const key = effect.resource;
-      const amt = effect.amount ?? 0;
-      if (!key || typeof amt !== "number") return false;
+      const targetKind = effect.targetKind;
+      if (targetKind && !itemDefs[targetKind]) return false;
 
-      state.resources[key] = (state.resources[key] ?? 0) + amt;
+      if (item.seasonsToExpire == null) return false;
+      item.seasonsToExpire -= 1;
+
+      if (item.seasonsToExpire > 0) {
+        bumpInvVersion(inv);
+        return true;
+      }
+
+      if (targetKind) {
+        const targetDef = itemDefs[targetKind];
+
+        Inventory.clearItemFromGrid(inv, item);
+
+        item.kind = targetKind;
+        item.width = targetDef.defaultWidth ?? 1;
+        item.height = targetDef.defaultHeight ?? 1;
+        item.seasonsToExpire = null;
+
+        Inventory.occupyCellsForItem(inv, item);
+        bumpInvVersion(inv);
+        return true;
+      }
+
+      Inventory.removeItem(inv, item.id);
+      bumpInvVersion(inv);
       return true;
     }
 
@@ -1744,12 +1864,15 @@ function handleMoveItem(state, effect, context) {
 // =============================================================================
 
 export function processSeasonChangeForItems(state) {
-  for (const inv of Object.values(state.ownerInventories)) {
+  if (!state?.ownerInventories) return;
+
+  const tSec = Number.isFinite(state.tSec) ? state.tSec : 0;
+  for (const [ownerId, inv] of Object.entries(state.ownerInventories)) {
+    if (!inv) continue;
     const itemsSnapshot = [...inv.items];
     for (const item of itemsSnapshot) {
-      if (item.seasonsToExpire == null) continue;
-      item.seasonsToExpire -= 1;
-      if (item.seasonsToExpire <= 0) handleItemSeasonExpiry(state, inv, item);
+      if (!item) continue;
+      runItemPassives(state, inv, ownerId, item, tSec, "season");
     }
   }
 }
@@ -1757,47 +1880,14 @@ export function processSeasonChangeForItems(state) {
 export function processSecondChangeForItems(state) {
   if (!state?.ownerInventories) return;
 
-  for (const inv of Object.values(state.ownerInventories)) {
+  const tSec = Number.isFinite(state.tSec) ? state.tSec : 0;
+  for (const [ownerId, inv] of Object.entries(state.ownerInventories)) {
     if (!inv) continue;
     const itemsSnapshot = [...inv.items];
-    let invChanged = false;
-
     for (const item of itemsSnapshot) {
       if (!item) continue;
-      const def = itemDefs[item.kind];
-      const chance = def?.expiryChancePerSec;
-      if (!Number.isFinite(chance) || chance <= 0) continue;
-
-      const qty = Math.floor(item.quantity ?? 0);
-      if (qty <= 0) continue;
-
-      const expired = sampleBinomial(state, qty, chance);
-      if (expired <= 0) continue;
-
-      const targetKind = getExpiryTargetKind(def);
-      if (expired >= qty) {
-        Inventory.removeItem(inv, item.id);
-        if (targetKind) {
-          addStackedUnits(state, inv, targetKind, qty);
-        }
-      } else {
-        item.quantity = qty - expired;
-        if (targetKind) {
-          addStackedUnits(state, inv, targetKind, expired);
-        }
-      }
-
-      invChanged = true;
+      runItemPassives(state, inv, ownerId, item, tSec, "second");
     }
-
-    if (invChanged) bumpInvVersion(inv);
   }
-}
-
-function handleItemSeasonExpiry(state, inv, item) {
-  const def = itemDefs[item.kind];
-  if (!def || !def.seasonExpiry) return;
-
-  runEffect(state, def.seasonExpiry, { kind: "itemSeasonExpiry", inv, item });
 }
 

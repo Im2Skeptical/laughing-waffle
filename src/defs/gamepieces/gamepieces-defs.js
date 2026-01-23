@@ -110,11 +110,25 @@ export const itemDefs = {
     name: "Grain",
     color: 0xdaa520,
     maxStack: 25,
-    seasonExpiry: { op: "TransformTo", targetKind: "rot" },
-    expiryChancePerSec: 0.0057,
     tags: ["edible", "currency"],
     defaultWidth: 1,
     defaultHeight: 2,
+    passives: [
+      {
+        id: "grainDecay",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "ExpireItemChance",
+          chance: 0.0057,
+          targetKind: "rot",
+        },
+      },
+      {
+        id: "grainSeasonExpiry",
+        timing: { onSeasonChange: true },
+        effect: { op: "TickItemSeasonExpiry", targetKind: "rot" },
+      },
+    ],
     ui: {
       title: "Grain",
       lines: [
