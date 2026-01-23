@@ -5,14 +5,14 @@ export const envTagDefs = {
   farmable: {
     id: "farmable",
     kind: "envTag",
-    ui: { name: "Farm", description: "Basic crop work." },
+    ui: { name: "Farm", description: "Grow crops." },
     systems: ["growth", "hydration", "fertility"],
     intents: [],
   },
   fishable: {
     id: "fishable",
     kind: "envTag",
-    ui: { name: "Fish", description: "Accessible fishing grounds." },
+    ui: { name: "Fish", description: "Go fishing." },
     systems: ["fishStock"],
     intents: [
       {
@@ -26,7 +26,7 @@ export const envTagDefs = {
   forageable: {
     id: "forageable",
     kind: "envTag",
-    ui: { name: "Forage", description: "Wild edibles are present." },
+    ui: { name: "Forage", description: "Find useful resources." },
     systems: ["wildStock"],
     intents: [
       {
@@ -37,15 +37,15 @@ export const envTagDefs = {
       },
     ],
   },
-  grazable: {
-    id: "grazable",
+  herdable: {
+    id: "herdable",
     kind: "envTag",
-    ui: { name: "Graze", description: "Open turf for herd grazing." },
-    systems: [],
+    ui: { name: "Herd", description: "Husband animals." },
+    systems: ["livestock"],
     intents: [
       {
-        id: "graze",
-        verb: "graze",
+        id: "herd",
+        verb: "herd",
         requires: { season: ["spring", "summer", "autumn"] },
         effect: { op: "AddResource", resource: "meat", amount: 1 },
       },
@@ -54,7 +54,7 @@ export const envTagDefs = {
   mineable: {
     id: "mineable",
     kind: "envTag",
-    ui: { name: "Mine", description: "Exposed seams can be worked." },
+    ui: { name: "Mine", description: "Mine for stone and minerals." },
     systems: ["mineralRarity"],
     intents: [
       {
