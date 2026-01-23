@@ -6,7 +6,10 @@ export const envTileDefs = {
     id: "tile_floodplains",
     kind: "envTile",
     name: "Floodplains",
-    ui: { description: "Lowlands shaped by seasonal overflow." },
+    ui: { 
+      description: "Lowlands shaped by seasonal overflow.",
+      color: 0xdaa520 
+    },
     baseTags: [],
     seasonTables: {
       spring: [
@@ -154,7 +157,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Dunes",
     ui: { description: "Shifting sands and sparse shelter." },
-    baseTags: ["mineable", "grazable"],
+    baseTags: ["mineable", "herdable"],
     seasonTables: {
       spring: [
         { defId: "event_duststorm", weight: 3 },
@@ -181,7 +184,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Hinterland",
     ui: { description: "Broad interior lands with mixed cover." },
-    baseTags: ["farmable", "grazable", "forageable"],
+    baseTags: ["farmable", "herdable", "forageable"],
     seasonTables: {
       spring: [
         { defId: "event_bloom", weight: 2 },
@@ -208,7 +211,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Highlands",
     ui: { description: "Rocky uplands with sparse turf." },
-    baseTags: ["mineable", "grazable"],
+    baseTags: ["mineable", "herdable"],
     seasonTables: {
       spring: [
         { defId: "event_clear_skies", weight: 1 },
@@ -233,7 +236,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Steppe",
     ui: { description: "Open grasslands with scattered shrubs." },
-    baseTags: ["grazable", "farmable"],
+    baseTags: ["herdable", "farmable"],
     seasonTables: {
       spring: [
         { defId: "event_bloom", weight: 2 },

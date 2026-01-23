@@ -3,8 +3,9 @@
 export const ENV_SYSTEM_IDS = Object.freeze({
   FERTILITY: "fertility",
   HYDRATION: "hydration",
-  FISH_DENSITY: "fishDensity",
-  TURF_DENSITY: "turfDensity",
+  FISH_STOCK: "fishStock",
+  WILD_STOCK: "wildStock",
+  LIVE_STOCK: "liveStock",
   GROWTH: "growth",
-  MINERAL_RARITY: "mineralRarity",
+  RESERVES: "reserves",
 });

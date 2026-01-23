@@ -523,7 +523,10 @@ export function createBoardView(opts) {
     const def = envTileDefs[tileInst.defId];
     const title = def?.name || tileInst.defId || "Tile";
     const desc = def?.ui?.description || "";
-    const color = def?.color ?? 0x6f8a6f;
+    const uiColor = def?.ui?.color;
+    const color = Number.isFinite(uiColor)
+      ? uiColor
+      : def?.color ?? 0x6f8a6f;
     const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
     return { def, title, desc, color, tags };
   }
@@ -534,12 +537,16 @@ export function createBoardView(opts) {
     const title = def?.name || eventInst.defId || "Event";
     const desc = def?.ui?.description || "";
     const classKind = def?.class || "effect";
-    const color =
+    const uiColor = def?.ui?.color;
+    const defaultColor =
       classKind === "animal"
         ? 0x8f6f5f
         : classKind === "effect"
           ? 0x5f6f8f
           : 0x707070;
+    const color = Number.isFinite(uiColor)
+      ? uiColor
+      : def?.color ?? defaultColor;
     return { def, title, desc, color };
   }
 

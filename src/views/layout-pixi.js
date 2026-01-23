@@ -26,7 +26,7 @@ export const TILE_ROW_Y = 400;
 export const EVENT_ROW_Y = TILE_ROW_Y + TILE_HEIGHT + 20;
 export const HUB_ROW_Y = EVENT_ROW_Y + EVENT_HEIGHT + 60;
 export const HUB_STRUCTURE_ROW_Y = HUB_ROW_Y;
-export const CHARACTER_ROW_OFFSET_Y = 30;
+export const CHARACTER_ROW_OFFSET_Y = 15;
 
 function getBoardTotalWidth() {
   return BOARD_COLS * BOARD_COL_WIDTH + (BOARD_COLS - 1) * BOARD_COL_GAP;
