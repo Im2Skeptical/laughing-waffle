@@ -10,7 +10,6 @@ import {
   rebuildBoardOccupancy,
 } from "./state.js";
 import { runEffect } from "./effects.js";
-import { stepFarmingSecond } from "./farming.js";
 
 const EVENT_CADENCE_SEC = 5;
 
@@ -29,6 +28,18 @@ function isIntentEligible(intent, seasonKey, tile, hasPawn) {
 
   if (Object.prototype.hasOwnProperty.call(requires, "hasEquipment")) {
     return false;
+  }
+
+  if (typeof requires.hasMaturedPool === "boolean") {
+    const pool = tile?.systemState?.growth?.maturedPool;
+    const hasPool =
+      pool &&
+      typeof pool === "object" &&
+      ((pool.bronze ?? 0) > 0 ||
+        (pool.silver ?? 0) > 0 ||
+        (pool.gold ?? 0) > 0 ||
+        (pool.diamond ?? 0) > 0);
+    if (requires.hasMaturedPool !== hasPool) return false;
   }
 
   const tagReq = requires.hasTag;
@@ -170,8 +181,6 @@ export function stepEnvSecond(state, tSec) {
     }
   }
 
-  stepFarmingSecond(state, tSec);
-
   const cols = board.cols ?? 12;
   const tileOcc = board.occ?.tile;
   for (let col = 0; col < cols; col++) {
@@ -194,6 +203,7 @@ export function stepEnvSecond(state, tSec) {
             state,
             source: tile,
             tSec,
+            envCol: col,
           });
         }
         executed = true;

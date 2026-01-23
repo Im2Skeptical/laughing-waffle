@@ -751,6 +751,9 @@ export function createBoardView(opts) {
       tagMaxY,
       tagSignature: "",
       tagEntries: [],
+      expandedTagId: null,
+      hasTagToggle: false,
+      pawnCount: 0,
       ignoreNextTagTap: false,
       tagDrag: null,
         hoverTextNodes,
@@ -771,6 +774,7 @@ export function createBoardView(opts) {
 
   function updateTileView(view, tileInst, pawnCount) {
     view.tile = tileInst;
+    view.pawnCount = pawnCount;
     const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
     const signature = tags.join("|");
     if (signature !== view.tagSignature) {

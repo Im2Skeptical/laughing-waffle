@@ -12,8 +12,10 @@ const TAG_PILL_PAD_X = 8;
 const TAG_PILL_GAP = 6;
 const TAG_PILL_MAX_WIDTH = TILE_WIDTH - 16;
 const TAG_PILL_WIDTH = TAG_PILL_MAX_WIDTH;
-const TAG_PILL_BG = 0x1f263d;
-const TAG_PILL_BORDER = 0x101524;
+const TAG_PILL_BG_ACTIVE = 0x1f263d;
+const TAG_PILL_BG_INACTIVE = 0x2f4a6f;
+const TAG_PILL_BORDER_ACTIVE = 0x1b2a42;
+const TAG_PILL_BORDER_INACTIVE = 0x101524;
 const TAG_PILL_TEXT = 0xe6eef9;
 
 const SYSTEM_ROW_HEIGHT = 18;
@@ -317,7 +319,7 @@ export function createTagUi(opts) {
     icon.cursor = "help";
 
     const iconBg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER, 0.8)
+      .lineStyle(1, TAG_PILL_BORDER_INACTIVE, 0.8)
       .beginFill(ui.color, 1)
       .drawCircle(
         SYSTEM_ICON_SIZE / 2,
@@ -419,8 +421,8 @@ export function createTagUi(opts) {
     container.addChild(row);
 
     const bg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER, 0.9)
-      .beginFill(TAG_PILL_BG, 0.95)
+      .lineStyle(1, TAG_PILL_BORDER_INACTIVE, 0.9)
+      .beginFill(TAG_PILL_BG_INACTIVE, 0.95)
       .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
       .endFill();
     row.addChild(bg);
@@ -463,6 +465,8 @@ export function createTagUi(opts) {
       container,
       row,
       bg,
+      bgColor: TAG_PILL_BG_INACTIVE,
+      borderColor: TAG_PILL_BORDER_INACTIVE,
       labelText,
       expandText,
       systemContainer,
@@ -493,6 +497,7 @@ export function createTagUi(opts) {
         view.ignoreNextTagTap = false;
         return;
       }
+      view.hasTagToggle = true;
       const next = view.expandedTagId === tagId ? null : tagId;
       view.expandedTagId = next;
       for (const entry of view.tagEntries || []) {
@@ -502,6 +507,23 @@ export function createTagUi(opts) {
     });
 
     return entry;
+  }
+
+  function setTagPillStyle(entry, isActive) {
+    const bgColor = isActive ? TAG_PILL_BG_ACTIVE : TAG_PILL_BG_INACTIVE;
+    const borderColor = isActive
+      ? TAG_PILL_BORDER_ACTIVE
+      : TAG_PILL_BORDER_INACTIVE;
+    if (entry.bgColor === bgColor && entry.borderColor === borderColor) return;
+
+    entry.bg.clear();
+    entry.bg
+      .lineStyle(1, borderColor, 0.9)
+      .beginFill(bgColor, 0.95)
+      .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
+      .endFill();
+    entry.bgColor = bgColor;
+    entry.borderColor = borderColor;
   }
 
   function layoutTagEntries(view) {
@@ -660,12 +682,14 @@ export function createTagUi(opts) {
     drawSystemBar(row, getTierRatio(tier), row.uiColor);
   }
 
-  function updateTagEntry(view, entry, tileInst) {
+  function updateTagEntry(view, entry, tileInst, topTagId, hasPawn) {
     if (!entry) return;
     const canEdit =
       typeof interaction?.isPlanningPhase === "function" &&
       interaction.isPlanningPhase();
     entry.row.cursor = canEdit ? "grab" : "pointer";
+    const isActive = hasPawn && entry.tagId === topTagId;
+    setTagPillStyle(entry, isActive);
 
     for (const row of entry.systemRows || []) {
       updateSystemRow(view, row, tileInst);
@@ -673,8 +697,12 @@ export function createTagUi(opts) {
   }
 
   function updateTagEntries(view, tileInst) {
+    const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
+    const topTagId = tags.length > 0 ? tags[0] : null;
+    const hasPawn =
+      Number.isFinite(view?.pawnCount) && view.pawnCount > 0;
     for (const entry of view.tagEntries || []) {
-      updateTagEntry(view, entry, tileInst);
+      updateTagEntry(view, entry, tileInst, topTagId, hasPawn);
     }
   }
 
@@ -688,6 +716,10 @@ export function createTagUi(opts) {
 
     if (view.expandedTagId && !tags.includes(view.expandedTagId)) {
       view.expandedTagId = null;
+    }
+
+    if (!view.hasTagToggle && view.expandedTagId == null && tags.length > 0) {
+      view.expandedTagId = tags[0];
     }
 
     for (const tagId of tags) {

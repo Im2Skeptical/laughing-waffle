@@ -7,7 +7,23 @@ export const envTagDefs = {
     kind: "envTag",
     ui: { name: "Farm", description: "Grow crops." },
     systems: ["growth", "hydration", "fertility"],
-    intents: [],
+    intents: [
+      {
+        id: "farmHarvest",
+        verb: "harvest",
+        requires: { hasMaturedPool: true }, 
+        effect: { op: "FarmHarvest" },
+      },
+      {
+        id: "farmPlant",
+        verb: "plant",
+        requires: { 
+          hasMaturedPool: false, 
+          season: ["winter", "autumn"], 
+        },
+        effect: { op: "FarmPlant" },
+      },
+    ],
   },
   fishable: {
     id: "fishable",
@@ -41,7 +57,7 @@ export const envTagDefs = {
     id: "herdable",
     kind: "envTag",
     ui: { name: "Herd", description: "Husband animals." },
-    systems: ["livestock"],
+    systems: ["liveStock"],
     intents: [
       {
         id: "herd",
@@ -55,7 +71,7 @@ export const envTagDefs = {
     id: "mineable",
     kind: "envTag",
     ui: { name: "Mine", description: "Mine for stone and minerals." },
-    systems: ["mineralRarity"],
+    systems: ["reserves"],
     intents: [
       {
         id: "mine",

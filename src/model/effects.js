@@ -9,6 +9,7 @@ import {
   canStackItems,
   getItemMaxStack,
 } from "./inventory-model.js";
+import { stepFarmingTile } from "./farming.js";
 
 const SYSTEM_TIER_LADDER = ["bronze", "silver", "gold", "diamond"];
 
@@ -230,6 +231,25 @@ export function runEffect(state, rawEffect, context) {
 
       state.resources[key] = (state.resources[key] ?? 0) + amt;
       return true;
+    }
+
+    // ================= FARMING OPS =================
+
+    case "FarmPlant":
+    case "FarmHarvest": {
+      if (!context || context.kind !== "game") return false;
+      const tile = context.source;
+      if (!tile) return false;
+
+      const nowSec = Number.isFinite(context.tSec)
+        ? Math.floor(context.tSec)
+        : Math.floor(state.tSec ?? 0);
+      const envCol = Number.isFinite(context.envCol)
+        ? Math.floor(context.envCol)
+        : null;
+
+      const mode = effect.op === "FarmHarvest" ? "harvest" : "plant";
+      return stepFarmingTile(state, tile, nowSec, envCol, mode);
     }
 
     // ================= BOARD TARGET OPS =================

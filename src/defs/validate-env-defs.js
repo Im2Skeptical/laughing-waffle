@@ -11,6 +11,8 @@ const EFFECT_OPS = new Set([
   "ClearSystemState",
   "RemoveEvent",
   "TransformEvent",
+  "FarmPlant",
+  "FarmHarvest",
 ]);
 
 const REQUIRED_TIERS = ["bronze", "silver", "gold", "diamond"];

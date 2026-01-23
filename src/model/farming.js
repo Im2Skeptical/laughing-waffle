@@ -219,179 +219,228 @@ function maturedPoolHasAny(pool) {
   );
 }
 
-export function stepFarmingSecond(state, tSec) {
-  if (!state?.board) return;
+export function stepFarmingTile(state, tile, tSec, envCol = null, mode = "both") {
+  if (!state || !tile) return false;
 
-  const cols = Number.isFinite(state.board.cols)
-    ? Math.floor(state.board.cols)
-    : 0;
-  const tileOcc = state.board.occ?.tile;
-  if (!Array.isArray(tileOcc)) return;
+  const tags = Array.isArray(tile.tags) ? tile.tags : [];
+  if (!tags.includes("farmable")) return false;
 
-  for (let col = 0; col < cols; col++) {
-    const tile = tileOcc[col];
-    if (!tile) continue;
-    const tags = Array.isArray(tile.tags) ? tile.tags : [];
-    if (!tags.includes("farmable")) continue;
+  const nowSec = Number.isFinite(tSec)
+    ? Math.floor(tSec)
+    : Math.floor(state.tSec ?? 0);
 
-    // Order within the second: hydration update -> maturation -> planting -> harvesting.
-    const systemState = ensureTileSystemState(tile);
-    const growth =
-      systemState.growth && typeof systemState.growth === "object"
-        ? ensureGrowthState(tile)
-        : null;
-    const hasBatches = Array.isArray(growth?.plantedBatches)
-      ? growth.plantedBatches.length > 0
-      : false;
-    const selectedCropId = growth?.selectedCropId ?? null;
+  const col = Number.isFinite(envCol)
+    ? Math.floor(envCol)
+    : Number.isFinite(tile.col)
+      ? Math.floor(tile.col)
+      : null;
 
-    const needsHydration =
-      systemState.hydration ||
-      selectedCropId ||
-      hasBatches;
-    const hydration = needsHydration ? ensureHydrationState(tile) : null;
+  let changed = false;
 
-    if (hydration) {
-      const max = Number.isFinite(hydration.max) ? hydration.max : 100;
-      const decay = Number.isFinite(hydration.decayPerSec)
-        ? hydration.decayPerSec
-        : 2;
-      hydration.max = max;
-      hydration.decayPerSec = decay;
-      hydration.cur = clamp(
-        Number.isFinite(hydration.cur) ? hydration.cur : max,
-        0,
-        max
-      );
+  // Order within the second: hydration update -> maturation -> planting -> harvesting.
+  const systemState = ensureTileSystemState(tile);
+  const hadGrowthState =
+    systemState.growth && typeof systemState.growth === "object";
+  const hadBatchesArray =
+    hadGrowthState && Array.isArray(systemState.growth.plantedBatches);
+  const hadMaturedPool =
+    hadGrowthState &&
+    systemState.growth.maturedPool &&
+    typeof systemState.growth.maturedPool === "object";
+  const growth = hadGrowthState ? ensureGrowthState(tile) : null;
 
-      hydration.cur = Math.max(0, hydration.cur - decay);
-      const ratio = max > 0 ? hydration.cur / max : 0;
-      hydration.sumRatio = (hydration.sumRatio ?? 0) + ratio;
+  if (hadGrowthState && (!hadBatchesArray || !hadMaturedPool)) {
+    changed = true;
+  }
+
+  const hasBatches = Array.isArray(growth?.plantedBatches)
+    ? growth.plantedBatches.length > 0
+    : false;
+  const selectedCropId = growth?.selectedCropId ?? null;
+
+  const needsHydration =
+    systemState.hydration ||
+    selectedCropId ||
+    hasBatches;
+  const hadHydrationState =
+    systemState.hydration && typeof systemState.hydration === "object";
+  const hydration = needsHydration ? ensureHydrationState(tile) : null;
+
+  if (!hadHydrationState && hydration) changed = true;
+
+  if (hydration) {
+    const prevCur = hydration.cur;
+    const prevMax = hydration.max;
+    const prevDecay = hydration.decayPerSec;
+    const prevSum = hydration.sumRatio;
+
+    const max = Number.isFinite(hydration.max) ? hydration.max : 100;
+    const decay = Number.isFinite(hydration.decayPerSec)
+      ? hydration.decayPerSec
+      : 2;
+    hydration.max = max;
+    hydration.decayPerSec = decay;
+    hydration.cur = clamp(
+      Number.isFinite(hydration.cur) ? hydration.cur : max,
+      0,
+      max
+    );
+
+    hydration.cur = Math.max(0, hydration.cur - decay);
+    const ratio = max > 0 ? hydration.cur / max : 0;
+    hydration.sumRatio = (hydration.sumRatio ?? 0) + ratio;
+
+    if (
+      hydration.cur !== prevCur ||
+      hydration.max !== prevMax ||
+      hydration.decayPerSec !== prevDecay ||
+      hydration.sumRatio !== prevSum
+    ) {
+      changed = true;
     }
+  }
 
-    if (hasBatches && growth) {
-      const hydrationTier = getTierValueForSystem(tile, "hydration");
-      const fertilityTier = getTierValueForSystem(tile, "fertility");
+  if (hasBatches && growth) {
+    const hydrationTier = getTierValueForSystem(tile, "hydration");
+    const fertilityTier = getTierValueForSystem(tile, "fertility");
 
-      const batches = growth.plantedBatches;
-      const remainingBatches = [];
-      for (const batch of batches) {
-        if (!batch) continue;
-        const cropId = batch.cropId ?? "barley";
-        const cropDef = cropDefs[cropId];
-        const maturitySec =
-          Number.isFinite(cropDef?.maturitySec) && cropDef.maturitySec > 0
-            ? Math.floor(cropDef.maturitySec)
-            : 32;
-        const qualityTable =
-          cropDef?.qualityTablesByFertilityTier?.[fertilityTier] ??
-          cropDef?.qualityTablesByFertilityTier?.silver ??
-          [];
-        const plantedSec = Math.floor(batch.plantedSec ?? 0);
-        if (tSec < plantedSec + maturitySec) {
-          remainingBatches.push(batch);
-          continue;
+    const batches = growth.plantedBatches;
+    const remainingBatches = [];
+    let maturedAny = false;
+    for (const batch of batches) {
+      if (!batch) continue;
+      const cropId = batch.cropId ?? "barley";
+      const cropDef = cropDefs[cropId];
+      const maturitySec =
+        Number.isFinite(cropDef?.maturitySec) && cropDef.maturitySec > 0
+          ? Math.floor(cropDef.maturitySec)
+          : 32;
+      const qualityTable =
+        cropDef?.qualityTablesByFertilityTier?.[fertilityTier] ??
+        cropDef?.qualityTablesByFertilityTier?.silver ??
+        [];
+      const plantedSec = Math.floor(batch.plantedSec ?? 0);
+      if (nowSec < plantedSec + maturitySec) {
+        remainingBatches.push(batch);
+        continue;
+      }
+      maturedAny = true;
+
+      const sumRatio = Number.isFinite(hydration?.sumRatio)
+        ? hydration.sumRatio
+        : 0;
+      const sumAtPlant = Number.isFinite(batch.sumAtPlant)
+        ? batch.sumAtPlant
+        : 0;
+      const rAvg = clamp((sumRatio - sumAtPlant) / maturitySec, 0, 1);
+
+      const curve = HYDRATION_CURVE[hydrationTier] || HYDRATION_CURVE.silver;
+      const factor =
+        (Number.isFinite(curve?.A) ? curve.A : 1) *
+        Math.pow(rAvg, Number.isFinite(curve?.P) ? curve.P : 1);
+
+      const seedCommitted = Math.max(0, Math.floor(batch.seedCommitted ?? 0));
+      const baseYield = Number.isFinite(cropDef?.baseYieldMultiplier)
+        ? cropDef.baseYieldMultiplier
+        : 1;
+      const maturedUnits = Math.floor(seedCommitted * baseYield * factor);
+
+      if (maturedUnits > 0 && growth.maturedPool) {
+        for (let i = 0; i < maturedUnits; i++) {
+          const tier = rollQualityTier(state, qualityTable);
+          growth.maturedPool[tier] = (growth.maturedPool[tier] ?? 0) + 1;
         }
+        changed = true;
+      }
+    }
+    if (maturedAny) {
+      growth.plantedBatches = remainingBatches;
+      changed = true;
+    }
+  }
 
-        const sumRatio = Number.isFinite(hydration?.sumRatio)
+  if (col == null) return changed;
+
+  const chars = getCharsOnCol(state, col);
+  if (!chars.length) return changed;
+
+  const shouldPlant = mode === "plant" || mode === "both";
+  const shouldHarvest = mode === "harvest" || mode === "both";
+
+  if (shouldPlant && growth && selectedCropId) {
+    const cropDef = cropDefs[selectedCropId];
+    if (cropDef) {
+      let totalSeedCommitted = 0;
+      for (const ch of chars) {
+        const rate = Number.isFinite(cropDef.plantSeedPerSec)
+          ? cropDef.plantSeedPerSec
+          : 0;
+        const need = Math.max(0, Math.floor(rate));
+        if (need <= 0) continue;
+        const used = consumeFromInventory(state, ch.id, "barley", need);
+        totalSeedCommitted += used;
+      }
+
+      if (totalSeedCommitted > 0) {
+        const sumAtPlant = Number.isFinite(hydration?.sumRatio)
           ? hydration.sumRatio
           : 0;
-        const sumAtPlant = Number.isFinite(batch.sumAtPlant)
-          ? batch.sumAtPlant
-          : 0;
-        const rAvg = clamp((sumRatio - sumAtPlant) / maturitySec, 0, 1);
+        const batchId = `batch_${tile.instanceId}_${nowSec}`;
+        const batch = {
+          id: batchId,
+          cropId: selectedCropId,
+          plantedSec: nowSec,
+          seedCommitted: totalSeedCommitted,
+          sumAtPlant,
+        };
+        ensureGrowthState(tile).plantedBatches.push(batch);
+        changed = true;
+      }
+    }
+  }
 
-        const curve = HYDRATION_CURVE[hydrationTier] || HYDRATION_CURVE.silver;
-        const factor =
-          (Number.isFinite(curve?.A) ? curve.A : 1) *
-          Math.pow(rAvg, Number.isFinite(curve?.P) ? curve.P : 1);
-
-        const seedCommitted = Math.max(0, Math.floor(batch.seedCommitted ?? 0));
-        const baseYield = Number.isFinite(cropDef?.baseYieldMultiplier)
-          ? cropDef.baseYieldMultiplier
-          : 1;
-        const maturedUnits = Math.floor(seedCommitted * baseYield * factor);
-
-        if (maturedUnits > 0 && growth.maturedPool) {
-          for (let i = 0; i < maturedUnits; i++) {
-            const tier = rollQualityTier(state, qualityTable);
-            growth.maturedPool[tier] = (growth.maturedPool[tier] ?? 0) + 1;
+  if (
+    shouldHarvest &&
+    growth?.maturedPool &&
+    maturedPoolHasAny(growth.maturedPool)
+  ) {
+    const cropId = growth.selectedCropId ?? "barley";
+    const cropDef = cropDefs[cropId];
+    const rate = Number.isFinite(cropDef?.harvestUnitsPerSec)
+      ? cropDef.harvestUnitsPerSec
+      : 0;
+    const perChar = Math.max(0, Math.floor(rate));
+    if (perChar > 0) {
+      for (const ch of chars) {
+        let remaining = perChar;
+        for (const tier of TIER_DESC) {
+          if (remaining <= 0) break;
+          const pool = Math.max(
+            0,
+            Math.floor(growth.maturedPool[tier] ?? 0)
+          );
+          if (pool <= 0) continue;
+          const take = Math.min(pool, remaining);
+          const added = addTieredUnits(
+            state,
+            ch.id,
+            "barley",
+            tier,
+            take
+          );
+          if (added > 0) {
+            growth.maturedPool[tier] = pool - added;
+            remaining -= added;
+            changed = true;
           }
-        }
-      }
-      growth.plantedBatches = remainingBatches;
-    }
-
-    const chars = getCharsOnCol(state, col);
-    if (!chars.length) continue;
-
-    if (growth && selectedCropId) {
-      const cropDef = cropDefs[selectedCropId];
-      if (cropDef) {
-        let totalSeedCommitted = 0;
-        for (const ch of chars) {
-          const rate = Number.isFinite(cropDef.plantSeedPerSec)
-            ? cropDef.plantSeedPerSec
-            : 0;
-          const need = Math.max(0, Math.floor(rate));
-          if (need <= 0) continue;
-          const used = consumeFromInventory(state, ch.id, "barley", need);
-          totalSeedCommitted += used;
-        }
-
-        if (totalSeedCommitted > 0) {
-          const sumAtPlant = Number.isFinite(hydration?.sumRatio)
-            ? hydration.sumRatio
-            : 0;
-          const batchId = `batch_${tile.instanceId}_${tSec}`;
-          const batch = {
-            id: batchId,
-            cropId: selectedCropId,
-            plantedSec: tSec,
-            seedCommitted: totalSeedCommitted,
-            sumAtPlant,
-          };
-          ensureGrowthState(tile).plantedBatches.push(batch);
-        }
-      }
-    }
-
-    if (growth?.maturedPool && maturedPoolHasAny(growth.maturedPool)) {
-      const cropId = growth.selectedCropId ?? "barley";
-      const cropDef = cropDefs[cropId];
-      const rate = Number.isFinite(cropDef?.harvestUnitsPerSec)
-        ? cropDef.harvestUnitsPerSec
-        : 0;
-      const perChar = Math.max(0, Math.floor(rate));
-      if (perChar > 0) {
-        for (const ch of chars) {
-          let remaining = perChar;
-          for (const tier of TIER_DESC) {
-            if (remaining <= 0) break;
-            const pool = Math.max(
-              0,
-              Math.floor(growth.maturedPool[tier] ?? 0)
-            );
-            if (pool <= 0) continue;
-            const take = Math.min(pool, remaining);
-            const added = addTieredUnits(
-              state,
-              ch.id,
-              "barley",
-              tier,
-              take
-            );
-            if (added > 0) {
-              growth.maturedPool[tier] = pool - added;
-              remaining -= added;
-            }
-            if (added < take) {
-              remaining = 0;
-              break;
-            }
+          if (added < take) {
+            remaining = 0;
+            break;
           }
         }
       }
     }
   }
+
+  return changed;
 }
