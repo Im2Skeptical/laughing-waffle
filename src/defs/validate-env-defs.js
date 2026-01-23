@@ -5,12 +5,16 @@ const EFFECT_OPS = new Set([
   "AddResource",
   "AddTag",
   "RemoveTag",
+  "DisableTag",
+  "EnableTag",
   "SetSystemTier",
   "UpgradeSystemTier",
   "SetSystemState",
+  "ResetSystemState",
   "AddToSystemState",
   "ClampSystemState",
   "AccumulateRatio",
+  "AdjustSystemState",
   "ClearSystemState",
   "RemoveEvent",
   "TransformEvent",
@@ -85,7 +89,7 @@ function validateEffectSpec(effectSpec, contextLabel, tagIds, systemIds, eventId
       continue;
     }
 
-    if (op === "AddTag" || op === "RemoveTag") {
+    if (op === "AddTag" || op === "RemoveTag" || op === "DisableTag" || op === "EnableTag") {
       if (!effect.tag || typeof effect.tag !== "string") {
         addIssue(errors, `${contextLabel}: ${op} missing tag.`);
       } else if (!tagIds.has(effect.tag)) {
@@ -97,9 +101,11 @@ function validateEffectSpec(effectSpec, contextLabel, tagIds, systemIds, eventId
       op === "SetSystemTier" ||
       op === "UpgradeSystemTier" ||
       op === "SetSystemState" ||
+      op === "ResetSystemState" ||
       op === "AddToSystemState" ||
       op === "ClampSystemState" ||
       op === "AccumulateRatio" ||
+      op === "AdjustSystemState" ||
       op === "CreateProcess" ||
       op === "FinalizeProcess" ||
       op === "TransferUnits"

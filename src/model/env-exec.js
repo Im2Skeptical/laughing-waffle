@@ -74,6 +74,12 @@ function timingPass(timing, state, tSec) {
   return cadenceMatch || seasonMatch;
 }
 
+function isTagDisabled(tile, tagId) {
+  if (!tile || !tagId) return false;
+  const entry = tile.tagStates?.[tagId];
+  return entry?.disabled === true;
+}
+
 function hasPawnOnCol(state, col) {
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   for (const ch of chars) {
@@ -213,6 +219,7 @@ export function stepEnvSecond(state, tSec) {
     };
 
     for (const tagId of tags) {
+      if (isTagDisabled(tile, tagId)) continue;
       const tagDef = envTagDefs[tagId];
       if (!tagDef) continue;
       const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
@@ -235,6 +242,7 @@ export function stepEnvSecond(state, tSec) {
 
     let executed = false;
     for (const tagId of tags) {
+      if (isTagDisabled(tile, tagId)) continue;
       const tagDef = envTagDefs[tagId];
       if (!tagDef) continue;
       const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];

@@ -69,6 +69,18 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Required: `system`, `numeratorKey`, `denominatorKey`.
 - Optional: `targetKey` (default `sumRatio`), `min`, `max`.
 
+### ResetSystemState
+- Purpose: reset a system state to its def `stateDefaults`.
+- Required: `system`.
+- Notes: uses `envSystemDefs[system].stateDefaults` and deep clones.
+
+### AdjustSystemState
+- Purpose: adjust a numeric system state value by flat and/or percentage.
+- Required: `system`, `key`.
+- Optional: `percent` (fractional, e.g. `0.1` = +10%), `delta`/`amount`, `min`, `max`.
+- Optional sources: `percentFromKey`, `percentFromDefKey`, `percentVar`.
+- Notes: formula is `next = current + delta + current * percent`, then clamped.
+
 ### ConsumeItem
 - Purpose: consume items from owners (e.g., planting seeds).
 - Context: `context.kind = "game"`.
@@ -117,6 +129,12 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Purpose: remove a tag from board targets.
 - Required: `tag`.
 - Optional: `target`.
+
+### DisableTag / EnableTag
+- Purpose: disable or re-enable a tag without removing it from `tile.tags`.
+- Required: `tag`.
+- Optional: `target`.
+- Notes: disabled tags are skipped by env execution; state stored under `tile.tagStates[tagId].disabled`.
 
 ### SetSystemTier
 - Purpose: set a system tier on a target.

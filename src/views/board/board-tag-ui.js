@@ -103,6 +103,11 @@ export function createTagUi(opts) {
     return def?.ui?.name || tagId;
   }
 
+  function isTagDisabled(tileInst, tagId) {
+    const entry = tileInst?.tagStates?.[tagId];
+    return entry?.disabled === true;
+  }
+
   function getHydrationRatio(tileInst) {
     const hyd = tileInst?.systemState?.hydration;
     const cur = Number.isFinite(hyd?.cur) ? hyd.cur : 0;
@@ -700,8 +705,10 @@ export function createTagUi(opts) {
       typeof interaction?.isPlanningPhase === "function" &&
       interaction.isPlanningPhase();
     entry.row.cursor = canEdit ? "grab" : "pointer";
-    const isActive = hasPawn && entry.tagId === topTagId;
+    const isDisabled = isTagDisabled(tileInst, entry.tagId);
+    const isActive = hasPawn && entry.tagId === topTagId && !isDisabled;
     setTagPillStyle(entry, isActive);
+    entry.container.alpha = isDisabled ? 0.55 : 1;
 
     for (const row of entry.systemRows || []) {
       updateSystemRow(view, row, tileInst);
@@ -710,7 +717,8 @@ export function createTagUi(opts) {
 
   function updateTagEntries(view, tileInst) {
     const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
-    const topTagId = tags.length > 0 ? tags[0] : null;
+    const topTagId =
+      tags.find((tagId) => !isTagDisabled(tileInst, tagId)) || null;
     const hasPawn =
       Number.isFinite(view?.pawnCount) && view.pawnCount > 0;
     for (const entry of view.tagEntries || []) {

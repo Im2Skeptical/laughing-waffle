@@ -293,6 +293,45 @@ function maturedPoolHasAny(pool) {
   );
 }
 
+function setTagDisabled(target, tagId, disabled) {
+  if (!target || !tagId) return false;
+  const entry =
+    target.tagStates && typeof target.tagStates === "object"
+      ? target.tagStates[tagId]
+      : null;
+  const wasDisabled = entry?.disabled === true;
+  if (disabled) {
+    if (wasDisabled) return false;
+    if (!target.tagStates || typeof target.tagStates !== "object") {
+      target.tagStates = {};
+    }
+    if (entry && typeof entry === "object") {
+      entry.disabled = true;
+    } else {
+      target.tagStates[tagId] = { disabled: true };
+    }
+    return true;
+  }
+
+  if (!entry) return false;
+  if (entry && typeof entry === "object") {
+    if (entry.disabled) delete entry.disabled;
+    if (Object.keys(entry).length === 0) {
+      delete target.tagStates[tagId];
+    }
+  } else {
+    delete target.tagStates[tagId];
+  }
+  if (
+    target.tagStates &&
+    typeof target.tagStates === "object" &&
+    Object.keys(target.tagStates).length === 0
+  ) {
+    delete target.tagStates;
+  }
+  return wasDisabled;
+}
+
 function sampleBinomial(state, trials, chance) {
   if (!Number.isFinite(trials) || trials <= 0) return 0;
   if (!Number.isFinite(chance) || chance <= 0) return 0;
@@ -592,6 +631,89 @@ export function runEffect(state, rawEffect, context) {
           : 0;
         systemState[targetKey] = current + ratio;
         changed = true;
+      }
+
+      return changed;
+    }
+
+    case "ResetSystemState": {
+      const systemId = effect.system;
+      if (!systemId || typeof systemId !== "string") return false;
+
+      const targets = effect.target
+        ? resolveBoardTargets(state, effect.target, context)
+        : context?.source
+          ? [context.source]
+          : [];
+      if (!targets.length) return false;
+
+      const defaults = envSystemDefs[systemId]?.stateDefaults ?? {};
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        if (!target.systemState || typeof target.systemState !== "object") {
+          target.systemState = {};
+        }
+        target.systemState[systemId] = cloneSerializable(defaults);
+        changed = true;
+      }
+
+      return changed;
+    }
+
+    case "AdjustSystemState": {
+      const systemId = effect.system;
+      const key = effect.key;
+      if (!systemId || typeof systemId !== "string") return false;
+      if (!key || typeof key !== "string") return false;
+
+      const targets = effect.target
+        ? resolveBoardTargets(state, effect.target, context)
+        : context?.source
+          ? [context.source]
+          : [];
+      if (!targets.length) return false;
+
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        const systemState = ensureSystemState(target, systemId);
+        const { def } = resolveEffectDef(effect, target, context);
+        const deltaRaw = resolveAmount(effect, systemState, def, context);
+        const delta = Number.isFinite(deltaRaw) ? deltaRaw : 0;
+        let percent = null;
+        if (Number.isFinite(effect.percent)) percent = effect.percent;
+        if (percent == null && effect.percentFromKey) {
+          percent = systemState[effect.percentFromKey];
+        }
+        if (percent == null && effect.percentFromDefKey && def) {
+          percent = def[effect.percentFromDefKey];
+        }
+        if (percent == null && effect.percentVar && context?.vars) {
+          percent = context.vars[effect.percentVar];
+        }
+        if (!Number.isFinite(percent)) percent = 0;
+
+        const current = Number.isFinite(systemState[key]) ? systemState[key] : 0;
+        const nextRaw = current + delta + current * percent;
+        const minRaw = Number.isFinite(effect.min)
+          ? effect.min
+          : effect.minKey
+            ? systemState[effect.minKey]
+            : null;
+        const maxRaw = Number.isFinite(effect.max)
+          ? effect.max
+          : effect.maxKey
+            ? systemState[effect.maxKey]
+            : null;
+        const min = Number.isFinite(minRaw) ? minRaw : -Infinity;
+        const max = Number.isFinite(maxRaw) ? maxRaw : Infinity;
+        const next = clamp(nextRaw, min, max);
+
+        if (next !== current) {
+          systemState[key] = next;
+          changed = true;
+        }
       }
 
       return changed;
@@ -1043,6 +1165,27 @@ export function runEffect(state, rawEffect, context) {
             );
           }
         }
+      }
+
+      return changed;
+    }
+
+    case "DisableTag":
+    case "EnableTag": {
+      const tagId = effect.tag;
+      if (!tagId || typeof tagId !== "string") return false;
+
+      const targets = resolveBoardTargets(state, effect.target, context);
+      if (!targets.length) return false;
+
+      const disable = effect.op === "DisableTag";
+      let changed = false;
+      for (const target of targets) {
+        if (!target) continue;
+        if (!Array.isArray(target.tags) || !target.tags.includes(tagId)) {
+          continue;
+        }
+        if (setTagDisabled(target, tagId, disable)) changed = true;
       }
 
       return changed;
