@@ -8,6 +8,7 @@ Used by board ops and system ops.
 ### Common Shapes
 - `{ all: true, layer: "tile" }`
 - `{ at: { layer: "tile", col: 3 } }`
+- `{ ref: "self" }`
 - `{ ref: "self", layer: "tile" }`
 - `{ ref: { kind: "tileWhere", where: {...} }, area: {...}, layer: "tile" }`
 
@@ -17,8 +18,11 @@ Used by board ops and system ops.
 - `"hub"`: hub structures
 
 ### `ref` (reference sources)
-- `"self"`: uses `context.source` and its `col`/`span`.
+- `"self"`: uses `context.source`.
+  - With a `layer`, uses `source.col`/`source.span` to resolve cols on that layer.
+  - Without a `layer`, returns the source object directly.
   - Span-aware: if the source has `span`, the ref covers all occupied cols.
+- `"pawn"`: resolves the interacting pawn from context.
 - `{ kind: "tileWhere", where: {...} }`: uses every tile that matches `where`.
 
 ### `area` (spatial expansion)
@@ -28,7 +32,7 @@ Used by board ops and system ops.
   - Returned in ascending col order.
 
 ### `where` (tile filters)
-Applies after `all/at/ref/area` selection. These checks target `target.defId`, `target.tags`, and `target.systemState`, so they are primarily meaningful for tiles.
+Applies after `all/at/ref/area` selection. These checks target `target.defId`, `target.tags`, and `target.systemState`, so they are meaningful for any target with those fields.
 
 - `where.tileId: string` (matches `target.defId`)
 - `where.hasTag: string`
@@ -62,7 +66,9 @@ Used by ops like `ConsumeItem`, `TransferUnits`, `SpawnItem`.
 ### Shapes
 - `{ kind: "tileOccupants" }`
   - Col resolution order: `target.envCol` -> `context.envCol` -> `context.source.col`.
-  - Deterministic owner order: lowest `char.id` first.
+  - Deterministic owner order: `state.characters` array order.
+- Note: this only resolves env tile occupants (no hub occupant target spec).
+- `{ ref: "selfInv" }` (inventory of `context.source` instance)
 - `{ ownerId: 101 }`
 - `{ ownerIds: [101, 102, 103] }`
 

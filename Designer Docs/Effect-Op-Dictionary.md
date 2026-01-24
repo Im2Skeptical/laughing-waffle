@@ -4,11 +4,14 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 
 ## Common Conventions
 - `target`: board target spec used by board ops and system ops.
+  - `{ ref: "self" }` (defaults to `context.source`)
   - `{ ref: "self", layer: "tile" }` or `{ ref: "self", layer: "event" }`
   - `{ at: { layer: "tile", col: 3 } }`
   - `{ all: true, layer: "tile" }`
+  - `{ ref: "pawn" }` (resolves the interacting pawn from context)
+- Owner targets (for `ConsumeItem`, `TransferUnits`, `SpawnItem`) use the owner targeting spec (see Targeting Dictionary), e.g. `{ ref: "selfInv" }`.
 - `context.kind`:
-  - `"game"` for env tags/passives/intents and env events.
+  - `"game"` for env tags/passives/intents, hub tags/passives/intents, pawn defs, and env events.
   - `"item"` for item passives.
   - `"inventoryMove"`, `"inventoryStack"`, `"inventorySplit"` for inventory commands.
 - `defRegistry` resolution:
@@ -72,24 +75,28 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 
 ## System Ops
 ### AddToSystemState
-- Purpose: add a numeric delta to `tile.systemState[system][key]`.
+- Purpose: add a numeric delta to `target.systemState[system][key]`.
 - Required: `system`, `key`.
 - Amount: supports common amount resolution.
+- Targeting: if `target` is omitted, defaults to `context.source` (tile, hub structure, or pawn).
 
 ### ClampSystemState
 - Purpose: clamp a numeric system state value.
 - Required: `system`, `key`.
 - Optional: `min`, `max`, or `minKey` / `maxKey` from system state.
+- Targeting: if `target` is omitted, defaults to `context.source`.
 
 ### AccumulateRatio
 - Purpose: accumulate a ratio into a system state key (e.g., hydration sumRatio).
 - Required: `system`, `numeratorKey`, `denominatorKey`.
 - Optional: `targetKey` (default `sumRatio`), `min`, `max`.
+- Targeting: if `target` is omitted, defaults to `context.source`.
 
 ### ResetSystemState
 - Purpose: reset a system state to its def `stateDefaults`.
 - Required: `system`.
-- Notes: uses `envSystemDefs[system].stateDefaults` and deep clones.
+- Notes: uses `envSystemDefs[system].stateDefaults` and deep clones (env systems only).
+- Targeting: if `target` is omitted, defaults to `context.source`.
 
 ### AdjustSystemState
 - Purpose: adjust a numeric system state value by flat and/or percentage.
@@ -97,6 +104,7 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Optional: `percent` (fractional, e.g. `0.1` = +10%), `delta`/`amount`, `min`, `max`.
 - Optional sources: `percentFromKey`, `percentFromDefKey`, `percentVar`.
 - Notes: formula is `next = current + delta + current * percent`, then clamped.
+- Targeting: if `target` is omitted, defaults to `context.source`.
 
 ### ConsumeItem
 - Purpose: consume items from owners (e.g., planting seeds).
@@ -105,7 +113,7 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Optional: `itemKind` (explicit), or def-based resolution via `defRegistry` + def fields.
 - Amount: supports def/system/var resolution, `perOwner` for per-target usage.
 - Output: `outVar` stores total consumed.
-- Notes: supports `tierOrder` (`"asc"` or `"desc"`). Deterministic order uses owner id asc.
+- Notes: supports `tierOrder` (`"asc"` or `"desc"`). Owner order follows the target resolver (tile occupants use `state.characters` order; `ownerIds` uses provided order).
 
 ### TransferUnits
 - Purpose: move units from a system pool to owner inventories (e.g., harvesting).
@@ -113,7 +121,7 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Required: `system`, `target`.
 - Optional: `poolKey` (default `maturedPool`), `itemKind` or def-based resolution, `perOwner`, `tierOrder`.
 - Amount: supports def/system/var resolution.
-- Notes: deterministic owner and tier ordering.
+- Notes: deterministic owner and tier ordering; owner order follows the target resolver.
 
 ### SpawnItem
 - Purpose: add items directly to inventories.
@@ -141,6 +149,7 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Purpose: add a tag to board targets and initialize system tiers/state defaults.
 - Required: `tag`.
 - Optional: `target`.
+- Notes: uses `envTagDefs` and `envSystemDefs` (env tags only; not for hub tags).
 
 ### RemoveTag
 - Purpose: remove a tag from board targets.
@@ -148,10 +157,10 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Optional: `target`.
 
 ### DisableTag / EnableTag
-- Purpose: disable or re-enable a tag without removing it from `tile.tags`.
+- Purpose: disable or re-enable a tag without removing it from `target.tags`.
 - Required: `tag`.
 - Optional: `target`.
-- Notes: disabled tags are skipped by env execution; state stored under `tile.tagStates[tagId].disabled`.
+- Notes: disabled tags are skipped by env/hub execution; state stored under `target.tagStates[tagId].disabled`.
 
 ### SetSystemTier
 - Purpose: set a system tier on a target.
@@ -193,8 +202,15 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 
 ## Execution Notes (Env Tags)
 - Passives run per tile regardless of pawn occupancy and may include `timing`.
-- Intents run only when a pawn is present and only the first eligible intent per tile executes each second (tag order priority).
+- Intents run only when a pawn is present and only the first eligible intent per pawn executes each second (tag order priority).
 - Gating belongs in `env-exec` via `requires` (never inside ops).
+- Deterministic order: tiles in col order, pawns in `state.characters` order, tags/intents in def order.
+
+## Execution Notes (Hub Tags)
+- Passives run per hub structure regardless of pawn occupancy and may include `timing`.
+- Intents run per pawn on the hub slot, once per second. The first payable intent per pawn executes (tag order priority).
+- Costs are resolved and applied per pawn, atomically, before effects.
+- Deterministic order: hub slots in index order, pawns in `state.characters` order, tags/intents in def order.
 
 ## Execution Notes (Items)
 - Item defs can declare `passives` with `timing` (cadence or season change).
