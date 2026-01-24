@@ -28,10 +28,10 @@ export const setupDefs = {
     hub: {
       cols: 10,
       structures: [
-        { defId: "farm", hubCol: 0 },
-        { defId: "mine", hubCol: 3 },
-        { defId: "storehouse", hubCol: 6 },
-        { defId: "storehouse", hubCol: 9 },
+        { defId: "hearth", hubCol: 0 },
+        { defId: "hearth", hubCol: 3 },
+        { defId: "hearth", hubCol: 6 },
+        { defId: "hearth", hubCol: 9 },
       ],
     },
 
@@ -87,9 +87,9 @@ export const setupDefs = {
     hub: {
       cols: 10,
       structures: [
-        { defId: "farm", hubCol: 1 },
-        { defId: "mine", hubCol: 5 },
-        { defId: "storehouse", hubCol: 7 },
+        { defId: "hearth", hubCol: 1 },
+        { defId: "hearth", hubCol: 5 },
+        { defId: "hearth", hubCol: 7 },
       ],
     },
 

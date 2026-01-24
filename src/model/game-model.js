@@ -2,8 +2,6 @@
 // NOTE: Model APIs require explicit `state`.
 // `gameState` remains exported for app-edge wiring only.
 
-import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
-
 import {
   gameState,
   createEmptyState,
@@ -18,8 +16,6 @@ import {
 
 import { initGameState, createInitialState } from "./init.js";
 
-import { runEffect } from "./effects.js";
-import { runBehaviorsOnInstance } from "./behaviors.js";
 import {
   cmdAdvanceSeason,
   cmdTickSimulation,
@@ -45,27 +41,6 @@ export function updateGame(dt, state) {
 
   // 2. Pause Gate
   if (s.paused) return;
-
-  // hub structures: updateGame stays generic; behaviors decide via preconditions
-  const hubSlots = Array.isArray(s.hub?.slots) ? s.hub.slots : [];
-  for (let i = 0; i < hubSlots.length; i++) {
-    const slot = hubSlots[i];
-    const structure = slot.structure;
-    if (!structure) continue;
-
-    const def = hubStructureDefs[structure.defId];
-
-    const ops =
-      runBehaviorsOnInstance(structure, def, dt, s, {
-        kind: "hub",
-        hubCol: i,
-      }) || [];
-
-    for (const op of ops) {
-      runEffect(s, op, { kind: "game", state: s, source: structure });
-    }
-  }
-
 }
 
 // =============================================================================

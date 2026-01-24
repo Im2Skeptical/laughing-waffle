@@ -11,6 +11,11 @@ function getCharsOnCol(state, col) {
 export function resolveOwnerTargets(state, targetSpec, context) {
   if (!targetSpec || typeof targetSpec !== "object") return [];
 
+  if (targetSpec.ref === "selfInv") {
+    const ownerId = context?.source?.instanceId ?? null;
+    return ownerId != null ? [ownerId] : [];
+  }
+
   if (targetSpec.kind === "tileOccupants") {
     if (context?.pawn && typeof context.pawn === "object") {
       return [context.pawn];

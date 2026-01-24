@@ -1,5 +1,5 @@
 // src/model/query.js
-// Pure selectors for UI + behaviors.
+// Pure selectors for UI.
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 

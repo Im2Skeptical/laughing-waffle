@@ -270,6 +270,15 @@ function collectRefCols(state, refSpec, context, maxCols) {
 export function resolveBoardTargets(state, targetSpec, context) {
   if (!targetSpec || typeof targetSpec !== "object") return [];
 
+  if (
+    targetSpec.ref === "self" &&
+    !targetSpec.layer &&
+    !targetSpec.at &&
+    !targetSpec.area
+  ) {
+    return context?.source ? [context.source] : [];
+  }
+
   if (targetSpec.ref === "pawn") {
     const pawn = getPawnFromContext(state, context);
     return pawn ? [pawn] : [];

@@ -45,17 +45,6 @@ const TARGETING_KEYS = new Set([
   "ownerIds",
 ]);
 
-const TRIGGER_KEYS = new Set([
-  "onEnter",
-  "onTick",
-  "onExit",
-  "intents",
-  "passives",
-  "timing.cadenceSec",
-  "timing.onSeasonChange",
-  "behaviors.TimedTrigger",
-]);
-
 const REQUIRED_TIERS = ["bronze", "silver", "gold", "diamond"];
 
 function addIssue(list, message) {

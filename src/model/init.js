@@ -1,6 +1,6 @@
 // init.js — scenario/setup assembly (NO core exports here besides init/createInitialState)
 
-import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
+import { hubStructureDefs } from "../defs/hub/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 
@@ -98,11 +98,11 @@ export function createInitialState(scenario = "testing", seed = null) {
     const structure = slot.structure;
     if (!structure) continue;
     const def = hubStructureDefs[structure.defId];
-    const hasInventory = def?.tags?.includes("hasInventory") && def.inventory;
-    if (!hasInventory) continue;
+    if (!def) continue;
 
-    const cols = def.inventory.cols ?? 10;
-    const rows = def.inventory.rows ?? 10;
+    const invSpec = def.inventory ?? {};
+    const cols = Number.isFinite(invSpec.cols) ? invSpec.cols : 5;
+    const rows = Number.isFinite(invSpec.rows) ? invSpec.rows : 10;
     const inv = Inventory.create(cols, rows);
     Inventory.init(inv);
     inv.version = 0;

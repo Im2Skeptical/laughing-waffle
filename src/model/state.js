@@ -2,12 +2,15 @@
 // Model-only. No view imports.
 
 import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
-import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
+import { hubStructureDefs } from "../defs/hub/hub-structure-defs.js";
+import { hubTagDefs } from "../defs/hub/hub-tag-defs.js";
+import { hubSystemDefs } from "../defs/hub/hub-system-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { attachRngHelpers } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
+import { Inventory } from "./inventory-model.js";
 
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event"];
@@ -112,12 +115,19 @@ export function ensureHubState(state) {
     if (!Object.prototype.hasOwnProperty.call(slot, "structure")) {
       slot.structure = null;
     }
+    const structure = slot.structure;
+    if (structure) {
+      const def = hubStructureDefs[structure.defId];
+      if (def) ensureHubStructureFields(structure, def);
+    }
   }
 
   if (!Array.isArray(hub.anchors)) hub.anchors = [];
   if (!Array.isArray(hub.occ) || hub.occ.length !== hub.cols) {
     hub.occ = new Array(hub.cols).fill(null);
   }
+
+  ensureHubInventories(state);
 }
 
 export function buildPawnSystemDefaults() {
@@ -241,6 +251,9 @@ export function makeHubStructureInstance(defId, state) {
     defId,
     span,
     props: {},
+    tags: [],
+    systemTiers: {},
+    systemState: {},
   };
   initializeInstanceFromDef(inst, def);
   return inst;
@@ -349,6 +362,7 @@ export function rebuildHubOccupancy(state) {
     if (!structure) continue;
 
     const def = hubStructureDefs[structure.defId];
+    if (def) ensureHubStructureFields(structure, def);
     const fallbackSpan =
       Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
         ? Math.floor(def.defaultSpan)
@@ -380,44 +394,79 @@ export function rebuildHubOccupancy(state) {
 }
 
 export function initializeInstanceFromDef(instance, def) {
-  const props = instance.props;
-  for (const beh of def?.behaviors || []) {
-    const bprops = beh.props || {};
-    switch (beh.kind) {
-      case "TimedTrigger":
-        if (
-          bprops.timerKey &&
-          bprops.periodKey &&
-          bprops.defaultPeriod != null
-        ) {
-          props[bprops.timerKey] = bprops.defaultPeriod;
-          props[bprops.periodKey] = bprops.defaultPeriod;
-        }
-        break;
+  if (!instance || !def) return;
+  ensureHubStructureFields(instance, def);
+}
 
-      case "HasPool":
-        if (bprops.poolKey && bprops.defaultPool != null) {
-          props[bprops.poolKey] = bprops.defaultPool;
-          props[`_${bprops.poolKey}Max`] = bprops.defaultPool;
-        }
-        break;
+function ensureHubStructureFields(instance, def) {
+  if (!instance || !def) return;
 
-      case "TimedLife":
-        if (bprops.timerKey && bprops.defaultLife != null) {
-          props[bprops.timerKey] = bprops.defaultLife;
-        }
-        break;
+  if (!Array.isArray(instance.tags) || instance.tags.length === 0) {
+    instance.tags = normalizeTagList(def.tags);
+  }
 
-      case "TimedTransform":
-        if (bprops.timerKey && bprops.defaultTime != null) {
-          props[bprops.timerKey] = bprops.defaultTime;
-        }
-        break;
+  if (!instance.systemTiers || typeof instance.systemTiers !== "object") {
+    instance.systemTiers = {};
+  }
+  if (!instance.systemState || typeof instance.systemState !== "object") {
+    instance.systemState = {};
+  }
 
-      default:
-        break;
+  const tags = Array.isArray(instance.tags) ? instance.tags : [];
+  for (const tagId of tags) {
+    const tagDef = hubTagDefs[tagId];
+    const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
+    for (const systemId of systems) {
+      if (instance.systemTiers[systemId] == null) {
+        const sysDef = hubSystemDefs[systemId];
+        if (sysDef?.defaultTier != null) {
+          instance.systemTiers[systemId] = sysDef.defaultTier;
+        }
+      }
+      if (!instance.systemState[systemId]) {
+        const sysDef = hubSystemDefs[systemId];
+        if (sysDef?.stateDefaults) {
+          instance.systemState[systemId] = deepCloneSerializable(
+            sysDef.stateDefaults
+          );
+        }
+      }
     }
   }
+}
+
+function ensureHubInventories(state) {
+  if (!state || !state.ownerInventories) return;
+  const invs = state.ownerInventories;
+  const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (const slot of slots) {
+    const structure = slot?.structure;
+    if (!structure) continue;
+    const ownerId = structure.instanceId;
+    if (ownerId == null || invs[ownerId]) continue;
+    const def = hubStructureDefs[structure.defId];
+    if (!def) continue;
+    const invSpec = def.inventory ?? {};
+    const cols = Number.isFinite(invSpec.cols) ? invSpec.cols : 5;
+    const rows = Number.isFinite(invSpec.rows) ? invSpec.rows : 10;
+    const inv = Inventory.create(cols, rows);
+    Inventory.init(inv);
+    inv.version = 0;
+    invs[ownerId] = inv;
+  }
+}
+
+function normalizeTagList(tags) {
+  const raw = Array.isArray(tags) ? tags : [];
+  const seen = new Set();
+  const out = [];
+  for (const tag of raw) {
+    if (typeof tag !== "string") continue;
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+  }
+  return out;
 }
 
 // =============================================================================

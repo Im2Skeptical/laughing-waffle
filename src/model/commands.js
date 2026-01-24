@@ -1,7 +1,7 @@
 // src/model/commands.js
 // public mutation APIs (cmd*) + move rules
 
-import { hubStructureDefs}  from "../defs/gamepieces/hub-structures-defs.js";
+import { hubStructureDefs } from "../defs/hub/hub-structure-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
@@ -26,8 +26,7 @@ import {
 
 import { stepPawnSecond } from "./pawn-exec.js";
 import { stepEnvSecond } from "./env-exec.js";
-
-import { resetTimedTriggersOnHubStructures } from "./behaviors.js";
+import { stepHubSecond } from "./hub-exec.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
 
 const TICKS_PER_SEC = 60;
@@ -92,11 +91,8 @@ export function cmdAdvanceSeason(state) {
   state.currentSeasonDeck = null;
   buildSeasonDeckForCurrentSeason(state);
 
-  // 3) process item/hub-structure seasonal effects
+  // 3) process item seasonal effects
   processSeasonChangeForItems(state);
-
-  // 4) reset season-scoped triggers
-  resetTimedTriggersOnHubStructures(state);
 
   return { ok: true, oldSeasonKey, newSeasonKey };
 }
@@ -186,6 +182,7 @@ export function cmdTickSimulation(state, dt) {
   if (didAdvanceSecond) {
     stepPawnSecond(state, state.tSec);
     stepEnvSecond(state, state.tSec);
+    stepHubSecond(state, state.tSec);
     if (state._seasonChanged) state._seasonChanged = false;
   }
 

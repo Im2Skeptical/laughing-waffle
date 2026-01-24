@@ -1,6 +1,6 @@
 // src/views/ui-root-pixi.js
 import { getCurrentSeasonData } from "../model/game-model.js";
-import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
+import { hubStructureDefs } from "../defs/hub/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
