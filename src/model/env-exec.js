@@ -89,37 +89,637 @@ function hasPawnOnCol(state, col) {
   return false;
 }
 
-function pickRandomEventCol(state, span) {
-  if (!state?.board) return null;
-  const board = state.board;
-  const cols = Number.isFinite(board.cols) ? Math.floor(board.cols) : 0;
-  const safeSpan =
-    Number.isFinite(span) && span > 0 ? Math.floor(span) : 1;
-  if (cols <= 0 || safeSpan > cols) return null;
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.filter((entry) => typeof entry === "string");
+  }
+  if (typeof value === "string") return [value];
+  return [];
+}
 
-  const eventOcc = board.occ?.event;
-  const tileOcc = board.occ?.tile;
-  const candidates = [];
+function normalizeSystemSpecs(spec) {
+  if (!spec) return [];
+  if (Array.isArray(spec)) return spec.filter((entry) => entry && typeof entry === "object");
+  if (typeof spec === "object") return [spec];
+  return [];
+}
 
-  for (let col = 0; col <= cols - safeSpan; col++) {
-    let ok = true;
-    for (let offset = 0; offset < safeSpan; offset++) {
-      const idx = col + offset;
-      if (Array.isArray(eventOcc) && eventOcc[idx]) {
-        ok = false;
-        break;
-      }
-      if (Array.isArray(tileOcc) && !tileOcc[idx]) {
-        ok = false;
+function getSystemNumericValue(tile, systemId, key) {
+  if (!tile || !systemId || !key) return null;
+  const systemState = tile.systemState?.[systemId];
+  if (!systemState || typeof systemState !== "object") return null;
+  const value = systemState[key];
+  if (!Number.isFinite(value)) return null;
+  return value;
+}
+
+function matchesSystemAtLeast(tile, spec) {
+  const systemId = spec?.system;
+  const key = spec?.key;
+  const gte = spec?.gte;
+  if (!systemId || !key || !Number.isFinite(gte)) return false;
+  const value = getSystemNumericValue(tile, systemId, key);
+  if (!Number.isFinite(value)) return false;
+  return value >= gte;
+}
+
+function matchesSystemAtMost(tile, spec) {
+  const systemId = spec?.system;
+  const key = spec?.key;
+  const lte = spec?.lte;
+  if (!systemId || !key || !Number.isFinite(lte)) return false;
+  const value = getSystemNumericValue(tile, systemId, key);
+  if (!Number.isFinite(value)) return false;
+  return value <= lte;
+}
+
+function matchesSystemBetween(tile, spec) {
+  const systemId = spec?.system;
+  const key = spec?.key;
+  const min = spec?.min;
+  const max = spec?.max;
+  if (!systemId || !key || !Number.isFinite(min) || !Number.isFinite(max)) {
+    return false;
+  }
+  const value = getSystemNumericValue(tile, systemId, key);
+  if (!Number.isFinite(value)) return false;
+  return value >= min && value <= max;
+}
+
+function matchesTileWhere(tile, whereSpec) {
+  if (!whereSpec || typeof whereSpec !== "object") return true;
+  if (!tile || typeof tile !== "object") return false;
+
+  const tileId = whereSpec.tileId;
+  if (typeof tileId === "string") {
+    if (tile.defId !== tileId) return false;
+  } else if (Array.isArray(tileId) && tileId.length > 0) {
+    if (!tileId.includes(tile.defId)) return false;
+  }
+
+  const tags = Array.isArray(tile.tags) ? tile.tags : [];
+  const hasTag = whereSpec.hasTag;
+  if (typeof hasTag === "string") {
+    if (!tags.includes(hasTag)) return false;
+  } else if (Array.isArray(hasTag) && hasTag.length > 0) {
+    for (const tag of hasTag) {
+      if (!tags.includes(tag)) return false;
+    }
+  }
+
+  const hasAllTags = normalizeStringArray(whereSpec.hasAllTags);
+  if (hasAllTags.length > 0) {
+    for (const tag of hasAllTags) {
+      if (!tags.includes(tag)) return false;
+    }
+  }
+
+  const hasAnyTags = normalizeStringArray(whereSpec.hasAnyTags);
+  if (hasAnyTags.length > 0) {
+    let any = false;
+    for (const tag of hasAnyTags) {
+      if (tags.includes(tag)) {
+        any = true;
         break;
       }
     }
-    if (ok) candidates.push(col);
+    if (!any) return false;
   }
 
-  if (!candidates.length) return null;
-  if (typeof state.rngNextInt !== "function") return candidates[0];
-  return candidates[state.rngNextInt(0, candidates.length - 1)];
+  const notTag = whereSpec.notTag;
+  if (typeof notTag === "string" && tags.includes(notTag)) return false;
+
+  const excludeTags = normalizeStringArray(whereSpec.excludeTags);
+  if (excludeTags.length > 0) {
+    for (const tag of excludeTags) {
+      if (tags.includes(tag)) return false;
+    }
+  }
+
+  const systemAtLeastSpecs = normalizeSystemSpecs(whereSpec.systemAtLeast);
+  for (const spec of systemAtLeastSpecs) {
+    if (!matchesSystemAtLeast(tile, spec)) return false;
+  }
+
+  const systemAtMostSpecs = normalizeSystemSpecs(whereSpec.systemAtMost);
+  for (const spec of systemAtMostSpecs) {
+    if (!matchesSystemAtMost(tile, spec)) return false;
+  }
+
+  const systemBetweenSpecs = normalizeSystemSpecs(whereSpec.systemBetween);
+  for (const spec of systemBetweenSpecs) {
+    if (!matchesSystemBetween(tile, spec)) return false;
+  }
+
+  return true;
+}
+
+function collectTileColsWhere(state, whereSpec) {
+  const occ = state?.board?.occ?.tile;
+  if (!Array.isArray(occ)) return [];
+  const cols = [];
+  for (let col = 0; col < occ.length; col++) {
+    const tile = occ[col];
+    if (!tile) continue;
+    if (!matchesTileWhere(tile, whereSpec)) continue;
+    cols.push(col);
+  }
+  return cols;
+}
+
+function normalizeColList(rawCols, maxCols) {
+  if (!Array.isArray(rawCols)) return [];
+  const safeMax = Number.isFinite(maxCols) ? Math.max(0, Math.floor(maxCols)) : 0;
+  if (safeMax <= 0) return [];
+  const seen = new Set();
+  const out = [];
+  for (const value of rawCols) {
+    if (!Number.isFinite(value)) continue;
+    const col = Math.floor(value);
+    if (col < 0 || col >= safeMax) continue;
+    if (seen.has(col)) continue;
+    seen.add(col);
+    out.push(col);
+  }
+  return out;
+}
+
+function expandAreaCols(refCols, areaSpec, maxCols) {
+  const safeMax = Number.isFinite(maxCols) ? Math.max(0, Math.floor(maxCols)) : 0;
+  if (safeMax <= 0) return [];
+  if (!Array.isArray(refCols) || refCols.length === 0) return [];
+
+  const baseCols = normalizeColList(refCols, safeMax);
+  if (!areaSpec || typeof areaSpec !== "object") return baseCols;
+
+  if (areaSpec.kind !== "adjacent") return baseCols;
+  const radius = Number.isFinite(areaSpec.radius)
+    ? Math.max(0, Math.floor(areaSpec.radius))
+    : 0;
+  if (radius === 0) return baseCols;
+
+  const seen = new Array(safeMax).fill(false);
+  const out = [];
+  for (const refCol of baseCols) {
+    for (let offset = -radius; offset <= radius; offset++) {
+      const col = refCol + offset;
+      if (col < 0 || col >= safeMax) continue;
+      if (seen[col]) continue;
+      seen[col] = true;
+      out.push(col);
+    }
+  }
+  return out;
+}
+
+function filterColsByWhere(state, cols, whereSpec) {
+  if (!whereSpec || typeof whereSpec !== "object") return cols;
+  const occ = state?.board?.occ?.tile;
+  if (!Array.isArray(occ)) return [];
+  const out = [];
+  for (const rawCol of cols) {
+    if (!Number.isFinite(rawCol)) continue;
+    const col = Math.floor(rawCol);
+    const tile = occ[col];
+    if (!tile) continue;
+    if (!matchesTileWhere(tile, whereSpec)) continue;
+    out.push(col);
+  }
+  return out;
+}
+
+function resolvePlacementOriginCol(originCol, span, placementSpec, maxCols) {
+  if (!Number.isFinite(originCol)) return null;
+  const cols = Number.isFinite(maxCols) ? Math.floor(maxCols) : 0;
+  const safeSpan = Number.isFinite(span) && span > 0 ? Math.floor(span) : 1;
+  if (cols <= 0 || safeSpan > cols) return null;
+
+  const anchor = placementSpec?.anchor === "center" ? "center" : "origin";
+  if (anchor === "center") {
+    const half = Math.floor(safeSpan / 2);
+    const desired = Math.floor(originCol) - half;
+    const min = 0;
+    const max = cols - safeSpan;
+    return Math.max(min, Math.min(max, desired));
+  }
+
+  const start = Math.floor(originCol);
+  if (start < 0 || start + safeSpan > cols) return null;
+  return start;
+}
+
+function placementHasTiles(state, startCol, span) {
+  const tileOcc = state?.board?.occ?.tile;
+  if (!Array.isArray(tileOcc)) return false;
+  const safeSpan = Number.isFinite(span) && span > 0 ? Math.floor(span) : 1;
+  for (let offset = 0; offset < safeSpan; offset++) {
+    const col = startCol + offset;
+    if (col < 0 || col >= tileOcc.length) return false;
+    if (!tileOcc[col]) return false;
+  }
+  return true;
+}
+
+function getIntersectingAnchorsForOcc(eventOcc, startCol, span) {
+  if (!Array.isArray(eventOcc)) return [];
+  const safeSpan = Number.isFinite(span) && span > 0 ? Math.floor(span) : 1;
+  const seen = new Set();
+  const anchors = [];
+  for (let offset = 0; offset < safeSpan; offset++) {
+    const col = startCol + offset;
+    if (col < 0 || col >= eventOcc.length) continue;
+    const anchor = eventOcc[col];
+    if (!anchor) continue;
+    const key = anchor.instanceId ?? anchor;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    anchors.push(anchor);
+  }
+  return anchors;
+}
+
+function filterAnchorsByScope(anchors, startCol, span, scope) {
+  if (!Array.isArray(anchors) || anchors.length === 0) return [];
+  if (scope !== "fullyContained") return anchors;
+  const safeSpan = Number.isFinite(span) && span > 0 ? Math.floor(span) : 1;
+  const endCol = startCol + safeSpan - 1;
+  return anchors.filter((anchor) => {
+    const aCol = Number.isFinite(anchor?.col) ? Math.floor(anchor.col) : 0;
+    const aSpan =
+      Number.isFinite(anchor?.span) && anchor.span > 0
+        ? Math.floor(anchor.span)
+        : 1;
+    const aEnd = aCol + aSpan - 1;
+    return aCol >= startCol && aEnd <= endCol;
+  });
+}
+
+function sortAnchorsByCreated(anchors) {
+  const ordered = anchors.map((anchor, index) => ({
+    anchor,
+    index,
+    createdSec: Number.isFinite(anchor?.createdSec)
+      ? Math.floor(anchor.createdSec)
+      : 0,
+    instanceId: Number.isFinite(anchor?.instanceId)
+      ? Math.floor(anchor.instanceId)
+      : 0,
+  }));
+  ordered.sort(
+    (a, b) =>
+      a.createdSec - b.createdSec ||
+      a.instanceId - b.instanceId ||
+      a.index - b.index
+  );
+  return ordered.map((entry) => entry.anchor);
+}
+
+function removeEventAnchors(state, anchors, tSec, options) {
+  if (!Array.isArray(anchors) || anchors.length === 0) return false;
+  const ordered = sortAnchorsByCreated(anchors);
+  const runExit = options?.runExit !== false;
+
+  if (runExit) {
+    for (const anchor of ordered) {
+      if (!anchor) continue;
+      const def = envEventDefs[anchor.defId];
+      if (!def?.onExit) continue;
+      const context = { kind: "game", state, source: anchor, tSec };
+      runEffect(state, def.onExit, context);
+    }
+  }
+
+  const removeKeys = new Set(
+    ordered.map((anchor) => anchor?.instanceId ?? anchor)
+  );
+  const anchorsList = state.board?.layers?.event?.anchors;
+  if (!Array.isArray(anchorsList) || anchorsList.length === 0) return false;
+
+  const next = anchorsList.filter((anchor) => {
+    const key = anchor?.instanceId ?? anchor;
+    return !removeKeys.has(key);
+  });
+  if (next.length === anchorsList.length) return false;
+  anchorsList.length = 0;
+  anchorsList.push(...next);
+
+  const eventOcc = state.board?.occ?.event;
+  if (Array.isArray(eventOcc)) {
+    for (const anchor of ordered) {
+      const col = Number.isFinite(anchor?.col) ? Math.floor(anchor.col) : 0;
+      const span =
+        Number.isFinite(anchor?.span) && anchor.span > 0
+          ? Math.floor(anchor.span)
+          : 1;
+      for (let offset = 0; offset < span; offset++) {
+        const occCol = col + offset;
+        if (occCol < 0 || occCol >= eventOcc.length) continue;
+        if (eventOcc[occCol] === anchor) eventOcc[occCol] = null;
+      }
+    }
+  }
+
+  return true;
+}
+
+function transformEventAnchors(state, anchors, defId, tSec) {
+  if (!Array.isArray(anchors) || anchors.length === 0) return false;
+  if (!defId || typeof defId !== "string") return false;
+  const def = envEventDefs[defId];
+  if (!def) return false;
+
+  const ordered = sortAnchorsByCreated(anchors);
+  for (const anchor of ordered) {
+    if (!anchor) continue;
+    anchor.defId = defId;
+    anchor.createdSec = tSec;
+    if (def.durationSec != null) {
+      anchor.expiresSec = tSec + def.durationSec;
+    } else {
+      delete anchor.expiresSec;
+    }
+    delete anchor.entered;
+  }
+  return true;
+}
+
+function placeEventAnchor(state, defId, col, span, tSec) {
+  const board = state.board;
+  if (!board) return false;
+  const anchor = makeEnvEventInstance(defId, state, col, span, tSec);
+  board.layers.event.anchors.push(anchor);
+
+  const eventOcc = board.occ?.event;
+  if (Array.isArray(eventOcc)) {
+    for (let offset = 0; offset < span; offset++) {
+      const occCol = col + offset;
+      if (occCol < 0 || occCol >= eventOcc.length) continue;
+      eventOcc[occCol] = anchor;
+    }
+  }
+  return true;
+}
+
+function getCollisionConfig(spawnSpec) {
+  const collision =
+    spawnSpec?.collision && typeof spawnSpec.collision === "object"
+      ? spawnSpec.collision
+      : {};
+  const destroy =
+    collision.destroy && typeof collision.destroy === "object"
+      ? collision.destroy
+      : null;
+
+  const modeRaw = typeof collision.mode === "string" ? collision.mode : "skip";
+  const mode =
+    modeRaw === "skip" ||
+    modeRaw === "fail" ||
+    modeRaw === "destroyExisting" ||
+    modeRaw === "transformExisting"
+      ? modeRaw
+      : "skip";
+  const scopeRaw =
+    typeof collision.scope === "string"
+      ? collision.scope
+      : typeof destroy?.scope === "string"
+        ? destroy.scope
+        : "intersecting";
+  const scope = scopeRaw === "fullyContained" ? "fullyContained" : "intersecting";
+  const runExit =
+    typeof collision.runExit === "boolean"
+      ? collision.runExit
+      : typeof destroy?.runExit === "boolean"
+        ? destroy.runExit
+        : true;
+  const transformDefId =
+    typeof collision.defId === "string"
+      ? collision.defId
+      : typeof collision.transformDefId === "string"
+        ? collision.transformDefId
+        : null;
+
+  return { mode, scope, runExit, transformDefId };
+}
+
+function filterValidOriginCols(state, cols, span, placementSpec) {
+  const board = state?.board;
+  const boardCols = Number.isFinite(board?.cols) ? Math.floor(board.cols) : 0;
+  const tileOcc = board?.occ?.tile;
+  if (!Array.isArray(tileOcc) || boardCols <= 0) return [];
+  const out = [];
+  for (const rawCol of cols) {
+    if (!Number.isFinite(rawCol)) continue;
+    const col = Math.floor(rawCol);
+    if (col < 0 || col >= boardCols) continue;
+    if (!tileOcc[col]) continue;
+    const startCol = resolvePlacementOriginCol(col, span, placementSpec, boardCols);
+    if (startCol == null) continue;
+    if (!placementHasTiles(state, startCol, span)) continue;
+    out.push(col);
+  }
+  return out;
+}
+
+function collectRandomCandidateCols(state, span, placementSpec, whereSpec, collisionMode) {
+  const baseCols = collectTileColsWhere(state, whereSpec);
+  const validCols = filterValidOriginCols(state, baseCols, span, placementSpec);
+  if (collisionMode !== "skip") return validCols;
+
+  const boardCols = Number.isFinite(state?.board?.cols)
+    ? Math.floor(state.board.cols)
+    : 0;
+  const eventOcc = state?.board?.occ?.event;
+  const filtered = [];
+  for (const col of validCols) {
+    const startCol = resolvePlacementOriginCol(col, span, placementSpec, boardCols);
+    if (startCol == null) continue;
+    const collisions = getIntersectingAnchorsForOcc(eventOcc, startCol, span);
+    if (collisions.length > 0) continue;
+    filtered.push(col);
+  }
+  return filtered;
+}
+
+function collectOriginColsByMode(state, spawnSpec, span, placementSpec, collisionMode) {
+  const boardCols = Number.isFinite(state?.board?.cols)
+    ? Math.floor(state.board.cols)
+    : 0;
+  const mode = typeof spawnSpec?.mode === "string" ? spawnSpec.mode : "singleRandomCol";
+
+  if (mode === "allColsWhere") {
+    const baseCols = collectTileColsWhere(state, spawnSpec?.where);
+    return filterValidOriginCols(state, baseCols, span, placementSpec);
+  }
+
+  if (mode === "areaAroundWhere") {
+    if (spawnSpec?.refWhere == null) return [];
+    const refCols = collectTileColsWhere(state, spawnSpec?.refWhere);
+    const areaCols = expandAreaCols(refCols, spawnSpec?.area, boardCols);
+    const filtered = filterColsByWhere(state, areaCols, spawnSpec?.where);
+    return filterValidOriginCols(state, filtered, span, placementSpec);
+  }
+
+  if (mode === "colList") {
+    const rawList = spawnSpec?.colList ?? spawnSpec?.cols;
+    const baseCols = normalizeColList(rawList, boardCols);
+    const filtered = filterColsByWhere(state, baseCols, spawnSpec?.where);
+    return filterValidOriginCols(state, filtered, span, placementSpec);
+  }
+
+  const candidates = collectRandomCandidateCols(
+    state,
+    span,
+    placementSpec,
+    spawnSpec?.where,
+    collisionMode
+  );
+  if (!candidates.length) return [];
+  if (typeof state.rngNextInt !== "function") return [candidates[0]];
+  const idx = state.rngNextInt(0, candidates.length - 1);
+  return [candidates[idx]];
+}
+
+function collectCollisionAnchorsForPlacements(eventOcc, originCols, span, placementSpec, scope) {
+  if (!Array.isArray(eventOcc) || !Array.isArray(originCols)) return [];
+  const maxCols = eventOcc.length;
+  const seen = new Set();
+  const anchors = [];
+  for (const originCol of originCols) {
+    const startCol = resolvePlacementOriginCol(originCol, span, placementSpec, maxCols);
+    if (startCol == null) continue;
+    const intersecting = getIntersectingAnchorsForOcc(eventOcc, startCol, span);
+    const scoped = filterAnchorsByScope(intersecting, startCol, span, scope);
+    for (const anchor of scoped) {
+      const key = anchor?.instanceId ?? anchor;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      anchors.push(anchor);
+    }
+  }
+  return anchors;
+}
+
+function attemptPlacement(state, defId, span, tSec, originCol, placementSpec, collision) {
+  const boardCols = Number.isFinite(state?.board?.cols)
+    ? Math.floor(state.board.cols)
+    : 0;
+  const startCol = resolvePlacementOriginCol(originCol, span, placementSpec, boardCols);
+  if (startCol == null) return { placed: false, needsRebuild: false };
+  if (!placementHasTiles(state, startCol, span)) return { placed: false, needsRebuild: false };
+
+  const eventOcc = state?.board?.occ?.event;
+  let colliding = getIntersectingAnchorsForOcc(eventOcc, startCol, span);
+
+  if (collision.mode === "skip") {
+    if (colliding.length > 0) return { placed: false, needsRebuild: false };
+  } else if (collision.mode === "fail") {
+    if (colliding.length > 0) return { placed: false, needsRebuild: false, aborted: true };
+  } else if (collision.mode === "destroyExisting") {
+    const scoped = filterAnchorsByScope(colliding, startCol, span, collision.scope);
+    let removed = false;
+    if (scoped.length > 0) {
+      removed = removeEventAnchors(state, scoped, tSec, { runExit: collision.runExit });
+    }
+    colliding = getIntersectingAnchorsForOcc(eventOcc, startCol, span);
+    if (colliding.length > 0) {
+      return { placed: false, needsRebuild: removed };
+    }
+    const placed = placeEventAnchor(state, defId, startCol, span, tSec);
+    return { placed, needsRebuild: true };
+  } else if (collision.mode === "transformExisting") {
+    if (colliding.length > 0) {
+      const scoped = filterAnchorsByScope(colliding, startCol, span, collision.scope);
+      if (scoped.length > 0) {
+        transformEventAnchors(state, scoped, collision.transformDefId, tSec);
+      }
+      return { placed: false, needsRebuild: false };
+    }
+  }
+
+  const placed = placeEventAnchor(state, defId, startCol, span, tSec);
+  return { placed, needsRebuild: true };
+}
+
+function spawnEnvEventFromDef(state, defId, def, tSec) {
+  const board = state?.board;
+  if (!board) return { placedAny: false, needsRebuild: false };
+
+  const span =
+    Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+      ? Math.floor(def.defaultSpan)
+      : 1;
+  const spawnSpec = def?.spawn && typeof def.spawn === "object" ? def.spawn : {};
+  const placementSpec =
+    spawnSpec.placement && typeof spawnSpec.placement === "object"
+      ? spawnSpec.placement
+      : {};
+  const collision = getCollisionConfig(spawnSpec);
+  const multiSpawn =
+    spawnSpec.multiSpawn === "planThenApply" ? "planThenApply" : "independent";
+
+  const originCols = collectOriginColsByMode(
+    state,
+    spawnSpec,
+    span,
+    placementSpec,
+    collision.mode
+  );
+  if (!originCols.length) return { placedAny: false, needsRebuild: false };
+
+  if (collision.mode === "fail") {
+    const eventOcc = board?.occ?.event;
+    for (const originCol of originCols) {
+      const startCol = resolvePlacementOriginCol(originCol, span, placementSpec, board.cols);
+      if (startCol == null) continue;
+      if (!placementHasTiles(state, startCol, span)) continue;
+      const colliding = getIntersectingAnchorsForOcc(eventOcc, startCol, span);
+      if (colliding.length > 0) {
+        return { placedAny: false, needsRebuild: false, aborted: true };
+      }
+    }
+  }
+
+  let needsRebuild = false;
+  let placedAny = false;
+
+  const planThenApply = multiSpawn === "planThenApply" && originCols.length > 1;
+  let applyCollision = collision;
+
+  if (planThenApply && (collision.mode === "destroyExisting" || collision.mode === "transformExisting")) {
+    const baseOcc = Array.isArray(board?.occ?.event) ? board.occ.event.slice() : null;
+    const toProcess = collectCollisionAnchorsForPlacements(
+      baseOcc,
+      originCols,
+      span,
+      placementSpec,
+      collision.scope
+    );
+    if (collision.mode === "destroyExisting") {
+      if (removeEventAnchors(state, toProcess, tSec, { runExit: collision.runExit })) {
+        needsRebuild = true;
+      }
+    } else if (collision.mode === "transformExisting") {
+      transformEventAnchors(state, toProcess, collision.transformDefId, tSec);
+    }
+    applyCollision = { ...collision, mode: "skip" };
+  }
+
+  for (const originCol of originCols) {
+    const res = attemptPlacement(
+      state,
+      defId,
+      span,
+      tSec,
+      originCol,
+      placementSpec,
+      applyCollision
+    );
+    if (res?.needsRebuild) needsRebuild = true;
+    if (res?.placed) placedAny = true;
+    if (res?.aborted) break;
+  }
+
+  return { placedAny, needsRebuild };
 }
 
 export function stepEnvSecond(state, tSec) {
@@ -176,27 +776,17 @@ export function stepEnvSecond(state, tSec) {
     tSec > 0 &&
     tSec % EVENT_CADENCE_SEC === 0
   ) {
-    // Collision policy: consume the draw even if the spawn is blocked.
     const entry = drawSeasonDeckEntry(state);
     if (entry) {
       const def = envEventDefs[entry.defId];
       if (def) {
-        const span =
-          Number.isFinite(def.defaultSpan) && def.defaultSpan > 0
-            ? Math.floor(def.defaultSpan)
-            : 1;
+        const result = spawnEnvEventFromDef(state, entry.defId, def, tSec);
+        if (result?.needsRebuild) needsRebuild = true;
 
-        const col = pickRandomEventCol(state, span);
-        if (col != null) {
-          const anchor = makeEnvEventInstance(
-            entry.defId,
-            state,
-            col,
-            span,
-            tSec
-          );
-          board.layers.event.anchors.push(anchor);
-          needsRebuild = true;
+        const consumePolicy = def.spawn?.consumePolicy;
+        if (consumePolicy === "onlyIfAnyPlaced" && !result?.placedAny) {
+          const deck = state.currentSeasonDeck?.deck;
+          if (Array.isArray(deck)) deck.unshift(entry);
         }
       }
     }
