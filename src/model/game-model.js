@@ -2,7 +2,7 @@
 // NOTE: Model APIs require explicit `state`.
 // `gameState` remains exported for app-edge wiring only.
 
-import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
 
 import {
   gameState,

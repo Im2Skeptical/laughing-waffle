@@ -1,7 +1,8 @@
 // src/controllers/actionmanagers/action-log-controller.js
 // View-model helpers for action log rows and navigation.
 
-import { itemDefs, hubStructureDefs } from "../../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs }  from "../../defs/gamepieces/hub-structures-defs.js";
+import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { ActionKinds } from "../../model/actions.js";

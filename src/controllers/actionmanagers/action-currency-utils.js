@@ -1,7 +1,7 @@
 // src/controllers/actionmanagers/action-currency-utils.js
 // Shared helpers for currency transfer grouping and quantities.
 
-import { itemDefs } from "../../defs/gamepieces/gamepieces-defs.js";
+import { itemDefs } from "../../defs/gamepieces/item-defs.js";  
 
 export function isCurrencyKind(kind) {
   const tags = itemDefs[kind]?.tags || [];

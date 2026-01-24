@@ -2,7 +2,7 @@
 // Pure data-only inventory API + item helpers.
 // No PIXI, no UI.
 
-import { itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 
 // -----------------------------------------------------------------------------
 // RNG HELPERS COME FROM THE MODEL, so inventory must NOT import gameState.

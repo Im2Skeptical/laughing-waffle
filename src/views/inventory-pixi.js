@@ -7,7 +7,7 @@
 //
 
 
-import { itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 
 
 

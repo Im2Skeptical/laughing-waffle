@@ -1,6 +1,6 @@
 // init.js — scenario/setup assembly (NO core exports here besides init/createInitialState)
 
-import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 

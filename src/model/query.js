@@ -1,7 +1,7 @@
 // src/model/query.js
 // Pure selectors for UI + behaviors.
 
-import { itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 
 function itemHasTag(item, tag) {
   if (!item || !tag) return false;

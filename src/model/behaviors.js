@@ -1,6 +1,6 @@
 // behaviors.js — behaviors return EffectOps (no side channels)
 
-import { hubStructureDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 
 export const behaviorHandlers = {

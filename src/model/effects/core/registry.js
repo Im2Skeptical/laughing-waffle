@@ -1,4 +1,4 @@
-import { itemDefs } from "../../../defs/gamepieces/gamepieces-defs.js";
+import { itemDefs } from "../../../defs/gamepieces/item-defs.js";
 import { cropDefs } from "../../../defs/gamepieces/crops-defs.js";
 import { envSystemDefs } from "../../../defs/gamesystems/env-systems-defs.js";
 

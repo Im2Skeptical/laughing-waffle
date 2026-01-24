@@ -1,7 +1,8 @@
 // src/model/commands.js
 // public mutation APIs (cmd*) + move rules
 
-import { hubStructureDefs, itemDefs } from "../defs/gamepieces/gamepieces-defs.js";
+import { hubStructureDefs}  from "../defs/gamepieces/hub-structures-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
