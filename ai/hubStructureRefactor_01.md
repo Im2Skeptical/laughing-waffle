@@ -1,95 +1,99 @@
+## Rebuild Hub Structures on DSL + Add Hearth
 
----
+You are performing a **deliberate, clean rebuild** of the hub structure system.
 
-## ✦ FEATURE PROMPT — Rebuild Hub Structures on Tags + Systems + DSL Effects
+All existing hub behavior code is **experimental and disposable** and must be **fully removed**. There is no save compatibility requirement and no migration shim code.
 
-### Goal
-
-Replace the existing hub structure behavior system with a **clean, unified architecture** that mirrors env tiles:
+The end state must mirror the **env tile architecture** exactly:
 
 > **tags + systems + passives/intents + effects DSL**
-
-All existing hub behavior code and content is to be **deleted**. No migration shims, compatibility layers, or legacy preservation.
-
-This is a deliberate reset.
 
 ---
 
 ## 1. Non-negotiable invariants
 
-1. **Architecture parity**
+### Architecture
 
-   * Hub structures must use the *same conceptual execution model* as env tiles:
+* Hub structures use:
 
-     * `hubTagDefs`
-     * `hubSystemDefs`
-     * tag-driven `passives` and `intents`
-     * execution via the existing effects DSL (`runEffect`)
-   * No bespoke “behavior” engine remains.
+  * `hubTagDefs`
+  * `hubSystemDefs`
+  * `hubStructureDefs`
+* All behavior is expressed via:
 
-2. **Execution semantics**
+  * tag `passives`
+  * tag `intents`
+  * evaluated through the existing **effects DSL**
+* No bespoke “hub behavior” engine remains.
 
-   * **Passives**:
+### Execution semantics
 
-     * run according to their declared timing (`second`, `season`, etc.)
-     * do *not* require pawn presence
-   * **Intents**:
+* **Passives**
 
-     * require pawn presence on the hub slot (same semantics as env tiles)
-     * execute per pawn, per hub slot, per second
-     * first *payable* intent wins per pawn
-     * costs are atomic per pawn (reuse existing cost system)
+  * run according to declared timing (`second`, `season`, etc.)
+  * do **not** require pawn presence
+* **Intents**
 
-3. **Pawn interaction**
+  * require pawn presence on the hub slot
+  * execute **per pawn, per second**
+  * first **payable** intent wins *per pawn*
+  * costs are **atomic per pawn**
+  * if an intent is not payable for a pawn, continue to later intents for that pawn
 
-   * Hub intents run **only if a pawn occupies the hub slot**.
-   * Multiple pawns on a hub slot may independently trigger intents (same policy as env tiles).
+### Pawn interaction
 
-4. **Effects & targeting**
+* Multiple pawns on the same hub slot may independently execute intents in the same second.
+* Execution order is deterministic:
 
-   * Hub passives and intents must use the **existing effects DSL**.
-   * Valid targets include:
+  * hub slots in index order
+  * pawns in `state.characters` array order
+  * tags and intents in definition order
 
-     * `{ ref: "self" }` → hub structure systems
-     * `{ ref: "pawn" }` → interacting pawn
-     * global / state targets already supported
-   * No new effect engine.
+### Effects & targeting
 
-5. **Deletion policy**
+* Use the existing effects DSL.
+* Valid targets include:
 
-   * All old hub behavior code, defs, and execution paths must be removed.
-   * This includes:
+  * `{ ref: "self" }` → hub structure systems
+  * `{ ref: "pawn" }` → interacting pawn
+  * `{ ref: "selfInv" }` → hub structure inventory
+* Do **not** introduce new effect engines or listeners.
 
-     * `behaviors`
-     * trigger-based hub logic
-     * any hub-specific execution helpers not reused by the new system
-   * No transitional or compatibility code.
+### Deletion policy
+
+* Delete **all** legacy hub behavior code and defs:
+
+  * `behaviors`
+  * trigger-based hub logic
+  * old hub execution paths
+* No transitional or compatibility code.
 
 ---
 
-## 2. Required deliverables
+## 2. Required implementation work
 
 ### A. New definitions
 
-Introduce the following registries (mirroring env):
+Introduce:
 
 * `hub-tag-defs.js`
 * `hub-system-defs.js`
-* **new** `hub-structure-defs.js` (fresh content only)
+* a **fresh** `hub-structure-defs.js`
 
 Each hub structure instance must have:
 
 * `tags[]`
 * `systemTiers`
 * `systemState`
+* capacity for **inventory** (even if unused)
 
-System initialization must be deterministic and data-driven.
+System and inventory initialization must be deterministic.
 
 ---
 
 ### B. Hub execution pass
 
-Add a new simulation pass:
+Add a new simulation phase:
 
 ```
 stepHubSecond(state, tSec)
@@ -100,74 +104,97 @@ Execution model (mirrors env tiles):
 For each hub slot:
 
 1. Resolve the hub structure instance (if any).
-2. Run **hub tag passives** (timing-based).
-3. Enumerate pawns occupying the hub slot (stable order).
+2. Run hub tag **passives** (timing-based).
+3. Enumerate pawns occupying the hub slot.
 4. For each pawn:
 
    * evaluate hub tag intents in order
    * check requirements
-   * resolve + apply atomic costs
+   * resolve + apply **atomic costs**
    * run effects
-   * stop after first payable intent for that pawn
+   * stop after the first payable intent for that pawn
 
 This pass must be called once per second from the main simulation loop.
 
 ---
 
-### C. Removal of legacy hub system
+### C. Effect targeting
 
-Delete or fully disconnect:
+Extend targeting so:
 
-* old hub `behaviors`
-* trigger handlers (e.g. timed triggers)
-* legacy hub execution in `updateGame` or equivalent
+* `{ ref: "pawn" }` mutates `pawn.systemState`
+* `{ ref: "selfInv" }` resolves to the hub structure’s inventory
 
-After this change:
+Do not create parallel mutation paths.
 
-* **all hub dynamics must flow through tags + systems + DSL effects**
+---
+
+### D. Minimal example content: Hearth
+
+Implement a **minimal hearth hub structure** using the new system.
+
+#### Hearth behavior
+
+* Implemented as a **hub intent**
+* Requires pawn presence (handled by intent loop)
+* No cost
+* Effect:
+
+  * `+1` stamina to the pawn per second
+  * clamp to pawn stamina max
+
+This must apply **per pawn** when multiple pawns occupy the hearth.
+
+#### Hearth defs
+
+* A `hearth` hub tag defining the intent
+* A `hearth` hub structure referencing that tag
+* Hearth inventory exists but is unused for now
 
 ---
 
 ## 3. Constraints (do not violate)
 
 * Do **not** refactor env tile logic beyond reuse.
-* Do **not** introduce new DSL concepts.
-* Do **not** preserve old hub content “just in case”.
 * Do **not** alter timeline, projection, or replay semantics.
-* Do **not** add UI changes unless strictly required for correctness.
+* Do **not** introduce listeners or reactive logic.
+* Do **not** preserve or port old hub behaviors.
+* Do **not** add additional hub content beyond the hearth.
 
 ---
 
 ## 4. Acceptance checks
 
-1. Hub structure with a passive:
+1. Hearth with one pawn:
 
-   * system value updates deterministically each second.
-2. Hub structure with an intent:
+   * pawn gains stamina each second.
+2. Hearth with two pawns:
 
-   * pawn present → intent executes
-   * pawn absent → intent does not execute
-3. Two pawns on one hub slot:
+   * both pawns gain stamina in the same second.
+3. Hearth with no pawns:
 
-   * each pawn may independently execute the same intent in the same second.
-4. Replay rebuild to the same `tSec` yields identical hub + pawn state.
-5. No remaining references to legacy hub behavior code.
+   * no intent executes.
+4. Hub inventory exists and is empty by default.
+5. Replay rebuild to the same `tSec` yields identical hub + pawn state.
+6. No remaining references to legacy hub behavior code.
 
 ---
 
 ## 5. Output expectations
+* Clearly explain:
 
-* Prefer **full-file replacements** for clarity.
-* Explain:
-
-  * what was removed
-  * what replaced it
+  * what legacy code was removed
   * how hub execution now mirrors env tiles
-* Call out any assumptions explicitly.
+  * how determinism is preserved
+* Call out any assumption explicitly.
 
 ---
 
-## 5. Reference for minimal content in new hub defs
+### End of prompt
+
+---
+
+## Loose reference for content in new hub defs
 
 ### 1) `hub-system-defs.js`
 
@@ -213,17 +240,7 @@ export const hubStructureDefs = {
     ui: { name: "Hearth", description: "A warm place to recover." },
     tags: ["hearth"],
     systems: {} // optional; empty is fine
+    inventory: { cols: 5, rows: 10 },
   }
 };
 ```
-
-
-
----
-
-### End of prompt
-
----
-
-
-
