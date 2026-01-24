@@ -15,7 +15,7 @@ export const envTileDefs = {
       spring: [
         { defId: "event_rain", weight: 4 },
         { defId: "event_bloom", weight: 2 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
         { defId: "event_deer_herd", weight: 1 },
       ],
       summer: [
@@ -55,7 +55,7 @@ export const envTileDefs = {
         { defId: "event_fish_school", weight: 3 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_heatwave", weight: 1 },
-        { defId: "event_storm", weight: 20 },
+        { defId: "event_storm", weight: 1 },
       ],
       autumn: [
         { defId: "event_flooding", weight: 50 },
@@ -76,7 +76,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Levee",
     ui: { description: "Raised banks that hold back river flow." },
-    baseTags: ["farmable", "forageable"],
+    baseTags: ["forageable"],
     seasonTables: {
       spring: [
         { defId: "event_rain", weight: 2 },
@@ -131,7 +131,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "River",
     ui: { description: "Flowing water and aquatic life." },
-    baseTags: ["fishable", "blocked"],
+    baseTags: ["fishable"],
     seasonTables: {
       spring: [
         { defId: "event_rain", weight: 2 },
@@ -184,7 +184,7 @@ export const envTileDefs = {
     kind: "envTile",
     name: "Hinterland",
     ui: { description: "Broad interior lands with mixed cover." },
-    baseTags: ["farmable", "herdable", "forageable"],
+    baseTags: ["herdable", "forageable"],
     seasonTables: {
       spring: [
         { defId: "event_bloom", weight: 2 },

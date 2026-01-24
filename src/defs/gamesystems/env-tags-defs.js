@@ -12,6 +12,18 @@ export const envTagDefs = {
         id: "farmHarvest",
         verb: "harvest",
         requires: { hasMaturedPool: true },
+        cost: {
+          charges: [
+            {
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
+              amount: { const: 2 },
+              clampMin: 0,
+            },
+          ],
+        },
         effect: {
           op: "TransferUnits",
           system: "growth",
@@ -27,35 +39,50 @@ export const envTagDefs = {
       {
         id: "farmPlant",
         verb: "plant",
-        requires: { 
+        requires: {
+          hasSelectedCrop: true,
           hasMaturedPool: false,
-          season: ["autumn", "winter"]  
+          season: ["autumn", "winter"],
         },
-        effect: [
-          {
-            op: "ConsumeItem",
-            system: "growth",
-            target: { kind: "tileOccupants" },
-            defRegistry: "crops",
-            defIdFromSystemKey: "selectedCropId",
-            amountFromDefKey: "plantSeedPerSec",
-            perOwner: true,
-            outVar: "seedConsumed",
-          },
-          {
-            op: "CreateProcess",
-            system: "growth",
-            defRegistry: "crops",
-            defIdFromSystemKey: "selectedCropId",
-            amountVar: "seedConsumed",
-            durationFromDefKey: "maturitySec",
-            processType: "cropGrowth",
-            queueKey: "processes",
-            captureSystem: "hydration",
-            captureKey: "sumRatio",
-            captureAs: "sumAtStart",
-          },
-        ],
+        cost: {
+          charges: [
+            {
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
+              amount: { const: 1 },
+              clampMin: 0,
+            },
+            {
+              kind: "item",
+              target: { ref: "pawnInv" },
+              itemId: {
+                var: "selectedCropId",
+                map: { barley: "barley" },
+                default: null,
+              },
+              amount: {
+                var: "selectedCropId",
+                map: { barley: 1 },
+                default: null,
+              },
+            },
+          ],
+        },
+        effect: {
+          op: "CreateProcess",
+          system: "growth",
+          defRegistry: "crops",
+          defIdFromSystemKey: "selectedCropId",
+          amountFromDefKey: "plantSeedPerSec",
+          durationFromDefKey: "maturitySec",
+          processType: "cropGrowth",
+          queueKey: "processes",
+          captureSystem: "hydration",
+          captureKey: "sumRatio",
+          captureAs: "sumAtStart",
+        },
       },
     ],
     passives: [

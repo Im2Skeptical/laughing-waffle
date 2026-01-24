@@ -5,7 +5,6 @@ function getCharsOnCol(state, col) {
     const envCol = Number.isFinite(ch?.envCol) ? Math.floor(ch.envCol) : null;
     if (envCol === col) out.push(ch);
   }
-  out.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
   return out;
 }
 
@@ -13,6 +12,18 @@ export function resolveOwnerTargets(state, targetSpec, context) {
   if (!targetSpec || typeof targetSpec !== "object") return [];
 
   if (targetSpec.kind === "tileOccupants") {
+    if (context?.pawn && typeof context.pawn === "object") {
+      return [context.pawn];
+    }
+    const directId =
+      context?.pawnId != null ? context.pawnId : context?.ownerId;
+    if (directId != null) {
+      const chars = Array.isArray(state?.characters) ? state.characters : [];
+      for (const ch of chars) {
+        if (ch?.id === directId) return [ch];
+      }
+      return [];
+    }
     const col =
       Number.isFinite(targetSpec.envCol)
         ? Math.floor(targetSpec.envCol)

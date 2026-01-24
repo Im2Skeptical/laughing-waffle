@@ -10,6 +10,7 @@ import {
   makeHubStructureInstance,
   buildSeasonDeckForCurrentSeason,
   rebuildBoardOccupancy,
+  buildPawnSystemDefaults,
 } from "./state.js";
 
 import { Inventory, initializeItemFromDef } from "./inventory-model.js";
@@ -75,12 +76,15 @@ export function createInitialState(scenario = "testing", seed = null) {
     const hubCol = wantsEnvRow
       ? null
       : getColIndex({ hubCol: c.hubCol }, index, hubCols);
+    const { systemTiers, systemState } = buildPawnSystemDefaults();
     return {
       id: state.nextCharacterId++,
       name: c.name,
       color: c.color,
       hubCol,
       envCol,
+      systemTiers,
+      systemState,
       props: {},
     };
   });

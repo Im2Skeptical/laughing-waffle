@@ -181,8 +181,3 @@ Do **not** introduce parallel mutation paths.
 ### End of prompt
 
 ---
-
-If you want, next I can:
-
-* condense this further into a **“minimal agent brief”** (even tighter),
-* or help you write a **review checklist** so you can validate the agent’s output quickly.

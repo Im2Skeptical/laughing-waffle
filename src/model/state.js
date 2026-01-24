@@ -5,6 +5,7 @@ import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-def
 import { hubStructureDefs } from "../defs/gamepieces/hub-structures-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { attachRngHelpers } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 
@@ -116,6 +117,41 @@ export function ensureHubState(state) {
   if (!Array.isArray(hub.anchors)) hub.anchors = [];
   if (!Array.isArray(hub.occ) || hub.occ.length !== hub.cols) {
     hub.occ = new Array(hub.cols).fill(null);
+  }
+}
+
+export function buildPawnSystemDefaults() {
+  const systemTiers = {};
+  const systemState = {};
+  for (const [systemId, def] of Object.entries(pawnSystemDefs)) {
+    if (!def || typeof def !== "object") continue;
+    const defaultTier =
+      typeof def.defaultTier === "string" ? def.defaultTier : "bronze";
+    systemTiers[systemId] = defaultTier;
+    systemState[systemId] = deepCloneSerializable(def.stateDefaults ?? {});
+  }
+  return { systemTiers, systemState };
+}
+
+export function ensurePawnSystems(pawn) {
+  if (!pawn || typeof pawn !== "object") return;
+  if (!pawn.systemTiers || typeof pawn.systemTiers !== "object") {
+    pawn.systemTiers = {};
+  }
+  if (!pawn.systemState || typeof pawn.systemState !== "object") {
+    pawn.systemState = {};
+  }
+
+  for (const [systemId, def] of Object.entries(pawnSystemDefs)) {
+    if (!def || typeof def !== "object") continue;
+    if (pawn.systemTiers[systemId] == null) {
+      pawn.systemTiers[systemId] =
+        typeof def.defaultTier === "string" ? def.defaultTier : "bronze";
+    }
+    const existing = pawn.systemState[systemId];
+    if (!existing || typeof existing !== "object") {
+      pawn.systemState[systemId] = deepCloneSerializable(def.stateDefaults ?? {});
+    }
   }
 }
 
@@ -595,6 +631,9 @@ export function deserializeGameState(data) {
   }
   ensureBoardState(state);
   ensureHubState(state);
+  for (const ch of state.characters) {
+    ensurePawnSystems(ch);
+  }
   state._boardDirty = false;
   state._seasonChanged = false;
 

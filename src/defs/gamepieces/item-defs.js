@@ -6,10 +6,21 @@ export const itemDefs = {
     name: "Barley",
     color: 0xd4b45a,
     maxStack: 25,
-    tags: ["edible", "crop", "currency"],
+    tags: ["edible","crop", "currency"],
     defaultWidth: 1,
     defaultHeight: 2,
     defaultTier: "bronze",
+    passives: [
+      {
+        id: "grainDecay",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "ExpireItemChance",
+          chance: 0.0057,
+          targetKind: "rot",
+        },
+      },
+    ],
     ui: {
       title: "Barley",
       lines: [
@@ -25,7 +36,7 @@ export const itemDefs = {
     name: "Grain",
     color: 0xdaa520,
     maxStack: 25,
-    tags: ["edible", "currency"],
+    tags: ["crop", "currency"],
     defaultWidth: 1,
     defaultHeight: 2,
     passives: [
@@ -38,11 +49,6 @@ export const itemDefs = {
           targetKind: "rot",
         },
       },
-      {
-        id: "grainSeasonExpiry",
-        timing: { onSeasonChange: true },
-        effect: { op: "TickItemSeasonExpiry", targetKind: "rot" },
-      },
     ],
     ui: {
       title: "Grain",
@@ -51,13 +57,27 @@ export const itemDefs = {
         (item, ctx) => `Owner: ${ctx.ownerLabel}`,
         (item) => `Quantity: ${item.quantity}`,
         (item) => `Size: ${item.width}Į-${item.height}`,
-        (item) => item.seasonsToExpire != null
-          ? `Seasons to rot: ${item.seasonsToExpire}`
-          : "",
       ],
     },
   },
-
+  barleyPorridge: {
+    id: "barleyPorridge",
+    name: "Barley Porridge",
+    color: 0x8b4513,
+    maxStack: 1,
+    tags: ["edible"],
+    defaultWidth: 2,
+    defaultHeight: 1,
+    ui: {
+      title: "Barley Porridge",
+      lines: [
+        (item, ctx) => `Item id: ${item.id}`,
+        (item, ctx) => `Owner: ${ctx.ownerLabel}`,
+        (item) => `Quantity: ${item.quantity}`,
+        (item) => `Size: ${item.width}Į-${item.height}`,
+      ],
+    },
+  },
   rot: {
     id: "rot",
     name: "Rot",

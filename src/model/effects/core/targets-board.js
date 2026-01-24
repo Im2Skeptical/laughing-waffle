@@ -15,6 +15,17 @@ function getLayerAnchors(state, layer) {
   return anchors.filter(Boolean);
 }
 
+function getPawnFromContext(state, context) {
+  if (context?.pawn && typeof context.pawn === "object") return context.pawn;
+  const pawnId = context?.pawnId != null ? context.pawnId : context?.ownerId;
+  if (pawnId == null) return null;
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  for (const ch of chars) {
+    if (ch?.id === pawnId) return ch;
+  }
+  return null;
+}
+
 function collectTargetsFromOcc(occ) {
   if (!Array.isArray(occ)) return [];
   const targets = [];
@@ -258,6 +269,11 @@ function collectRefCols(state, refSpec, context, maxCols) {
 
 export function resolveBoardTargets(state, targetSpec, context) {
   if (!targetSpec || typeof targetSpec !== "object") return [];
+
+  if (targetSpec.ref === "pawn") {
+    const pawn = getPawnFromContext(state, context);
+    return pawn ? [pawn] : [];
+  }
 
   const atSpec = targetSpec.at && typeof targetSpec.at === "object" ? targetSpec.at : null;
   const layer = atSpec?.layer || targetSpec.layer;

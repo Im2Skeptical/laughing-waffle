@@ -23,8 +23,12 @@ export const envEventDefs = {
       color: 0x0000ff
     },
     class: "effect",
-    defaultSpan: 2,
-    durationSec: 5,
+    defaultSpan: 1,
+    durationSec: 10,
+    spawn: {
+      mode: "allColsWhere",
+      where: { tileId: "tile_floodplains" },
+    },
     onEnter: [
       { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
       { op: "AddTag", target: { ref: "self", layer: "tile" }, tag: "fishable" },

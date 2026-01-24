@@ -1,4 +1,5 @@
 import { envSystemDefs } from "../../../defs/gamesystems/env-systems-defs.js";
+import { pawnSystemDefs } from "../../../defs/gamesystems/pawn-systems-defs.js";
 import { cloneSerializable } from "./clone.js";
 import { SYSTEM_TIER_LADDER, TIER_ASC } from "./tiers.js";
 
@@ -12,7 +13,10 @@ function ensureTileSystemState(tile) {
 export function ensureSystemState(tile, systemId) {
   const systemState = ensureTileSystemState(tile);
   if (!systemState[systemId] || typeof systemState[systemId] !== "object") {
-    const defaults = envSystemDefs[systemId]?.stateDefaults ?? {};
+    const defaults =
+      envSystemDefs[systemId]?.stateDefaults ??
+      pawnSystemDefs[systemId]?.stateDefaults ??
+      {};
     systemState[systemId] = cloneSerializable(defaults);
   }
   return systemState[systemId];

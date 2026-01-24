@@ -25,6 +25,7 @@ import {
   GAMEPIECE_SHADOW_OFFSET_X,
   GAMEPIECE_SHADOW_OFFSET_Y,
 } from "./layout-pixi.js";
+import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 
 export function createCharactersView(opts) {
   const {
@@ -268,13 +269,43 @@ export function createCharactersView(opts) {
   // ---------------------------------------------------------------------------
   // Tooltip spec
   // ---------------------------------------------------------------------------
+  function formatSystemValue(value) {
+    if (!Number.isFinite(value)) return "?";
+    if (Math.abs(value - Math.round(value)) < 0.0001) return String(Math.round(value));
+    return String(Math.round(value * 10) / 10);
+  }
+
+  function getPawnSystemLines(char) {
+    const lines = [];
+    const systemState = char?.systemState ?? {};
+    const systemTiers = char?.systemTiers ?? {};
+    const systemIds = Object.keys(pawnSystemDefs);
+
+    for (const systemId of systemIds) {
+      const def = pawnSystemDefs[systemId];
+      if (!def || typeof def !== "object") continue;
+      const label = def.ui?.name || systemId;
+      const tier =
+        typeof systemTiers[systemId] === "string" ? systemTiers[systemId] : null;
+      const state = systemState[systemId] || def.stateDefaults || {};
+      const cur = formatSystemValue(state.cur);
+      const max = formatSystemValue(state.max);
+      const tierLabel = tier ? ` (${tier})` : "";
+      lines.push(`${label}${tierLabel}: ${cur}/${max}`);
+    }
+
+    return lines;
+  }
+
   function makeCharTooltipSpec(char) {
+    const systemLines = getPawnSystemLines(char);
     return {
       title: char.name || `Character ${char.id ?? ""}`,
       lines: [
         "Moves between hub and env tiles.",
         "Activates the hub structure it sits on in the hub.",
         "Has its own inventory.",
+        ...(systemLines.length ? ["Systems:", ...systemLines] : []),
       ],
     };
   }

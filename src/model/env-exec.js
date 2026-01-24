@@ -7,9 +7,13 @@ import {
   drawSeasonDeckEntry,
   getCurrentSeasonKey,
   makeEnvEventInstance,
+  ensurePawnSystems,
   rebuildBoardOccupancy,
 } from "./state.js";
 import { runEffect } from "./effects.js";
+import { Inventory } from "./inventory-model.js";
+import { bumpInvVersion } from "./effects/core/inventory-version.js";
+import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 
 const EVENT_CADENCE_SEC = 5;
 
@@ -22,6 +26,24 @@ function requirementsPass(requires, seasonKey, tile, hasPawn) {
 
   if (typeof requires.hasPawn === "boolean") {
     if (requires.hasPawn !== hasPawn) return false;
+  }
+
+  if (typeof requires.hasSelectedCrop === "boolean") {
+    const selectedCropId = tile?.systemState?.growth?.selectedCropId;
+    const hasSelected =
+      typeof selectedCropId === "string" && selectedCropId.length > 0;
+    if (requires.hasSelectedCrop !== hasSelected) return false;
+  }
+
+  if (Array.isArray(requires.selectedCropIdIn)) {
+    const selectedCropId = tile?.systemState?.growth?.selectedCropId;
+    if (
+      requires.selectedCropIdIn.length > 0 &&
+      (typeof selectedCropId !== "string" ||
+        !requires.selectedCropIdIn.includes(selectedCropId))
+    ) {
+      return false;
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(requires, "hasEquipment")) {
@@ -80,13 +102,191 @@ function isTagDisabled(tile, tagId) {
   return entry?.disabled === true;
 }
 
-function hasPawnOnCol(state, col) {
+function getPawnIdsOnEnvCol(state, col) {
+  const out = [];
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   for (const ch of chars) {
     const slot = Number.isFinite(ch?.envCol) ? Math.floor(ch.envCol) : null;
-    if (slot === col) return true;
+    if (slot === col && ch?.id != null) out.push(ch.id);
   }
-  return false;
+  return out;
+}
+
+function resolveAmountExpr(expr, ctx) {
+  if (Number.isFinite(expr)) return expr;
+  if (!expr || typeof expr !== "object") return null;
+  if (Number.isFinite(expr.const)) return expr.const;
+  if (expr.var === "selectedCropId") {
+    const key = ctx?.selectedCropId;
+    const map = expr.map && typeof expr.map === "object" ? expr.map : null;
+    if (key != null && map && Object.prototype.hasOwnProperty.call(map, key)) {
+      return map[key];
+    }
+    if (Number.isFinite(expr.default)) return expr.default;
+    return null;
+  }
+  return null;
+}
+
+function resolveItemIdExpr(expr, ctx) {
+  if (typeof expr === "string") return expr;
+  if (!expr || typeof expr !== "object") return null;
+  if (expr.var === "selectedCropId") {
+    const key = ctx?.selectedCropId;
+    const map = expr.map && typeof expr.map === "object" ? expr.map : null;
+    let value = null;
+    if (key != null && map && Object.prototype.hasOwnProperty.call(map, key)) {
+      value = map[key];
+    } else {
+      value = expr.default;
+    }
+    if (typeof value !== "string" || value.length === 0) return null;
+    return value;
+  }
+  return null;
+}
+
+function resolveCosts(costSpec, ctx) {
+  if (!costSpec || typeof costSpec !== "object") return null;
+  const pawnId = ctx?.pawnId;
+  if (pawnId == null || !ctx?.pawn || !ctx?.pawnInv) return null;
+
+  const rawCharges = Array.isArray(costSpec.charges) ? costSpec.charges : [];
+  const charges = [];
+
+  for (const charge of rawCharges) {
+    if (!charge || typeof charge !== "object") return null;
+    if (charge.kind === "system") {
+      if (charge.target?.ref !== "pawn") return null;
+      const system = charge.system;
+      const key = charge.key;
+      if (!system || typeof system !== "string") return null;
+      if (!key || typeof key !== "string") return null;
+      const amountRaw = resolveAmountExpr(charge.amount, ctx);
+      if (!Number.isFinite(amountRaw) || amountRaw < 0) return null;
+      const clampMin = Number.isFinite(charge.clampMin) ? charge.clampMin : 0;
+      charges.push({
+        kind: "system",
+        pawnId,
+        system,
+        key,
+        amount: amountRaw,
+        clampMin,
+      });
+    } else if (charge.kind === "item") {
+      if (charge.target?.ref !== "pawnInv") return null;
+      const itemId = resolveItemIdExpr(charge.itemId, ctx);
+      if (!itemId) return null;
+      const amountRaw = resolveAmountExpr(charge.amount, ctx);
+      if (!Number.isFinite(amountRaw) || amountRaw < 0) return null;
+      const amount = Math.floor(amountRaw);
+      charges.push({ kind: "item", pawnId, itemId, amount });
+    } else {
+      return null;
+    }
+  }
+
+  return { charges };
+}
+
+function countItemUnits(inv, itemId) {
+  if (!inv || !Array.isArray(inv.items)) return 0;
+  let total = 0;
+  for (const item of inv.items) {
+    if (!item || item.kind !== itemId) continue;
+    total += Math.max(0, Math.floor(item.quantity ?? 0));
+  }
+  return total;
+}
+
+function canAffordCosts(resolvedCosts, ctx) {
+  const charges = Array.isArray(resolvedCosts?.charges)
+    ? resolvedCosts.charges
+    : [];
+  const pawn = ctx?.pawn;
+  const pawnInv = ctx?.pawnInv;
+  if (!pawn || !pawnInv) return false;
+
+  for (const charge of charges) {
+    if (charge.kind === "system") {
+      const value = pawn.systemState?.[charge.system]?.[charge.key];
+      if (!Number.isFinite(value) || value < charge.amount) return false;
+    } else if (charge.kind === "item") {
+      if (charge.amount <= 0) continue;
+      const total = countItemUnits(pawnInv, charge.itemId);
+      if (total < charge.amount) return false;
+    } else {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sortItemsForCost(items) {
+  return items.sort((a, b) => {
+    const tierA = a?.tier ?? "bronze";
+    const tierB = b?.tier ?? "bronze";
+    const rankA = getTierRank(tierA, TIER_ASC);
+    const rankB = getTierRank(tierB, TIER_ASC);
+    if (rankA !== rankB) return rankA - rankB;
+    return (a?.id ?? 0) - (b?.id ?? 0);
+  });
+}
+
+function consumeFromInventoryForCost(inv, itemId, amount) {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  if (!inv || !Array.isArray(inv.items)) return 0;
+
+  const candidates = inv.items.filter(
+    (it) => it && it.kind === itemId && Math.floor(it.quantity ?? 0) > 0
+  );
+  if (!candidates.length) return 0;
+
+  sortItemsForCost(candidates);
+
+  let remaining = Math.floor(amount);
+  let consumed = 0;
+
+  for (const item of candidates) {
+    if (remaining <= 0) break;
+    const qty = Math.floor(item.quantity ?? 0);
+    if (qty <= 0) continue;
+    const take = Math.min(qty, remaining);
+    item.quantity = qty - take;
+    consumed += take;
+    remaining -= take;
+    if (item.quantity <= 0) {
+      Inventory.removeItem(inv, item.id);
+    }
+  }
+
+  if (consumed > 0) bumpInvVersion(inv);
+  return consumed;
+}
+
+function applyCosts(resolvedCosts, ctx) {
+  const charges = Array.isArray(resolvedCosts?.charges)
+    ? resolvedCosts.charges
+    : [];
+  const pawn = ctx?.pawn;
+  const pawnInv = ctx?.pawnInv;
+  if (!pawn || !pawnInv) return;
+
+  for (const charge of charges) {
+    if (charge.kind === "system") {
+      const systemState = pawn.systemState?.[charge.system];
+      if (!systemState || typeof systemState !== "object") continue;
+      const current = Number.isFinite(systemState[charge.key])
+        ? systemState[charge.key]
+        : 0;
+      const next = Math.max(charge.clampMin ?? 0, current - charge.amount);
+      if (next !== current) systemState[charge.key] = next;
+    } else if (charge.kind === "item") {
+      if (charge.amount <= 0) continue;
+      consumeFromInventoryForCost(pawnInv, charge.itemId, charge.amount);
+    }
+  }
 }
 
 function normalizeStringArray(value) {
@@ -794,11 +994,18 @@ export function stepEnvSecond(state, tSec) {
 
   const cols = board.cols ?? 12;
   const tileOcc = board.occ?.tile;
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const pawnById = new Map();
+  for (const ch of chars) {
+    if (ch?.id != null) pawnById.set(ch.id, ch);
+  }
   for (let col = 0; col < cols; col++) {
     const tile = tileOcc?.[col];
     if (!tile) continue;
-    const hasPawn = hasPawnOnCol(state, col);
+    const pawnIds = getPawnIdsOnEnvCol(state, col);
+    const hasPawn = pawnIds.length > 0;
     const tags = Array.isArray(tile.tags) ? tile.tags : [];
+    const selectedCropId = tile?.systemState?.growth?.selectedCropId ?? null;
 
     const baseContext = {
       kind: "game",
@@ -830,27 +1037,49 @@ export function stepEnvSecond(state, tSec) {
 
     if (!hasPawn) continue;
 
-    let executed = false;
-    for (const tagId of tags) {
-      if (isTagDisabled(tile, tagId)) continue;
-      const tagDef = envTagDefs[tagId];
-      if (!tagDef) continue;
-      const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
-      for (const intent of intents) {
-        if (!intent || typeof intent !== "object") continue;
-        if (
-          intent.requires &&
-          !requirementsPass(intent.requires, seasonKey, tile, hasPawn)
-        ) {
-          continue;
+    for (const pawnId of pawnIds) {
+      const pawn = pawnById.get(pawnId);
+      if (!pawn) continue;
+      ensurePawnSystems(pawn);
+      const pawnInv = state?.ownerInventories?.[pawnId] ?? null;
+
+      const pawnContext = {
+        ...baseContext,
+        pawnId,
+        ownerId: pawnId,
+        pawn,
+        pawnInv,
+        selectedCropId,
+      };
+
+      let executed = false;
+      for (const tagId of tags) {
+        if (isTagDisabled(tile, tagId)) continue;
+        const tagDef = envTagDefs[tagId];
+        if (!tagDef) continue;
+        const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
+        for (const intent of intents) {
+          if (!intent || typeof intent !== "object") continue;
+          if (
+            intent.requires &&
+            !requirementsPass(intent.requires, seasonKey, tile, true)
+          ) {
+            continue;
+          }
+          if (intent.cost) {
+            const resolved = resolveCosts(intent.cost, pawnContext);
+            if (!resolved) continue;
+            if (!canAffordCosts(resolved, pawnContext)) continue;
+            applyCosts(resolved, pawnContext);
+          }
+          if (intent.effect) {
+            runEffect(state, intent.effect, { ...pawnContext });
+          }
+          executed = true;
+          break;
         }
-        if (intent.effect) {
-          runEffect(state, intent.effect, { ...baseContext });
-        }
-        executed = true;
-        break;
+        if (executed) break;
       }
-      if (executed) break;
     }
   }
 
