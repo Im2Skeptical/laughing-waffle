@@ -79,6 +79,7 @@ export function createInitialState(scenario = "testing", seed = null) {
     const { systemTiers, systemState } = buildPawnSystemDefaults();
     return {
       id: state.nextCharacterId++,
+      pawnDefId: typeof c?.pawnDefId === "string" ? c.pawnDefId : "default",
       name: c.name,
       color: c.color,
       hubCol,

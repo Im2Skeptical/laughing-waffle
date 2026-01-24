@@ -24,6 +24,7 @@ import {
   processSecondChangeForItems,
 } from "./effects.js";
 
+import { stepPawnSecond } from "./pawn-exec.js";
 import { stepEnvSecond } from "./env-exec.js";
 
 import { resetTimedTriggersOnHubStructures } from "./behaviors.js";
@@ -183,6 +184,7 @@ export function cmdTickSimulation(state, dt) {
     state._seasonChanged === true || advancedSeasonCount > 0;
 
   if (didAdvanceSecond) {
+    stepPawnSecond(state, state.tSec);
     stepEnvSecond(state, state.tSec);
     if (state._seasonChanged) state._seasonChanged = false;
   }
