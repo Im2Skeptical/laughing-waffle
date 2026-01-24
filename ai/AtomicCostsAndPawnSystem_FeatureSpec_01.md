@@ -277,7 +277,7 @@ For each env col:
      * if requirements fail → continue to next intent
      * if intent has `cost`:
 
-       * resolved = resolveCosts(intent.cost, pawnCtx); if null → this intent is not executable for this pawn; continue to next intent (or treat as fail; recommended continue)
+       * resolved = resolveCosts(intent.cost, pawnCtx); if null → this intent is not executable for this pawn; continue to next intent
        * if !canAffordCosts(resolved, pawnCtx) → continue to next intent
        * else applyCosts(resolved, pawnCtx)
      * run intent effect via `runEffect(state, effect, effectContext)`
@@ -285,15 +285,6 @@ For each env col:
        * effectContext includes `{ pawnId, ownerId: pawnId, envCol: col, source: tileAnchor, tSec, kind: "env" }` (exact shape depends on your current conventions)
      * stop intent search for this pawn for this tick (first match wins per pawn)
    * proceed to next pawnId
-
-## Important: “continue to next intent” rule for unpaid costs
-
-v1 recommendation:
-
-* If the first matching intent is not payable for this pawn, the pawn may still try later intents (e.g., “rest” vs “work”).
-* This preserves design flexibility and avoids “blocked by unaffordable intent”.
-
-If you want strict semantics (“first match wins even if unaffordable”), state it explicitly; but per your goals (equipment altering costs), “first payable intent wins” tends to be more usable.
 
 ---
 
@@ -303,8 +294,11 @@ If you want strict semantics (“first match wins even if unaffordable”), stat
 
 ```js
 {
-  id: "farm-work",
-  requires: { hasSelectedCrop: true },
+  id: "farmPlant",
+  requires: { 
+    hasSelectedCrop: true 
+    hasMaturedPool: false,
+  },
   cost: {
     charges: [
       { kind:"system", target:{ref:"pawn"}, system:"stamina", key:"cur", amount:{const:2}, clampMin:0 },
@@ -316,12 +310,23 @@ If you want strict semantics (“first match wins even if unaffordable”), stat
     ]
   },
   effect: [
-    { op:"AddToSystemState", target:{ref:"self"}, system:"growth", key:"progress", amount:1 }
+    {       
+        op: "CreateProcess",
+        system: "growth",
+        defRegistry: "crops",
+        defIdFromSystemKey: "selectedCropId",
+        durationFromDefKey: "maturitySec",
+        processType: "cropGrowth",
+        queueKey: "processes",
+        captureSystem: "hydration",
+        captureKey: "sumRatio",
+        captureAs: "sumAtStart", 
+    }
   ]
 }
 ```
 
-## 9.2 “Rest” fallback intent (if work unaffordable)
+## 9.2 “Rest” 
 
 ```js
 {
@@ -342,19 +347,10 @@ If you want strict semantics (“first match wins even if unaffordable”), stat
 
 To keep v1 small, costs can mutate pawn systems directly via applyCosts without going through runEffect.
 
-But you still need a way for regular effects to touch pawn systems if desired. Two viable v1 approaches:
-
-### Approach A (minimal): costs mutate pawn systems; effects remain tile-only
-
-* v1 does not require adding pawn-targeting ops in `runEffect` yet.
-* Any pawn effects can be deferred until you add pawn targets.
-
-### Approach B (recommended): add pawn as a valid “system target”
+### Approach : add pawn as a valid “system target”
 
 Extend targeting so `AddToSystemState`/`ClampSystemState` can target `{ref:"pawn"}` and operate on pawn.systemState, not tile.systemState.
 This keeps authoring consistent: “systems everywhere”.
-
-Either is acceptable; pick based on how soon you want pawn tags/passives.
 
 ---
 
@@ -385,5 +381,3 @@ Either is acceptable; pick based on how soon you want pawn tags/passives.
 4. Replay rebuild at same tSec matches.
 
 ---
-
-If you confirm the single policy choice in §8 (“continue to later intents if the first isn’t payable”), I can condense this into a crisp implementation checklist and a Codex-agent prompt consistent with your refactor/modularization goals.
