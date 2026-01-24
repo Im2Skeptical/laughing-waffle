@@ -25,6 +25,37 @@ const EFFECT_OPS = new Set([
   "FinalizeProcess",
 ]);
 
+const TARGETING_KEYS = new Set([
+  "all",
+  "at",
+  "ref:self",
+  "ref:tileWhere",
+  "area:adjacent",
+  "where.tileId",
+  "where.hasTag",
+  "where.hasAllTags",
+  "where.hasAnyTags",
+  "where.notTag",
+  "where.excludeTags",
+  "where.systemAtLeast",
+  "where.systemAtMost",
+  "where.systemBetween",
+  "kind:tileOccupants",
+  "ownerId",
+  "ownerIds",
+]);
+
+const TRIGGER_KEYS = new Set([
+  "onEnter",
+  "onTick",
+  "onExit",
+  "intents",
+  "passives",
+  "timing.cadenceSec",
+  "timing.onSeasonChange",
+  "behaviors.TimedTrigger",
+]);
+
 const REQUIRED_TIERS = ["bronze", "silver", "gold", "diamond"];
 
 function addIssue(list, message) {
