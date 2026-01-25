@@ -278,17 +278,20 @@ const charactersView = createCharactersView({
     if (bestIndex == null) return;
 
     if (targetRow === "env") {
-      actionPlanner?.setPawnMoveIntent?.({
-        charId,
-        toEnvCol: bestIndex,
-      });
-      return;
+      return (
+        actionPlanner?.setPawnMoveIntent?.({
+          charId,
+          toEnvCol: bestIndex,
+        }) || { ok: false, reason: "noPlanner" }
+      );
     }
 
-    actionPlanner?.setPawnMoveIntent?.({
-      charId,
-      toHubCol: bestIndex,
-    });
+    return (
+      actionPlanner?.setPawnMoveIntent?.({
+        charId,
+        toHubCol: bestIndex,
+      }) || { ok: false, reason: "noPlanner" }
+    );
   },
 });
 

@@ -112,7 +112,8 @@ export function createCharactersView(opts) {
 
   function emitDropped(payload) {
     const cb = onCharacterDropped || onDropCharacter || null;
-    if (typeof cb === "function") cb(payload);
+    if (typeof cb === "function") return cb(payload);
+    return { ok: false, reason: "noDropHandler" };
   }
 
   function getHoverInfoForSlot(row, col) {
@@ -586,13 +587,24 @@ export function createCharactersView(opts) {
         return;
       }
 
-      emitDropped({
+      const dropResult = emitDropped({
         charId: char.id,
         dropPos: { x: g.x, y: g.y },
       });
 
       // If no handler, restore layout.
       if (!onCharacterDropped && !onDropCharacter) {
+        layoutAllCharacters();
+        return;
+      }
+
+      // For insufficient AP, give the same blocked-drag feedback.
+      if (
+        dropResult &&
+        dropResult.ok === false &&
+        dropResult.reason === "insufficientAP"
+      ) {
+        flashDragBlocked(view);
         layoutAllCharacters();
       }
     }
