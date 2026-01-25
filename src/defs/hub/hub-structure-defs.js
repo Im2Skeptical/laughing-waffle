@@ -7,8 +7,8 @@ export const hubStructureDefs = {
     kind: "hubStructure",
     name: "Hearth",
     color: 0xd9793a,
-    defaultSpan: 1,
-    tags: ["hearth"],
+    defaultSpan: 2,
+    tags: ["Rest"],
     systems: {},
     inventory: { cols: 5, rows: 10 },
     ui: {

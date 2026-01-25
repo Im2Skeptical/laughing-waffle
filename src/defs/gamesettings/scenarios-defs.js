@@ -28,17 +28,15 @@ export const setupDefs = {
     hub: {
       cols: 10,
       structures: [
-        { defId: "hearth", hubCol: 0 },
-        { defId: "hearth", hubCol: 3 },
-        { defId: "hearth", hubCol: 6 },
-        { defId: "hearth", hubCol: 9 },
+        { defId: "hearth", hubCol: 4 },
+
       ],
     },
 
     // characters placed by board column
     characters: [
       { name: "Char 1", color: 0xff9999, hubCol: 4 },
-      { name: "Char 2", color: 0x9999ff, hubCol: 5 },
+      { name: "Char 2", color: 0x9999ff, hubCol: 4 },
     ],
 
     // inventories keyed by owner selector:
@@ -46,7 +44,7 @@ export const setupDefs = {
     // owner: { type: "character", index: 0 } means "1st character in characters array"
     inventories: [
       {
-        owner: { type: "hubStructure", hubCol: 6 },
+        owner: { type: "hubStructure", hubCol: 4 },
         items: [
           { kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },

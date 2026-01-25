@@ -2,15 +2,15 @@
 // Hub tag registry (data only).
 
 export const hubTagDefs = {
-  hearth: {
-    id: "hearth",
+  restable: {
+    id: "restable",
     kind: "hubTag",
-    ui: { name: "Hearth", description: "Rest here to regain stamina." },
+    ui: { name: "Rest", description: "Rest here to regain stamina." },
     systems: [],
     passives: [],
     intents: [
       {
-        id: "hearth-rest",
+        id: "hubRest",
         verb: "Rest",
         requires: {},
         effect: [
