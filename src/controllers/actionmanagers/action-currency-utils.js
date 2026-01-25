@@ -1,11 +1,12 @@
 // src/controllers/actionmanagers/action-currency-utils.js
 // Shared helpers for currency transfer grouping and quantities.
 
-import { itemDefs } from "../../defs/gamepieces/item-defs.js";  
+function getItemTags(item) {
+  return Array.isArray(item?.tags) ? item.tags : [];
+}
 
-export function isCurrencyKind(kind) {
-  const tags = itemDefs[kind]?.tags || [];
-  return Array.isArray(tags) && tags.includes("currency");
+export function isCurrencyItem(item) {
+  return getItemTags(item).includes("currency");
 }
 
 export function getItemQuantity(item) {
@@ -25,17 +26,18 @@ function compareOwnerIds(a, b) {
   return 0;
 }
 
-export function getCurrencyGroupInfo({ kind, fromOwnerId, toOwnerId } = {}) {
-  if (kind == null) return null;
-  if (!isCurrencyKind(kind)) return null;
+export function getCurrencyGroupInfo({ item, kind, fromOwnerId, toOwnerId } = {}) {
+  if (!item || !isCurrencyItem(item)) return null;
   if (fromOwnerId == null || toOwnerId == null) return null;
   if (fromOwnerId === toOwnerId) return null;
+
+  const itemKind = item.kind ?? kind ?? null;
+  if (!itemKind) return null;
 
   const cmp = compareOwnerIds(fromOwnerId, toOwnerId);
   const minId = cmp <= 0 ? fromOwnerId : toOwnerId;
   const maxId = cmp <= 0 ? toOwnerId : fromOwnerId;
   const dir = cmp <= 0 ? 1 : -1;
-  const key = `${kind}|${String(minId)}|${String(maxId)}`;
-  return { key, dir, minId, maxId };
+  const key = `${itemKind}|${String(minId)}|${String(maxId)}`;
+  return { key, dir, minId, maxId, kind: itemKind };
 }
-

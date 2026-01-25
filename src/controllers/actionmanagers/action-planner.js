@@ -173,6 +173,8 @@ export function createActionPlanner({
       quantity: item.quantity,
       width: item.width,
       height: item.height,
+      tier: item.tier ?? null,
+      tags: Array.isArray(item.tags) ? item.tags.slice() : [],
     };
   }
 

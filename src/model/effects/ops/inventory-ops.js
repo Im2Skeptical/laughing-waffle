@@ -2,8 +2,10 @@ import {
   Inventory,
   canStackItems,
   getItemMaxStack,
+  mergeItemSystemStateForStacking,
 } from "../../inventory-model.js";
 import { bumpInvVersion } from "../core/inventory-version.js";
+import { cloneSerializable } from "../core/clone.js";
 
 export function handleMoveItem(state, effect, context) {
   if (!context || context.kind !== "inventoryMove") return false;
@@ -51,7 +53,8 @@ function handleStackItemInternal(state, effect, context) {
     return { ok: false, reason: "cannotStack" };
 
   const maxStack = getItemMaxStack(target);
-  const space = maxStack - target.quantity;
+  const targetQtyBefore = Math.floor(target.quantity ?? 0);
+  const space = maxStack - targetQtyBefore;
   if (space <= 0) return { ok: false, reason: "targetFull" };
 
   const moveAmt =
@@ -61,7 +64,8 @@ function handleStackItemInternal(state, effect, context) {
 
   const amtToMove = Math.min(space, source.quantity, moveAmt);
 
-  target.quantity += amtToMove;
+  target.quantity = targetQtyBefore + amtToMove;
+  mergeItemSystemStateForStacking(target, source, targetQtyBefore, amtToMove);
   source.quantity -= amtToMove;
 
   if (source.quantity <= 0) {
@@ -116,6 +120,9 @@ function handleSplitStackInternal(state, effect, context) {
     quantity: splitAmount,
     tier: item.tier ?? null,
     seasonsToExpire: item.seasonsToExpire ?? null,
+    tags: cloneSerializable(item.tags ?? []),
+    systemTiers: cloneSerializable(item.systemTiers ?? {}),
+    systemState: cloneSerializable(item.systemState ?? {}),
   };
 
   let placed = false;

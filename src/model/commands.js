@@ -2,7 +2,6 @@
 // public mutation APIs (cmd*) + move rules
 
 import { hubStructureDefs } from "../defs/hub/hub-structure-defs.js";
-import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
@@ -20,7 +19,6 @@ import {
 
 import {
   runEffect,
-  processSeasonChangeForItems,
   processSecondChangeForItems,
 } from "./effects.js";
 
@@ -91,8 +89,8 @@ export function cmdAdvanceSeason(state) {
   state.currentSeasonDeck = null;
   buildSeasonDeckForCurrentSeason(state);
 
-  // 3) process item seasonal effects
-  processSeasonChangeForItems(state);
+  // 3) flag season change for timing-based passives
+  state._seasonChanged = true;
 
   return { ok: true, oldSeasonKey, newSeasonKey };
 }
@@ -154,8 +152,6 @@ export function cmdTickSimulation(state, dt) {
     state.actionPoints += getApIncomePerSecond(state, state.tSec);
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
 
-    // Contract: item decay/expiry runs only on integer second boundaries.
-    processSecondChangeForItems(state);
   }
 
   let advancedSeasonCount = 0;
@@ -180,6 +176,7 @@ export function cmdTickSimulation(state, dt) {
     state._seasonChanged === true || advancedSeasonCount > 0;
 
   if (didAdvanceSecond) {
+    processSecondChangeForItems(state);
     stepPawnSecond(state, state.tSec);
     stepEnvSecond(state, state.tSec);
     stepHubSecond(state, state.tSec);
@@ -547,8 +544,7 @@ function getOwnerKindAndDef(state, ownerId) {
 
 function itemHasAnyTag(item, tags) {
   if (!tags || tags.length === 0) return false;
-  const def = itemDefs[item.kind];
-  const itemTags = def?.tags || [];
+  const itemTags = Array.isArray(item?.tags) ? item.tags : [];
   return tags.some((t) => itemTags.includes(t));
 }
 
@@ -556,8 +552,7 @@ export function canOwnerAcceptItem(state, ownerId, item) {
   const { kind, def } = getOwnerKindAndDef(state, ownerId);
 
   if (kind === "character") {
-    const idef = itemDefs[item.kind];
-    const tags = idef?.tags || [];
+    const tags = Array.isArray(item?.tags) ? item.tags : [];
     if (tags.includes("waste")) return false;
     return true;
   }

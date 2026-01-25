@@ -13,7 +13,7 @@ import {
   buildPawnSystemDefaults,
 } from "./state.js";
 
-import { Inventory, initializeItemFromDef } from "./inventory-model.js";
+import { Inventory } from "./inventory-model.js";
 
 const HUB_COLS = 10;
 
@@ -183,7 +183,6 @@ function applySetupInventories(state, setup) {
         gridY: it.gridY ?? 0,
       });
 
-      if (item) initializeItemFromDef(state, item);
     }
 
     inv.version = (inv.version ?? 0) + 1;

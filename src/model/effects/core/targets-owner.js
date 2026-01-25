@@ -12,6 +12,10 @@ export function resolveOwnerTargets(state, targetSpec, context) {
   if (!targetSpec || typeof targetSpec !== "object") return [];
 
   if (targetSpec.ref === "selfInv") {
+    if (context?.kind === "item") {
+      const ownerId = context?.ownerId ?? null;
+      return ownerId != null ? [ownerId] : [];
+    }
     const ownerId = context?.source?.instanceId ?? null;
     return ownerId != null ? [ownerId] : [];
   }

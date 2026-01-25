@@ -368,6 +368,19 @@ export function createInventoryView({
   // TOOLTIP HELPERS
   // ---------------------------------------------------------------------------
 
+  function interpolateTemplate(template, values) {
+    if (typeof template !== "string") return template;
+    return template.replace(/\{([^}]+)\}/g, (_, token) => {
+      const [rawKey, fallback] = String(token).split("|");
+      const key = rawKey.trim();
+      const value = values[key];
+      if (value == null || value === "") {
+        return fallback != null ? fallback : "";
+      }
+      return String(value);
+    });
+  }
+
   function makeItemTooltipSpec(item, ownerId) {
     const def = itemDefs[item.kind];
     if (!def) {
@@ -386,13 +399,30 @@ export function createInventoryView({
 
     const ctx = { ownerId, ownerLabel };
 
-    const title =
+    const values = {
+      id: item.id,
+      kind: item.kind,
+      name: def.name ?? item.kind,
+      ownerId,
+      ownerLabel,
+      quantity: item.quantity,
+      tier: item.tier ?? def.defaultTier ?? "bronze",
+      width: item.width ?? def.defaultWidth ?? 1,
+      height: item.height ?? def.defaultHeight ?? 1,
+    };
+
+    const titleRaw =
       typeof ui.title === "function"
         ? ui.title(item, ctx)
         : ui.title || def.name;
+    const title = interpolateTemplate(titleRaw, values);
 
     const lines = (ui.lines || [])
-      .map((line) => (typeof line === "function" ? line(item, ctx) : line))
+      .map((line) =>
+        typeof line === "function"
+          ? line(item, ctx)
+          : interpolateTemplate(line, values)
+      )
       .filter(Boolean);
 
     return {

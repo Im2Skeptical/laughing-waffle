@@ -1,12 +1,10 @@
 // src/model/query.js
 // Pure selectors for UI.
 
-import { itemDefs } from "../defs/gamepieces/item-defs.js";
-
 function itemHasTag(item, tag) {
   if (!item || !tag) return false;
-  const defTags = itemDefs[item.kind]?.tags || [];
-  return Array.isArray(defTags) && defTags.includes(tag);
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  return tags.includes(tag);
 }
 
 export function getItemsByTag(state, tag) {
@@ -37,4 +35,3 @@ export function getTotalStackByTag(state, tag) {
 export function getTotalFoodFromEdibles(state) {
   return getTotalStackByTag(state, "edible");
 }
-

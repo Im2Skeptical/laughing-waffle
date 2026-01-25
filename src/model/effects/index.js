@@ -13,6 +13,7 @@ import {
 import {
   handleTransformItem,
   handleRemoveItem,
+  handleCheckItemRot,
   handleExpireItemChance,
   handleTickItemSeasonExpiry,
 } from "./ops/item-ops.js";
@@ -47,6 +48,7 @@ const handlers = {
   AddResource: handleAddResource,
   TransformItem: handleTransformItem,
   RemoveItem: handleRemoveItem,
+  CheckItemRot: handleCheckItemRot,
   ExpireItemChance: handleExpireItemChance,
   TickItemSeasonExpiry: handleTickItemSeasonExpiry,
   AddToSystemState: handleAddToSystemState,

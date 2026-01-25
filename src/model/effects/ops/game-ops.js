@@ -3,6 +3,8 @@ import {
   Inventory,
   canStackItems,
   getItemMaxStack,
+  initializeItemFromDef,
+  mergeItemSystemStateForStacking,
 } from "../../inventory-model.js";
 import { resolveAmount } from "../core/amount.js";
 import { bumpInvVersion } from "../core/inventory-version.js";
@@ -21,7 +23,9 @@ export function handleAddResource(state, effect) {
 }
 
 export function handleConsumeItem(state, effect, context) {
-  if (!context || context.kind !== "game") return false;
+  if (!context || (context.kind !== "game" && context.kind !== "item")) {
+    return false;
+  }
   const targets = resolveOwnerTargets(state, effect.target, context);
   if (!targets.length) {
     if (effect.outVar && context) {
@@ -181,7 +185,9 @@ export function handleTransferUnits(state, effect, context) {
 }
 
 export function handleSpawnItem(state, effect, context) {
-  if (!context || context.kind !== "game") return false;
+  if (!context || (context.kind !== "game" && context.kind !== "item")) {
+    return false;
+  }
   const targets = resolveOwnerTargets(state, effect.target, context);
   if (!targets.length) return false;
 
@@ -279,7 +285,16 @@ function addTieredUnits(state, ownerId, kind, tier, amount) {
 
   const def = itemDefs[kind] || null;
   const maxStack = getItemMaxStack({ kind, tier });
-  const dummy = { kind, tier, seasonsToExpire: null };
+  const dummy = {
+    kind,
+    tier,
+    seasonsToExpire: null,
+    tags: [],
+    systemTiers: {},
+    systemState: {},
+  };
+  initializeItemFromDef(state, dummy, { reset: true });
+  dummy.tier = tier;
 
   let remaining = Math.floor(amount);
   let added = 0;
@@ -291,6 +306,7 @@ function addTieredUnits(state, ownerId, kind, tier, amount) {
     if (space <= 0) continue;
     const take = Math.min(space, remaining);
     stack.quantity = current + take;
+    mergeItemSystemStateForStacking(stack, dummy, current, take);
     remaining -= take;
     added += take;
     if (remaining <= 0) break;

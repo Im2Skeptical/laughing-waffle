@@ -3,8 +3,31 @@ import {
   Inventory,
   canStackItems,
   getItemMaxStack,
+  initializeItemFromDef,
+  mergeItemSystemStateForStacking,
 } from "../../inventory-model.js";
 import { bumpInvVersion } from "../core/inventory-version.js";
+
+function applyKindToItem(state, inv, item, targetKind) {
+  const targetDef = itemDefs[targetKind];
+  if (!targetDef) return false;
+
+  Inventory.clearItemFromGrid(inv, item);
+
+  item.kind = targetKind;
+  item.seasonsToExpire = null;
+  item.expiryTurn = null;
+
+  // Reset tag/system state and reinitialize from the target def.
+  item.tags = [];
+  item.systemTiers = {};
+  item.systemState = {};
+  initializeItemFromDef(state, item, { reset: true });
+
+  Inventory.occupyCellsForItem(inv, item);
+  bumpInvVersion(inv);
+  return true;
+}
 
 export function handleTransformItem(state, effect, context) {
   if (!context || context.kind !== "item") return false;
@@ -12,21 +35,9 @@ export function handleTransformItem(state, effect, context) {
   if (!inv || !item) return false;
 
   const targetKind = effect.targetKind;
-  if (!targetKind) return false;
+  if (!targetKind || targetKind === item.kind) return false;
 
-  const targetDef = itemDefs[targetKind];
-  if (!targetDef) return false;
-
-  Inventory.clearItemFromGrid(inv, item);
-
-  item.kind = targetKind;
-  item.width = targetDef.defaultWidth ?? 1;
-  item.height = targetDef.defaultHeight ?? 1;
-  item.seasonsToExpire = null;
-
-  Inventory.occupyCellsForItem(inv, item);
-  bumpInvVersion(inv);
-  return true;
+  return applyKindToItem(state, inv, item, targetKind);
 }
 
 export function handleRemoveItem(state, effect, context) {
@@ -36,6 +47,27 @@ export function handleRemoveItem(state, effect, context) {
   Inventory.removeItem(inv, item.id);
   bumpInvVersion(inv);
   return true;
+}
+
+export function handleCheckItemRot(state, effect, context) {
+  if (!context || context.kind !== "item") return false;
+  const { inv, item } = context;
+  if (!inv || !item) return false;
+  if (typeof state?.rngNextFloat !== "function") return false;
+
+  const rotKind = effect.rotKind || "rot";
+  if (!itemDefs[rotKind]) return false;
+
+  const chancePerUnit = Number.isFinite(effect.rotChancePerSec)
+    ? Math.max(0, effect.rotChancePerSec)
+    : 0;
+  if (chancePerUnit <= 0) return false;
+
+  return handleExpireItemChance(
+    state,
+    { chance: chancePerUnit, targetKind: rotKind },
+    context
+  );
 }
 
 export function handleExpireItemChance(state, effect, context) {
@@ -90,18 +122,7 @@ export function handleTickItemSeasonExpiry(state, effect, context) {
   }
 
   if (targetKind) {
-    const targetDef = itemDefs[targetKind];
-
-    Inventory.clearItemFromGrid(inv, item);
-
-    item.kind = targetKind;
-    item.width = targetDef.defaultWidth ?? 1;
-    item.height = targetDef.defaultHeight ?? 1;
-    item.seasonsToExpire = null;
-
-    Inventory.occupyCellsForItem(inv, item);
-    bumpInvVersion(inv);
-    return true;
+    return applyKindToItem(state, inv, item, targetKind);
   }
 
   Inventory.removeItem(inv, item.id);
@@ -127,7 +148,17 @@ function addStackedUnits(state, inv, kind, amount) {
   if (!inv || !Number.isFinite(amount) || amount <= 0) return 0;
   const def = itemDefs[kind] || null;
   const maxStack = getItemMaxStack({ kind, seasonsToExpire: null });
-  const dummy = { kind, seasonsToExpire: null };
+
+  const dummy = {
+    kind,
+    seasonsToExpire: null,
+    tier: null,
+    tags: [],
+    systemTiers: {},
+    systemState: {},
+  };
+  initializeItemFromDef(state, dummy, { reset: true });
+
   let remaining = Math.floor(amount);
 
   for (const stack of inv.items) {
@@ -137,6 +168,7 @@ function addStackedUnits(state, inv, kind, amount) {
     if (space <= 0) continue;
     const add = Math.min(space, remaining);
     stack.quantity = current + add;
+    mergeItemSystemStateForStacking(stack, dummy, current, add);
     remaining -= add;
     if (remaining <= 0) break;
   }

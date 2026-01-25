@@ -1,6 +1,7 @@
 import { envSystemDefs } from "../../../defs/gamesystems/env-systems-defs.js";
 import { pawnSystemDefs } from "../../../defs/gamesystems/pawn-systems-defs.js";
 import { hubSystemDefs } from "../../../defs/hub/hub-system-defs.js";
+import { itemSystemDefs } from "../../../defs/gamepieces/item-system-defs.js";
 import { cloneSerializable } from "./clone.js";
 import { SYSTEM_TIER_LADDER, TIER_ASC } from "./tiers.js";
 
@@ -18,6 +19,7 @@ export function ensureSystemState(tile, systemId) {
       envSystemDefs[systemId]?.stateDefaults ??
       pawnSystemDefs[systemId]?.stateDefaults ??
       hubSystemDefs[systemId]?.stateDefaults ??
+      itemSystemDefs[systemId]?.stateDefaults ??
       {};
     systemState[systemId] = cloneSerializable(defaults);
   }
@@ -31,13 +33,16 @@ export function getTierValueForSystem(tile, systemId) {
       : null;
   if (tier && TIER_ASC.includes(tier)) return tier;
   const def = envSystemDefs[systemId];
+  const pawnDef = pawnSystemDefs[systemId];
   const hubDef = hubSystemDefs[systemId];
-  if (def?.defaultTier && TIER_ASC.includes(def.defaultTier)) {
-    return def.defaultTier;
-  }
-  if (hubDef?.defaultTier && TIER_ASC.includes(hubDef.defaultTier)) {
-    return hubDef.defaultTier;
-  }
+  const itemDef = itemSystemDefs[systemId];
+  const defaultTier =
+    def?.defaultTier ??
+    pawnDef?.defaultTier ??
+    hubDef?.defaultTier ??
+    itemDef?.defaultTier ??
+    "bronze";
+  if (TIER_ASC.includes(defaultTier)) return defaultTier;
   return "bronze";
 }
 

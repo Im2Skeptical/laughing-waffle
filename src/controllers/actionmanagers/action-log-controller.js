@@ -135,6 +135,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
     if (intent?.kind !== IntentKinds.ITEM_TRANSFER) continue;
     const kind = intent.item?.kind ?? null;
     const info = getCurrencyGroupInfo({
+      item: intent.item ?? null,
       kind,
       fromOwnerId: intent.fromOwnerId,
       toOwnerId: intent.toOwnerId,
@@ -220,6 +221,7 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     const payload = action.payload || {};
     const kind = payload.item?.kind ?? null;
     const info = getCurrencyGroupInfo({
+      item: payload.item ?? null,
       kind,
       fromOwnerId: payload.fromOwnerId,
       toOwnerId: payload.toOwnerId,

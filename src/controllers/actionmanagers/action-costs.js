@@ -5,7 +5,7 @@ import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import {
   getCurrencyGroupInfo,
   getItemQuantity,
-  isCurrencyKind,
+  isCurrencyItem,
 } from "./action-currency-utils.js";
 import { getPlacementRow, placementEquals } from "./action-placement-utils.js";
 
@@ -22,7 +22,7 @@ function tagsEqual(a, b) {
 function getCurrencyGroupInfoForIntent(intent) {
   if (!intent || intent.kind !== "itemTransfer") return null;
   return getCurrencyGroupInfo({
-    kind: intent.item?.kind ?? null,
+    item: intent.item ?? null,
     fromOwnerId: intent.fromOwnerId,
     toOwnerId: intent.toOwnerId,
   });
@@ -32,7 +32,7 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
   if (!intent || typeof intent !== "object") return 0;
 
   const isCurrencyTransfer =
-    intent.kind === "itemTransfer" && isCurrencyKind(intent.item?.kind);
+    intent.kind === "itemTransfer" && isCurrencyItem(intent.item);
   if (Number.isFinite(intent.apCostOverride) && !isCurrencyTransfer) {
     return Math.max(0, Math.floor(intent.apCostOverride));
   }
