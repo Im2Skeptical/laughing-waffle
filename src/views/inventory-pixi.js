@@ -8,6 +8,7 @@
 
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { itemSystemDefs } from "../defs/gamepieces/item-system-defs.js";
 
 
 
@@ -381,6 +382,64 @@ export function createInventoryView({
     });
   }
 
+  function formatSystemValue(value) {
+    if (value == null) return "";
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return String(value);
+      if (Number.isInteger(value)) return String(value);
+      return value.toFixed(2).replace(/\.?0+$/, "");
+    }
+    if (typeof value === "string" || typeof value === "boolean") {
+      return String(value);
+    }
+    try {
+      return JSON.stringify(value);
+    } catch (_) {
+      return String(value);
+    }
+  }
+
+  function buildItemSystemLines(item) {
+    const tiers =
+      item?.systemTiers && typeof item.systemTiers === "object"
+        ? item.systemTiers
+        : {};
+    const state =
+      item?.systemState && typeof item.systemState === "object"
+        ? item.systemState
+        : {};
+
+    const systemIds = Array.from(
+      new Set([...Object.keys(tiers), ...Object.keys(state)])
+    ).sort();
+    if (systemIds.length === 0) return [];
+
+    const lines = ["", "Systems:"];
+    for (const systemId of systemIds) {
+      const sysDef = itemSystemDefs[systemId];
+      const label = sysDef?.ui?.name || systemId;
+      const tier = tiers[systemId] ?? sysDef?.defaultTier ?? null;
+      const systemState =
+        state[systemId] && typeof state[systemId] === "object"
+          ? state[systemId]
+          : null;
+
+      let stateSummary = "";
+      if (systemState) {
+        const keys = Object.keys(systemState).sort();
+        stateSummary = keys
+          .map((key) => `${key}=${formatSystemValue(systemState[key])}`)
+          .join(", ");
+      }
+
+      const tierLabel = tier ? ` [${tier}]` : "";
+      const suffix = stateSummary ? `: ${stateSummary}` : "";
+      lines.push(`- ${label}${tierLabel}${suffix}`);
+    }
+
+    return lines;
+  }
+
   function makeItemTooltipSpec(item, ownerId) {
     const def = itemDefs[item.kind];
     if (!def) {
@@ -424,6 +483,8 @@ export function createInventoryView({
           : interpolateTemplate(line, values)
       )
       .filter(Boolean);
+
+    lines.push(...buildItemSystemLines(item));
 
     return {
       title,
