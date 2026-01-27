@@ -31,7 +31,6 @@ export const envTileDefs = {
         { defId: "event_storm", weight: 1 },
       ],
       winter: [
-        { defId: "event_frost", weight: 3 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_wolves", weight: 1 },
         { defId: "event_storm", weight: 1 },
@@ -64,7 +63,6 @@ export const envTileDefs = {
         { defId: "event_storm", weight: 1 },
       ],
       winter: [
-        { defId: "event_frost", weight: 2 },
         { defId: "event_clear_skies", weight: 1 },
         { defId: "event_fish_school", weight: 1 },
         { defId: "event_storm", weight: 1 },
@@ -95,7 +93,6 @@ export const envTileDefs = {
         { defId: "event_boar", weight: 1 },
       ],
       winter: [
-        { defId: "event_frost", weight: 2 },
         { defId: "event_clear_skies", weight: 2 },
       ],
     },
@@ -121,7 +118,6 @@ export const envTileDefs = {
         { defId: "event_migratory_birds", weight: 2 },
       ],
       winter: [
-        { defId: "event_frost", weight: 2 },
         { defId: "event_fish_school", weight: 2 },
       ],
     },
@@ -147,7 +143,6 @@ export const envTileDefs = {
         { defId: "event_migratory_birds", weight: 2 },
       ],
       winter: [
-        { defId: "event_frost", weight: 2 },
         { defId: "event_fish_school", weight: 2 },
       ],
     },
@@ -173,7 +168,6 @@ export const envTileDefs = {
         { defId: "event_duststorm", weight: 2 },
       ],
       winter: [
-        { defId: "event_frost", weight: 1 },
         { defId: "event_clear_skies", weight: 2 },
         { defId: "event_duststorm", weight: 1 },
       ],
@@ -202,7 +196,6 @@ export const envTileDefs = {
       ],
       winter: [
         { defId: "event_wolves", weight: 2 },
-        { defId: "event_frost", weight: 2 },
       ],
     },
   },
@@ -226,7 +219,6 @@ export const envTileDefs = {
         { defId: "event_misty_morning", weight: 1 },
       ],
       winter: [
-        { defId: "event_frost", weight: 2 },
         { defId: "event_wolves", weight: 1 },
       ],
     },
@@ -251,7 +243,6 @@ export const envTileDefs = {
         { defId: "event_misty_morning", weight: 1 },
       ],
       winter: [
-        { defId: "event_frost", weight: 2 },
         { defId: "event_wolves", weight: 1 },
       ],
     },

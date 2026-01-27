@@ -70,23 +70,17 @@ export const envEventDefs = {
       },
     ],
   },
-  event_frost: {
-    id: "event_frost",
-    kind: "envEvent",
-    name: "Frost",
-    ui: { description: "A brief cold snap." },
-    class: "effect",
-    durationSec: 3,
-    onEnter: { op: "AddResource", resource: "gold", amount: 1 },
-  },
   event_heatwave: {
     id: "event_heatwave",
     kind: "envEvent",
     name: "Heatwave",
     ui: { description: "Short-lived extreme heat." },
     class: "effect",
-    durationSec: 3,
-    onEnter: { op: "AddResource", resource: "heat", amount: 1 },
+    defaultSpan: 2,
+    durationSec: 10,
+    onTick: [
+      { op: "AddToSystemState", target: { ref: "self", layer: "tile" }, system: "hydration", key: "cur", amount: -10 }
+    ]
   },
   event_duststorm: {
     id: "event_duststorm",
@@ -95,7 +89,7 @@ export const envEventDefs = {
     ui: { description: "Gritty winds sweep across the land." },
     class: "effect",
     durationSec: 3,
-    onEnter: { op: "AddResource", resource: "scrap", amount: 1 },
+    onEnter: { op: "UpgradeSystemTier", target: { ref: "self", layer: "tile" }, system: "fertility", delta: -1 },
   },
   event_storm: {
     id: "event_storm",
@@ -121,7 +115,7 @@ export const envEventDefs = {
     ui: { description: "A short burst of growth." },
     class: "effect",
     durationSec: 3,
-    onEnter: { op: "AddResource", resource: "gold", amount: 1 },
+    onEnter: { op: "UpgradeSystemTier", target: { ref: "self", layer: "tile" }, system: "fertility", delta: 1 },
   },
   event_misty_morning: {
     id: "event_misty_morning",
