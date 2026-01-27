@@ -61,6 +61,7 @@ export const pawnDefs = {
             min: 0,
             maxKey: "max",
           },
+          /*
           {
             op: "AddToSystemState",
             target: { ref: "pawn" },
@@ -76,6 +77,7 @@ export const pawnDefs = {
             min: 0,
             maxKey: "max",
           },
+          */
         ],
       },
     ],

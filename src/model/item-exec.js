@@ -1,7 +1,7 @@
 // item-exec.js
 // Per-second item execution (tag-driven passives).
 
-import { itemTagDefs } from "../defs/gamepieces/item-tag-defs.js";
+import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 
 function timingPass(timing, state, tSec) {
   if (!timing || typeof timing !== "object") return true;

@@ -1,7 +1,7 @@
 import { envSystemDefs } from "../../../defs/gamesystems/env-systems-defs.js";
 import { pawnSystemDefs } from "../../../defs/gamesystems/pawn-systems-defs.js";
-import { hubSystemDefs } from "../../../defs/hub/hub-system-defs.js";
-import { itemSystemDefs } from "../../../defs/gamepieces/item-system-defs.js";
+import { hubSystemDefs } from "../../../defs/gamesystems/hub-system-defs.js";
+import { itemSystemDefs } from "../../../defs/gamesystems/item-system-defs.js";
 import { cloneSerializable } from "./clone.js";
 import { SYSTEM_TIER_LADDER, TIER_ASC } from "./tiers.js";
 

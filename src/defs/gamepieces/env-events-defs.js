@@ -8,11 +8,11 @@ export const envEventDefs = {
     name: "Rain",
     ui: { description: "Light seasonal rainfall." },
     class: "effect",
-    defaultSpan: 1,
-    durationSec: 32,
-    onEnter: [
-      { op: "AddResource", resource: "gold", amount: 1 },
-    ],
+    defaultSpan: 2,
+    durationSec: 10,
+    onTick: [
+    { op: "AddToSystemState", target: { ref: "self", layer: "tile" }, system: "hydration", key: "cur", amount: 10 }
+    ]
   },
   event_flooding: {
     id: "event_flooding",
@@ -24,14 +24,14 @@ export const envEventDefs = {
     },
     class: "effect",
     defaultSpan: 1,
-    durationSec: 10,
+    durationSec: 40,
+    expiresOnSeasonChange: true,
     spawn: {
       mode: "allColsWhere",
       where: { tileId: "tile_floodplains" },
     },
     onEnter: [
-      { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
-      { op: "AddTag", target: { ref: "self", layer: "tile" }, tag: "fishable" },
+      { op: "DisableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
       {
         op: "ClearSystemState",
         target: { ref: "self", layer: "tile" },
@@ -39,8 +39,7 @@ export const envEventDefs = {
       },
     ],
     onExit: [
-      { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "fishable" },
-      { op: "AddTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+      { op: "EnableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
       {
         op: "SetSystemTier",
         target: { ref: "self", layer: "tile" },
@@ -107,7 +106,7 @@ export const envEventDefs = {
     defaultSpan: 2,
     durationSec: 6,
     onEnter: [
-      { op: "RemoveTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+      { op: "DisableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
       {
         op: "ClearSystemState",
         target: { ref: "self", layer: "tile" },

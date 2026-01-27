@@ -19,7 +19,7 @@ export const hubTagDefs = {
             target: { ref: "pawn" },
             system: "stamina",
             key: "cur",
-            amount: 1,
+            amount: 2,
           },
           {
             op: "ClampSystemState",

@@ -2,7 +2,7 @@
 // Renders tiles/events on a 12-column board, with a separate hub row layout.
 // VIEW-ONLY: no direct state mutation.
 
-import { hubStructureDefs } from "../defs/hub/hub-structure-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { ActionKinds } from "../model/actions.js";

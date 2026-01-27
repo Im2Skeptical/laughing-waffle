@@ -56,6 +56,20 @@ export const setupDefs = {
           { kind: "barleyPorridge", gridX: 2, gridY: 8 },
         ],
       },
+      {
+        owner: { type: "character", index: 0 },
+        items: [
+          //{ kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
+          { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
+        ],
+      },
+      {
+        owner: { type: "character", index: 1 },
+        items: [
+          //{ kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
+          { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
+        ],
+      },
     ],
   },
 

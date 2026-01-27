@@ -2,9 +2,9 @@
 // Model-only. No view imports.
 
 import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
-import { hubStructureDefs } from "../defs/hub/hub-structure-defs.js";
-import { hubTagDefs } from "../defs/hub/hub-tag-defs.js";
-import { hubSystemDefs } from "../defs/hub/hub-system-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";

@@ -3,8 +3,8 @@
 // No PIXI, no UI.
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
-import { itemTagDefs } from "../defs/gamepieces/item-tag-defs.js";
-import { itemSystemDefs } from "../defs/gamepieces/item-system-defs.js";
+import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
+import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
 
 // -----------------------------------------------------------------------------
 // RNG HELPERS COME FROM THE MODEL, so inventory must NOT import gameState.

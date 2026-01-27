@@ -1,7 +1,7 @@
 // hub-exec.js
 // Per-second hub structure execution (passives + intents).
 
-import { hubTagDefs } from "../defs/hub/hub-tag-defs.js";
+import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";

@@ -10,7 +10,7 @@ export const envTileDefs = {
       description: "Lowlands shaped by seasonal overflow.",
       color: 0xdaa520 
     },
-    baseTags: [],
+    baseTags: ["farmable"],
     seasonTables: {
       spring: [
         { defId: "event_rain", weight: 4 },
@@ -108,7 +108,7 @@ export const envTileDefs = {
     baseTags: ["fishable", "forageable"],
     seasonTables: {
       spring: [
-        { defId: "event_rain", weight: 2 },
+        { defId: "event_rain", weight: 20 },
         { defId: "event_fish_school", weight: 4 },
       ],
       summer: [
@@ -134,7 +134,7 @@ export const envTileDefs = {
     baseTags: ["fishable"],
     seasonTables: {
       spring: [
-        { defId: "event_rain", weight: 2 },
+        { defId: "event_rain", weight: 20 },
         { defId: "event_fish_school", weight: 4 },
       ],
       summer: [

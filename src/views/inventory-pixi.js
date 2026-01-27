@@ -8,7 +8,7 @@
 
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
-import { itemSystemDefs } from "../defs/gamepieces/item-system-defs.js";
+import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
 
 
 

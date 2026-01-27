@@ -8,7 +8,7 @@ export const hubStructureDefs = {
     name: "Hearth",
     color: 0xd9793a,
     defaultSpan: 2,
-    tags: ["Rest"],
+    tags: ["restable"],
     systems: {},
     inventory: { cols: 5, rows: 10 },
     ui: {
