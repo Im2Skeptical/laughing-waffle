@@ -542,7 +542,7 @@ export function createBoardView(opts) {
       classKind === "animal"
         ? 0x8f6f5f
         : classKind === "effect"
-          ? 0x5f6f8f
+          ? 0x698f5f
           : 0x707070;
     const color = Number.isFinite(uiColor)
       ? uiColor
