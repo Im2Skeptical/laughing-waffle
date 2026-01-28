@@ -291,6 +291,7 @@ export function createBoardView(opts) {
       view.hoverHoldMove = null;
     }
     view.holdHover = false;
+    view.holdHoverForOccupant = false;
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
     view.isHovered = false;
@@ -313,6 +314,7 @@ export function createBoardView(opts) {
     if (!view) return;
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
+    view.holdHoverForOccupant = false;
     clearHoverContext();
     tooltipView?.hide?.();
     if (inventoryView && view.structureHasInventory?.()) {
@@ -344,6 +346,50 @@ export function createBoardView(opts) {
     };
     view.hoverHoldMove = onMove;
     app.stage.on("pointermove", onMove);
+  }
+
+  function isPawnHoveringForView(view, kind) {
+    const hover = interaction?.getHoveredPawn?.() ?? interaction?.getLastHovered?.();
+    if (!hover || hover.kind !== "pawn") return false;
+    if (kind === "tile") {
+      const anchorCol = Number.isFinite(view?.tile?.col)
+        ? Math.floor(view.tile.col)
+        : Number.isFinite(view?.col)
+        ? Math.floor(view.col)
+        : null;
+      if (anchorCol == null) return false;
+      const span =
+        Number.isFinite(view?.tile?.span) && view.tile.span > 0
+          ? Math.floor(view.tile.span)
+          : 1;
+      const envCol = Number.isFinite(hover.envCol)
+        ? Math.floor(hover.envCol)
+        : null;
+      return envCol != null && envCol >= anchorCol && envCol < anchorCol + span;
+    }
+    if (kind === "hub") {
+      const anchorCol = Number.isFinite(view?.structure?.col)
+        ? Math.floor(view.structure.col)
+        : Number.isFinite(view?.col)
+        ? Math.floor(view.col)
+        : null;
+      if (anchorCol == null) return false;
+      const span =
+        Number.isFinite(view?.structure?.span) && view.structure.span > 0
+          ? Math.floor(view.structure.span)
+          : 1;
+      const hubCol = Number.isFinite(hover.hubCol)
+        ? Math.floor(hover.hubCol)
+        : null;
+      return hubCol != null && hubCol >= anchorCol && hubCol < anchorCol + span;
+    }
+    return false;
+  }
+
+  function holdHoverForOccupantIfNeeded(view) {
+    if (!view?.pawnCount || view.pawnCount <= 0) return false;
+    view.holdHoverForOccupant = true;
+    return true;
   }
 
   function applyTileHover(view) {
@@ -898,6 +944,7 @@ export function createBoardView(opts) {
       cont.on("pointerleave", () => {
         if (view.tagDrag || view.holdHover) return;
         if (activeHover?.view && activeHover.view !== view) return;
+        if (holdHoverForOccupantIfNeeded(view)) return;
         clearActiveHover(view);
       });
 
@@ -929,6 +976,7 @@ export function createBoardView(opts) {
         hoverAnchor: null,
         holdHover: false,
         hoverHoldMove: null,
+        holdHoverForOccupant: false,
         pawnBadge,
         pawnText,
       };
@@ -1193,6 +1241,7 @@ export function createBoardView(opts) {
       container: cont,
       structure: structureInst,
       col,
+      pawnCount: 0,
       meterViews,
       tagContainer,
       tagStartY,
@@ -1203,6 +1252,7 @@ export function createBoardView(opts) {
       hasTagToggle: false,
       ignoreNextTagTap: false,
       tagDrag: null,
+      holdHoverForOccupant: false,
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
@@ -1246,6 +1296,7 @@ export function createBoardView(opts) {
 
     cont.on("pointerleave", () => {
       if (activeHover?.view && activeHover.view !== view) return;
+      if (holdHoverForOccupantIfNeeded(view)) return;
       clearActiveHover(view);
     });
 
@@ -1284,6 +1335,20 @@ export function createBoardView(opts) {
     for (const ch of chars) {
       const col = Number.isFinite(ch?.envCol)
         ? Math.floor(ch.envCol)
+        : null;
+      if (col == null || col < 0 || col >= counts.length) continue;
+      counts[col] += 1;
+    }
+    return counts;
+  }
+
+  function getPawnCountsByHub(state, cols) {
+    const countLen = Number.isFinite(cols) ? Math.max(0, cols) : HUB_COLS;
+    const counts = new Array(countLen).fill(0);
+    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    for (const ch of chars) {
+      const col = Number.isFinite(ch?.hubCol)
+        ? Math.floor(ch.hubCol)
         : null;
       if (col == null || col < 0 || col >= counts.length) continue;
       counts[col] += 1;
@@ -1464,6 +1529,7 @@ export function createBoardView(opts) {
   function syncHubStructures(state, cols) {
     const occ = state?.hub?.occ;
     const seen = new Set();
+    const pawnCounts = getPawnCountsByHub(state, cols);
 
     syncHubSlots(cols);
 
@@ -1490,13 +1556,15 @@ export function createBoardView(opts) {
     }
 
       for (const [id, view] of hubStructureViews.entries()) {
-        if (seen.has(id)) continue;
-        if (activeHover?.view === view) clearActiveHover(view);
-        removeFromParent(view.container);
-        hubStructureViews.delete(id);
+      if (seen.has(id)) continue;
+      if (activeHover?.view === view) clearActiveHover(view);
+      removeFromParent(view.container);
+      hubStructureViews.delete(id);
       }
 
     for (const view of hubStructureViews.values()) {
+      const col = Number.isFinite(view.col) ? view.col : 0;
+      view.pawnCount = pawnCounts[col] || 0;
       if (view.meterViews.length > 0) {
         updateMeters(view.meterViews, view.structure);
       }
@@ -1570,6 +1638,19 @@ export function createBoardView(opts) {
         tilePanels.hideTileInspector?.();
       } else {
         tilePanels.updateTileInspector?.();
+      }
+    }
+
+    if (activeHover?.view?.holdHoverForOccupant) {
+      const view = activeHover.view;
+      const kind = activeHover.kind;
+      const hoverMatches = isPawnHoveringForView(view, kind);
+      if (!hoverMatches) {
+        const pos = lastPointerPos;
+        if (!pos || !isPointerInsideView(view, pos, TAG_DRAG_RELEASE_PAD)) {
+          view.holdHoverForOccupant = false;
+          clearActiveHover(view);
+        }
       }
     }
   }

@@ -72,8 +72,11 @@ export function createCharactersView(opts) {
     endDrag: () => {},
     getDragged: () => null,
     getHovered: () => null,
+    getHoveredPawn: () => null,
     setHovered: () => {},
+    setHoveredPawn: () => {},
     clearHovered: () => {},
+    clearHoveredPawn: () => {},
   };
 
   function getStateSafe() {
@@ -233,6 +236,29 @@ export function createCharactersView(opts) {
       height: scaledHeight,
       scale: s,
     };
+  }
+
+  function getHoverPlacementForChar(char) {
+    let placement = null;
+    if (typeof getPreviewPlacement === "function") {
+      placement = getPreviewPlacement(char.id);
+    } else if (typeof getPreviewHubCol === "function") {
+      const overrideIdx = getPreviewHubCol(char.id);
+      if (overrideIdx != null) placement = { hubCol: overrideIdx };
+    }
+
+    const envCol = Number.isFinite(placement?.envCol)
+      ? Math.floor(placement.envCol)
+      : Number.isFinite(char.envCol)
+      ? Math.floor(char.envCol)
+      : null;
+    const hubCol = Number.isFinite(placement?.hubCol)
+      ? Math.floor(placement.hubCol)
+      : Number.isFinite(char.hubCol)
+      ? Math.floor(char.hubCol)
+      : null;
+
+    return { envCol, hubCol };
   }
 
   // ---------------------------------------------------------------------------
@@ -492,9 +518,12 @@ export function createCharactersView(opts) {
       const inv = getInvSafe();
       inv?.showOnHover?.(char.id, anchor);
 
-      interactionSafe.setHovered?.({
+      const placement = getHoverPlacementForChar(char);
+      interactionSafe.setHoveredPawn?.({
         kind: "pawn",
         id: char.id,
+        envCol: placement.envCol,
+        hubCol: placement.hubCol,
         centerX: container.x,
         centerY: container.y,
         scale,
@@ -509,7 +538,7 @@ export function createCharactersView(opts) {
 
       const tt = getTooltipSafe();
       tt?.hide?.();
-      interactionSafe.clearHovered?.();
+      interactionSafe.clearHoveredPawn?.();
     }
 
     container.on("pointerover", () => {
