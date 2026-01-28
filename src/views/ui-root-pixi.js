@@ -210,6 +210,20 @@ function getSystemGraphTarget() {
   return null;
 }
 
+function getSystemGraphTargetKey(target) {
+  if (!target) return null;
+  if (target.kind === "tile") {
+    return `tile:${Math.floor(target.col ?? 0)}`;
+  }
+  if (target.kind === "hub") {
+    return `hub:${Math.floor(target.col ?? 0)}`;
+  }
+  if (target.kind === "pawn") {
+    return `pawn:${target.id ?? ""}`;
+  }
+  return null;
+}
+
 function getTierValue(defs, systemId, tier) {
   const def = defs?.[systemId];
   const value = def?.tierMap?.[tier];
@@ -597,9 +611,23 @@ let systemGraphView = createMetricGraphView({
   openPosition: { x: 350, y: 640 },
 });
 
+let lastSystemGraphTargetKey = null;
+
+function updateSystemGraphTarget() {
+  const target = getSystemGraphTarget();
+  const nextKey = getSystemGraphTargetKey(target);
+  if (!nextKey || nextKey === lastSystemGraphTargetKey) return false;
+  const metric = buildSystemMetricForTarget(target);
+  if (!metric) return false;
+  lastSystemGraphTargetKey = nextKey;
+  systemGraphController.setMetric?.(metric);
+  return true;
+}
+
 function openSystemGraphForHover() {
   const target = getSystemGraphTarget();
   if (!target) return { ok: false, reason: "noTarget" };
+  lastSystemGraphTargetKey = getSystemGraphTargetKey(target);
   const metric = buildSystemMetricForTarget(target);
   if (!metric) return { ok: false, reason: "noMetric" };
   systemGraphController.setMetric?.(metric);
@@ -746,6 +774,9 @@ app.ticker.add((delta) => {
   const systemGraphOpen = systemGraphView.isOpen();
   systemGraphController.setActive?.(systemGraphOpen);
   if (systemGraphOpen) {
+    if (updateSystemGraphTarget()) {
+      runner.clearPreviewState();
+    }
     systemGraphController.update();
     systemGraphView.render();
   }
