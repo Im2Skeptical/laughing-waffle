@@ -257,7 +257,7 @@ export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
   graphBg.endFill();
   graphBtn.addChild(graphBg);
 
-  const graphText = new PIXI.Text("Open System Graph", {
+  const graphText = new PIXI.Text("Toggle System Graph", {
     fontSize: 11,
     fill: 0xffffff,
   });

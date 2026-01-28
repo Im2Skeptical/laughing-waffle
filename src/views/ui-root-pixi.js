@@ -116,7 +116,17 @@ const timeGraphController = createTimeGraphController({
 const systemGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
-  metric: GRAPH_METRICS.gold,
+  metric: {
+    id: "systemTarget",
+    label: "Systems",
+    series: [
+      {
+        id: "empty",
+        label: "No target",
+        getValue: () => 0,
+      },
+    ],
+  },
 });
 
 function resizeCanvas() {
@@ -625,16 +635,14 @@ function updateSystemGraphTarget() {
 }
 
 function openSystemGraphForHover() {
-  const target = getSystemGraphTarget();
-  if (!target) return { ok: false, reason: "noTarget" };
-  lastSystemGraphTargetKey = getSystemGraphTargetKey(target);
-  const metric = buildSystemMetricForTarget(target);
-  if (!metric) return { ok: false, reason: "noMetric" };
-  systemGraphController.setMetric?.(metric);
+  if (systemGraphView.isOpen()) {
+    systemGraphView.close();
+    return { ok: true, closed: true };
+  }
+  updateSystemGraphTarget();
   runner.clearPreviewState();
-  if (!systemGraphView.isOpen()) systemGraphView.open();
-  else systemGraphView.render();
-  return { ok: true };
+  systemGraphView.open();
+  return { ok: true, opened: true };
 }
 
 const chromeView = createChromeView({
@@ -715,6 +723,7 @@ chromeView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
 apGraphView.open();
+systemGraphView.open();
 
 function isTypingTarget(target) {
   if (!target || typeof target !== "object") return false;
