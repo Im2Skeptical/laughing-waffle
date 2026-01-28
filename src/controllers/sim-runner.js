@@ -589,23 +589,26 @@ export function createSimRunner({
     if (!timeline || !cursorState) return { ok: false, reason: "noState" };
 
     const tSec = Math.floor(cursorState.tSec ?? 0);
-    const keepAtSec = [];
-    for (const action of timeline.actions || []) {
-      const sec = Math.floor(action.tSec ?? 0);
-      if (sec !== tSec) continue;
-      if (!isPlannerManagedAction(action)) keepAtSec.push(action);
-    }
 
-    const replaceRes = replaceActionsAtSecond(timeline, tSec, keepAtSec, {
+    const replaceRes = replaceActionsAtSecond(timeline, tSec, [], {
       truncateFuture: true,
     });
     if (!replaceRes?.ok) return replaceRes || { ok: false, reason: "replace" };
 
+    let lastActionSec = 0;
+    const actions = timeline.actions || [];
+    if (actions.length) {
+      lastActionSec = Math.max(
+        0,
+        Math.floor(actions[actions.length - 1].tSec ?? 0)
+      );
+    }
+
     timeline.checkpoints = truncateCheckpointsAfterSecond(
       timeline.checkpoints,
-      tSec
+      lastActionSec
     );
-    timeline.maxReachedSec = tSec;
+    timeline.maxReachedSec = lastActionSec;
     timeline.cursorSec = tSec;
 
     const rebuilt = rebuildStateAtSecond(timeline, tSec);
@@ -617,9 +620,8 @@ export function createSimRunner({
     setPaused(cursorState, wasPaused);
     syncPhaseToPaused(cursorState);
 
-    playbackActive = false;
+    playbackActive = tSec < lastActionSec;
     seekPlaybackIndex(tSec);
-    maintainCheckpoints(timeline, cursorState);
 
     actionPlanner.resetToTimeline?.();
     onRebuildViews?.();
