@@ -47,6 +47,8 @@ import {
  *  - tooltipView
  *  - inventoryView
  *  - dispatchAction: (kind, payload, opts?) => any
+ *  - queueActionWhenPaused?: (fn) => any
+ *  - requestPauseForAction?: () => void
  */
 export function createBoardView(opts) {
   const {
@@ -62,6 +64,8 @@ export function createBoardView(opts) {
     tooltipView,
     inventoryView,
     dispatchAction,
+    queueActionWhenPaused,
+    requestPauseForAction,
   } = opts;
 
   const tileViews = [];
@@ -102,6 +106,7 @@ export function createBoardView(opts) {
     app,
     interaction,
     actionPlanner,
+    queueActionWhenPaused,
     dispatchAction,
     inspectorLayer: tileInspectorLayer,
     dropdownLayer: cropDropdownLayer,
@@ -129,6 +134,7 @@ export function createBoardView(opts) {
     setTextResolution,
     baseTextResolution: BASE_TEXT_RESOLUTION,
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
+    requestPauseForAction,
   });
 
   function attachHoverFx(
@@ -383,16 +389,25 @@ export function createBoardView(opts) {
   }
 
   function dispatchTagOrder(envCol, tagIds) {
-    if (actionPlanner?.setTileTagOrderIntent) {
-      return actionPlanner.setTileTagOrderIntent({ envCol, tagIds });
+    const run = () => {
+      if (actionPlanner?.setTileTagOrderIntent) {
+        return actionPlanner.setTileTagOrderIntent({ envCol, tagIds });
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      dispatchAction(
+        ActionKinds.SET_TILE_TAG_ORDER,
+        { envCol, tagIds },
+        { apCost: 10 }
+      );
+      return { ok: true };
+    };
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
     }
-    if (!dispatchAction) return;
-    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
-    dispatchAction(
-      ActionKinds.SET_TILE_TAG_ORDER,
-      { envCol, tagIds },
-      { apCost: 10 }
-    );
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
+      return { ok: false, reason: "mustBePaused" };
+    }
+    return run();
   }
   // Tag + system UI helpers live in board/board-tag-ui.js.
 
@@ -441,7 +456,7 @@ export function createBoardView(opts) {
   }
 
   function startTagDrag(view, entry, ev) {
-    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) return;
+    requestPauseForAction?.();
     if (!view.isHovered) return;
 
     if (activeTagDrag && activeTagDrag !== view) {

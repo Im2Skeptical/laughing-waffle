@@ -9,6 +9,7 @@ export function createTilePanels(opts) {
     app,
     interaction,
     actionPlanner,
+    queueActionWhenPaused,
     dispatchAction,
     inspectorLayer,
     dropdownLayer,
@@ -98,9 +99,7 @@ export function createTilePanels(opts) {
 
   function openCropDropdown(view, anchorRect) {
     if (!cropDropdown || !view?.tile) return;
-    const canEdit =
-      typeof interaction?.isPlanningPhase === "function" &&
-      interaction.isPlanningPhase();
+    const canEdit = true;
     const growth = view.tile.systemState?.growth;
     const selectedId = growth?.selectedCropId ?? null;
     const options = getCropList();
@@ -115,19 +114,26 @@ export function createTilePanels(opts) {
           ? Math.floor(view.tile.col)
           : view.col;
         const nextCrop = cropId ?? null;
-        if (actionPlanner?.setTileCropSelectionIntent) {
-          actionPlanner.setTileCropSelectionIntent({
-            envCol,
-            cropId: nextCrop,
-          });
+        const run = () => {
+          if (actionPlanner?.setTileCropSelectionIntent) {
+            return actionPlanner.setTileCropSelectionIntent({
+              envCol,
+              cropId: nextCrop,
+            });
+          }
+          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+          dispatchAction(
+            ActionKinds.SET_TILE_CROP_SELECTION,
+            { envCol, cropId: nextCrop },
+            { apCost: 10 }
+          );
+          return { ok: true };
+        };
+        if (typeof queueActionWhenPaused === "function") {
+          queueActionWhenPaused(run);
           return;
         }
-        if (!dispatchAction) return;
-        dispatchAction(
-          ActionKinds.SET_TILE_CROP_SELECTION,
-          { envCol, cropId: nextCrop },
-          { apCost: 10 }
-        );
+        run();
       },
     });
   }

@@ -63,6 +63,7 @@ export function createTagUi(opts) {
     setTextResolution,
     baseTextResolution,
     hoverTextResolution,
+    requestPauseForAction,
   } = opts;
 
   function clamp01(value) {
@@ -406,13 +407,7 @@ export function createTagUi(opts) {
       container.cursor = "pointer";
       container.on("pointerdown", (ev) => {
         ev?.stopPropagation?.();
-        const canEdit =
-          typeof interaction?.isPlanningPhase === "function" &&
-          interaction.isPlanningPhase();
-        if (!canEdit) {
-          flashSystemRow(row);
-          return;
-        }
+        requestPauseForAction?.();
         openCropDropdown?.(view, container.getBounds());
       });
     }
@@ -624,11 +619,8 @@ export function createTagUi(opts) {
     }
 
     if (systemId === "growth") {
-      const canEdit =
-        typeof interaction?.isPlanningPhase === "function" &&
-        interaction.isPlanningPhase();
-      row.container.cursor = canEdit ? "pointer" : "not-allowed";
-      row.container.alpha = canEdit ? 1 : 0.8;
+      row.container.cursor = "pointer";
+      row.container.alpha = 1;
 
       const growth = tileInst?.systemState?.growth || {};
       const cropId = growth.selectedCropId ?? null;
@@ -701,10 +693,7 @@ export function createTagUi(opts) {
 
   function updateTagEntry(view, entry, tileInst, topTagId, hasPawn) {
     if (!entry) return;
-    const canEdit =
-      typeof interaction?.isPlanningPhase === "function" &&
-      interaction.isPlanningPhase();
-    entry.row.cursor = canEdit ? "grab" : "pointer";
+    entry.row.cursor = "grab";
     const isDisabled = isTagDisabled(tileInst, entry.tagId);
     const isActive = hasPawn && entry.tagId === topTagId && !isDisabled;
     setTagPillStyle(entry, isActive);

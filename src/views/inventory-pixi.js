@@ -53,6 +53,7 @@ export function createInventoryView({
   moveItemBetweenOwners,
   splitStackAndPlace,
   cancelItemTransfer,
+  requestPauseForAction,
 }) {
   const stage = layer.parent;
 
@@ -712,6 +713,7 @@ export function createInventoryView({
   // ----- ITEM DRAGGING ------------------------------------------------------
 
   function beginItemDrag(ev, win, item, view) {
+    requestPauseForAction?.();
     const g = ev.data.global;
 
     const localInBody = win.body.toLocal(g);
@@ -1079,6 +1081,7 @@ export function createInventoryView({
 
   function openSplitDialog(globalPos, ownerId, item) {
     if (item.quantity <= 1) return;
+    requestPauseForAction?.();
 
     uiBlocked = true;
     closeSplitDialog();

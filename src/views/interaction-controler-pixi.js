@@ -84,9 +84,7 @@ export function createInteractionController({ getPhase }) {
 
   // Can we start dragging a character right now?
   function canDragCharacter() {
-    // For your requirements:
-    //  - characters should NOT move during simulation phase.
-    return isPlanningPhase();
+    return true;
   }
 
   // Should hover tooltips / inventories be allowed to show?

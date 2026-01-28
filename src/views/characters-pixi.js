@@ -40,6 +40,7 @@ export function createCharactersView(opts) {
     tooltipView,
     inventoryView,
     onCharacterDropped,
+    requestPauseForAction,
 
     // newer shape
     getGameState,
@@ -538,6 +539,7 @@ export function createCharactersView(opts) {
     function tryStartDrag() {
       dragging = true;
       interactionSafe.startDrag?.({ type: "character", id: char.id });
+      requestPauseForAction?.();
       view.selfHover = false;
       view.attachedScale = 1;
       applyCharacterScale(view);

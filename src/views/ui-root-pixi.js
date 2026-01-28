@@ -67,6 +67,40 @@ const runner = createSimRunner({
 
 const actionPlanner = runner.getActionPlanner?.();
 
+const queuedActions = [];
+
+function requestPauseForAction() {
+  const state = runner.getCursorState?.();
+  if (!state || state.paused) return;
+  runner.setTimeScaleTarget?.(0, { requestPause: true });
+  runner.setPaused(true);
+}
+
+function queueActionWhenPaused(actionFn) {
+  const state = runner.getCursorState?.();
+  if (state?.paused) {
+    return actionFn();
+  }
+  requestPauseForAction();
+  queuedActions.push(actionFn);
+  return { ok: true, queued: true };
+}
+
+function flushQueuedActions() {
+  if (!queuedActions.length) return;
+  const state = runner.getCursorState?.();
+  if (!state?.paused) return;
+  if (runner.isPreviewing?.()) return;
+
+  const pending = queuedActions.splice(0, queuedActions.length);
+  for (const fn of pending) {
+    const res = fn();
+    if (res?.ok === false && res.reason === "mustBePaused") {
+      queuedActions.push(fn);
+    }
+  }
+}
+
 const timeGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
@@ -176,19 +210,20 @@ const inventoryView = createInventoryView({
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
   hasItemTransferIntent: (itemId) =>
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
-  moveItemBetweenOwners: (spec) => {
-    if (spec.fromOwnerId === spec.toOwnerId) {
-      return runner.dispatchAction(
-        ActionKinds.INVENTORY_MOVE,
-        spec,
-        { apCost: 0 }
-      );
-    }
-    return actionPlanner?.setItemTransferIntent?.(spec) || {
-      ok: false,
-      reason: "noPlanner",
-    };
-  },
+  moveItemBetweenOwners: (spec) =>
+    queueActionWhenPaused(() => {
+      if (spec.fromOwnerId === spec.toOwnerId) {
+        return runner.dispatchAction(
+          ActionKinds.INVENTORY_MOVE,
+          spec,
+          { apCost: 0 }
+        );
+      }
+      return actionPlanner?.setItemTransferIntent?.(spec) || {
+        ok: false,
+        reason: "noPlanner",
+      };
+    }),
   cancelItemTransfer: ({ itemId }) => {
     if (itemId == null) return { ok: false, reason: "noItemId" };
     const key = `item:${itemId}`;
@@ -196,11 +231,14 @@ const inventoryView = createInventoryView({
     return res || { ok: false, reason: "noPlanner" };
   },
   splitStackAndPlace: ({ ownerId, itemId, amount, targetGX, targetGY }) =>
-    runner.dispatchAction(
-      ActionKinds.INVENTORY_SPLIT,
-      { ownerId, itemId, amount, targetGX, targetGY },
-      { apCost: 0 }
+    queueActionWhenPaused(() =>
+      runner.dispatchAction(
+        ActionKinds.INVENTORY_SPLIT,
+        { ownerId, itemId, amount, targetGX, targetGY },
+        { apCost: 0 }
+      )
     ),
+  requestPauseForAction,
 });
 
 function togglePause() {
@@ -226,6 +264,8 @@ const boardView = createBoardView({
   actionPlanner,
   tooltipView,
   inventoryView,
+  queueActionWhenPaused,
+  requestPauseForAction,
   dispatchAction: (kind, payload, opts) =>
     runner.dispatchAction(kind, payload, opts),
 });
@@ -240,6 +280,7 @@ const charactersView = createCharactersView({
   interaction: interactionController,
   tooltipView,
   inventoryView,
+  requestPauseForAction,
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
   getPreviewHubCol: (charId) =>
@@ -283,19 +324,21 @@ const charactersView = createCharactersView({
     if (bestIndex == null) return;
 
     if (targetRow === "env") {
-      return (
-        actionPlanner?.setPawnMoveIntent?.({
-          charId,
-          toEnvCol: bestIndex,
-        }) || { ok: false, reason: "noPlanner" }
+      return queueActionWhenPaused(
+        () =>
+          actionPlanner?.setPawnMoveIntent?.({
+            charId,
+            toEnvCol: bestIndex,
+          }) || { ok: false, reason: "noPlanner" }
       );
     }
 
-    return (
-      actionPlanner?.setPawnMoveIntent?.({
-        charId,
-        toHubCol: bestIndex,
-      }) || { ok: false, reason: "noPlanner" }
+    return queueActionWhenPaused(
+      () =>
+        actionPlanner?.setPawnMoveIntent?.({
+          charId,
+          toHubCol: bestIndex,
+        }) || { ok: false, reason: "noPlanner" }
     );
   },
 });
@@ -451,6 +494,7 @@ window.addEventListener("keydown", handleGlobalKeyDown);
 app.ticker.add((delta) => {
   const frameDt = delta / 60;
   runner.update(frameDt);
+  flushQueuedActions();
   interactionController.update(frameDt);
   boardView.update(frameDt);
   charactersView.update(frameDt);
