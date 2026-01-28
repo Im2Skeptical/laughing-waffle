@@ -91,14 +91,23 @@ function isTagDisabled(structure, tagId) {
   return entry?.disabled === true;
 }
 
-function getPawnsOnHubCol(state, hubCol) {
+function getPawnsOnHubAnchor(state, anchor) {
   const out = [];
+  if (!anchor) return out;
+  const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : null;
+  const span =
+    Number.isFinite(anchor.span) && anchor.span > 0
+      ? Math.floor(anchor.span)
+      : 1;
+  if (col == null) return out;
   const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const maxCol = col + span - 1;
   for (const ch of chars) {
     if (!ch) continue;
-    const col = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
-    if (col == null || col !== hubCol) continue;
     if (Number.isFinite(ch.envCol)) continue;
+    const pawnCol = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
+    if (pawnCol == null) continue;
+    if (pawnCol < col || pawnCol > maxCol) continue;
     out.push(ch);
   }
   return out;
@@ -107,20 +116,21 @@ function getPawnsOnHubCol(state, hubCol) {
 export function stepHubSecond(state, tSec) {
   if (!state || !state.hub) return;
 
-  const slots = Array.isArray(state.hub.slots) ? state.hub.slots : [];
-  if (!slots.length) return;
+  const anchors = Array.isArray(state.hub.anchors) ? state.hub.anchors : [];
+  if (!anchors.length) return;
 
   const seasonKey = getCurrentSeasonKey(state);
 
-  for (let hubCol = 0; hubCol < slots.length; hubCol++) {
-    const slot = slots[hubCol];
-    const structure = slot?.structure;
+  for (const structure of anchors) {
     if (!structure) continue;
+    const hubCol = Number.isFinite(structure.col)
+      ? Math.floor(structure.col)
+      : 0;
 
     const tags = Array.isArray(structure.tags) ? structure.tags : [];
     if (!tags.length) continue;
 
-    const pawns = getPawnsOnHubCol(state, hubCol);
+    const pawns = getPawnsOnHubAnchor(state, structure);
     const hasPawn = pawns.length > 0;
 
     const baseContext = {

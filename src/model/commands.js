@@ -473,9 +473,21 @@ export function cmdPlaceCharacter(state, payload = {}) {
     return { ok: true, result: "placed", charId, envCol: col };
   }
 
-  ch.hubCol = col;
+  let hubTargetCol = col;
+  const hubOcc = state?.hub?.occ;
+  if (Array.isArray(hubOcc)) {
+    const anchor = hubOcc[col];
+    if (anchor && Number.isFinite(anchor.col)) {
+      hubTargetCol = Math.floor(anchor.col);
+    }
+  }
+  if (hubTargetCol < 0 || hubTargetCol >= hubCols) {
+    return { ok: false, reason: "badHubCol" };
+  }
+
+  ch.hubCol = hubTargetCol;
   ch.envCol = null;
-  return { ok: true, result: "placed", charId, hubCol: col };
+  return { ok: true, result: "placed", charId, hubCol: hubTargetCol };
 }
 
 // =============================================================================

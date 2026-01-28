@@ -62,6 +62,19 @@ function makePawnPlacement({ hubCol, envCol } = {}) {
   return null;
 }
 
+function normalizeHubColForStructure(state, hubCol) {
+  if (!Number.isFinite(hubCol)) return hubCol;
+  const col = Math.floor(hubCol);
+  const occ = state?.hub?.occ;
+  if (Array.isArray(occ)) {
+    const anchor = occ[col];
+    if (anchor && Number.isFinite(anchor.col)) {
+      return Math.floor(anchor.col);
+    }
+  }
+  return col;
+}
+
 function normalizePawnPlacement(value) {
   if (!value || typeof value !== "object") return null;
   return makePawnPlacement({
@@ -787,8 +800,12 @@ export function createActionPlanner({
       });
     }
 
+    const normalizedHubCol =
+      Number.isFinite(toHubCol) && state
+        ? normalizeHubColForStructure(state, toHubCol)
+        : toHubCol;
     const toPlacement = makePawnPlacement({
-      hubCol: toHubCol,
+      hubCol: normalizedHubCol,
       envCol: toEnvCol,
     });
 
