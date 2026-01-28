@@ -19,7 +19,11 @@ import {
   maintainCheckpoints,
 } from "../model/timeline.js";
 
-import { serializeGameState, syncPhaseToPaused } from "../model/state.js";
+import {
+  serializeGameState,
+  syncPhaseToPaused,
+  getCurrentSeasonKey,
+} from "../model/state.js";
 import { applyAction } from "../model/actions.js";
 import { createActionPlanner } from "./actionmanagers/action-planner.js";
 
@@ -28,6 +32,8 @@ const TICKS_PER_SEC = 60;
 const MAX_SIM_STEPS_PER_FRAME = 8;
 const TIME_SCALE_MAX = 16;
 const TIME_SCALE_EASE_PER_SEC = 10;
+const SAVE_SCHEMA_VERSION = 1;
+const SAVE_KEY_PREFIX = "civsurvivor.save";
 
 export function createSimRunner({
   onInvalidate,
@@ -64,6 +70,113 @@ export function createSimRunner({
   let timeScaleCurrent = 1;
   let timeScaleWantsUnpause = false;
   let rewindAccumulatorSec = 0;
+  const saveSlotCount = 3;
+
+  function getSaveSlotKey(slot) {
+    const idx = Number.isFinite(slot) ? Math.floor(slot) : 1;
+    const clamped = Math.max(1, Math.min(saveSlotCount, idx));
+    return `${SAVE_KEY_PREFIX}.slot${clamped}`;
+  }
+
+  function getLocalStorageSafe() {
+    try {
+      return globalThis?.localStorage ?? null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function buildSaveMeta(state) {
+    const tSec = Math.floor(state?.tSec ?? 0);
+    const seasonKey = getCurrentSeasonKey(state);
+    return {
+      schemaVersion: SAVE_SCHEMA_VERSION,
+      savedAt: new Date().toISOString(),
+      tSec,
+      seasonKey,
+      year: Number.isFinite(state?.year) ? Math.floor(state.year) : 1,
+      actionPoints: Math.floor(state?.actionPoints ?? 0),
+      actionPointCap: Math.floor(state?.actionPointCap ?? 0),
+    };
+  }
+
+  function readSaveSlot(slot) {
+    const store = getLocalStorageSafe();
+    if (!store) return { ok: false, reason: "noStorage" };
+    const key = getSaveSlotKey(slot);
+    const raw = store.getItem(key);
+    if (!raw) return { ok: false, reason: "emptySlot" };
+    try {
+      const parsed = JSON.parse(raw);
+      return { ok: true, data: parsed };
+    } catch (err) {
+      return { ok: false, reason: "badSaveData", error: err };
+    }
+  }
+
+  function getSaveSlotMeta(slot) {
+    const res = readSaveSlot(slot);
+    if (!res.ok) return null;
+    return res.data?.meta ?? null;
+  }
+
+  function saveToSlot(slot) {
+    if (!cursorState) return { ok: false, reason: "noState" };
+    const store = getLocalStorageSafe();
+    if (!store) return { ok: false, reason: "noStorage" };
+    const key = getSaveSlotKey(slot);
+
+    const meta = buildSaveMeta(cursorState);
+    const payload = {
+      meta,
+      state: serializeGameState(cursorState),
+    };
+
+    store.setItem(key, JSON.stringify(payload));
+    return { ok: true, meta };
+  }
+
+  function loadFromSlot(slot) {
+    const res = readSaveSlot(slot);
+    if (!res.ok) return res;
+    const data = res.data;
+    const meta = data?.meta ?? null;
+    if (meta?.schemaVersion !== SAVE_SCHEMA_VERSION) {
+      return { ok: false, reason: "versionMismatch", meta };
+    }
+    if (!data?.state) return { ok: false, reason: "missingState" };
+
+    dragPreviewState = null;
+    pauseRequested = false;
+    timeScaleTarget = 0;
+    timeScaleCurrent = 0;
+    timeScaleWantsUnpause = false;
+    rewindAccumulatorSec = 0;
+    simAccumulator = 0;
+
+    loadIntoGameState(data.state);
+    cursorState = gameState;
+    setPaused(cursorState, true);
+    syncPhaseToPaused(cursorState);
+
+    timeline = createTimelineFromInitialState(cursorState);
+    timeline.cursorSec = Math.floor(cursorState.tSec ?? 0);
+    timeline.maxReachedSec = timeline.cursorSec;
+    timeline.checkpoints = [
+      {
+        checkpointSec: timeline.cursorSec,
+        appliedThroughSec: timeline.cursorSec,
+        stateData: serializeGameState(cursorState),
+      },
+    ];
+    maintainCheckpoints(timeline, cursorState);
+    seekPlaybackIndex(timeline.cursorSec);
+    actionPlanner.resetToTimeline?.();
+
+    onRebuildViews?.();
+    onInvalidate?.("saveLoad");
+    return { ok: true, meta };
+  }
 
   function seekPlaybackIndex(targetSec) {
     if (!timeline?.actions) {
@@ -768,5 +881,9 @@ export function createSimRunner({
     isPausePending: () => !!pauseRequested,
     getActionPlanner: () => actionPlanner,
     clearPlannerActionsAtCursor,
+    saveToSlot,
+    loadFromSlot,
+    getSaveSlotMeta,
+    getSaveSlotCount: () => saveSlotCount,
   };
 }

@@ -41,7 +41,7 @@ export function createDebugOverlay({ layer, runner }) {
 
   const panelBg = new PIXI.Graphics();
   panelBg.beginFill(0x222222, 0.9);
-  panelBg.drawRoundedRect(0, 0, 200, 100, 8);
+  panelBg.drawRoundedRect(0, 0, 200, 220, 8);
   panelBg.endFill();
   panel.addChild(panelBg);
 
@@ -65,6 +65,81 @@ export function createDebugOverlay({ layer, runner }) {
   cheatBtn.addChild(cheatText);
 
   let cheatsEnabled = false;
+  const slotRows = [];
+  const slotCount = runner.getSaveSlotCount?.() ?? 3;
+  const slotStartY = 50;
+  const slotRowGap = 40;
+
+  function buildSlotRow(slotIndex) {
+    const row = new PIXI.Container();
+    row.x = 10;
+    row.y = slotStartY + (slotIndex - 1) * slotRowGap;
+    panel.addChild(row);
+
+    const label = new PIXI.Text(`Slot ${slotIndex}: empty`, {
+      fontSize: 11,
+      fill: 0xffffff,
+    });
+    label.x = 0;
+    label.y = 4;
+    row.addChild(label);
+
+    const saveBtn = new PIXI.Container();
+    saveBtn.x = 0;
+    saveBtn.y = 18;
+    saveBtn.eventMode = "static";
+    saveBtn.cursor = "pointer";
+    row.addChild(saveBtn);
+
+    const saveBg = new PIXI.Graphics();
+    saveBg.beginFill(0x555555);
+    saveBg.drawRoundedRect(0, 0, 52, 20, 4);
+    saveBg.endFill();
+    saveBtn.addChild(saveBg);
+
+    const saveText = new PIXI.Text("Save", {
+      fontSize: 10,
+      fill: 0xffffff,
+    });
+    saveText.x = 12;
+    saveText.y = 3;
+    saveBtn.addChild(saveText);
+
+    const loadBtn = new PIXI.Container();
+    loadBtn.x = 68;
+    loadBtn.y = 18;
+    loadBtn.eventMode = "static";
+    loadBtn.cursor = "pointer";
+    row.addChild(loadBtn);
+
+    const loadBg = new PIXI.Graphics();
+    loadBg.beginFill(0x555555);
+    loadBg.drawRoundedRect(0, 0, 52, 20, 4);
+    loadBg.endFill();
+    loadBtn.addChild(loadBg);
+
+    const loadText = new PIXI.Text("Load", {
+      fontSize: 10,
+      fill: 0xffffff,
+    });
+    loadText.x = 11;
+    loadText.y = 3;
+    loadBtn.addChild(loadText);
+
+    saveBtn.on("pointerdown", () => {
+      runner.saveToSlot?.(slotIndex);
+    });
+
+    loadBtn.on("pointerdown", () => {
+      runner.loadFromSlot?.(slotIndex);
+    });
+
+    return { label, saveBtn, loadBtn, loadBg, slotIndex };
+  }
+
+  for (let i = 1; i <= slotCount; i++) {
+    slotRows.push(buildSlotRow(i));
+  }
 
   dbgBtn.on("pointerdown", () => {
     panel.visible = !panel.visible;
@@ -100,6 +175,25 @@ export function createDebugOverlay({ layer, runner }) {
         const cap = state.actionPointCap ?? 100;
         apText.text = ``;
         apText.style.fill = cur < 20 ? 0xff5555 : 0xffd700;
+      }
+
+      for (const row of slotRows) {
+        const meta = runner.getSaveSlotMeta?.(row.slotIndex) ?? null;
+        if (meta) {
+          const tSec = Number.isFinite(meta.tSec) ? meta.tSec : 0;
+          const season = meta.seasonKey || "?";
+          row.label.text = `Slot ${row.slotIndex}: T${tSec} ${season}`;
+          row.loadBtn.alpha = 1;
+          row.loadBtn.eventMode = "static";
+          row.loadBtn.cursor = "pointer";
+          row.loadBg.tint = 0xffffff;
+        } else {
+          row.label.text = `Slot ${row.slotIndex}: empty`;
+          row.loadBtn.alpha = 0.4;
+          row.loadBtn.eventMode = "none";
+          row.loadBtn.cursor = "default";
+          row.loadBg.tint = 0xffffff;
+        }
       }
     },
   };
