@@ -98,6 +98,7 @@ export function createActionPlanner({
   getState,
   onInvalidate,
   onEdit,
+  onInsufficientAp,
 } = {}) {
   let activeSec = null;
   let activeRevision = null;
@@ -630,6 +631,14 @@ export function createActionPlanner({
     const total = summary?.total ?? 0;
 
     if (total > budget) {
+      if (typeof onInsufficientAp === "function") {
+        onInsufficientAp({
+          intent,
+          needed: total,
+          current: budget,
+          budget,
+        });
+      }
       return {
         ok: false,
         reason: "insufficientAP",

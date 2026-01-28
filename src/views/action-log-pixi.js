@@ -84,6 +84,10 @@ export function createActionLogView({
   apPanel.endFill();
   header.addChild(apPanel);
 
+  const apFlash = new PIXI.Graphics();
+  apFlash.visible = false;
+  header.addChild(apFlash);
+
   const apLabel = new PIXI.Text("AP", {
     fill: 0xffffff,
     fontSize: 12,
@@ -106,6 +110,13 @@ export function createActionLogView({
   rows.x = PADDING;
   rows.y = HEADER_HEIGHT;
   container.addChild(rows);
+
+  const flashOverlay = new PIXI.Graphics();
+  flashOverlay.visible = false;
+  container.addChild(flashOverlay);
+
+  let flashTimeout = null;
+  let apFlashTimeout = null;
 
   let lastVersion = -1;
   let lastPreviewing = null;
@@ -226,6 +237,43 @@ export function createActionLogView({
 
   function init() {}
 
+  function flashInsufficientAp() {
+    if (flashTimeout) {
+      clearTimeout(flashTimeout);
+      flashTimeout = null;
+    }
+    if (apFlashTimeout) {
+      clearTimeout(apFlashTimeout);
+      apFlashTimeout = null;
+    }
+
+    flashOverlay.clear();
+    flashOverlay
+      .beginFill(0x8a1f2a, 0.25)
+      .lineStyle(2, 0xff4f5e, 1)
+      .drawRoundedRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 16)
+      .endFill();
+    flashOverlay.visible = true;
+
+    apFlash.clear();
+    apFlash
+      .beginFill(0x8a1f2a, 0.35)
+      .lineStyle(2, 0xff4f5e, 1)
+      .drawRoundedRect(PADDING, 12, 64, 44, 12)
+      .endFill();
+    apFlash.visible = true;
+
+    flashTimeout = setTimeout(() => {
+      flashOverlay.visible = false;
+      flashTimeout = null;
+    }, 160);
+
+    apFlashTimeout = setTimeout(() => {
+      apFlash.visible = false;
+      apFlashTimeout = null;
+    }, 260);
+  }
+
   prevBtn.on("pointertap", () => {
     const { prev } = logController.getPrevNextForCursor();
     if (prev == null) return;
@@ -238,5 +286,5 @@ export function createActionLogView({
     onJumpToSecond?.(next);
   });
 
-  return { init, update, container };
+  return { init, update, container, flashInsufficientAp };
 }

@@ -29,7 +29,11 @@ const MAX_SIM_STEPS_PER_FRAME = 8;
 const TIME_SCALE_MAX = 16;
 const TIME_SCALE_EASE_PER_SEC = 10;
 
-export function createSimRunner({ onInvalidate, onRebuildViews }) {
+export function createSimRunner({
+  onInvalidate,
+  onRebuildViews,
+  onPlannerApReject,
+}) {
   // State
   let timeline = null;
   let cursorState = null;
@@ -47,6 +51,7 @@ export function createSimRunner({ onInvalidate, onRebuildViews }) {
       dragPreviewState = null;
       commitPlannerActions(`edit:${reason || "update"}`);
     },
+    onInsufficientAp: (info) => onPlannerApReject?.(info),
   });
 
   // Playback / Live Replay State

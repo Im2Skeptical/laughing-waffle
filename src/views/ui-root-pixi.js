@@ -42,6 +42,8 @@ export const app = new PIXI.Application({
 
 document.body.appendChild(app.view);
 
+let flashActionLogAp = null;
+
 const runner = createSimRunner({
   onInvalidate: (reason) => {
     timeGraphController.handleInvalidate(reason);
@@ -57,6 +59,9 @@ const runner = createSimRunner({
     boardView.rebuildAll();
     charactersView.rebuildAll();
     chromeView.refresh?.();
+  },
+  onPlannerApReject: () => {
+    flashActionLogAp?.();
   },
 });
 
@@ -406,6 +411,8 @@ const actionLogView = createActionLogView({
   },
   getState: () => runner.getState(),
 });
+
+flashActionLogAp = () => actionLogView.flashInsufficientAp?.();
 
 runner.init();
 interactionController.init();
