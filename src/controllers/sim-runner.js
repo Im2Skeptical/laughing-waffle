@@ -32,7 +32,7 @@ const TICKS_PER_SEC = 60;
 const MAX_SIM_STEPS_PER_FRAME = 8;
 const TIME_SCALE_MAX = 16;
 const TIME_SCALE_EASE_PER_SEC = 10;
-const SAVE_SCHEMA_VERSION = 1;
+const SAVE_SCHEMA_VERSION = 2;
 const SAVE_KEY_PREFIX = "civsurvivor.save";
 
 export function createSimRunner({
@@ -100,6 +100,36 @@ export function createSimRunner({
     };
   }
 
+  function serializeTimelineForSave(tl) {
+    if (!tl) return null;
+    return {
+      baseStateData: tl.baseStateData ?? null,
+      actions: Array.isArray(tl.actions) ? tl.actions : [],
+      checkpoints: Array.isArray(tl.checkpoints) ? tl.checkpoints : [],
+      cursorSec: Math.floor(tl.cursorSec ?? 0),
+      maxReachedSec: Math.floor(tl.maxReachedSec ?? 0),
+      revision: Math.floor(tl.revision ?? 0),
+    };
+  }
+
+  function normalizeSavedTimeline(rawTimeline, fallbackStateData) {
+    if (!rawTimeline || typeof rawTimeline !== "object") return null;
+    const baseStateData = rawTimeline.baseStateData ?? fallbackStateData ?? null;
+    if (!baseStateData) return null;
+    return {
+      baseStateData,
+      actions: Array.isArray(rawTimeline.actions) ? rawTimeline.actions : [],
+      checkpoints: Array.isArray(rawTimeline.checkpoints)
+        ? rawTimeline.checkpoints
+        : [],
+      cursorSec: Math.floor(rawTimeline.cursorSec ?? 0),
+      maxReachedSec: Math.floor(
+        rawTimeline.maxReachedSec ?? rawTimeline.cursorSec ?? 0
+      ),
+      revision: Math.floor(rawTimeline.revision ?? 0),
+    };
+  }
+
   function readSaveSlot(slot) {
     const store = getLocalStorageSafe();
     if (!store) return { ok: false, reason: "noStorage" };
@@ -127,9 +157,11 @@ export function createSimRunner({
     const key = getSaveSlotKey(slot);
 
     const meta = buildSaveMeta(cursorState);
+    const timelineData = serializeTimelineForSave(timeline);
     const payload = {
       meta,
       state: serializeGameState(cursorState),
+      timeline: timelineData,
     };
 
     store.setItem(key, JSON.stringify(payload));
@@ -145,6 +177,13 @@ export function createSimRunner({
       return { ok: false, reason: "versionMismatch", meta };
     }
     if (!data?.state) return { ok: false, reason: "missingState" };
+    const nextTimeline = normalizeSavedTimeline(
+      data?.timeline,
+      data?.state ?? null
+    );
+    if (!nextTimeline) {
+      return { ok: false, reason: "missingTimeline" };
+    }
 
     dragPreviewState = null;
     pauseRequested = false;
@@ -154,23 +193,24 @@ export function createSimRunner({
     rewindAccumulatorSec = 0;
     simAccumulator = 0;
 
+    timeline = nextTimeline;
+
     loadIntoGameState(data.state);
     cursorState = gameState;
+
+    const desiredSec = Math.floor(timeline.cursorSec ?? cursorState.tSec ?? 0);
+    if (Math.floor(cursorState.tSec ?? 0) !== desiredSec) {
+      const rebuilt = rebuildStateAtSecond(timeline, desiredSec);
+      if (!rebuilt?.ok) return rebuilt;
+      loadIntoGameState(serializeGameState(rebuilt.state));
+      cursorState = gameState;
+    }
+
     setPaused(cursorState, true);
     syncPhaseToPaused(cursorState);
 
-    timeline = createTimelineFromInitialState(cursorState);
-    timeline.cursorSec = Math.floor(cursorState.tSec ?? 0);
-    timeline.maxReachedSec = timeline.cursorSec;
-    timeline.checkpoints = [
-      {
-        checkpointSec: timeline.cursorSec,
-        appliedThroughSec: timeline.cursorSec,
-        stateData: serializeGameState(cursorState),
-      },
-    ];
-    maintainCheckpoints(timeline, cursorState);
-    seekPlaybackIndex(timeline.cursorSec);
+    seekPlaybackIndex(desiredSec);
+    playbackActive = desiredSec < Math.floor(timeline.maxReachedSec ?? 0);
     actionPlanner.resetToTimeline?.();
 
     onRebuildViews?.();
