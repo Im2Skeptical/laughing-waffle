@@ -317,6 +317,9 @@ function createCropDropdown(layer, app) {
     const width = 180;
     let y = 0;
 
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
     for (const entry of list) {
       const row = buildRow(
         entry,
@@ -328,6 +331,13 @@ function createCropDropdown(layer, app) {
       container.addChild(row);
       y += 38;
     }
+
+    const height = Math.max(1, y);
+    bg.beginFill(0x141b2b, 0.95);
+    bg.drawRoundedRect(0, 0, width, height, 8);
+    bg.endFill();
+    container.setChildIndex(bg, 0);
+    container.hitArea = new PIXI.Rectangle(0, 0, width, height);
 
     const bounds = anchor || { x: 0, y: 0, width: 0, height: 0 };
     container.x = bounds.x;
