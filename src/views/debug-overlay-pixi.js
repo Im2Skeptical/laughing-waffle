@@ -6,7 +6,7 @@ import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 
 const DESIGN_WIDTH = 1920;
 
-export function createDebugOverlay({ layer, runner }) {
+export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
   const root = new PIXI.Container();
   root.x = DESIGN_WIDTH - 220;
   root.y = 10;
@@ -242,6 +242,31 @@ export function createDebugOverlay({ layer, runner }) {
     const defId = eventIds[eventIndex] ?? null;
     if (!defId) return;
     runner.dispatchAction?.(ActionKinds.DEBUG_QUEUE_ENV_EVENT, { defId });
+  });
+
+  const graphBtn = new PIXI.Container();
+  graphBtn.x = 10;
+  graphBtn.y = spawnBtn.y + 32;
+  graphBtn.eventMode = "static";
+  graphBtn.cursor = "pointer";
+  panel.addChild(graphBtn);
+
+  const graphBg = new PIXI.Graphics();
+  graphBg.beginFill(0x555555);
+  graphBg.drawRoundedRect(0, 0, 180, 24, 4);
+  graphBg.endFill();
+  graphBtn.addChild(graphBg);
+
+  const graphText = new PIXI.Text("Open System Graph", {
+    fontSize: 11,
+    fill: 0xffffff,
+  });
+  graphText.x = 24;
+  graphText.y = 4;
+  graphBtn.addChild(graphText);
+
+  graphBtn.on("pointerdown", () => {
+    onOpenSystemGraph?.();
   });
 
   return {

@@ -26,15 +26,8 @@ export function createTimeGraphController({
   horizonSec = BASE_PROJECTION_HORIZON_SEC,
 } = {}) {
   let cache = null;
-  const resolvedMetric =
-    typeof metric === "string" ? GRAPH_METRICS[metric] : metric;
-  const metricDef =
-    resolvedMetric && typeof resolvedMetric === "object"
-      ? resolvedMetric
-      : GRAPH_METRICS.gold;
-  const series = Array.isArray(metricDef.series)
-    ? metricDef.series
-    : GRAPH_METRICS.gold.series;
+  let metricDef = GRAPH_METRICS.gold;
+  let series = GRAPH_METRICS.gold.series;
   let isActive = false;
   let dirty = true;
 
@@ -52,6 +45,18 @@ export function createTimeGraphController({
     if (!Number.isFinite(v)) return 0;
     return Math.max(0, Math.floor(v));
   }
+
+  function resolveMetric(nextMetric) {
+    const resolved =
+      typeof nextMetric === "string" ? GRAPH_METRICS[nextMetric] : nextMetric;
+    metricDef =
+      resolved && typeof resolved === "object" ? resolved : GRAPH_METRICS.gold;
+    series = Array.isArray(metricDef.series)
+      ? metricDef.series
+      : GRAPH_METRICS.gold.series;
+  }
+
+  resolveMetric(metric);
 
   function clampStride(v, fallback) {
     const n = Math.floor(v);
@@ -386,6 +391,11 @@ export function createTimeGraphController({
     getData,
     getStateDataAt,
     getStateAt,
+    setMetric: (nextMetric) => {
+      resolveMetric(nextMetric);
+      cache = null;
+      dirty = true;
+    },
     setActive: (active) => {
       const next = !!active;
       if (next === isActive) return;

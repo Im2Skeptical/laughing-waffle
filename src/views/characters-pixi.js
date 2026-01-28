@@ -72,6 +72,8 @@ export function createCharactersView(opts) {
     endDrag: () => {},
     getDragged: () => null,
     getHovered: () => null,
+    setHovered: () => {},
+    clearHovered: () => {},
   };
 
   function getStateSafe() {
@@ -489,6 +491,14 @@ export function createCharactersView(opts) {
 
       const inv = getInvSafe();
       inv?.showOnHover?.(char.id, anchor);
+
+      interactionSafe.setHovered?.({
+        kind: "pawn",
+        id: char.id,
+        centerX: container.x,
+        centerY: container.y,
+        scale,
+      });
     }
 
     function hideHover() {
@@ -499,6 +509,7 @@ export function createCharactersView(opts) {
 
       const tt = getTooltipSafe();
       tt?.hide?.();
+      interactionSafe.clearHovered?.();
     }
 
     container.on("pointerover", () => {

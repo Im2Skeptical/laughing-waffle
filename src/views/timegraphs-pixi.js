@@ -21,6 +21,7 @@ export function createMetricGraphView({
   layer,
   controller,
   metric = GRAPH_METRICS.gold,
+  getMetricDef,
   getTimeline,
   getCursorState,
   getSeriesValueOverride,
@@ -29,15 +30,24 @@ export function createMetricGraphView({
   commitSecond,
   openPosition,
 }) {
-  const resolvedMetric =
-    typeof metric === "string" ? GRAPH_METRICS[metric] : metric;
-  const metricDef =
-    resolvedMetric && typeof resolvedMetric === "object"
-      ? resolvedMetric
-      : GRAPH_METRICS.gold;
-  const series = Array.isArray(metricDef.series)
-    ? metricDef.series
-    : GRAPH_METRICS.gold.series;
+  let metricDef = GRAPH_METRICS.gold;
+  let series = GRAPH_METRICS.gold.series;
+
+  function resolveMetric() {
+    const next =
+      typeof getMetricDef === "function" ? getMetricDef() : metric;
+    const resolved =
+      typeof next === "string" ? GRAPH_METRICS[next] : next;
+    metricDef =
+      resolved && typeof resolved === "object"
+        ? resolved
+        : GRAPH_METRICS.gold;
+    series = Array.isArray(metricDef.series)
+      ? metricDef.series
+      : GRAPH_METRICS.gold.series;
+  }
+
+  resolveMetric();
 
   const root = new PIXI.Container();
   root.visible = false;
@@ -283,6 +293,7 @@ export function createMetricGraphView({
   }
 
   function drawPlot() {
+    resolveMetric();
     plotG.clear();
     const { cache } = controller.getData();
     const tl = getTimeline?.();
@@ -382,6 +393,7 @@ export function createMetricGraphView({
   }
 
   function drawScrub() {
+    resolveMetric();
     scrubG.clear();
     const cs = getCursorState?.();
     const tl = getTimeline?.();
@@ -499,6 +511,7 @@ export function createMetricGraphView({
 
   function render() {
     if (!root.visible) return;
+    resolveMetric();
     updateTimeBounds();
     updateZoomButton();
     drawPlot();

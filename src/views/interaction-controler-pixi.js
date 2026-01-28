@@ -17,6 +17,7 @@ export function createInteractionController({ getPhase }) {
   const state = {
     dragged: null, // { type, id }  e.g. { type: "character", id: "char-1" }
     hovered: null, // { type, id }  (optional; handy for future UI)
+    lastHovered: null,
   };
 
   function init() {
@@ -70,6 +71,7 @@ export function createInteractionController({ getPhase }) {
 
   function setHovered(payload) {
     state.hovered = payload; // or null
+    if (payload) state.lastHovered = payload;
   }
 
   function clearHovered() {
@@ -78,6 +80,10 @@ export function createInteractionController({ getPhase }) {
 
   function getHovered() {
     return state.hovered;
+  }
+
+  function getLastHovered() {
+    return state.lastHovered || state.hovered;
   }
 
   // --- policy helpers (what the rest of the UI really cares about) ---------
@@ -151,6 +157,7 @@ export function createInteractionController({ getPhase }) {
     setHovered,
     clearHovered,
     getHovered,
+    getLastHovered,
 
     // policies
     canDragCharacter,

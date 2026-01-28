@@ -1,10 +1,14 @@
 // src/views/ui-root-pixi.js
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
+import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
+import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { runDeterminismSuite } from "../model/tests/determinism.js";
 import { createInteractionController } from "./interaction-controler-pixi.js";
 import { createTooltipView } from "./tooltip-pixi.js";
@@ -47,9 +51,11 @@ let flashActionLogAp = null;
 const runner = createSimRunner({
   onInvalidate: (reason) => {
     timeGraphController.handleInvalidate(reason);
+    systemGraphController.handleInvalidate(reason);
     if (goldGraphView?.isOpen()) goldGraphView.render();
     if (foodGraphView?.isOpen()) foodGraphView.render();
     if (apGraphView?.isOpen()) apGraphView.render();
+    if (systemGraphView?.isOpen()) systemGraphView.render();
     // Force a check on inventory UI in case state changed
     inventoryView?.update?.();
   },
@@ -105,6 +111,12 @@ const timeGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.all,
+});
+
+const systemGraphController = createTimeGraphController({
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  metric: GRAPH_METRICS.gold,
 });
 
 function resizeCanvas() {
@@ -170,6 +182,176 @@ const interactionController = createInteractionController({
   // Phase is derived from paused by policy.
   getPhase: () => runner.getCursorState().phase,
 });
+
+const SYSTEM_GRAPH_COLORS = [
+  0x7fd0ff,
+  0xffaa66,
+  0x7ccf6b,
+  0xff6699,
+  0xb07a4f,
+  0x9aa0b5,
+  0x8f6fff,
+];
+
+function getSystemGraphTarget() {
+  const hover =
+    interactionController.getLastHovered?.() ??
+    interactionController.getHovered?.();
+  if (!hover) return null;
+  if (hover.kind === "tile") {
+    return { kind: "tile", col: hover.col };
+  }
+  if (hover.kind === "hub") {
+    return { kind: "hub", col: hover.col };
+  }
+  if (hover.kind === "pawn") {
+    return { kind: "pawn", id: hover.id };
+  }
+  return null;
+}
+
+function getTierValue(defs, systemId, tier) {
+  const def = defs?.[systemId];
+  const value = def?.tierMap?.[tier];
+  return Number.isFinite(value) ? value : 0;
+}
+
+function sumMaturedPool(pool) {
+  return (
+    (pool?.bronze ?? 0) +
+    (pool?.silver ?? 0) +
+    (pool?.gold ?? 0) +
+    (pool?.diamond ?? 0)
+  );
+}
+
+function buildSystemMetricForTarget(target) {
+  if (!target) return null;
+  const state = runner.getState();
+  const series = [];
+  let label = "Systems";
+  let targetKey = "";
+
+  if (target.kind === "tile") {
+    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
+    const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
+    const tileDef = tile ? envTileDefs[tile.defId] : null;
+    label = tileDef?.name || tile?.defId || `Tile ${col}`;
+    targetKey = `tile:${col}`;
+
+    const ids = new Set([
+      ...Object.keys(tile?.systemState || {}),
+      ...Object.keys(tile?.systemTiers || {}),
+    ]);
+    for (const systemId of ids.values()) {
+      if (systemId === "growth") {
+        series.push({
+          id: `${targetKey}:matured`,
+          label: "Matured",
+          color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
+          getValue: (snap) => {
+            const t = snap?.board?.occ?.tile?.[col];
+            const pool = t?.systemState?.growth?.maturedPool;
+            return sumMaturedPool(pool);
+          },
+        });
+        continue;
+      }
+      const def = envSystemDefs[systemId];
+      const sysLabel = def?.ui?.name || systemId;
+      series.push({
+        id: `${targetKey}:${systemId}`,
+        label: sysLabel,
+        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
+        getValue: (snap) => {
+          const t = snap?.board?.occ?.tile?.[col];
+          const sysState = t?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            t?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
+          return getTierValue(envSystemDefs, systemId, tier);
+        },
+      });
+    }
+  } else if (target.kind === "hub") {
+    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
+    const structure =
+      col != null ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure : null;
+    const def = structure ? hubStructureDefs[structure.defId] : null;
+    label = def?.name || structure?.defId || `Hub ${col}`;
+    targetKey = `hub:${col}`;
+
+    const ids = new Set([
+      ...Object.keys(structure?.systemState || {}),
+      ...Object.keys(structure?.systemTiers || {}),
+    ]);
+    for (const systemId of ids.values()) {
+      const defSys = hubSystemDefs[systemId];
+      const sysLabel = defSys?.ui?.name || systemId;
+      series.push({
+        id: `${targetKey}:${systemId}`,
+        label: sysLabel,
+        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
+        getValue: (snap) => {
+          const s =
+            col != null
+              ? snap?.hub?.occ?.[col] ?? snap?.hub?.slots?.[col]?.structure
+              : null;
+          const sysState = s?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
+          return getTierValue(hubSystemDefs, systemId, tier);
+        },
+      });
+    }
+  } else if (target.kind === "pawn") {
+    const id = target.id;
+    const pawn = state?.characters?.find((c) => c.id === id);
+    label = pawn?.name || `Pawn ${id}`;
+    targetKey = `pawn:${id}`;
+
+    const ids = new Set([
+      ...Object.keys(pawn?.systemState || {}),
+      ...Object.keys(pawn?.systemTiers || {}),
+    ]);
+    for (const systemId of ids.values()) {
+      const defSys = pawnSystemDefs[systemId];
+      const sysLabel = defSys?.ui?.name || systemId;
+      series.push({
+        id: `${targetKey}:${systemId}`,
+        label: sysLabel,
+        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
+        getValue: (snap) => {
+          const p = snap?.characters?.find((c) => c.id === id);
+          const sysState = p?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
+          return getTierValue(pawnSystemDefs, systemId, tier);
+        },
+      });
+    }
+  }
+
+  if (!series.length) {
+    series.push({
+      id: `${targetKey}:empty`,
+      label: "No systems",
+      color: SYSTEM_GRAPH_COLORS[0],
+      getValue: () => 0,
+    });
+  }
+
+  return {
+    id: `${targetKey}:systems`,
+    label: `${label} Systems`,
+    series,
+  };
+}
 
 const tooltipView = createTooltipView({
   layer: uiLayers.tooltipLayer,
@@ -402,6 +584,31 @@ let apGraphView = createMetricGraphView({
   openPosition: { x: 350 },
 });
 
+let systemGraphView = createMetricGraphView({
+  app,
+  layer: uiLayers.controlsLayer,
+  controller: systemGraphController,
+  getMetricDef: () => systemGraphController.getData().metric,
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  setPreviewState: (s) => runner.setPreviewState(s),
+  clearPreviewState: () => runner.clearPreviewState(),
+  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
+  openPosition: { x: 350, y: 640 },
+});
+
+function openSystemGraphForHover() {
+  const target = getSystemGraphTarget();
+  if (!target) return { ok: false, reason: "noTarget" };
+  const metric = buildSystemMetricForTarget(target);
+  if (!metric) return { ok: false, reason: "noMetric" };
+  systemGraphController.setMetric?.(metric);
+  runner.clearPreviewState();
+  if (!systemGraphView.isOpen()) systemGraphView.open();
+  else systemGraphView.render();
+  return { ok: true };
+}
+
 const chromeView = createChromeView({
   app,
   layer: uiLayers.controlsLayer,
@@ -439,6 +646,7 @@ const sunMoonDisksView = createSunAndMoonDisksView({
 const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
+  onOpenSystemGraph: () => openSystemGraphForHover(),
 });
 
 const actionLogView = createActionLogView({
@@ -523,16 +731,23 @@ app.ticker.add((delta) => {
   actionLogView.update(frameDt);
   debugView.update();
 
-  const anyGraphOpen =
+  const anyMetricGraphOpen =
     goldGraphView.isOpen() ||
     foodGraphView.isOpen() ||
     apGraphView.isOpen();
-  timeGraphController.setActive?.(anyGraphOpen);
-  if (anyGraphOpen) {
+  timeGraphController.setActive?.(anyMetricGraphOpen);
+  if (anyMetricGraphOpen) {
     timeGraphController.update();
     if (goldGraphView.isOpen()) goldGraphView.render();
     if (foodGraphView.isOpen()) foodGraphView.render();
     if (apGraphView.isOpen()) apGraphView.render();
+  }
+
+  const systemGraphOpen = systemGraphView.isOpen();
+  systemGraphController.setActive?.(systemGraphOpen);
+  if (systemGraphOpen) {
+    systemGraphController.update();
+    systemGraphView.render();
   }
 });
 
