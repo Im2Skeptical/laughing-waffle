@@ -9,6 +9,7 @@ import {
   cmdStackItemsInOwner,
   cmdDebugSetCap,
   cmdSetTileTagOrder,
+  cmdSetHubTagOrder,
   cmdSetTileCropSelection,
 } from "./commands.js";
 
@@ -19,6 +20,7 @@ export const ActionKinds = {
   INVENTORY_STACK: "inventoryStack",
   BUILD_DESIGNATE: "buildDesignate",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
+  SET_HUB_TAG_ORDER: "setHubTagOrder",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
   DEBUG_SET_CAP: "debugSetCap",
 };
@@ -42,6 +44,7 @@ function getActionApCost(action) {
     kind === ActionKinds.INVENTORY_STACK ||
     kind === ActionKinds.BUILD_DESIGNATE ||
     kind === ActionKinds.SET_TILE_CROP_SELECTION
+    || kind === ActionKinds.SET_HUB_TAG_ORDER
   ) {
     console.warn(
       "Action missing apCost; defaulting to 0 for replay safety.",
@@ -76,7 +79,8 @@ export function applyAction(state, action, context = {}) {
 
   // "Control" actions are allowed while running.
   // "Edit" actions (Player moves) require the simulation to be PAUSED.
-  const isControlAction = kind === ActionKinds.DEBUG_SET_CAP;
+  const isControlAction =
+    kind === ActionKinds.DEBUG_SET_CAP;
 
   // STRICT GATING: If not replaying, gameplay actions are FORBIDDEN unless paused.
   if (!isReplay && !isControlAction && !state.paused) {
@@ -133,6 +137,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.SET_TILE_TAG_ORDER:
       result = cmdSetTileTagOrder(state, payload);
+      break;
+
+    case ActionKinds.SET_HUB_TAG_ORDER:
+      result = cmdSetHubTagOrder(state, payload);
       break;
 
     case ActionKinds.SET_TILE_CROP_SELECTION:

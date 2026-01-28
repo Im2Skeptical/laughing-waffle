@@ -11,6 +11,7 @@ import {
   makeBuildDesignateIntent,
   makeTileTagOrderIntent,
   makeTileCropSelectIntent,
+  makeHubTagOrderIntent,
   getIntentSubjectKey,
 } from "./action-intents.js";
 import {
@@ -158,6 +159,15 @@ export function createActionPlanner({
   function getInventoryForOwner(state, ownerId) {
     if (!state || !state.ownerInventories) return null;
     return state.ownerInventories[ownerId] || null;
+  }
+
+  function getHubStructureAtCol(state, hubCol) {
+    if (!state || !Number.isFinite(hubCol)) return null;
+    const col = Math.floor(hubCol);
+    const occ = state.hub?.occ;
+    if (Array.isArray(occ) && occ[col]) return occ[col];
+    const slot = state.hub?.slots?.[col];
+    return slot?.structure ?? null;
   }
 
   function findItemInOwner(inv, itemId) {
@@ -355,6 +365,28 @@ export function createActionPlanner({
           id: subjectKey,
           subjectKey,
           envCol: col,
+          tagIds,
+          baselineTags: tagIds,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
+      if (kind === ActionKinds.SET_HUB_TAG_ORDER) {
+        const hubCol = payload.hubCol ?? null;
+        if (!Number.isFinite(hubCol)) continue;
+        const col = Math.floor(hubCol);
+        const subjectKey = `hubTags:${col}`;
+        const tagIds = normalizeTagList(payload.tagIds ?? payload.tags);
+        const intent = makeHubTagOrderIntent({
+          id: subjectKey,
+          subjectKey,
+          hubCol: col,
           tagIds,
           baselineTags: tagIds,
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
@@ -905,6 +937,45 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
+  function setHubTagOrderIntent({ hubCol, tagIds }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+
+    const col = Math.floor(hubCol);
+    const structure = getHubStructureAtCol(state, col);
+    if (!structure) return { ok: false, reason: "noHubStructure" };
+
+    const subjectKey = `hubTags:${col}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const baselineTags =
+      cloneTagList(existing?.baselineTags) ??
+      cloneTagList(existing?.tagIds) ??
+      cloneTagList(structure.tags);
+    const nextTags = normalizeTagList(tagIds);
+
+    const intent = makeHubTagOrderIntent({
+      id: subjectKey,
+      subjectKey,
+      hubCol: col,
+      tagIds: nextTags,
+      baselineTags,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if (tagListsEqual(intent.tagIds, intent.baselineTags)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
   function setTileCropSelectionIntent({ envCol, cropId }) {
     ensureActive();
     const state = getStateSafe();
@@ -1041,6 +1112,20 @@ export function createActionPlanner({
           },
           apCost,
         });
+      } else if (intent.kind === IntentKinds.HUB_TAG_ORDER) {
+        if (!Number.isFinite(intent.hubCol)) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.SET_HUB_TAG_ORDER,
+          payload: {
+            hubCol: Math.floor(intent.hubCol),
+            tagIds: Array.isArray(intent.tagIds) ? intent.tagIds.slice() : [],
+          },
+          apCost,
+        });
       } else if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
         if (!Number.isFinite(intent.envCol)) continue;
         const apCost =
@@ -1157,6 +1242,7 @@ export function createActionPlanner({
     setPawnMoveIntent,
     setBuildDesignationIntent,
     setTileTagOrderIntent,
+    setHubTagOrderIntent,
     setTileCropSelectionIntent,
     removeIntent(intentId) {
       ensureActive();

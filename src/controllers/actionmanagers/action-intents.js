@@ -7,6 +7,7 @@ export const IntentKinds = {
   BUILD_DESIGNATE: "buildDesignate",
   TILE_TAG_ORDER: "tileTagOrder",
   TILE_CROP_SELECT: "tileCropSelect",
+  HUB_TAG_ORDER: "hubTagOrder",
 };
 
 export function makeItemTransferIntent(spec = {}) {
@@ -81,6 +82,21 @@ export function makeTileCropSelectIntent(spec = {}) {
   };
 }
 
+export function makeHubTagOrderIntent(spec = {}) {
+  return {
+    kind: IntentKinds.HUB_TAG_ORDER,
+    id: spec.id ?? null,
+    subjectKey: spec.subjectKey ?? null,
+    hubCol: spec.hubCol ?? null,
+    tagIds: Array.isArray(spec.tagIds) ? spec.tagIds.slice() : [],
+    baselineTags: Array.isArray(spec.baselineTags)
+      ? spec.baselineTags.slice()
+      : [],
+    apCostOverride: spec.apCostOverride ?? null,
+    source: spec.source ?? "planner",
+  };
+}
+
 export function getIntentSubjectKey(intent) {
   if (!intent || typeof intent !== "object") return null;
   if (intent.subjectKey) return intent.subjectKey;
@@ -98,6 +114,10 @@ export function getIntentSubjectKey(intent) {
     case IntentKinds.TILE_CROP_SELECT:
       return Number.isFinite(intent.envCol)
         ? `tileCrop:${Math.floor(intent.envCol)}`
+        : null;
+    case IntentKinds.HUB_TAG_ORDER:
+      return Number.isFinite(intent.hubCol)
+        ? `hubTags:${Math.floor(intent.hubCol)}`
         : null;
     default:
       return null;

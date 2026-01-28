@@ -103,6 +103,10 @@ function describeIntent(intent, state, getOwnerLabel) {
       const tileName = formatTileName(intent.envCol, state);
       return `Tags > ${tileName}`;
     }
+    case IntentKinds.HUB_TAG_ORDER: {
+      const hubName = formatHubName(intent.hubCol, state);
+      return `Tags > ${hubName}`;
+    }
     case IntentKinds.TILE_CROP_SELECT: {
       const tileName = formatTileName(intent.envCol, state);
       const cropName = formatCropName(intent.cropId);
@@ -196,6 +200,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
     const intentCost = planner?.getIntentCost?.(intentId) ?? 0;
     if (intent.kind === IntentKinds.ITEM_TRANSFER && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_TAG_ORDER && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.HUB_TAG_ORDER && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_CROP_SELECT && intentCost <= 0) continue;
     const rowId = intentId ?? `intent:${rowsOut.length}`;
     rowsOut.push({
@@ -295,6 +300,9 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     } else if (kind === ActionKinds.SET_TILE_TAG_ORDER) {
       const tileName = formatTileName(payload.envCol, state);
       desc = `Tags > ${tileName}`;
+    } else if (kind === ActionKinds.SET_HUB_TAG_ORDER) {
+      const hubName = formatHubName(payload.hubCol, state);
+      desc = `Tags > ${hubName}`;
     } else if (kind === ActionKinds.SET_TILE_CROP_SELECTION) {
       const tileName = formatTileName(payload.envCol, state);
       const cropName = formatCropName(payload.cropId);
@@ -303,6 +311,7 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
 
     if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_TAG_ORDER && apCost <= 0) continue;
+    if (kind === ActionKinds.SET_HUB_TAG_ORDER && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_CROP_SELECTION && apCost <= 0) continue;
     rowsOut.push({
       id: `${kind}:${i}`,
@@ -327,6 +336,7 @@ function isLogAction(action) {
   if (kind === ActionKinds.PLACE_CHARACTER) return true;
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
   if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;
+  if (kind === ActionKinds.SET_HUB_TAG_ORDER) return true;
   if (kind === ActionKinds.SET_TILE_CROP_SELECTION) return true;
   return false;
 }

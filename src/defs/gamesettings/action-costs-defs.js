@@ -11,5 +11,6 @@ export const INTENT_AP_COSTS = {
   buildDesignate: 20,
   tileTagOrder: 5,
   tileCropSelect: 5,
+  hubTagOrder: 5,
 };
 

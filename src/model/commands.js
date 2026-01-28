@@ -236,6 +236,43 @@ export function cmdSetTileTagOrder(state, { envCol, tagIds }) {
 }
 
 // =============================================================================
+// HUB TAG ORDERING
+// =============================================================================
+
+export function cmdSetHubTagOrder(state, { hubCol, tagIds }) {
+  if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+  if (!Array.isArray(tagIds)) return { ok: false, reason: "badTagIds" };
+
+  const col = Math.floor(hubCol);
+  const structure =
+    state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
+  if (!structure) return { ok: false, reason: "noHubStructure" };
+
+  const unique = new Set();
+  const ordered = [];
+  for (const tag of tagIds) {
+    if (typeof tag !== "string") return { ok: false, reason: "badTagId" };
+    if (unique.has(tag)) return { ok: false, reason: "duplicateTag" };
+    unique.add(tag);
+    ordered.push(tag);
+  }
+
+  const existingTags = Array.isArray(structure.tags) ? structure.tags : [];
+  const existingSet = new Set(existingTags);
+
+  if (existingSet.size !== unique.size) {
+    return { ok: false, reason: "tagSetMismatch" };
+  }
+  for (const tag of unique) {
+    if (!existingSet.has(tag)) return { ok: false, reason: "tagSetMismatch" };
+  }
+
+  structure.tags = ordered;
+  const anchorCol = Number.isFinite(structure.col) ? structure.col : col;
+  return { ok: true, result: "hubTagOrderSet", hubCol: anchorCol };
+}
+
+// =============================================================================
 // TILE CROP SELECTION
 // =============================================================================
 

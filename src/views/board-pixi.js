@@ -7,6 +7,7 @@ import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
+import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
 import {
   BOARD_COLS,
@@ -95,6 +96,7 @@ export function createBoardView(opts) {
     Math.ceil(BASE_TEXT_RESOLUTION * GAMEPIECE_HOVER_SCALE)
   );
   let activeTagDrag = null;
+  let activeHubTagDrag = null;
   let activeHover = null;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
@@ -135,6 +137,14 @@ export function createBoardView(opts) {
     baseTextResolution: BASE_TEXT_RESOLUTION,
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
+  });
+
+  const hubTagUi = createHubTagUi({
+    tooltipView,
+    startTagDrag: startHubTagDrag,
+    setTextResolution,
+    baseTextResolution: BASE_TEXT_RESOLUTION,
+    hoverTextResolution: HOVER_TEXT_RESOLUTION,
   });
 
   function attachHoverFx(
@@ -453,6 +463,147 @@ export function createBoardView(opts) {
         holdHoverAfterTagDrag(view);
       }
     }
+  }
+
+  function dispatchHubTagOrder(hubCol, tagIds) {
+    const run = () => {
+      if (actionPlanner?.setHubTagOrderIntent) {
+        return actionPlanner.setHubTagOrderIntent({ hubCol, tagIds });
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      dispatchAction(
+        ActionKinds.SET_HUB_TAG_ORDER,
+        { hubCol, tagIds },
+        { apCost: 10 }
+      );
+      return { ok: true };
+    };
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
+    }
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
+      return { ok: false, reason: "mustBePaused" };
+    }
+    return run();
+  }
+
+  function endHubTagDrag(view, commit, globalPos = null) {
+    const drag = view.tagDrag;
+    if (!drag) return;
+
+    drag.entry.container.scale.set(1);
+    drag.entry.container.alpha = 1;
+    drag.entry.container.zIndex = 0;
+    drag.entry.container.cursor = "grab";
+
+    if (commit && drag.targetIndex !== drag.startIndex) {
+      const tags = Array.isArray(view.structure?.tags)
+        ? view.structure.tags.slice()
+        : [];
+      if (tags.length === view.tagEntries.length) {
+        const [moved] = tags.splice(drag.startIndex, 1);
+        tags.splice(drag.targetIndex, 0, moved);
+        dispatchHubTagOrder(view.col, tags);
+      }
+    }
+
+    if (drag.stageMove) {
+      app.stage.off("pointermove", drag.stageMove);
+      app.stage.off("pointerup", drag.stageUp);
+      app.stage.off("pointerupoutside", drag.stageUp);
+    }
+
+    view.tagDrag = null;
+    view.ignoreNextTagTap = !!drag.moved;
+    if (activeHubTagDrag === view) activeHubTagDrag = null;
+    hubTagUi?.layoutTagEntries?.(view);
+
+    if (globalPos) {
+      const inside = isPointerInsideView(
+        view,
+        globalPos,
+        TAG_DRAG_RELEASE_PAD
+      );
+      if (!inside) {
+        clearHubStructureHover(view);
+        if (activeHover?.view === view) activeHover = null;
+      }
+    }
+  }
+
+  function startHubTagDrag(view, entry, ev) {
+    requestPauseForAction?.();
+    if (!view.isHovered) return;
+
+    if (activeHubTagDrag && activeHubTagDrag !== view) {
+      endHubTagDrag(activeHubTagDrag, false);
+    }
+
+    ev?.stopPropagation?.();
+
+    const entries = view.tagEntries || [];
+    const startIndex = entries.indexOf(entry);
+    if (startIndex < 0) return;
+
+    const local = view.tagContainer.toLocal(ev.data.global);
+    const offsetY = local.y - entry.container.y;
+
+    const dragState = {
+      entry,
+      startIndex,
+      targetIndex: startIndex,
+      offsetY,
+      startY: entry.container.y,
+      moved: false,
+      stageMove: null,
+      stageUp: null,
+    };
+
+    view.tagDrag = dragState;
+    activeHubTagDrag = view;
+
+    entry.container.scale.set(TAG_DRAG_SCALE);
+    entry.container.alpha = 0.95;
+    entry.container.zIndex = 10;
+    entry.container.cursor = "grabbing";
+
+    const onMove = (moveEv) => {
+      const drag = view.tagDrag;
+      if (!drag) return;
+      const localPos = view.tagContainer.toLocal(moveEv.data.global);
+      const rowStep = HUB_TAG_LAYOUT.PILL_HEIGHT + HUB_TAG_LAYOUT.PILL_GAP;
+      const maxY = Math.max(0, (entries.length - 1) * rowStep);
+      const nextY = Math.max(0, Math.min(maxY, localPos.y - drag.offsetY));
+      drag.entry.container.y = nextY;
+      if (Math.abs(nextY - drag.startY) > 2) {
+        drag.moved = true;
+      }
+
+      const centerY = nextY + HUB_TAG_LAYOUT.PILL_HEIGHT / 2;
+      const nextIndex = Math.max(
+        0,
+        Math.min(entries.length - 1, Math.floor(centerY / rowStep))
+      );
+
+      if (nextIndex !== drag.targetIndex) {
+        drag.targetIndex = nextIndex;
+        drag.moved = true;
+        hubTagUi?.layoutTagEntries?.(view);
+      }
+    };
+
+    const onUp = (upEv) => {
+      endHubTagDrag(view, true, upEv?.data?.global ?? null);
+    };
+
+    dragState.stageMove = onMove;
+    dragState.stageUp = onUp;
+
+    app.stage.on("pointermove", onMove);
+    app.stage.on("pointerup", onUp);
+    app.stage.on("pointerupoutside", onUp);
+
+    hubTagUi?.layoutTagEntries?.(view);
   }
 
   function startTagDrag(view, entry, ev) {
@@ -1009,17 +1160,29 @@ export function createBoardView(opts) {
 
     let meterViews = [];
     if (meters.length > 0) {
-      meterViews = createMeters(
+      const meterResult = createMeters(
         content,
         meters,
         structureInst,
         y + 2,
         width - 14
-      ).meterViews;
+      );
+      meterViews = meterResult.meterViews;
+      y = meterResult.nextY;
       for (const mv of meterViews) {
         if (mv?.labelText) hoverTextNodes.push(mv.labelText);
       }
     }
+
+    const tagContainer = new PIXI.Container();
+    const tagStartY = Math.min(y + 4, height - 12);
+    const tagMaxY = height - 6;
+    tagContainer.x = Math.max(
+      0,
+      Math.round((width - HUB_TAG_LAYOUT.PILL_WIDTH) / 2)
+    );
+    tagContainer.y = tagStartY;
+    content.addChild(tagContainer);
 
     function structureHasInventory() {
       const s = getGameState?.();
@@ -1029,11 +1192,23 @@ export function createBoardView(opts) {
     const view = {
       container: cont,
       structure: structureInst,
+      col,
       meterViews,
+      tagContainer,
+      tagStartY,
+      tagMaxY,
+      tagSignature: "",
+      tagEntries: [],
+      expandedTagId: null,
+      hasTagToggle: false,
+      ignoreNextTagTap: false,
+      tagDrag: null,
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
     };
+
+    hubTagUi?.rebuildStructureTags?.(view, structureInst);
 
     cont.on("pointerenter", () => {
       if (!interaction?.canShowHoverUI?.()) return;
@@ -1324,6 +1499,15 @@ export function createBoardView(opts) {
     for (const view of hubStructureViews.values()) {
       if (view.meterViews.length > 0) {
         updateMeters(view.meterViews, view.structure);
+      }
+      const tags = Array.isArray(view.structure?.tags)
+        ? view.structure.tags
+        : [];
+      const signature = tags.join("|");
+      if (signature !== view.tagSignature) {
+        hubTagUi?.rebuildStructureTags?.(view, view.structure);
+      } else {
+        hubTagUi?.updateTagEntries?.(view, view.structure);
       }
     }
   }
