@@ -6,7 +6,7 @@ Local instructions for Codex agents working in this repo.
 - Read `ai/ai-context.md` before making changes.
 
 ## Current goal context
-- Read `ItemDefsRefactor_01.md` — this document is the authoritative contract for this feature.
+- Read `MultifeaturePrompt_01.md` — this document is the authoritative contract for this feature.
 
 ## Core constraints (non-negotiable)
 - Determinism: no `Math.random()`; all randomness must go through `state.rng`.
