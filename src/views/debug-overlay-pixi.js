@@ -2,6 +2,7 @@
 // Debug UI overlay (Pixi).
 
 import { ActionKinds } from "../model/actions.js";
+import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 
 const DESIGN_WIDTH = 1920;
 
@@ -41,7 +42,7 @@ export function createDebugOverlay({ layer, runner }) {
 
   const panelBg = new PIXI.Graphics();
   panelBg.beginFill(0x222222, 0.9);
-  panelBg.drawRoundedRect(0, 0, 200, 220, 8);
+  panelBg.drawRoundedRect(0, 0, 200, 300, 8);
   panelBg.endFill();
   panel.addChild(panelBg);
 
@@ -141,6 +142,63 @@ export function createDebugOverlay({ layer, runner }) {
     slotRows.push(buildSlotRow(i));
   }
 
+  const eventIds = Object.keys(envEventDefs || {});
+  eventIds.sort();
+  let eventIndex = 0;
+
+  const eventHeader = new PIXI.Text("Next Event", {
+    fontSize: 11,
+    fill: 0xffffff,
+  });
+  eventHeader.x = 10;
+  eventHeader.y = slotStartY + slotCount * slotRowGap + 6;
+  panel.addChild(eventHeader);
+
+  const eventName = new PIXI.Text("", {
+    fontSize: 10,
+    fill: 0xc7d2ee,
+    wordWrap: true,
+    wordWrapWidth: 180,
+  });
+  eventName.x = 10;
+  eventName.y = eventHeader.y + 16;
+  panel.addChild(eventName);
+
+  const prevEvent = new PIXI.Text("<", { fontSize: 14, fill: 0xffffff });
+  prevEvent.x = 10;
+  prevEvent.y = eventName.y + 22;
+  prevEvent.eventMode = "static";
+  prevEvent.cursor = "pointer";
+  panel.addChild(prevEvent);
+
+  const nextEvent = new PIXI.Text(">", { fontSize: 14, fill: 0xffffff });
+  nextEvent.x = 30;
+  nextEvent.y = eventName.y + 22;
+  nextEvent.eventMode = "static";
+  nextEvent.cursor = "pointer";
+  panel.addChild(nextEvent);
+
+  const spawnBtn = new PIXI.Container();
+  spawnBtn.x = 60;
+  spawnBtn.y = eventName.y + 18;
+  spawnBtn.eventMode = "static";
+  spawnBtn.cursor = "pointer";
+  panel.addChild(spawnBtn);
+
+  const spawnBg = new PIXI.Graphics();
+  spawnBg.beginFill(0x555555);
+  spawnBg.drawRoundedRect(0, 0, 120, 22, 4);
+  spawnBg.endFill();
+  spawnBtn.addChild(spawnBg);
+
+  const spawnText = new PIXI.Text("Queue Event", {
+    fontSize: 10,
+    fill: 0xffffff,
+  });
+  spawnText.x = 18;
+  spawnText.y = 4;
+  spawnBtn.addChild(spawnText);
+
   dbgBtn.on("pointerdown", () => {
     panel.visible = !panel.visible;
   });
@@ -161,6 +219,29 @@ export function createDebugOverlay({ layer, runner }) {
     cheatBg.beginFill(cheatsEnabled ? 0x00aa00 : 0x555555);
     cheatBg.drawRect(0, 0, 180, 30);
     cheatBg.endFill();
+  });
+
+  function setEventIndex(nextIndex) {
+    if (!eventIds.length) {
+      eventIndex = 0;
+      return;
+    }
+    const max = eventIds.length - 1;
+    eventIndex = Math.max(0, Math.min(max, nextIndex));
+  }
+
+  prevEvent.on("pointerdown", () => {
+    setEventIndex(eventIndex - 1);
+  });
+
+  nextEvent.on("pointerdown", () => {
+    setEventIndex(eventIndex + 1);
+  });
+
+  spawnBtn.on("pointerdown", () => {
+    const defId = eventIds[eventIndex] ?? null;
+    if (!defId) return;
+    runner.dispatchAction?.(ActionKinds.DEBUG_QUEUE_ENV_EVENT, { defId });
   });
 
   return {
@@ -194,6 +275,19 @@ export function createDebugOverlay({ layer, runner }) {
           row.loadBtn.cursor = "default";
           row.loadBg.tint = 0xffffff;
         }
+      }
+
+      if (!eventIds.length) {
+        eventName.text = "No events";
+        spawnBtn.alpha = 0.4;
+        spawnBtn.eventMode = "none";
+      } else {
+        const defId = eventIds[eventIndex];
+        const def = envEventDefs[defId];
+        const label = def?.name || defId;
+        eventName.text = label;
+        spawnBtn.alpha = 1;
+        spawnBtn.eventMode = "static";
       }
     },
   };

@@ -5,6 +5,7 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
+import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import {
   SEASON_DURATION_SEC,
   AP_INCOME_PER_SEC,
@@ -570,6 +571,29 @@ export function cmdDebugSetCap(state, { cap, points, enabled } = {}) {
     actionPoints: state.actionPoints,
     apCapOverride: state.apCapOverride,
   };
+}
+
+export function cmdDebugQueueEnvEvent(state, { defId } = {}) {
+  if (!defId || typeof defId !== "string") {
+    return { ok: false, reason: "badDefId" };
+  }
+  if (!envEventDefs[defId]) {
+    return { ok: false, reason: "unknownEvent" };
+  }
+
+  const seasonKey = getCurrentSeasonKey(state);
+  if (
+    !state.currentSeasonDeck ||
+    state.currentSeasonDeck.seasonKey !== seasonKey
+  ) {
+    buildSeasonDeckForCurrentSeason(state);
+  }
+  if (!state.currentSeasonDeck || !Array.isArray(state.currentSeasonDeck.deck)) {
+    state.currentSeasonDeck = { seasonKey, deck: [] };
+  }
+
+  state.currentSeasonDeck.deck.unshift({ defId });
+  return { ok: true, result: "eventQueued", defId };
 }
 
 // =============================================================================

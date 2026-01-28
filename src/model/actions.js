@@ -11,6 +11,7 @@ import {
   cmdSetTileTagOrder,
   cmdSetHubTagOrder,
   cmdSetTileCropSelection,
+  cmdDebugQueueEnvEvent,
 } from "./commands.js";
 
 export const ActionKinds = {
@@ -23,6 +24,7 @@ export const ActionKinds = {
   SET_HUB_TAG_ORDER: "setHubTagOrder",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
   DEBUG_SET_CAP: "debugSetCap",
+  DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
 };
 
 function ensureAPState(state) {
@@ -80,7 +82,8 @@ export function applyAction(state, action, context = {}) {
   // "Control" actions are allowed while running.
   // "Edit" actions (Player moves) require the simulation to be PAUSED.
   const isControlAction =
-    kind === ActionKinds.DEBUG_SET_CAP;
+    kind === ActionKinds.DEBUG_SET_CAP ||
+    kind === ActionKinds.DEBUG_QUEUE_ENV_EVENT;
 
   // STRICT GATING: If not replaying, gameplay actions are FORBIDDEN unless paused.
   if (!isReplay && !isControlAction && !state.paused) {
@@ -149,6 +152,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.DEBUG_SET_CAP:
       result = cmdDebugSetCap(state, payload);
+      break;
+
+    case ActionKinds.DEBUG_QUEUE_ENV_EVENT:
+      result = cmdDebugQueueEnvEvent(state, payload);
       break;
 
     default:
