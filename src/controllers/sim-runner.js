@@ -229,7 +229,9 @@ export function createSimRunner({
     if (
       kind === "placeCharacter" ||
       kind === "buildDesignate" ||
-      kind === "setTileTagOrder"
+      kind === "setTileTagOrder" ||
+      kind === "setTileCropSelection" ||
+      kind === "setHubTagOrder"
     ) {
       return true;
     }
@@ -258,6 +260,14 @@ export function createSimRunner({
     if (action.kind === "setTileTagOrder") {
       const envCol = payload.envCol ?? null;
       return Number.isFinite(envCol) ? `tileTags:${Math.floor(envCol)}` : null;
+    }
+    if (action.kind === "setTileCropSelection") {
+      const envCol = payload.envCol ?? null;
+      return Number.isFinite(envCol) ? `tileCrop:${Math.floor(envCol)}` : null;
+    }
+    if (action.kind === "setHubTagOrder") {
+      const hubCol = payload.hubCol ?? null;
+      return Number.isFinite(hubCol) ? `hubTags:${Math.floor(hubCol)}` : null;
     }
     return null;
   }
@@ -420,6 +430,49 @@ export function createSimRunner({
     onInvalidate?.(`plannerCommit:${reason || "commit"}`);
 
     return { ok: true, committed: actionsWithTSec.length };
+  }
+
+  function clearPlannerActionsAtCursor() {
+    if (!timeline || !cursorState) return { ok: false, reason: "noState" };
+
+    const tSec = Math.floor(cursorState.tSec ?? 0);
+    const keepAtSec = [];
+    for (const action of timeline.actions || []) {
+      const sec = Math.floor(action.tSec ?? 0);
+      if (sec !== tSec) continue;
+      if (!isPlannerManagedAction(action)) keepAtSec.push(action);
+    }
+
+    const replaceRes = replaceActionsAtSecond(timeline, tSec, keepAtSec, {
+      truncateFuture: true,
+    });
+    if (!replaceRes?.ok) return replaceRes || { ok: false, reason: "replace" };
+
+    timeline.checkpoints = truncateCheckpointsAfterSecond(
+      timeline.checkpoints,
+      tSec
+    );
+    timeline.maxReachedSec = tSec;
+    timeline.cursorSec = tSec;
+
+    const rebuilt = rebuildStateAtSecond(timeline, tSec);
+    if (!rebuilt?.ok) return rebuilt;
+
+    const wasPaused = !!cursorState.paused;
+    loadIntoGameState(serializeGameState(rebuilt.state));
+    cursorState = gameState;
+    setPaused(cursorState, wasPaused);
+    syncPhaseToPaused(cursorState);
+
+    playbackActive = false;
+    seekPlaybackIndex(tSec);
+    maintainCheckpoints(timeline, cursorState);
+
+    actionPlanner.resetToTimeline?.();
+    onRebuildViews?.();
+    onInvalidate?.("plannerClear");
+
+    return { ok: true };
   }
 
 
@@ -714,5 +767,6 @@ export function createSimRunner({
     },
     isPausePending: () => !!pauseRequested,
     getActionPlanner: () => actionPlanner,
+    clearPlannerActionsAtCursor,
   };
 }

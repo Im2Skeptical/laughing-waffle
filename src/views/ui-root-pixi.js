@@ -252,6 +252,17 @@ function togglePause() {
   }
 }
 
+function clearActionLogAndReset() {
+  queuedActions.length = 0;
+  return queueActionWhenPaused(
+    () =>
+      runner.clearPlannerActionsAtCursor?.() || {
+        ok: false,
+        reason: "noRunner",
+      }
+  );
+}
+
 const boardView = createBoardView({
   app,
   tileLayer: uiLayers.tileLayer,
@@ -438,6 +449,7 @@ const actionLogView = createActionLogView({
   getCursorState: () => runner.getCursorState(),
   isPreviewing: () => runner.isPreviewing?.() ?? false,
   onJumpToSecond: (tSec) => runner.browseCursorSecond?.(tSec),
+  onClearActions: () => clearActionLogAndReset(),
   getOwnerLabel(ownerId) {
     const state = runner.getState();
     const hubSlot = state.hub.slots.find(
@@ -481,12 +493,18 @@ function isTypingTarget(target) {
 function handleGlobalKeyDown(ev) {
   if (!ev) return;
   if (ev.repeat) return;
+  if (isTypingTarget(ev.target)) return;
   const code = ev.code || "";
   const key = ev.key || "";
-  if (code !== "Space" && key !== " ") return;
-  if (isTypingTarget(ev.target)) return;
-  ev.preventDefault();
-  togglePause();
+  if (code === "Space" || key === " ") {
+    ev.preventDefault();
+    togglePause();
+    return;
+  }
+  if (code === "KeyZ" || key.toLowerCase() === "z") {
+    ev.preventDefault();
+    clearActionLogAndReset();
+  }
 }
 
 window.addEventListener("keydown", handleGlobalKeyDown);

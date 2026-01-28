@@ -18,6 +18,7 @@ export function createActionLogView({
   getCursorState,
   isPreviewing,
   onJumpToSecond,
+  onClearActions,
   getOwnerLabel,
   getState,
   position = { x: 1620, y: 180 },
@@ -110,6 +111,37 @@ export function createActionLogView({
   rows.x = PADDING;
   rows.y = HEADER_HEIGHT;
   container.addChild(rows);
+
+  const resetBtn = new PIXI.Container();
+  resetBtn.x = PADDING;
+  resetBtn.y = PANEL_HEIGHT - 44;
+  resetBtn.eventMode = "static";
+  resetBtn.cursor = "pointer";
+  container.addChild(resetBtn);
+
+  const resetBg = new PIXI.Graphics();
+  resetBg.beginFill(0x1f263d, 1);
+  resetBg.drawRoundedRect(0, 0, PANEL_WIDTH - PADDING * 2, 30, 10);
+  resetBg.endFill();
+  resetBtn.addChild(resetBg);
+
+  const resetText = new PIXI.Text("Clear Log", {
+    fill: 0xffffff,
+    fontSize: 12,
+    fontWeight: "bold",
+  });
+  resetText.x = 12;
+  resetText.y = 7;
+  resetBtn.addChild(resetText);
+
+  const resetTip = new PIXI.Text("Clear log (Z)", {
+    fill: 0x9aa0b5,
+    fontSize: 10,
+  });
+  resetTip.x = PADDING;
+  resetTip.y = PANEL_HEIGHT - 62;
+  resetTip.visible = false;
+  container.addChild(resetTip);
 
   const flashOverlay = new PIXI.Graphics();
   flashOverlay.visible = false;
@@ -284,6 +316,18 @@ export function createActionLogView({
     const { next } = logController.getPrevNextForCursor();
     if (next == null) return;
     onJumpToSecond?.(next);
+  });
+
+  resetBtn.on("pointerover", () => {
+    resetTip.visible = true;
+  });
+
+  resetBtn.on("pointerout", () => {
+    resetTip.visible = false;
+  });
+
+  resetBtn.on("pointertap", () => {
+    onClearActions?.();
   });
 
   return { init, update, container, flashInsufficientAp };
