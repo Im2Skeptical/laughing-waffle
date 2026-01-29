@@ -2,6 +2,7 @@
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
@@ -338,10 +339,24 @@ function buildSystemSeriesForTarget(target, state) {
     label = tileDef?.name || tile?.defId || `Tile ${col}`;
     targetKey = `tile:${col}`;
 
-    const ids = new Set([
-      ...Object.keys(tile?.systemState || {}),
-      ...Object.keys(tile?.systemTiers || {}),
-    ]);
+    const ids = new Set();
+    const tags = new Set();
+    const baseTags = Array.isArray(tileDef?.baseTags) ? tileDef.baseTags : [];
+    for (const tag of baseTags) tags.add(tag);
+    for (const tag of tile?.tags || []) tags.add(tag);
+    for (const tag of tags) {
+      const tagDef = envTagDefs?.[tag];
+      const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
+      for (const systemId of systems) {
+        ids.add(systemId);
+      }
+    }
+    for (const systemId of Object.keys(tile?.systemState || {})) {
+      ids.add(systemId);
+    }
+    for (const systemId of Object.keys(tile?.systemTiers || {})) {
+      ids.add(systemId);
+    }
     for (const systemId of ids.values()) {
       if (systemId === "growth") {
         series.push({
