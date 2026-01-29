@@ -35,7 +35,9 @@ export function createEmptyTimelineFromBase(baseState) {
     cursorSec: 0,
     maxReachedSec: 0,
     checkpoints: [],
-    // Stage 3 perf: revision invalidates memo caches
+    // Stage 3 perf: revision invalidates memo caches.
+    // NOTE: revision bumps for *any* timeline mutation (including checkpoint
+    // maintenance), so it is broader than "actions changed".
     revision: 0,
     // Derived (non-serialized): memo + mutation guard + actionsBySec are lazy-created
   };
@@ -345,6 +347,8 @@ export function maintainCheckpoints(tl, state) {
   if (tl.checkpoints.length !== beforeLen) checkpointsChanged = true;
 
   if (checkpointsChanged) {
+    // Revision bump here is for memo/index invalidation only; checkpoint churn
+    // does not imply action history changed.
     bumpRevision(tl);
     tl._memoGuardSig = computeTimelineMutationSig(tl);
   }

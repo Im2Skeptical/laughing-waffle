@@ -82,6 +82,8 @@ function resolveSubjectKey(metricDef, subject, explicitKey) {
 }
 
 function computeTimelineSignature(tl) {
+  // Projection cache should only reset when replay-relevant data changes.
+  // We intentionally ignore checkpoint churn (revision bumps) here.
   const actions = Array.isArray(tl?.actions) ? tl.actions : [];
   const len = actions.length;
   const last = len ? actions[len - 1] : null;
