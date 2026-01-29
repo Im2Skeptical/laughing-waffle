@@ -992,6 +992,9 @@ export function createTimeGraphController({
       if (wantsSeriesRefresh) {
         seriesDirty = true;
       }
+      if (graphCache?.stateDataByBoundary?.clear) {
+        graphCache.stateDataByBoundary.clear();
+      }
       const historyEndSec = clampSec(tl.historyEndSec ?? 0);
       const mutationSec = clampSec(tl._lastMutationSec ?? historyEndSec);
       invalidateSubjectValues();
