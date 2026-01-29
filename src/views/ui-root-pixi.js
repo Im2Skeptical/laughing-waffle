@@ -113,22 +113,6 @@ const timeGraphController = createTimeGraphController({
   metric: GRAPH_METRICS.all,
 });
 
-const systemGraphMetric = {
-  id: "systemTarget",
-  label: "Systems",
-  getSeries: (subject, state) =>
-    buildSystemSeriesForTarget(subject, state).series,
-  getLabel: (subject, state) =>
-    buildSystemSeriesForTarget(subject, state).label,
-  getSubjectKey: (subject) => getSystemGraphTargetKey(subject),
-};
-
-const systemGraphController = createTimeGraphController({
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  metric: systemGraphMetric,
-});
-
 function resizeCanvas() {
   const scale = Math.min(
     window.innerWidth / DESIGN_WIDTH,
@@ -233,6 +217,22 @@ function getSystemGraphTargetKey(target) {
   }
   return null;
 }
+
+const systemGraphMetric = {
+  id: "systemTarget",
+  label: "Systems",
+  getSeries: (subject, state) =>
+    buildSystemSeriesForTarget(subject, state).series,
+  getLabel: (subject, state) =>
+    buildSystemSeriesForTarget(subject, state).label,
+  getSubjectKey: (subject) => getSystemGraphTargetKey(subject),
+};
+
+const systemGraphController = createTimeGraphController({
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  metric: systemGraphMetric,
+});
 
 function getTierValue(defs, systemId, tier) {
   const def = defs?.[systemId];
