@@ -204,7 +204,8 @@ const SYSTEM_GRAPH_COLORS = [
 function getSystemGraphTarget() {
   const hover =
     interactionController.getHoveredPawn?.() ??
-    interactionController.getHovered?.();
+    interactionController.getHovered?.() ??
+    interactionController.getLastHovered?.();
   if (!hover) return null;
   if (hover.kind === "tile") {
     return { kind: "tile", col: hover.col };
@@ -240,6 +241,7 @@ const systemGraphMetric = {
   getLabel: (subject, state) =>
     buildSystemSeriesForTarget(subject, state).label,
   getSubjectKey: (subject) => getSystemGraphTargetKey(subject),
+  dynamicSeries: true,
 };
 
 const systemGraphController = createTimeGraphController({

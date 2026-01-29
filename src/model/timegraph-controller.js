@@ -988,6 +988,10 @@ export function createTimeGraphController({
 
     const sigRes = projection.ensureSignature(tl);
     if (sigRes?.changed) {
+      const wantsSeriesRefresh = !!metricDef?.dynamicSeries;
+      if (wantsSeriesRefresh) {
+        seriesDirty = true;
+      }
       const historyEndSec = clampSec(tl.historyEndSec ?? 0);
       const mutationSec = clampSec(tl._lastMutationSec ?? historyEndSec);
       invalidateSubjectValues();
@@ -1009,7 +1013,8 @@ export function createTimeGraphController({
           if (okForecast) {
             lastKnownHistoryEndSec = historyEndSec;
             stateDirty = false;
-            seriesDirty = false;
+            seriesDirty = wantsSeriesRefresh;
+            if (seriesDirty) return rebuildSeriesValues();
             return { ok: true, reason: "mutationPatch" };
           }
         }
@@ -1020,6 +1025,10 @@ export function createTimeGraphController({
           forceForecastRebuild: true,
         })
       ) {
+        if (wantsSeriesRefresh) {
+          seriesDirty = true;
+          return rebuildSeriesValues();
+        }
         return { ok: true, reason: "appendPatch" };
       }
       if (
@@ -1027,6 +1036,10 @@ export function createTimeGraphController({
           forceForecastRebuild: true,
         })
       ) {
+        if (wantsSeriesRefresh) {
+          seriesDirty = true;
+          return rebuildSeriesValues();
+        }
         return { ok: true, reason: "hintPatch" };
       }
       stateDirty = true;
