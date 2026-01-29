@@ -203,7 +203,7 @@ const SYSTEM_GRAPH_COLORS = [
 
 function getSystemGraphTarget() {
   const hover =
-    interactionController.getLastHovered?.() ??
+    interactionController.getHoveredPawn?.() ??
     interactionController.getHovered?.();
   if (!hover) return null;
   if (hover.kind === "tile") {

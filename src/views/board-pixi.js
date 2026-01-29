@@ -349,7 +349,7 @@ export function createBoardView(opts) {
   }
 
   function isPawnHoveringForView(view, kind) {
-    const hover = interaction?.getHoveredPawn?.() ?? interaction?.getLastHovered?.();
+    const hover = interaction?.getHoveredPawn?.();
     if (!hover || hover.kind !== "pawn") return false;
     if (kind === "tile") {
       const anchorCol = Number.isFinite(view?.tile?.col)
