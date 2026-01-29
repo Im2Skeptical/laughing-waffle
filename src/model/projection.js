@@ -127,6 +127,16 @@ function simulateForwardSecondsPure(startState, seconds, dtStep) {
   return { ok: true, state };
 }
 
+function normalizeStateForProjection(state, baseSec) {
+  canonicalizeSnapshot(state);
+  state.paused = false;
+  if (Number.isFinite(baseSec)) {
+    const sec = clampSec(baseSec);
+    state.tSec = sec;
+    state.simStepIndex = sec * TICKS_PER_SEC;
+  }
+}
+
 // Optional mode: simulate until the next season event (season index changes).
 // If paused, projection cannot advance time, so return a clean failure.
 function simulateUntilNextSeasonEventPure(
@@ -381,8 +391,57 @@ export function buildProjectionStateWindowFromTimeline(
     return { ok: false, reason: baseRes.reason || "baseStateFailed" };
 
   let s = cloneState(baseRes.state);
-  canonicalizeSnapshot(s);
-  s.paused = false;
+  normalizeStateForProjection(s, baseSec);
+
+  const stateDataBySecond = new Map();
+  stateDataBySecond.set(baseSec, serializeGameState(s));
+
+  let curSec = baseSec;
+  for (let i = 1; i <= horizonSec; i++) {
+    const sim = simulateForwardSecondsInPlace(s, 1, dtStep);
+    if (!sim.ok) break;
+
+    curSec = baseSec + i;
+    canonicalizeSnapshot(s);
+    stateDataBySecond.set(curSec, serializeGameState(s));
+  }
+
+  return {
+    ok: true,
+    window: {
+      baseSec,
+      endSec: baseSec + horizonSec,
+      horizonSec,
+      dtStep,
+      mode: "stateWindow",
+    },
+    stateDataBySecond,
+  };
+}
+
+export function buildProjectionStateWindowFromStateData(
+  baseStateData,
+  baseBoundary,
+  opts = null
+) {
+  if (baseStateData == null) return { ok: false, reason: "noBaseStateData" };
+
+  const dtStep =
+    typeof opts?.dtStep === "number" && opts.dtStep > 0
+      ? opts.dtStep
+      : DEFAULT_DT_STEP;
+
+  const horizonSec =
+    typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
+      ? Math.floor(opts.horizonSec)
+      : 0;
+
+  const baseSec = clampSec(
+    typeof opts?.baseSec === "number" ? opts.baseSec : baseBoundary
+  );
+
+  const s = deserializeGameState(baseStateData);
+  normalizeStateForProjection(s, baseSec);
 
   const stateDataBySecond = new Map();
   stateDataBySecond.set(baseSec, serializeGameState(s));

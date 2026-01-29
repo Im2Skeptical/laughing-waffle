@@ -5,6 +5,7 @@
 
 import {
   buildProjectionStateWindowFromTimeline,
+  buildProjectionStateWindowFromStateData,
   getStateAtSecond,
 } from "./projection.js";
 
@@ -171,6 +172,68 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     }
 
     const horizonSec = Math.max(0, target - baseSec);
+    const baseStateData =
+      stateDataBySecond.get(baseSec) ??
+      (() => {
+        const baseRes = getStateAtSecond(tl, baseSec);
+        if (!baseRes.ok) return null;
+        const sd = serializeGameState(baseRes.state);
+        set(baseSec, sd);
+        return sd;
+      })();
+
+    if (baseStateData == null) {
+      return { ok: false, reason: "baseStateMissing" };
+    }
+
+    if (forecastBaseSec === baseSec && forecastEndSec < target) {
+      const tailData = stateDataBySecond.get(forecastEndSec);
+      if (tailData != null) {
+        const extend = buildProjectionStateWindowFromStateData(
+          tailData,
+          forecastEndSec,
+          { horizonSec: target - forecastEndSec, dtStep }
+        );
+        if (!extend.ok) return extend;
+        for (const [sec, sd] of extend.stateDataBySecond.entries()) {
+          set(sec, sd);
+        }
+        forecastEndSec = extend.window.endSec;
+        return { ok: true };
+      }
+    }
+
+    if (
+      baseSec > forecastBaseSec &&
+      baseSec <= forecastEndSec &&
+      stateDataBySecond.has(baseSec)
+    ) {
+      // Shift the window forward: reuse existing points, extend only the tail.
+      forecastBaseSec = baseSec;
+      if (forecastEndSec < target) {
+        const tailData = stateDataBySecond.get(forecastEndSec);
+        if (tailData != null) {
+          const extend = buildProjectionStateWindowFromStateData(
+            tailData,
+            forecastEndSec,
+            { horizonSec: target - forecastEndSec, dtStep }
+          );
+          if (!extend.ok) return extend;
+          for (const [sec, sd] of extend.stateDataBySecond.entries()) {
+            set(sec, sd);
+          }
+          forecastEndSec = extend.window.endSec;
+        }
+      }
+      if (forecastEndSec < target) {
+        // Tail missing; fall back to rebuild.
+        forecastBaseSec = baseSec;
+        forecastEndSec = baseSec;
+      } else {
+        return { ok: true };
+      }
+    }
+
     const winRes = buildProjectionStateWindowFromTimeline(tl, baseSec, {
       horizonSec,
       dtStep,
