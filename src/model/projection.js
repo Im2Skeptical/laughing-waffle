@@ -176,7 +176,7 @@ export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
   const series = normalizeSeries(opts?.series);
-  const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+  const historyEndSec = clampSec(tl.historyEndSec ?? 0);
 
   const historyStrideSec =
     typeof opts?.historyStrideSec === "number" && opts.historyStrideSec > 0
@@ -203,7 +203,7 @@ export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
   workingState.tSec = startCheckpointSec;
   workingState.simStepIndex = startCheckpointSec * TICKS_PER_SEC;
 
-  for (let sec = startCheckpointSec; sec <= maxReachedSec; sec++) {
+  for (let sec = startCheckpointSec; sec <= historyEndSec; sec++) {
     // Apply actions scheduled at this second (timeline order preserved)
     const acts = actionsBySec.get(sec);
     if (acts && acts.length) {
@@ -226,7 +226,7 @@ export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
     }
 
     // Advance exactly 1 second (60 microsteps), unless at frontier
-    if (sec < maxReachedSec) {
+    if (sec < historyEndSec) {
       for (let i = 0; i < TICKS_PER_SEC; i++) {
         updateGame(DEFAULT_DT_STEP, workingState);
       }
@@ -236,7 +236,7 @@ export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
   return {
     ok: true,
     history,
-    maxReachedSec,
+    historyEndSec,
     stateDataByBoundary,
   };
 }
@@ -615,7 +615,7 @@ export function buildMetricGraphCacheFromTimeline(tl, opts = null) {
     ok: true,
     cache: {
       history: historyRes.history,
-      maxReachedSec: historyRes.maxReachedSec,
+      historyEndSec: historyRes.historyEndSec,
       stateDataByBoundary,
       window: windowRes.window,
     },

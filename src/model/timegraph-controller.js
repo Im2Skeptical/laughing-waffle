@@ -215,7 +215,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
-    const baseSec = clampSec(tl.maxReachedSec ?? 0);
+    const baseSec = clampSec(tl.historyEndSec ?? 0);
     const target = clampSec(targetEndSec);
     const horizonSec = Math.max(0, target - baseSec);
     const targetBoundaryEnd =
@@ -338,9 +338,9 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     const cached = touch(t);
     if (cached != null) return { ok: true, stateData: cached };
 
-    const maxReached = clampSec(tl.maxReachedSec ?? 0);
+    const historyEnd = clampSec(tl.historyEndSec ?? 0);
 
-    if (t <= maxReached) {
+    if (t <= historyEnd) {
       const rebuilt = getStateAtSecond(tl, t);
       if (!rebuilt.ok) {
         return { ok: false, reason: rebuilt.reason || "rebuildFailed" };
@@ -446,7 +446,7 @@ export function createTimeGraphController({
   let horizonSecCur = horizonSec;
 
   // Change detection
-  let lastKnownMaxReachedSec = 0;
+  let lastKnownHistoryEndSec = 0;
 
   const projection = projectionCache || getSharedProjectionCache();
 
@@ -460,11 +460,11 @@ export function createTimeGraphController({
     return Number.isFinite(n) && n > 0 ? n : fallback;
   }
 
-  function resolveHistoryStride(maxReachedSec) {
+  function resolveHistoryStride(historyEndSec) {
     const maxPts = Number.isFinite(MAX_HISTORY_POINTS)
       ? Math.max(256, Math.floor(MAX_HISTORY_POINTS))
       : 2000;
-    const sec = clampSec(maxReachedSec);
+    const sec = clampSec(historyEndSec);
     if (sec <= 0) return 1;
     return Math.max(1, Math.ceil(sec / maxPts));
   }
@@ -489,10 +489,10 @@ export function createTimeGraphController({
     activeSeries = resolveSeries(metricDef, subject, cs);
     metricLabel = resolveLabel(metricDef, subject, cs);
 
-    const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
     historyStrideSecCur = Math.max(
       historyStrideSecCur,
-      resolveHistoryStride(maxReachedSec)
+      resolveHistoryStride(historyEndSec)
     );
     const boundSeries = activeSeries.map((s) => ({
       ...s,
@@ -518,7 +518,7 @@ export function createTimeGraphController({
 
     const stateDataByBoundary = new Map(histRes.stateDataByBoundary);
 
-    const baseSec = maxReachedSec;
+    const baseSec = historyEndSec;
     const endSec = baseSec + horizonSecCur;
     const steps = Math.floor(horizonSecCur / forecastStepSecCur);
     const lastForecastSec = baseSec + steps * forecastStepSecCur;
@@ -552,7 +552,7 @@ export function createTimeGraphController({
 
     graphCache = {
       history,
-      maxReachedSec,
+      historyEndSec,
       window: {
         baseSec,
         endSec,
@@ -569,7 +569,7 @@ export function createTimeGraphController({
     };
     invalidateSubjectValues();
 
-    lastKnownMaxReachedSec = maxReachedSec;
+    lastKnownHistoryEndSec = historyEndSec;
 
     stateDirty = false;
     seriesDirty = false;
@@ -672,10 +672,10 @@ export function createTimeGraphController({
       graphCache.window.forecast = [];
     }
 
-    graphCache.maxReachedSec = limit;
+    graphCache.historyEndSec = limit;
   }
 
-  function tryHandleAppendMutation(tl, maxReachedSec, opts = {}) {
+  function tryHandleAppendMutation(tl, historyEndSec, opts = {}) {
     if (!graphCache || !tl) return false;
 
     const nextSig = computeActionSig(tl);
@@ -690,7 +690,7 @@ export function createTimeGraphController({
     if (!isAppend) return false;
 
     const actionSec = clampSec(nextSig.lastSec ?? 0);
-    const frontier = clampSec(maxReachedSec ?? 0);
+    const frontier = clampSec(historyEndSec ?? 0);
     const span = Math.max(0, frontier - actionSec);
 
     if (span > MAX_TAIL_REBUILD_SEC) return false;
@@ -704,13 +704,13 @@ export function createTimeGraphController({
     if (!okForecast) return false;
 
     lastActionSig = nextSig;
-    lastKnownMaxReachedSec = frontier;
+    lastKnownHistoryEndSec = frontier;
     stateDirty = false;
     seriesDirty = false;
     return true;
   }
 
-  function tryHandleMutationHint(tl, maxReachedSec, opts = {}) {
+  function tryHandleMutationHint(tl, historyEndSec, opts = {}) {
     if (!graphCache || !tl) return false;
     const kind = tl._lastMutationKind;
     const sec = clampSec(tl._lastMutationSec ?? -1);
@@ -720,7 +720,7 @@ export function createTimeGraphController({
       return false;
     }
 
-    const frontier = clampSec(maxReachedSec ?? 0);
+    const frontier = clampSec(historyEndSec ?? 0);
     const span = Math.max(0, frontier - sec);
     if (span > MAX_TAIL_REBUILD_SEC) return false;
 
@@ -732,18 +732,18 @@ export function createTimeGraphController({
     });
     if (!okForecast) return false;
 
-    lastKnownMaxReachedSec = frontier;
+    lastKnownHistoryEndSec = frontier;
     stateDirty = false;
     seriesDirty = false;
     return true;
   }
 
-  function extendHistoryTo(newMaxReachedSec) {
+  function extendHistoryTo(newHistoryEndSec) {
     const tl = getTimeline?.();
     if (!graphCache || !tl) return false;
 
-    const oldMax = clampSec(graphCache.maxReachedSec ?? 0);
-    const target = clampSec(newMaxReachedSec ?? 0);
+    const oldMax = clampSec(graphCache.historyEndSec ?? 0);
+    const target = clampSec(newHistoryEndSec ?? 0);
     if (target <= oldMax) return true;
 
     const history = Array.isArray(graphCache.history) ? graphCache.history : [];
@@ -827,7 +827,7 @@ export function createTimeGraphController({
       }
     }
 
-    graphCache.maxReachedSec = target;
+    graphCache.historyEndSec = target;
     graphCache.version = ++cacheVersion;
     return true;
   }
@@ -839,7 +839,7 @@ export function createTimeGraphController({
     const tl = getTimeline?.();
     if (!graphCache || !tl) return false;
 
-    const baseSec = clampSec(tl.maxReachedSec ?? 0);
+    const baseSec = clampSec(tl.historyEndSec ?? 0);
     const endSec = baseSec + horizonSecCur;
     const steps = Math.floor(horizonSecCur / forecastStepSecCur);
     const lastForecastSec = baseSec + steps * forecastStepSecCur;
@@ -988,26 +988,26 @@ export function createTimeGraphController({
 
     const sigRes = projection.ensureSignature(tl);
     if (sigRes?.changed) {
-      const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
-      const mutationSec = clampSec(tl._lastMutationSec ?? maxReachedSec);
+      const historyEndSec = clampSec(tl.historyEndSec ?? 0);
+      const mutationSec = clampSec(tl._lastMutationSec ?? historyEndSec);
       invalidateSubjectValues();
 
-      if (graphCache && mutationSec <= maxReachedSec) {
-        if (maxReachedSec < lastKnownMaxReachedSec) {
-          pruneHistoryAfterSec(maxReachedSec);
+      if (graphCache && mutationSec <= historyEndSec) {
+        if (historyEndSec < lastKnownHistoryEndSec) {
+          pruneHistoryAfterSec(historyEndSec);
         }
 
         const okHistory = patchHistoryFromSecond(
           tl,
           mutationSec,
-          maxReachedSec
+          historyEndSec
         );
         if (okHistory) {
           const okForecast = rebuildForecastAtFrontier({
             forceRebuild: true,
           });
           if (okForecast) {
-            lastKnownMaxReachedSec = maxReachedSec;
+            lastKnownHistoryEndSec = historyEndSec;
             stateDirty = false;
             seriesDirty = false;
             return { ok: true, reason: "mutationPatch" };
@@ -1016,14 +1016,14 @@ export function createTimeGraphController({
       }
 
       if (
-        tryHandleAppendMutation(tl, maxReachedSec, {
+        tryHandleAppendMutation(tl, historyEndSec, {
           forceForecastRebuild: true,
         })
       ) {
         return { ok: true, reason: "appendPatch" };
       }
       if (
-        tryHandleMutationHint(tl, maxReachedSec, {
+        tryHandleMutationHint(tl, historyEndSec, {
           forceForecastRebuild: true,
         })
       ) {
@@ -1041,29 +1041,29 @@ export function createTimeGraphController({
       return rebuildSeriesValues();
     }
 
-    const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
 
-    if (maxReachedSec < lastKnownMaxReachedSec) {
+    if (historyEndSec < lastKnownHistoryEndSec) {
       stateDirty = true;
       seriesDirty = true;
       return rebuildGraphCache();
     }
 
-    if (maxReachedSec > lastKnownMaxReachedSec) {
-      const requiredStride = resolveHistoryStride(maxReachedSec);
+    if (historyEndSec > lastKnownHistoryEndSec) {
+      const requiredStride = resolveHistoryStride(historyEndSec);
       if (requiredStride > historyStrideSecCur) {
         historyStrideSecCur = requiredStride;
         stateDirty = true;
         seriesDirty = true;
         return rebuildGraphCache();
       }
-      const okHistory = extendHistoryTo(maxReachedSec);
+      const okHistory = extendHistoryTo(historyEndSec);
       if (!okHistory) return rebuildGraphCache();
 
       const okForecast = rebuildForecastAtFrontier({ invalidateValues: false });
       if (!okForecast) return rebuildGraphCache();
 
-      lastKnownMaxReachedSec = maxReachedSec;
+      lastKnownHistoryEndSec = historyEndSec;
     }
 
     return { ok: true };
@@ -1088,9 +1088,9 @@ export function createTimeGraphController({
       return;
     }
 
-    const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
-    if (maxReachedSec > lastKnownMaxReachedSec) {
-      const requiredStride = resolveHistoryStride(maxReachedSec);
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
+    if (historyEndSec > lastKnownHistoryEndSec) {
+      const requiredStride = resolveHistoryStride(historyEndSec);
       if (requiredStride > historyStrideSecCur) {
         historyStrideSecCur = requiredStride;
         stateDirty = true;
@@ -1098,7 +1098,7 @@ export function createTimeGraphController({
         handleInvalidate("active");
         return;
       }
-      const okHistory = extendHistoryTo(maxReachedSec);
+      const okHistory = extendHistoryTo(historyEndSec);
       if (!okHistory) {
         stateDirty = true;
         seriesDirty = true;
@@ -1114,7 +1114,7 @@ export function createTimeGraphController({
         return;
       }
 
-      lastKnownMaxReachedSec = maxReachedSec;
+      lastKnownHistoryEndSec = historyEndSec;
     }
   }
 

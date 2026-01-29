@@ -108,7 +108,7 @@ export function createSimRunner({
       actions: Array.isArray(tl.actions) ? tl.actions : [],
       checkpoints: Array.isArray(tl.checkpoints) ? tl.checkpoints : [],
       cursorSec: Math.floor(tl.cursorSec ?? 0),
-      maxReachedSec: Math.floor(tl.maxReachedSec ?? 0),
+      historyEndSec: Math.floor(tl.historyEndSec ?? 0),
       revision: Math.floor(tl.revision ?? 0),
     };
   }
@@ -117,6 +117,7 @@ export function createSimRunner({
     if (!rawTimeline || typeof rawTimeline !== "object") return null;
     const baseStateData = rawTimeline.baseStateData ?? fallbackStateData ?? null;
     if (!baseStateData) return null;
+    if (!Number.isFinite(rawTimeline.historyEndSec)) return null;
     return {
       baseStateData,
       actions: Array.isArray(rawTimeline.actions) ? rawTimeline.actions : [],
@@ -124,9 +125,7 @@ export function createSimRunner({
         ? rawTimeline.checkpoints
         : [],
       cursorSec: Math.floor(rawTimeline.cursorSec ?? 0),
-      maxReachedSec: Math.floor(
-        rawTimeline.maxReachedSec ?? rawTimeline.cursorSec ?? 0
-      ),
+      historyEndSec: Math.floor(rawTimeline.historyEndSec),
       revision: Math.floor(rawTimeline.revision ?? 0),
     };
   }
@@ -211,7 +210,7 @@ export function createSimRunner({
     syncPhaseToPaused(cursorState);
 
     seekPlaybackIndex(desiredSec);
-    playbackActive = desiredSec < Math.floor(timeline.maxReachedSec ?? 0);
+    playbackActive = desiredSec < Math.floor(timeline.historyEndSec ?? 0);
     actionPlanner.resetToTimeline?.();
 
     onRebuildViews?.();
@@ -319,20 +318,20 @@ export function createSimRunner({
       cursorState = gameState;
     }
 
-    const prevMax = Math.floor(timeline.maxReachedSec ?? 0);
+    const prevHistoryEnd = Math.floor(timeline.historyEndSec ?? 0);
 
     // Keep checkpoints unpaused for replay safety.
     setPaused(cursorState, false);
     syncPhaseToPaused(cursorState);
 
-    if (t > prevMax) timeline.maxReachedSec = t;
+    if (t > prevHistoryEnd) timeline.historyEndSec = t;
     timeline.cursorSec = t;
 
     if (opts.maintainCheckpoints !== false) {
       maintainCheckpoints(timeline, cursorState);
     }
 
-    playbackActive = t < prevMax;
+    playbackActive = t < prevHistoryEnd;
     seekPlaybackIndex(t);
 
     if (typeof opts.paused === "boolean") {
@@ -534,7 +533,7 @@ export function createSimRunner({
       actions: candidateActions,
       checkpoints: candidateCheckpoints,
       cursorSec: tSec,
-      maxReachedSec: tSec,
+      historyEndSec: tSec,
       revision: timeline.revision ?? 0,
     };
 
@@ -562,7 +561,7 @@ export function createSimRunner({
       truncateFuture: true,
     });
     if (!replaceRes?.ok) return replaceRes || { ok: false, reason: "replace" };
-    timeline.maxReachedSec = tSec;
+    timeline.historyEndSec = tSec;
     timeline.cursorSec = tSec;
 
     const wasPaused = !!cursorState.paused;
@@ -609,7 +608,7 @@ export function createSimRunner({
       timeline.checkpoints,
       lastActionSec
     );
-    timeline.maxReachedSec = lastActionSec;
+    timeline.historyEndSec = lastActionSec;
     timeline.cursorSec = tSec;
 
     const rebuilt = rebuildStateAtSecond(timeline, tSec);
@@ -644,7 +643,7 @@ export function createSimRunner({
 
       // Ensure cursors match genesis
       timeline.cursorSec = 0;
-      timeline.maxReachedSec = 0;
+      timeline.historyEndSec = 0;
 
       pauseRequested = false;
       playbackActive = false;
@@ -748,10 +747,10 @@ export function createSimRunner({
         // --- LIVE REPLAY INJECTION ---
         if (!isPhysicallyPaused && playbackActive) {
           const simStep = Math.floor(cursorState.simStepIndex ?? 0);
-          const maxReached = timeline.maxReachedSec ?? 0;
+          const historyEnd = timeline.historyEndSec ?? 0;
           const currentTSec = Math.floor(simStep / TICKS_PER_SEC);
 
-          if (currentTSec > maxReached) {
+          if (currentTSec > historyEnd) {
             playbackActive = false;
           }
 
@@ -793,8 +792,8 @@ export function createSimRunner({
       const tSec = Math.floor(cursorState.tSec ?? 0);
 
       // Truncate future
-      const prevMaxReached = Math.floor(timeline.maxReachedSec ?? 0);
-      if (tSec < prevMaxReached) {
+      const prevHistoryEnd = Math.floor(timeline.historyEndSec ?? 0);
+      if (tSec < prevHistoryEnd) {
         truncateTimelineAfterSecond(timeline, tSec);
       } else {
         if (Array.isArray(timeline.actions) && timeline.actions.length) {
@@ -823,7 +822,7 @@ export function createSimRunner({
             );
           }
         }
-        timeline.maxReachedSec = tSec;
+        timeline.historyEndSec = tSec;
       }
 
       // Apply Live

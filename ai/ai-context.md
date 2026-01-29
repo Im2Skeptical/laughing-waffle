@@ -139,6 +139,13 @@ A fully deterministic simulation supporting:
   - projection
 - Legacy indices (e.g. boundaries) may exist but are non-authoritative.
 
+### Timeline management notes
+- `cursorSec` is the current playhead/scrub position.
+- `historyEndSec` is the farthest realized second on the *current branch*.
+- Editing the past truncates all future history and resets `historyEndSec` to the edit second.
+- Projection/forecasting always starts at `historyEndSec` and extends forward by the projection horizon.
+- `timeline.revision` bumps on any timeline mutation (actions or checkpoint maintenance), so it is broader than "actions changed."
+
 ### Replay
 - `rebuildStateAtSecond(tSec)` is authoritative.
 - Replay:

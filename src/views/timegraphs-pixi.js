@@ -285,7 +285,7 @@ export function createMetricGraphView({
 
     const horizonSec = Math.max(0, Math.floor(d.horizonSec ?? 1200));
 
-    const maxReached = tl?.maxReachedSec ?? 0;
+    const historyEnd = tl?.historyEndSec ?? 0;
     const currentT = Math.floor(cs?.tSec ?? 0);
 
     if (zoomed) {
@@ -303,7 +303,7 @@ export function createMetricGraphView({
       maxSec = Math.max(min + span, max);
     } else {
       minSec = 0;
-      maxSec = Math.max(maxReached, currentT) + horizonSec;
+      maxSec = Math.max(historyEnd, currentT) + horizonSec;
     }
 
     if (!isScrubbing) {
@@ -483,7 +483,7 @@ export function createMetricGraphView({
     if (!cs) return;
 
     const curT = Math.floor(cs.tSec ?? 0);
-    const maxReached = tl?.maxReachedSec ?? 0;
+    const historyEnd = tl?.historyEndSec ?? 0;
 
     const x = timeToX(scrubSec);
 
@@ -501,7 +501,7 @@ export function createMetricGraphView({
       }
     }
 
-    const zone = scrubSec <= maxReached ? "History" : "Forecast";
+    const zone = scrubSec <= historyEnd ? "History" : "Forecast";
     const note = statusNote ? ` • ${statusNote}` : "";
 
     const metricLabel = getMetricLabel();

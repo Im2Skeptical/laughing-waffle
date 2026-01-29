@@ -33,7 +33,9 @@ export function createEmptyTimelineFromBase(baseState) {
     actions: [],
     // Integer Second Cursor
     cursorSec: 0,
-    maxReachedSec: 0,
+    // End of realized history for the current branch.
+    // Projection/forecasting starts from this second.
+    historyEndSec: 0,
     checkpoints: [],
     // Stage 3 perf: revision invalidates memo caches.
     // NOTE: revision bumps for *any* timeline mutation (including checkpoint
@@ -308,7 +310,9 @@ export function maintainCheckpoints(tl, state) {
   const currentSec = Math.floor(state.tSec ?? 0);
 
   tl.cursorSec = currentSec;
-  tl.maxReachedSec = Math.max(tl.maxReachedSec ?? 0, currentSec);
+  // Cursor is the current playback/inspection point; historyEndSec is the
+  // farthest realized second on this branch (future is truncated on edits).
+  tl.historyEndSec = Math.max(tl.historyEndSec ?? 0, currentSec);
 
   const isStride = currentSec > 0 && currentSec % CP_STRIDE_SEC === 0;
 
@@ -345,7 +349,7 @@ export function maintainCheckpoints(tl, state) {
     if (s % CP_STRIDE_SEC === 0) return true;
     if (s >= currentSec - CP_WINDOW_BACK && s <= currentSec + CP_WINDOW_FWD)
       return true;
-    if (s === tl.maxReachedSec) return true;
+    if (s === tl.historyEndSec) return true;
     return false;
   });
 
@@ -475,7 +479,7 @@ export function truncateTimelineAfterSecond(tl, tSec) {
   tl._lastMutationKind = "truncateTimelineAfterSec";
   tl._lastMutationSec = t;
 
-  tl.maxReachedSec = Math.min(Math.floor(tl.maxReachedSec ?? 0), t);
+  tl.historyEndSec = Math.min(Math.floor(tl.historyEndSec ?? 0), t);
   tl.cursorSec = Math.min(Math.floor(tl.cursorSec ?? 0), t);
 
   tl._memoGuardSig = computeTimelineMutationSig(tl);
