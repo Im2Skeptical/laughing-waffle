@@ -140,6 +140,9 @@ export function createMetricGraphView({
   let minSec = 0;
   let maxSec = 0;
   let zoomed = false;
+  let lastPlotMs = 0;
+  const PLOT_THROTTLE_MS = 80;
+  const MAX_PLOT_POINTS = 700;
 
   let lastRestoreMs = 0;
   const RESTORE_THROTTLE_MS = 33;
@@ -372,6 +375,20 @@ export function createMetricGraphView({
       return plot.y + plot.h - t * plot.h;
     }
 
+    let pointsForDraw = filteredPoints;
+    if (filteredPoints.length > MAX_PLOT_POINTS) {
+      const step = Math.ceil(filteredPoints.length / MAX_PLOT_POINTS);
+      const decimated = [];
+      for (let i = 0; i < filteredPoints.length; i += step) {
+        decimated.push(filteredPoints[i]);
+      }
+      const last = filteredPoints[filteredPoints.length - 1];
+      if (last && decimated[decimated.length - 1] !== last) {
+        decimated.push(last);
+      }
+      pointsForDraw = decimated;
+    }
+
     // Grid
     plotG.lineStyle(1, 0x444466, 0.5);
     plotG.drawRect(plot.x, plot.y, plot.w, plot.h);
@@ -393,7 +410,7 @@ export function createMetricGraphView({
       plotG.lineStyle(2, lineColor, 1);
       let first = true;
 
-      for (const p of filteredPoints) {
+      for (const p of pointsForDraw) {
         const t = p.tSec ?? 0;
 
         const x = timeToX(t);
@@ -549,7 +566,13 @@ export function createMetricGraphView({
     resolveMetric();
     updateTimeBounds();
     updateZoomButton();
-    drawPlot();
+    const now = performance.now();
+    const shouldPlot =
+      isScrubbing || now - lastPlotMs >= PLOT_THROTTLE_MS;
+    if (shouldPlot) {
+      drawPlot();
+      lastPlotMs = now;
+    }
     drawScrub();
   }
 
