@@ -14,6 +14,8 @@ import { GRAPH_METRICS } from "./graph-metrics.js";
 import { serializeGameState, deserializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import { updateGame } from "./game-model.js";
+import { applyAction } from "./actions.js";
 
 const DEFAULT_PROJECTION_CACHE_MAX_SECS = 4096;
 
@@ -450,7 +452,21 @@ export function createTimeGraphController({
     workingState.tSec = startSec;
     workingState.simStepIndex = startSec * 60;
 
-    const actionsBySec = tl.actionsBySec || new Map();
+    const actionsBySec = tl.actionsBySec
+      ? tl.actionsBySec
+      : (() => {
+          const map = new Map();
+          for (const a of tl.actions || []) {
+            const s = Math.max(0, Math.floor(a.tSec ?? 0));
+            let arr = map.get(s);
+            if (!arr) {
+              arr = [];
+              map.set(s, arr);
+            }
+            arr.push(a);
+          }
+          return map;
+        })();
 
     function applyActionsAt(sec) {
       const acts = actionsBySec.get(sec);
