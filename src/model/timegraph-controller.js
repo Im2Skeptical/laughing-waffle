@@ -372,22 +372,90 @@ export function createTimeGraphController({
 
     const baseSec = clampSec(tl.maxReachedSec ?? 0);
     const endSec = baseSec + horizonSecCur;
+    const steps = Math.floor(horizonSecCur / forecastStepSecCur);
+    const lastForecastSec = baseSec + steps * forecastStepSecCur;
 
     if (horizonSecCur > 0) {
       const forecastRes = projection.ensureForecastWindow(tl, endSec);
       if (!forecastRes.ok) return false;
     }
 
-    const forecast = [];
-    const steps = Math.floor(horizonSecCur / forecastStepSecCur);
-    for (let i = 0; i <= steps; i++) {
-      const sec = baseSec + i * forecastStepSecCur;
-      const res = projection.ensureStateAtSecond(tl, sec);
-      if (!res.ok) return false;
-      forecast.push({
-        tSec: sec,
-        values: computeValuesFromStateData(res.stateData, activeSeries, subject),
-      });
+    let forecast = [];
+    const prevWindow = graphCache.window;
+    if (
+      prevWindow &&
+      prevWindow.stepSec === forecastStepSecCur &&
+      prevWindow.horizonSec === horizonSecCur &&
+      baseSec >= prevWindow.baseSec
+    ) {
+      forecast = Array.isArray(prevWindow.forecast)
+        ? prevWindow.forecast.slice()
+        : [];
+      // Drop points that are now before the new base.
+      forecast = forecast.filter((p) => (p?.tSec ?? -1) >= baseSec);
+    }
+
+    if (!forecast.length || forecast[0].tSec !== baseSec) {
+      // If base isn't aligned to step, fall back to full rebuild.
+      if (
+        prevWindow &&
+        (baseSec - prevWindow.baseSec) % forecastStepSecCur !== 0
+      ) {
+        forecast = [];
+      }
+    }
+
+    if (!forecast.length) {
+      for (let i = 0; i <= steps; i++) {
+        const sec = baseSec + i * forecastStepSecCur;
+        const res = projection.ensureStateAtSecond(tl, sec);
+        if (!res.ok) return false;
+        forecast.push({
+          tSec: sec,
+          values: computeValuesFromStateData(
+            res.stateData,
+            activeSeries,
+            subject
+          ),
+        });
+      }
+    } else {
+      // Ensure base point exists.
+      if (forecast[0].tSec !== baseSec) {
+        const res = projection.ensureStateAtSecond(tl, baseSec);
+        if (!res.ok) return false;
+        forecast.unshift({
+          tSec: baseSec,
+          values: computeValuesFromStateData(
+            res.stateData,
+            activeSeries,
+            subject
+          ),
+        });
+      }
+
+      let lastSec = forecast[forecast.length - 1]?.tSec ?? baseSec;
+      if (lastSec < baseSec) lastSec = baseSec;
+
+      for (
+        let sec = lastSec + forecastStepSecCur;
+        sec <= lastForecastSec;
+        sec += forecastStepSecCur
+      ) {
+        const res = projection.ensureStateAtSecond(tl, sec);
+        if (!res.ok) return false;
+        forecast.push({
+          tSec: sec,
+          values: computeValuesFromStateData(
+            res.stateData,
+            activeSeries,
+            subject
+          ),
+        });
+      }
+
+      // Trim if horizon shrank.
+      forecast = forecast.filter((p) => (p?.tSec ?? 0) <= lastForecastSec);
     }
 
     graphCache.window = {
