@@ -117,13 +117,29 @@ export function handleSetSystemState(state, effect, context) {
 
   let changed = false;
   const rawValue = effect.value ?? effect.state ?? null;
+  const shouldMerge = effect.merge === true;
 
   for (const target of targets) {
     if (!target) continue;
     if (!target.systemState || typeof target.systemState !== "object") {
       target.systemState = {};
     }
-    target.systemState[systemId] = cloneSerializable(rawValue);
+    const nextValue = cloneSerializable(rawValue);
+    if (
+      shouldMerge &&
+      nextValue &&
+      typeof nextValue === "object" &&
+      !Array.isArray(nextValue)
+    ) {
+      const current = target.systemState[systemId];
+      if (current && typeof current === "object" && !Array.isArray(current)) {
+        target.systemState[systemId] = { ...current, ...nextValue };
+      } else {
+        target.systemState[systemId] = nextValue;
+      }
+    } else {
+      target.systemState[systemId] = nextValue;
+    }
     changed = true;
   }
 

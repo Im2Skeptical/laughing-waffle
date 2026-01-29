@@ -173,9 +173,10 @@ Reference for `effects.js` EffectOps. All ops are data-only specs and must be ex
 - Optional: `target`.
 
 ### SetSystemState
-- Purpose: replace the full system state object.
+- Purpose: replace the full system state object (or merge into it).
 - Required: `system`, `value` (or `state`).
-- Optional: `target`.
+- Optional: `target`, `merge`.
+- Notes: when `merge: true`, shallow-merge object fields into the existing system state; arrays are replaced, not merged. When omitted or `false`, the system state is replaced.
 
 ### ClearSystemState
 - Purpose: delete system state entries (or clear all).

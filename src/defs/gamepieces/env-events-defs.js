@@ -186,12 +186,17 @@ export const envEventDefs = {
       where: { tileId: "tile_floodplains" },
     },
     onEnter: [
-      { op: "DisableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
       {
-        op: "ClearSystemState",
+        op: "SetSystemState",
         target: { ref: "self", layer: "tile" },
-        systems: ["growth", "hydration"],
+        system: "growth",
+        merge: true,
+        value: {
+          processes: [],
+          maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+        },
       },
+      { op: "DisableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
     ],
     onExit: [
       { op: "EnableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
@@ -217,8 +222,8 @@ export const envEventDefs = {
         op: "SetSystemState",
         target: { ref: "self", layer: "tile" },
         system: "growth",
+        merge: true,
         value: {
-          selectedCropId: null,
           processes: [],
           maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
         },
