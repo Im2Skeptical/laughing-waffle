@@ -4,7 +4,8 @@
 // No Pixi imports.
 
 import {
-  buildProjectionStateWindowFromTimeline,
+  buildProjectionStateStepWindowFromTimeline,
+  buildProjectionStateStepWindowFromStateData,
   buildProjectionStateWindowFromStateData,
   buildMetricGraphHistoryCacheFromTimeline,
   getStateAtSecond,
@@ -45,13 +46,36 @@ function shouldSampleHistory(sec, frontierSec, strideSec) {
 
 function computeValuesFromStateData(stateData, series, subject) {
   if (stateData == null) return {};
-  const state = deserializeGameState(stateData);
-  canonicalizeSnapshot(state);
+  const list = Array.isArray(series) ? series : [];
+  if (!list.length) return {};
+
+  const allFast = list.every(
+    (s) => s && typeof s.getValueFromSnapshot === "function"
+  );
+
+  let raw = stateData;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch (_) {
+      raw = stateData;
+    }
+  }
+
+  let state = null;
+  if (!allFast) {
+    state = deserializeGameState(stateData);
+    canonicalizeSnapshot(state);
+  }
 
   const values = {};
-  for (const s of series) {
+  for (const s of list) {
     if (!s || typeof s.getValue !== "function") continue;
-    values[s.id] = safeNumber(s.getValue(state, subject));
+    if (typeof s.getValueFromSnapshot === "function") {
+      values[s.id] = safeNumber(s.getValueFromSnapshot(raw, subject));
+    } else {
+      values[s.id] = safeNumber(s.getValue(state, subject));
+    }
   }
   return values;
 }
@@ -115,6 +139,8 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
   let signature = null;
   let forecastBaseSec = 0;
   let forecastEndSec = 0;
+  let forecastStepSec = 1;
+  let forecastDtStep = null;
   const stateDataBySecond = new Map();
 
   const limit = Number.isFinite(maxEntries)
@@ -125,6 +151,8 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     signature = nextSignature || null;
     forecastBaseSec = 0;
     forecastEndSec = 0;
+    forecastStepSec = 1;
+    forecastDtStep = null;
     stateDataBySecond.clear();
   }
 
@@ -153,28 +181,35 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     return { changed, signature };
   }
 
-  function ensureForecastWindow(tl, targetEndSec, dtStep) {
+  function ensureForecastWindow(tl, targetEndSec, dtStep, stepSec) {
     if (!tl) return { ok: false, reason: "noTimeline" };
     ensureSignature(tl);
 
+    const step =
+      typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
     const baseSec = clampSec(tl.maxReachedSec ?? 0);
     const target = clampSec(targetEndSec);
+    const horizonSec = Math.max(0, target - baseSec);
+    const targetBoundaryEnd =
+      baseSec + Math.floor(horizonSec / step) * step;
 
-    if (target <= baseSec) {
+    if (targetBoundaryEnd <= baseSec) {
       forecastBaseSec = baseSec;
       forecastEndSec = baseSec;
+      forecastStepSec = step;
+      forecastDtStep = dtStep;
       return { ok: true };
     }
 
     if (
       forecastBaseSec === baseSec &&
-      forecastEndSec >= target &&
+      forecastEndSec >= targetBoundaryEnd &&
+      forecastStepSec === step &&
       stateDataBySecond.size > 0
     ) {
       return { ok: true };
     }
 
-    const horizonSec = Math.max(0, target - baseSec);
     const baseStateData =
       stateDataBySecond.get(baseSec) ??
       (() => {
@@ -189,19 +224,25 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
       return { ok: false, reason: "baseStateMissing" };
     }
 
-    if (forecastBaseSec === baseSec && forecastEndSec < target) {
+    if (
+      forecastBaseSec === baseSec &&
+      forecastEndSec < targetBoundaryEnd &&
+      forecastStepSec === step
+    ) {
       const tailData = stateDataBySecond.get(forecastEndSec);
       if (tailData != null) {
-        const extend = buildProjectionStateWindowFromStateData(
-          tailData,
-          forecastEndSec,
-          { horizonSec: target - forecastEndSec, dtStep }
-        );
+        const extend = buildProjectionStateStepWindowFromStateData(tailData, forecastEndSec, {
+          horizonSec: targetBoundaryEnd - forecastEndSec,
+          stepSec: step,
+          dtStep,
+        });
         if (!extend.ok) return extend;
         for (const [sec, sd] of extend.stateDataBySecond.entries()) {
           set(sec, sd);
         }
         forecastEndSec = extend.window.endSec;
+        forecastStepSec = step;
+        forecastDtStep = dtStep;
         return { ok: true };
       }
     }
@@ -209,18 +250,20 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     if (
       baseSec > forecastBaseSec &&
       baseSec <= forecastEndSec &&
-      stateDataBySecond.has(baseSec)
+      stateDataBySecond.has(baseSec) &&
+      forecastStepSec === step &&
+      (baseSec - forecastBaseSec) % step === 0
     ) {
       // Shift the window forward: reuse existing points, extend only the tail.
       forecastBaseSec = baseSec;
-      if (forecastEndSec < target) {
+      if (forecastEndSec < targetBoundaryEnd) {
         const tailData = stateDataBySecond.get(forecastEndSec);
         if (tailData != null) {
-          const extend = buildProjectionStateWindowFromStateData(
-            tailData,
-            forecastEndSec,
-            { horizonSec: target - forecastEndSec, dtStep }
-          );
+          const extend = buildProjectionStateStepWindowFromStateData(tailData, forecastEndSec, {
+            horizonSec: targetBoundaryEnd - forecastEndSec,
+            stepSec: step,
+            dtStep,
+          });
           if (!extend.ok) return extend;
           for (const [sec, sd] of extend.stateDataBySecond.entries()) {
             set(sec, sd);
@@ -228,17 +271,20 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
           forecastEndSec = extend.window.endSec;
         }
       }
-      if (forecastEndSec < target) {
+      if (forecastEndSec < targetBoundaryEnd) {
         // Tail missing; fall back to rebuild.
         forecastBaseSec = baseSec;
         forecastEndSec = baseSec;
       } else {
+        forecastStepSec = step;
+        forecastDtStep = dtStep;
         return { ok: true };
       }
     }
 
-    const winRes = buildProjectionStateWindowFromTimeline(tl, baseSec, {
-      horizonSec,
+    const winRes = buildProjectionStateStepWindowFromTimeline(tl, baseSec, {
+      horizonSec: targetBoundaryEnd - baseSec,
+      stepSec: step,
       dtStep,
     });
     if (!winRes.ok) return winRes;
@@ -249,11 +295,13 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
 
     forecastBaseSec = baseSec;
     forecastEndSec = winRes.window.endSec;
+    forecastStepSec = step;
+    forecastDtStep = dtStep;
 
     return { ok: true };
   }
 
-  function ensureStateAtSecond(tl, sec, dtStep) {
+  function ensureStateAtSecond(tl, sec, dtStep, stepSec) {
     if (!tl) return { ok: false, reason: "noTimeline" };
 
     ensureSignature(tl);
@@ -274,11 +322,40 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
       return { ok: true, stateData: sd };
     }
 
-    const forecastRes = ensureForecastWindow(tl, t, dtStep);
+    const step =
+      typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
+
+    const forecastRes = ensureForecastWindow(tl, t, dtStep, step);
     if (!forecastRes.ok) return forecastRes;
 
     const forecastData = touch(t);
     if (forecastData != null) return { ok: true, stateData: forecastData };
+
+    if (t >= forecastBaseSec && t <= forecastEndSec && step > 0) {
+      const offset = t - forecastBaseSec;
+      const anchorSec =
+        forecastBaseSec + Math.floor(offset / step) * step;
+      const anchorData = stateDataBySecond.get(anchorSec);
+      if (anchorData != null) {
+        const delta = t - anchorSec;
+        if (delta > 0) {
+          const win = buildProjectionStateWindowFromStateData(anchorData, anchorSec, {
+            horizonSec: delta,
+            dtStep: forecastDtStep ?? dtStep,
+          });
+          if (win.ok) {
+            const sd = win.stateDataBySecond.get(t);
+            if (sd != null) {
+              set(t, sd);
+              return { ok: true, stateData: sd };
+            }
+          }
+        } else if (delta === 0) {
+          set(t, anchorData);
+          return { ok: true, stateData: anchorData };
+        }
+      }
+    }
 
     return { ok: false, reason: "forecastMissing" };
   }
@@ -325,7 +402,9 @@ export function createTimeGraphController({
   let subjectKey = null;
 
   let isActive = false;
-  let dirty = true;
+  let stateDirty = true;
+  let seriesDirty = true;
+  let cacheVersion = 0;
 
   // Config (mutable locals; never assign to function parameters)
   let historyStrideSecCur = historyStrideSec;
@@ -347,7 +426,8 @@ export function createTimeGraphController({
     const cs = getCursorState?.();
     if (!tl || !cs) {
       graphCache = null;
-      dirty = true;
+      stateDirty = true;
+      seriesDirty = true;
       return { ok: false, reason: "no state" };
     }
 
@@ -383,20 +463,34 @@ export function createTimeGraphController({
       values: p.values,
     }));
 
+    const stateDataByBoundary = new Map(histRes.stateDataByBoundary);
+
     const baseSec = maxReachedSec;
     const endSec = baseSec + horizonSecCur;
+    const steps = Math.floor(horizonSecCur / forecastStepSecCur);
+    const lastForecastSec = baseSec + steps * forecastStepSecCur;
 
     if (horizonSecCur > 0) {
-      const forecastRes = projection.ensureForecastWindow(tl, endSec);
+      const forecastRes = projection.ensureForecastWindow(
+        tl,
+        lastForecastSec,
+        undefined,
+        forecastStepSecCur
+      );
       if (!forecastRes.ok) return forecastRes;
     }
 
     const forecast = [];
-    const steps = Math.floor(horizonSecCur / forecastStepSecCur);
     for (let i = 0; i <= steps; i++) {
       const sec = baseSec + i * forecastStepSecCur;
-      const res = projection.ensureStateAtSecond(tl, sec);
+      const res = projection.ensureStateAtSecond(
+        tl,
+        sec,
+        undefined,
+        forecastStepSecCur
+      );
       if (!res.ok) return res;
+      if (res.stateData != null) stateDataByBoundary.set(sec, res.stateData);
       forecast.push({
         tSec: sec,
         values: computeValuesFromStateData(res.stateData, activeSeries, subject),
@@ -413,15 +507,88 @@ export function createTimeGraphController({
         stepSec: forecastStepSecCur,
         forecast,
       },
+      stateDataByBoundary,
       series: activeSeries,
       metricLabel,
       metric: metricDef,
       subjectKey,
+      version: ++cacheVersion,
     };
 
     lastKnownMaxReachedSec = maxReachedSec;
 
-    dirty = false;
+    stateDirty = false;
+    seriesDirty = false;
+    return { ok: true };
+  }
+
+  function rebuildSeriesValues() {
+    const tl = getTimeline?.();
+    const cs = getCursorState?.();
+    if (!tl || !cs) {
+      graphCache = null;
+      stateDirty = true;
+      seriesDirty = true;
+      return { ok: false, reason: "no state" };
+    }
+
+    activeSeries = resolveSeries(metricDef, subject, cs);
+    metricLabel = resolveLabel(metricDef, subject, cs);
+
+    if (!graphCache) {
+      return rebuildGraphCache();
+    }
+
+    const stateDataByBoundary = graphCache.stateDataByBoundary;
+    const history = Array.isArray(graphCache.history) ? graphCache.history : [];
+    for (const point of history) {
+      const sec = clampSec(point?.tSec ?? 0);
+      let stateData = stateDataByBoundary?.get?.(sec);
+      if (stateData == null) {
+        const res = projection.ensureStateAtSecond(
+          tl,
+          sec,
+          undefined,
+          forecastStepSecCur
+        );
+        if (!res.ok) return rebuildGraphCache();
+        stateData = res.stateData;
+        if (stateData != null && stateDataByBoundary) {
+          stateDataByBoundary.set(sec, stateData);
+        }
+      }
+      point.values = computeValuesFromStateData(stateData, activeSeries, subject);
+    }
+
+    const forecast = Array.isArray(graphCache.window?.forecast)
+      ? graphCache.window.forecast
+      : [];
+    for (const point of forecast) {
+      const sec = clampSec(point?.tSec ?? 0);
+      let stateData = stateDataByBoundary?.get?.(sec);
+      if (stateData == null) {
+        const res = projection.ensureStateAtSecond(
+          tl,
+          sec,
+          undefined,
+          forecastStepSecCur
+        );
+        if (!res.ok) return rebuildGraphCache();
+        stateData = res.stateData;
+        if (stateData != null && stateDataByBoundary) {
+          stateDataByBoundary.set(sec, stateData);
+        }
+      }
+      point.values = computeValuesFromStateData(stateData, activeSeries, subject);
+    }
+
+    graphCache.series = activeSeries;
+    graphCache.metricLabel = metricLabel;
+    graphCache.metric = metricDef;
+    graphCache.subjectKey = subjectKey;
+    graphCache.version = ++cacheVersion;
+
+    seriesDirty = false;
     return { ok: true };
   }
 
@@ -435,8 +602,16 @@ export function createTimeGraphController({
 
     for (let sec = oldMax + 1; sec <= target; sec++) {
       if (!shouldSampleHistory(sec, target, historyStrideSecCur)) continue;
-      const res = projection.ensureStateAtSecond(tl, sec);
+      const res = projection.ensureStateAtSecond(
+        tl,
+        sec,
+        undefined,
+        forecastStepSecCur
+      );
       if (!res.ok) return false;
+      if (res.stateData != null && graphCache.stateDataByBoundary) {
+        graphCache.stateDataByBoundary.set(sec, res.stateData);
+      }
       graphCache.history.push({
         tSec: sec,
         values: computeValuesFromStateData(res.stateData, activeSeries, subject),
@@ -444,6 +619,7 @@ export function createTimeGraphController({
     }
 
     graphCache.maxReachedSec = target;
+    graphCache.version = ++cacheVersion;
     return true;
   }
 
@@ -457,7 +633,12 @@ export function createTimeGraphController({
     const lastForecastSec = baseSec + steps * forecastStepSecCur;
 
     if (horizonSecCur > 0) {
-      const forecastRes = projection.ensureForecastWindow(tl, endSec);
+      const forecastRes = projection.ensureForecastWindow(
+        tl,
+        lastForecastSec,
+        undefined,
+        forecastStepSecCur
+      );
       if (!forecastRes.ok) return false;
     }
 
@@ -489,8 +670,16 @@ export function createTimeGraphController({
     if (!forecast.length) {
       for (let i = 0; i <= steps; i++) {
         const sec = baseSec + i * forecastStepSecCur;
-        const res = projection.ensureStateAtSecond(tl, sec);
+        const res = projection.ensureStateAtSecond(
+          tl,
+          sec,
+          undefined,
+          forecastStepSecCur
+        );
         if (!res.ok) return false;
+        if (res.stateData != null && graphCache.stateDataByBoundary) {
+          graphCache.stateDataByBoundary.set(sec, res.stateData);
+        }
         forecast.push({
           tSec: sec,
           values: computeValuesFromStateData(
@@ -503,8 +692,16 @@ export function createTimeGraphController({
     } else {
       // Ensure base point exists.
       if (forecast[0].tSec !== baseSec) {
-        const res = projection.ensureStateAtSecond(tl, baseSec);
+        const res = projection.ensureStateAtSecond(
+          tl,
+          baseSec,
+          undefined,
+          forecastStepSecCur
+        );
         if (!res.ok) return false;
+        if (res.stateData != null && graphCache.stateDataByBoundary) {
+          graphCache.stateDataByBoundary.set(baseSec, res.stateData);
+        }
         forecast.unshift({
           tSec: baseSec,
           values: computeValuesFromStateData(
@@ -523,8 +720,16 @@ export function createTimeGraphController({
         sec <= lastForecastSec;
         sec += forecastStepSecCur
       ) {
-        const res = projection.ensureStateAtSecond(tl, sec);
+        const res = projection.ensureStateAtSecond(
+          tl,
+          sec,
+          undefined,
+          forecastStepSecCur
+        );
         if (!res.ok) return false;
+        if (res.stateData != null && graphCache.stateDataByBoundary) {
+          graphCache.stateDataByBoundary.set(sec, res.stateData);
+        }
         forecast.push({
           tSec: sec,
           values: computeValuesFromStateData(
@@ -546,6 +751,7 @@ export function createTimeGraphController({
       stepSec: forecastStepSecCur,
       forecast,
     };
+    graphCache.version = ++cacheVersion;
 
     return true;
   }
@@ -555,28 +761,35 @@ export function createTimeGraphController({
     const cs = getCursorState?.();
     if (!tl || !cs) {
       graphCache = null;
-      dirty = true;
+      stateDirty = true;
+      seriesDirty = true;
       return { ok: false, reason: "no state" };
     }
 
     if (!isActive && reason !== "open" && reason !== "active") {
-      dirty = true;
+      seriesDirty = true;
       return { ok: true, reason: "deferred" };
     }
 
     const sigRes = projection.ensureSignature(tl);
     if (sigRes?.changed) {
-      dirty = true;
+      stateDirty = true;
+      seriesDirty = true;
     }
 
-    if (dirty || !graphCache) {
+    if (stateDirty || !graphCache) {
       return rebuildGraphCache();
+    }
+
+    if (seriesDirty) {
+      return rebuildSeriesValues();
     }
 
     const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
 
     if (maxReachedSec < lastKnownMaxReachedSec) {
-      dirty = true;
+      stateDirty = true;
+      seriesDirty = true;
       return rebuildGraphCache();
     }
 
@@ -595,7 +808,7 @@ export function createTimeGraphController({
 
   function update() {
     if (!isActive) return;
-    if (dirty) {
+    if (stateDirty || seriesDirty) {
       handleInvalidate("active");
       return;
     }
@@ -605,7 +818,8 @@ export function createTimeGraphController({
 
     const sigRes = projection.ensureSignature(tl);
     if (sigRes?.changed) {
-      dirty = true;
+      stateDirty = true;
+      seriesDirty = true;
       handleInvalidate("active");
       return;
     }
@@ -614,14 +828,16 @@ export function createTimeGraphController({
     if (maxReachedSec > lastKnownMaxReachedSec) {
       const okHistory = extendHistoryTo(maxReachedSec);
       if (!okHistory) {
-        dirty = true;
+        stateDirty = true;
+        seriesDirty = true;
         handleInvalidate("active");
         return;
       }
 
       const okForecast = rebuildForecastAtFrontier();
       if (!okForecast) {
-        dirty = true;
+        stateDirty = true;
+        seriesDirty = true;
         handleInvalidate("active");
         return;
       }
@@ -631,7 +847,10 @@ export function createTimeGraphController({
   }
 
   function ensureCache() {
-    if (!graphCache || dirty) return rebuildGraphCache();
+    if (!graphCache || stateDirty || seriesDirty) {
+      if (stateDirty) return rebuildGraphCache();
+      if (seriesDirty) return rebuildSeriesValues();
+    }
     return { ok: true };
   }
 
@@ -645,6 +864,7 @@ export function createTimeGraphController({
       horizonSec: horizonSecCur,
       historyStrideSec: historyStrideSecCur,
       forecastStepSec: forecastStepSecCur,
+      cacheVersion: graphCache?.version ?? cacheVersion,
       projectionCacheSize: projection.getSize?.(),
       projectionCacheCap: projection.maxEntries,
     };
@@ -653,7 +873,12 @@ export function createTimeGraphController({
   function getStateDataAt(tSec) {
     const tl = getTimeline?.();
     if (!tl) return null;
-    const res = projection.ensureStateAtSecond(tl, tSec);
+    const res = projection.ensureStateAtSecond(
+      tl,
+      tSec,
+      undefined,
+      forecastStepSecCur
+    );
     if (!res.ok) return null;
     return res.stateData ?? null;
   }
@@ -667,15 +892,19 @@ export function createTimeGraphController({
   }
 
   function setMetric(nextMetric) {
-    metricDef = resolveMetricDef(nextMetric);
+    const nextDef = resolveMetricDef(nextMetric);
+    if (nextDef === metricDef) return;
+    metricDef = nextDef;
     subjectKey = resolveSubjectKey(metricDef, subject, subjectKey);
-    dirty = true;
+    seriesDirty = true;
   }
 
   function setSubject(nextSubject, nextKey) {
     subject = nextSubject ?? null;
-    subjectKey = resolveSubjectKey(metricDef, subject, nextKey);
-    dirty = true;
+    const resolved = resolveSubjectKey(metricDef, subject, nextKey);
+    if (resolved === subjectKey) return;
+    subjectKey = resolved;
+    seriesDirty = true;
   }
 
   return {
@@ -691,7 +920,7 @@ export function createTimeGraphController({
       const next = !!active;
       if (next === isActive) return;
       isActive = next;
-      if (isActive && dirty) handleInvalidate("active");
+      if (isActive && (stateDirty || seriesDirty)) handleInvalidate("active");
     },
   };
 }

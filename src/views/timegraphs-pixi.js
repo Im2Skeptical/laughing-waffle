@@ -141,6 +141,8 @@ export function createMetricGraphView({
   let maxSec = 0;
   let zoomed = false;
   let lastPlotMs = 0;
+  let lastPlotVersion = -1;
+  let lastPlotBoundsKey = "";
   const PLOT_THROTTLE_MS = 80;
   const MAX_PLOT_POINTS = 700;
 
@@ -567,11 +569,21 @@ export function createMetricGraphView({
     updateTimeBounds();
     updateZoomButton();
     const now = performance.now();
+    const data = controller.getData?.() ?? {};
+    const boundsKey = `${minSec}:${maxSec}`;
+    const cacheVersion =
+      Number.isFinite(data.cacheVersion) ? data.cacheVersion : -1;
+    const versionChanged =
+      cacheVersion !== lastPlotVersion || boundsKey !== lastPlotBoundsKey;
     const shouldPlot =
-      isScrubbing || now - lastPlotMs >= PLOT_THROTTLE_MS;
+      isScrubbing || zoomed
+        ? now - lastPlotMs >= PLOT_THROTTLE_MS
+        : versionChanged && now - lastPlotMs >= PLOT_THROTTLE_MS;
     if (shouldPlot) {
       drawPlot();
       lastPlotMs = now;
+      lastPlotVersion = cacheVersion;
+      lastPlotBoundsKey = boundsKey;
     }
     drawScrub();
   }

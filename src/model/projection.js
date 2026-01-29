@@ -419,6 +419,126 @@ export function buildProjectionStateWindowFromTimeline(
   };
 }
 
+export function buildProjectionStateStepWindowFromTimeline(
+  tl,
+  baseBoundary,
+  opts = null
+) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+
+  const dtStep =
+    typeof opts?.dtStep === "number" && opts.dtStep > 0
+      ? opts.dtStep
+      : DEFAULT_DT_STEP;
+
+  const horizonSec =
+    typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
+      ? Math.floor(opts.horizonSec)
+      : 0;
+
+  const stepSec =
+    typeof opts?.stepSec === "number" && opts.stepSec > 0
+      ? Math.floor(opts.stepSec)
+      : 1;
+
+  const baseSec = clampSec(
+    typeof opts?.baseSec === "number" ? opts.baseSec : baseBoundary
+  );
+
+  const baseRes = getStateAtSecond(tl, baseSec);
+  if (!baseRes.ok)
+    return { ok: false, reason: baseRes.reason || "baseStateFailed" };
+
+  let s = cloneState(baseRes.state);
+  normalizeStateForProjection(s, baseSec);
+
+  const stateDataBySecond = new Map();
+  stateDataBySecond.set(baseSec, serializeGameState(s));
+
+  const steps = Math.floor(horizonSec / stepSec);
+  let curSec = baseSec;
+  for (let i = 1; i <= steps; i++) {
+    const sim = simulateForwardSecondsInPlace(s, stepSec, dtStep);
+    if (!sim.ok) break;
+
+    curSec = baseSec + i * stepSec;
+    canonicalizeSnapshot(s);
+    stateDataBySecond.set(curSec, serializeGameState(s));
+  }
+
+  return {
+    ok: true,
+    window: {
+      baseSec,
+      endSec: baseSec + horizonSec,
+      horizonSec,
+      stepSec,
+      dtStep,
+      mode: "stateStepWindow",
+      horizon: steps,
+    },
+    stateDataBySecond,
+  };
+}
+
+export function buildProjectionStateStepWindowFromStateData(
+  baseStateData,
+  baseBoundary,
+  opts = null
+) {
+  if (baseStateData == null) return { ok: false, reason: "noBaseStateData" };
+
+  const dtStep =
+    typeof opts?.dtStep === "number" && opts.dtStep > 0
+      ? opts.dtStep
+      : DEFAULT_DT_STEP;
+
+  const horizonSec =
+    typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
+      ? Math.floor(opts.horizonSec)
+      : 0;
+
+  const stepSec =
+    typeof opts?.stepSec === "number" && opts.stepSec > 0
+      ? Math.floor(opts.stepSec)
+      : 1;
+
+  const baseSec = clampSec(
+    typeof opts?.baseSec === "number" ? opts.baseSec : baseBoundary
+  );
+
+  const s = deserializeGameState(baseStateData);
+  normalizeStateForProjection(s, baseSec);
+
+  const stateDataBySecond = new Map();
+  stateDataBySecond.set(baseSec, serializeGameState(s));
+
+  const steps = Math.floor(horizonSec / stepSec);
+  let curSec = baseSec;
+  for (let i = 1; i <= steps; i++) {
+    const sim = simulateForwardSecondsInPlace(s, stepSec, dtStep);
+    if (!sim.ok) break;
+
+    curSec = baseSec + i * stepSec;
+    canonicalizeSnapshot(s);
+    stateDataBySecond.set(curSec, serializeGameState(s));
+  }
+
+  return {
+    ok: true,
+    window: {
+      baseSec,
+      endSec: baseSec + horizonSec,
+      horizonSec,
+      stepSec,
+      dtStep,
+      mode: "stateStepWindow",
+      horizon: steps,
+    },
+    stateDataBySecond,
+  };
+}
+
 export function buildProjectionStateWindowFromStateData(
   baseStateData,
   baseBoundary,

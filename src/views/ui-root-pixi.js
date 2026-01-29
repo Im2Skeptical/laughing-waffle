@@ -249,6 +249,54 @@ function sumMaturedPool(pool) {
   );
 }
 
+function findTileAnchorAtCol(snapshot, col) {
+  const anchors = snapshot?.board?.layers?.tile?.anchors;
+  if (!Array.isArray(anchors)) return null;
+  const targetCol = Number.isFinite(col) ? Math.floor(col) : null;
+  if (targetCol == null) return null;
+  for (const anchor of anchors) {
+    if (!anchor) continue;
+    const base = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
+    const span = Number.isFinite(anchor.span) ? Math.floor(anchor.span) : 1;
+    if (targetCol >= base && targetCol < base + Math.max(1, span)) {
+      return anchor;
+    }
+  }
+  return null;
+}
+
+function findHubStructureAtCol(snapshot, col) {
+  const slots = snapshot?.hub?.slots;
+  if (!Array.isArray(slots)) return null;
+  const targetCol = Number.isFinite(col) ? Math.floor(col) : null;
+  if (targetCol == null) return null;
+  for (let i = 0; i < slots.length; i++) {
+    const structure = slots[i]?.structure;
+    if (!structure) continue;
+    const def = hubStructureDefs[structure.defId];
+    const span =
+      Number.isFinite(structure.span) && structure.span > 0
+        ? Math.floor(structure.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+          ? Math.floor(def.defaultSpan)
+          : 1;
+    const base = i;
+    if (targetCol >= base && targetCol < base + Math.max(1, span)) {
+      return structure;
+    }
+  }
+  return null;
+}
+
+function findPawnById(snapshot, id) {
+  const chars = snapshot?.characters;
+  if (!Array.isArray(chars)) return null;
+  for (const ch of chars) {
+    if (ch?.id === id) return ch;
+  }
+  return null;
+}
+
 function buildSystemSeriesForTarget(target, state) {
   if (!target || !state) {
     return {
@@ -289,6 +337,11 @@ function buildSystemSeriesForTarget(target, state) {
             const pool = t?.systemState?.growth?.maturedPool;
             return sumMaturedPool(pool);
           },
+          getValueFromSnapshot: (snapshot) => {
+            const t = findTileAnchorAtCol(snapshot, col);
+            const pool = t?.systemState?.growth?.maturedPool;
+            return sumMaturedPool(pool);
+          },
         });
         continue;
       }
@@ -300,6 +353,15 @@ function buildSystemSeriesForTarget(target, state) {
         color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
         getValue: (snap) => {
           const t = snap?.board?.occ?.tile?.[col];
+          const sysState = t?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            t?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
+          return getTierValue(envSystemDefs, systemId, tier);
+        },
+        getValueFromSnapshot: (snapshot) => {
+          const t = findTileAnchorAtCol(snapshot, col);
           const sysState = t?.systemState?.[systemId];
           if (Number.isFinite(sysState?.cur)) return sysState.cur;
           if (Number.isFinite(sysState?.value)) return sysState.value;
@@ -340,6 +402,15 @@ function buildSystemSeriesForTarget(target, state) {
             s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
           return getTierValue(hubSystemDefs, systemId, tier);
         },
+        getValueFromSnapshot: (snapshot) => {
+          const s = col != null ? findHubStructureAtCol(snapshot, col) : null;
+          const sysState = s?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
+          return getTierValue(hubSystemDefs, systemId, tier);
+        },
       });
     }
   } else if (target.kind === "pawn") {
@@ -368,6 +439,15 @@ function buildSystemSeriesForTarget(target, state) {
             p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
           return getTierValue(pawnSystemDefs, systemId, tier);
         },
+        getValueFromSnapshot: (snapshot) => {
+          const p = findPawnById(snapshot, id);
+          const sysState = p?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
+          return getTierValue(pawnSystemDefs, systemId, tier);
+        },
       });
     }
   }
@@ -378,6 +458,7 @@ function buildSystemSeriesForTarget(target, state) {
       label: "No systems",
       color: SYSTEM_GRAPH_COLORS[0],
       getValue: () => 0,
+      getValueFromSnapshot: () => 0,
     });
   }
 
