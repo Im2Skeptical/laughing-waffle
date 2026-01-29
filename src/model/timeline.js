@@ -242,6 +242,8 @@ export function appendActionAtCursor(tl, action, state) {
   };
 
   tl.actions.push(entry);
+  tl._lastMutationKind = "appendAction";
+  tl._lastMutationSec = t;
 
   // Incrementally update actionsBySec if present; otherwise leave lazy.
   if (tl.actionsBySec) {
@@ -286,6 +288,9 @@ export function replaceActionsAtSecond(tl, tSec, actionsAtSec, opts = {}) {
   tl.actions = truncateFuture
     ? [...before, ...normalized]
     : [...before, ...normalized, ...after];
+
+  tl._lastMutationKind = "replaceActionsAtSec";
+  tl._lastMutationSec = t;
 
   rebuildActionsBySecIndex(tl);
   tl._memoGuardSig = computeTimelineMutationSig(tl);
@@ -466,6 +471,9 @@ export function truncateTimelineAfterSecond(tl, tSec) {
 
   tl.actions = truncateActionsAfterSecond(tl.actions, t);
   tl.checkpoints = truncateCheckpointsAfterSecond(tl.checkpoints, t);
+
+  tl._lastMutationKind = "truncateTimelineAfterSec";
+  tl._lastMutationSec = t;
 
   tl.maxReachedSec = Math.min(Math.floor(tl.maxReachedSec ?? 0), t);
   tl.cursorSec = Math.min(Math.floor(tl.cursorSec ?? 0), t);

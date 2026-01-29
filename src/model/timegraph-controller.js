@@ -109,6 +109,28 @@ function resolveSubjectKey(metricDef, subject, explicitKey) {
   return null;
 }
 
+function computeActionSig(tl) {
+  const acts = Array.isArray(tl?.actions) ? tl.actions : [];
+  const len = acts.length;
+  const last = len ? acts[len - 1] : null;
+  return {
+    ref: acts,
+    len,
+    lastRef: last,
+    lastSec: last ? Math.floor(last.tSec ?? 0) : 0,
+  };
+}
+
+function actionSigEquals(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.ref === b.ref &&
+    a.len === b.len &&
+    a.lastRef === b.lastRef &&
+    a.lastSec === b.lastSec
+  );
+}
+
 function computeTimelineSignature(tl) {
   // Projection cache should only reset when replay-relevant data changes.
   // We intentionally ignore checkpoint churn (revision bumps) here.
@@ -405,6 +427,9 @@ export function createTimeGraphController({
   let stateDirty = true;
   let seriesDirty = true;
   let cacheVersion = 0;
+  let lastActionSig = null;
+
+  const MAX_TAIL_REBUILD_SEC = 240;
 
   // Config (mutable locals; never assign to function parameters)
   let historyStrideSecCur = historyStrideSec;
@@ -432,6 +457,7 @@ export function createTimeGraphController({
     }
 
     const sigRes = projection.ensureSignature(tl);
+    lastActionSig = computeActionSig(tl);
 
     historyStrideSecCur = clampStride(historyStrideSecCur, 5);
     forecastStepSecCur = clampStride(forecastStepSecCur, 5);
@@ -590,6 +616,112 @@ export function createTimeGraphController({
 
     seriesDirty = false;
     return { ok: true };
+  }
+
+  function patchHistoryFromSecond(tl, startSec, endSec) {
+    if (!graphCache) return false;
+    const history = Array.isArray(graphCache.history) ? graphCache.history : [];
+    const stateDataByBoundary = graphCache.stateDataByBoundary;
+    let inserted = false;
+
+    for (let sec = startSec; sec <= endSec; sec++) {
+      if (!shouldSampleHistory(sec, endSec, historyStrideSecCur)) continue;
+      const res = projection.ensureStateAtSecond(
+        tl,
+        sec,
+        undefined,
+        forecastStepSecCur
+      );
+      if (!res.ok) return false;
+      if (res.stateData != null && stateDataByBoundary) {
+        stateDataByBoundary.set(sec, res.stateData);
+      }
+
+      const values = computeValuesFromStateData(
+        res.stateData,
+        activeSeries,
+        subject
+      );
+
+      let replaced = false;
+      for (let i = 0; i < history.length; i++) {
+        if (clampSec(history[i].tSec ?? 0) === sec) {
+          history[i].values = values;
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) {
+        history.push({ tSec: sec, values });
+        inserted = true;
+      }
+    }
+
+    if (inserted) {
+      history.sort((a, b) => (a.tSec ?? 0) - (b.tSec ?? 0));
+    }
+
+    graphCache.version = ++cacheVersion;
+    return true;
+  }
+
+  function tryHandleAppendMutation(tl, maxReachedSec) {
+    if (!graphCache || !tl) return false;
+
+    const nextSig = computeActionSig(tl);
+    const prevSig = lastActionSig;
+    if (!prevSig || !nextSig) return false;
+
+    const isAppend =
+      prevSig.ref === nextSig.ref &&
+      nextSig.len === prevSig.len + 1 &&
+      nextSig.lastRef === nextSig.ref?.[nextSig.len - 1];
+
+    if (!isAppend) return false;
+
+    const actionSec = clampSec(nextSig.lastSec ?? 0);
+    const frontier = clampSec(maxReachedSec ?? 0);
+    const span = Math.max(0, frontier - actionSec);
+
+    if (span > MAX_TAIL_REBUILD_SEC) return false;
+
+    const okHistory = patchHistoryFromSecond(tl, actionSec, frontier);
+    if (!okHistory) return false;
+
+    const okForecast = rebuildForecastAtFrontier();
+    if (!okForecast) return false;
+
+    lastActionSig = nextSig;
+    lastKnownMaxReachedSec = frontier;
+    stateDirty = false;
+    seriesDirty = false;
+    return true;
+  }
+
+  function tryHandleMutationHint(tl, maxReachedSec) {
+    if (!graphCache || !tl) return false;
+    const kind = tl._lastMutationKind;
+    const sec = clampSec(tl._lastMutationSec ?? -1);
+    if (sec < 0) return false;
+
+    if (kind !== "replaceActionsAtSec" && kind !== "appendAction") {
+      return false;
+    }
+
+    const frontier = clampSec(maxReachedSec ?? 0);
+    const span = Math.max(0, frontier - sec);
+    if (span > MAX_TAIL_REBUILD_SEC) return false;
+
+    const okHistory = patchHistoryFromSecond(tl, sec, frontier);
+    if (!okHistory) return false;
+
+    const okForecast = rebuildForecastAtFrontier();
+    if (!okForecast) return false;
+
+    lastKnownMaxReachedSec = frontier;
+    stateDirty = false;
+    seriesDirty = false;
+    return true;
   }
 
   function extendHistoryTo(newMaxReachedSec) {
@@ -773,6 +905,13 @@ export function createTimeGraphController({
 
     const sigRes = projection.ensureSignature(tl);
     if (sigRes?.changed) {
+      const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+      if (tryHandleAppendMutation(tl, maxReachedSec)) {
+        return { ok: true, reason: "appendPatch" };
+      }
+      if (tryHandleMutationHint(tl, maxReachedSec)) {
+        return { ok: true, reason: "hintPatch" };
+      }
       stateDirty = true;
       seriesDirty = true;
     }

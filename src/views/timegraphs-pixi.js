@@ -144,7 +144,7 @@ export function createMetricGraphView({
   let lastPlotVersion = -1;
   let lastPlotBoundsKey = "";
   const PLOT_THROTTLE_MS = 80;
-  const MAX_PLOT_POINTS = 700;
+  const MAX_PLOT_POINTS = 150000;
 
   let lastRestoreMs = 0;
   const RESTORE_THROTTLE_MS = 33;
