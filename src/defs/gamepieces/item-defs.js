@@ -22,17 +22,17 @@ export const itemDefs = {
       ],
     },
   },
-  grain: {
-    id: "grain",
-    name: "Grain",
+  wheat: {
+    id: "wheat",
+    name: "Wheat",
     color: 0xdaa520,
     maxStack: 25,
-    baseTags: ["crop", "currency", "rotatable"],
+    baseTags: ["edible", "crop", "currency", "rotatable"],
     baseSystemTiers: { freshness: "bronze" },
     defaultWidth: 1,
     defaultHeight: 2,
     ui: {
-      title: "Grain",
+      title: "Wheat",
       lines: [
         "Item id: {id}",
         "Owner: {ownerLabel}",

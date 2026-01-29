@@ -59,12 +59,18 @@ export const envTagDefs = {
               target: { ref: "pawnInv" },
               itemId: {
                 var: "selectedCropId",
-                map: { barley: "barley" },
+                map: { 
+                  barley: "barley",
+                  wheat: "wheat", 
+                },
                 default: null,
               },
               amount: {
                 var: "selectedCropId",
-                map: { barley: 1 },
+                map: { 
+                  barley: 1,
+                  wheat: 1, 
+                },
                 default: null,
               },
             },

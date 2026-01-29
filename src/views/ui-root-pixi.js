@@ -709,6 +709,19 @@ let foodGraphView = createMetricGraphView({
   openPosition: { x: 350, y: 460 },
 });
 
+let systemGraphView = createMetricGraphView({
+  app,
+  layer: uiLayers.controlsLayer,
+  controller: systemGraphController,
+  getMetricDef: () => systemGraphController.getData().metric,
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  setPreviewState: (s) => runner.setPreviewState(s),
+  clearPreviewState: () => runner.clearPreviewState(),
+  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
+  openPosition: { x: 350, y: 220 },
+});
+
 let apGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
@@ -727,20 +740,7 @@ let apGraphView = createMetricGraphView({
   setPreviewState: (s) => runner.setPreviewState(s),
   clearPreviewState: () => runner.clearPreviewState(),
   commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
-  openPosition: { x: 350 },
-});
-
-let systemGraphView = createMetricGraphView({
-  app,
-  layer: uiLayers.controlsLayer,
-  controller: systemGraphController,
-  getMetricDef: () => systemGraphController.getData().metric,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
-  openPosition: { x: 350, y: 640 },
+  openPosition: { x: 350, y: 80 },
 });
 
 let lastSystemGraphTargetKey = null;

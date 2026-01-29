@@ -46,7 +46,7 @@ export const setupDefs = {
       {
         owner: { type: "hubStructure", hubCol: 4 },
         items: [
-          { kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
+          { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 2, gridY: 0 },
           { kind: "barley", quantity: 15, gridX: 0, gridY: 2 },
@@ -59,14 +59,14 @@ export const setupDefs = {
       {
         owner: { type: "character", index: 0 },
         items: [
-          //{ kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
+          { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
         ],
       },
       {
         owner: { type: "character", index: 1 },
         items: [
-          //{ kind: "grain", quantity: 20, gridX: 0, gridY: 0 },
+          { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
         ],
       },
