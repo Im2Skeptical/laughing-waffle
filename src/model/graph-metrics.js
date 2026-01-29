@@ -12,7 +12,7 @@ export const GRAPH_METRICS = {
         id: "gold",
         label: "Gold",
         color: 0xffd966,
-        getValue: (state) => state?.resources?.gold ?? state?.gold ?? 0,
+        getValue: (state, _subject) => state?.resources?.gold ?? state?.gold ?? 0,
         formatValue: (value) =>
           Number.isFinite(value) ? value.toFixed(1) : "0.0",
       },
@@ -26,7 +26,7 @@ export const GRAPH_METRICS = {
         id: "food",
         label: "Food",
         color: 0x66cc77,
-        getValue: (state) => {
+        getValue: (state, _subject) => {
           const base = state?.resources?.food ?? 0;
           const edible = getTotalFoodFromEdibles(state);
           const baseSafe = Number.isFinite(base) ? base : 0;
@@ -46,7 +46,7 @@ export const GRAPH_METRICS = {
         id: "apCap",
         label: "AP Cap",
         color: 0xffaa66,
-        getValue: (state) => state?.actionPointCap ?? 0,
+        getValue: (state, _subject) => state?.actionPointCap ?? 0,
         formatValue: (value) =>
           Number.isFinite(value) ? `${Math.floor(value)}` : "0",
       },
@@ -54,7 +54,7 @@ export const GRAPH_METRICS = {
         id: "ap",
         label: "AP",
         color: 0x66ccff,
-        getValue: (state) => state?.actionPoints ?? 0,
+        getValue: (state, _subject) => state?.actionPoints ?? 0,
         formatValue: (value) =>
           Number.isFinite(value) ? `${Math.floor(value)}` : "0",
       },

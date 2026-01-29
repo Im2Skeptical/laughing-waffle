@@ -47,6 +47,20 @@ export function createMetricGraphView({
       : GRAPH_METRICS.gold.series;
   }
 
+  function getActiveSeries() {
+    const data = controller?.getData?.() ?? null;
+    if (Array.isArray(data?.series) && data.series.length) {
+      return data.series;
+    }
+    resolveMetric();
+    return series;
+  }
+
+  function getMetricLabel() {
+    const data = controller?.getData?.() ?? null;
+    return data?.label ?? metricDef?.label ?? "Metric";
+  }
+
   resolveMetric();
 
   const root = new PIXI.Container();
@@ -295,11 +309,11 @@ export function createMetricGraphView({
   function drawPlot() {
     resolveMetric();
     plotG.clear();
-    const { cache } = controller.getData();
-    const tl = getTimeline?.();
+    const data = controller.getData?.() ?? {};
+    const seriesList = getActiveSeries();
 
-    const all = [...(cache?.history || []), ...(cache?.window?.forecast || [])];
-    if (!all.length) return;
+    const all = [...(data.cache?.history || []), ...(data.cache?.window?.forecast || [])];
+    if (!all.length || !seriesList.length) return;
 
     let minValue = Infinity;
     let maxValue = -Infinity;
@@ -308,7 +322,7 @@ export function createMetricGraphView({
       const t = p.tSec ?? 0;
       if (t < minSec || t > maxSec) continue;
 
-      for (const s of series) {
+      for (const s of seriesList) {
         const override = getSeriesValueOverride?.(t, s.id, p);
         const v =
           Number.isFinite(override) ? override : getSeriesValue(p, s.id);
@@ -353,7 +367,7 @@ export function createMetricGraphView({
     // Data Line
     all.sort((a, b) => (a.tSec ?? 0) - (b.tSec ?? 0));
 
-    for (const s of series) {
+    for (const s of seriesList) {
       const lineColor = Number.isFinite(s.color) ? s.color : 0xffffff;
       plotG.lineStyle(2, lineColor, 1);
       let first = true;
@@ -378,6 +392,7 @@ export function createMetricGraphView({
     }
 
     // Markers (actions)
+    const tl = getTimeline?.();
     if (tl && tl.actions) {
       plotG.beginFill(0x55ff55);
       plotG.lineStyle(0);
@@ -422,7 +437,7 @@ export function createMetricGraphView({
     const zone = scrubSec <= maxReached ? "History" : "Forecast";
     const note = statusNote ? ` • ${statusNote}` : "";
 
-    const metricLabel = metricDef?.label ?? "Metric";
+    const metricLabel = getMetricLabel();
     text.text = `${metricLabel} • Time: ${scrubSec}s (${zone}) • Live: ${curT}s${note}`;
   }
 

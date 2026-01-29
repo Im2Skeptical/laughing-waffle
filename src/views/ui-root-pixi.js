@@ -113,20 +113,20 @@ const timeGraphController = createTimeGraphController({
   metric: GRAPH_METRICS.all,
 });
 
+const systemGraphMetric = {
+  id: "systemTarget",
+  label: "Systems",
+  getSeries: (subject, state) =>
+    buildSystemSeriesForTarget(subject, state).series,
+  getLabel: (subject, state) =>
+    buildSystemSeriesForTarget(subject, state).label,
+  getSubjectKey: (subject) => getSystemGraphTargetKey(subject),
+};
+
 const systemGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
-  metric: {
-    id: "systemTarget",
-    label: "Systems",
-    series: [
-      {
-        id: "empty",
-        label: "No target",
-        getValue: () => 0,
-      },
-    ],
-  },
+  metric: systemGraphMetric,
 });
 
 function resizeCanvas() {
@@ -249,9 +249,20 @@ function sumMaturedPool(pool) {
   );
 }
 
-function buildSystemMetricForTarget(target) {
-  if (!target) return null;
-  const state = runner.getState();
+function buildSystemSeriesForTarget(target, state) {
+  if (!target || !state) {
+    return {
+      label: "Systems",
+      series: [
+        {
+          id: "systems:empty",
+          label: "No target",
+          color: SYSTEM_GRAPH_COLORS[0],
+          getValue: () => 0,
+        },
+      ],
+    };
+  }
   const series = [];
   let label = "Systems";
   let targetKey = "";
@@ -363,7 +374,7 @@ function buildSystemMetricForTarget(target) {
 
   if (!series.length) {
     series.push({
-      id: `${targetKey}:empty`,
+      id: `${targetKey || "systems"}:empty`,
       label: "No systems",
       color: SYSTEM_GRAPH_COLORS[0],
       getValue: () => 0,
@@ -371,7 +382,6 @@ function buildSystemMetricForTarget(target) {
   }
 
   return {
-    id: `${targetKey}:systems`,
     label: `${label} Systems`,
     series,
   };
@@ -626,11 +636,9 @@ let lastSystemGraphTargetKey = null;
 function updateSystemGraphTarget() {
   const target = getSystemGraphTarget();
   const nextKey = getSystemGraphTargetKey(target);
-  if (!nextKey || nextKey === lastSystemGraphTargetKey) return false;
-  const metric = buildSystemMetricForTarget(target);
-  if (!metric) return false;
+  if (nextKey === lastSystemGraphTargetKey) return false;
   lastSystemGraphTargetKey = nextKey;
-  systemGraphController.setMetric?.(metric);
+  systemGraphController.setSubject?.(target, nextKey);
   return true;
 }
 

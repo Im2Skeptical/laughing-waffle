@@ -355,6 +355,61 @@ export function buildMetricGraphWindowFromTimeline(
   };
 }
 
+export function buildProjectionStateWindowFromTimeline(
+  tl,
+  baseBoundary,
+  opts = null
+) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+
+  const dtStep =
+    typeof opts?.dtStep === "number" && opts.dtStep > 0
+      ? opts.dtStep
+      : DEFAULT_DT_STEP;
+
+  const horizonSec =
+    typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
+      ? Math.floor(opts.horizonSec)
+      : 120;
+
+  const baseSec = clampSec(
+    typeof opts?.baseSec === "number" ? opts.baseSec : baseBoundary
+  );
+
+  const baseRes = getStateAtSecond(tl, baseSec);
+  if (!baseRes.ok)
+    return { ok: false, reason: baseRes.reason || "baseStateFailed" };
+
+  let s = cloneState(baseRes.state);
+  canonicalizeSnapshot(s);
+  s.paused = false;
+
+  const stateDataBySecond = new Map();
+  stateDataBySecond.set(baseSec, serializeGameState(s));
+
+  let curSec = baseSec;
+  for (let i = 1; i <= horizonSec; i++) {
+    const sim = simulateForwardSecondsInPlace(s, 1, dtStep);
+    if (!sim.ok) break;
+
+    curSec = baseSec + i;
+    canonicalizeSnapshot(s);
+    stateDataBySecond.set(curSec, serializeGameState(s));
+  }
+
+  return {
+    ok: true,
+    window: {
+      baseSec,
+      endSec: baseSec + horizonSec,
+      horizonSec,
+      dtStep,
+      mode: "stateWindow",
+    },
+    stateDataBySecond,
+  };
+}
+
 // Convenience builder for a full cache: realized history + cursor-anchored window.
 export function buildMetricGraphCacheFromTimeline(tl, opts = null) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
@@ -435,4 +490,3 @@ export function getStateAtBoundaryFromGraphCache(cache, tl, boundaryIndex) {
   canonicalizeSnapshot(rebuilt.state);
   return rebuilt.state;
 }
-
