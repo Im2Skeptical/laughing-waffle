@@ -433,70 +433,14 @@ export function createTimeGraphController({
     const target = clampSec(newMaxReachedSec ?? 0);
     if (target <= oldMax) return true;
 
-    // Stream forward from the last cached boundary to avoid per-second replay.
-    const step = historyStrideSecCur;
-    const startSec =
-      oldMax % step === 0 ? oldMax : Math.floor(oldMax / step) * step;
-    let workingStateData = projection.getStateData(startSec);
-
-    // If we don't have the state cached for startSec, rebuild it once.
-    if (!workingStateData) {
-      const baseRes = projection.ensureStateAtSecond(tl, startSec);
-      if (!baseRes.ok) return false;
-      workingStateData = baseRes.stateData;
-    }
-
-    let workingState = deserializeGameState(workingStateData);
-    canonicalizeSnapshot(workingState);
-    workingState.paused = false;
-    workingState.tSec = startSec;
-    workingState.simStepIndex = startSec * 60;
-
-    const actionsBySec = tl.actionsBySec
-      ? tl.actionsBySec
-      : (() => {
-          const map = new Map();
-          for (const a of tl.actions || []) {
-            const s = Math.max(0, Math.floor(a.tSec ?? 0));
-            let arr = map.get(s);
-            if (!arr) {
-              arr = [];
-              map.set(s, arr);
-            }
-            arr.push(a);
-          }
-          return map;
-        })();
-
-    function applyActionsAt(sec) {
-      const acts = actionsBySec.get(sec);
-      if (!acts || !acts.length) return true;
-      for (const a of acts) {
-        const res = applyAction(workingState, a, { isReplay: true });
-        if (res && res.ok === false) return false;
-      }
-      return true;
-    }
-
-    for (let sec = startSec + 1; sec <= target; sec++) {
-      // Advance one second (60 ticks)
-      for (let i = 0; i < 60; i++) {
-        updateGame(1 / 60, workingState);
-      }
-      workingState.tSec = sec;
-      workingState.simStepIndex = sec * 60;
-      // Apply actions scheduled at this second.
-      if (!applyActionsAt(sec)) return false;
-
-      if (shouldSampleHistory(sec, target, historyStrideSecCur)) {
-        canonicalizeSnapshot(workingState, sec);
-        const sd = serializeGameState(workingState);
-        projection.setStateData?.(sec, sd);
-        graphCache.history.push({
-          tSec: sec,
-          values: computeValuesFromStateData(sd, activeSeries, subject),
-        });
-      }
+    for (let sec = oldMax + 1; sec <= target; sec++) {
+      if (!shouldSampleHistory(sec, target, historyStrideSecCur)) continue;
+      const res = projection.ensureStateAtSecond(tl, sec);
+      if (!res.ok) return false;
+      graphCache.history.push({
+        tSec: sec,
+        values: computeValuesFromStateData(res.stateData, activeSeries, subject),
+      });
     }
 
     graphCache.maxReachedSec = target;
