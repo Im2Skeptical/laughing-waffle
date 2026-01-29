@@ -110,9 +110,7 @@ export function createBoardView(opts) {
     actionPlanner,
     queueActionWhenPaused,
     dispatchAction,
-    inspectorLayer: tileInspectorLayer,
     dropdownLayer: cropDropdownLayer,
-    getTileUi,
   });
   let tagUi = null;
 
@@ -298,7 +296,6 @@ export function createBoardView(opts) {
     view.hoverAnchor = null;
     clearHoverContext();
     tooltipView?.hide?.();
-    tilePanels?.hideTileInspector?.();
     // Dropdown handles its own hide behavior.
   }
 
@@ -421,7 +418,6 @@ export function createBoardView(opts) {
       },
       anchor
     );
-    tilePanels?.showTileInspector?.(view, anchor);
   }
 
   function restoreHoverAfterRebuild(pendingHover, pointerPos) {
@@ -1632,14 +1628,6 @@ export function createBoardView(opts) {
     syncTiles(s, cols);
     syncEvents(s, cols);
     syncHubStructures(s, hubCols);
-
-    if (tilePanels?.isInspectorVisible?.()) {
-      if (interaction?.canShowHoverUI && !interaction.canShowHoverUI()) {
-        tilePanels.hideTileInspector?.();
-      } else {
-        tilePanels.updateTileInspector?.();
-      }
-    }
 
     if (activeHover?.view?.holdHoverForOccupant) {
       const view = activeHover.view;

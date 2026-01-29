@@ -1,5 +1,5 @@
 // board-tile-panels.js
-// Tile inspector + crop dropdown panels for the board view.
+// Crop dropdown panel for the board view.
 
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { ActionKinds } from "../../model/actions.js";
@@ -11,90 +11,13 @@ export function createTilePanels(opts) {
     actionPlanner,
     queueActionWhenPaused,
     dispatchAction,
-    inspectorLayer,
     dropdownLayer,
-    getTileUi,
   } = opts;
 
-  const tileInspector = createTileInspector(inspectorLayer);
   const cropDropdown = createCropDropdown(dropdownLayer, app);
-  let inspectedTile = null;
 
   function getCropList() {
     return Object.values(cropDefs || {}).filter(Boolean);
-  }
-
-  function positionTileInspector(anchor) {
-    if (!tileInspector || !anchor) return;
-    const margin = 12;
-    const width = tileInspector.width;
-    const height = tileInspector.height;
-    const screenW = app.screen.width;
-    const screenH = app.screen.height;
-
-    let x = anchor.x + anchor.width + margin;
-    if (x + width > screenW - 10) {
-      x = anchor.x - width - margin;
-    }
-    let y = anchor.y;
-    if (y + height > screenH - 10) {
-      y = screenH - height - 10;
-    }
-    if (y < 10) y = 10;
-
-    tileInspector.container.x = x;
-    tileInspector.container.y = y;
-  }
-
-  function updateTileInspector() {
-    if (!tileInspector || !inspectedTile) return;
-    const systemState = inspectedTile.systemState || {};
-    const hydration = systemState.hydration || null;
-    const growth = systemState.growth || {};
-    const pool = growth.maturedPool || {};
-    const ui = typeof getTileUi === "function" ? getTileUi(inspectedTile) : null;
-    tileInspector.titleText.text = ui?.title || "Tile Inspector";
-
-    const cur =
-      hydration && Number.isFinite(hydration.cur)
-        ? Math.floor(hydration.cur)
-        : null;
-    const max =
-      hydration && Number.isFinite(hydration.max)
-        ? Math.floor(hydration.max)
-        : null;
-    tileInspector.hydrationText.text =
-      cur != null && max != null
-        ? `Hydration: ${cur}/${max}`
-        : "Hydration: --/--";
-
-    const fertilityTier = inspectedTile.systemTiers?.fertility ?? "bronze";
-    tileInspector.fertilityText.text = `Fertility: ${fertilityTier}`;
-
-    const selectedCrop = growth.selectedCropId ?? null;
-    tileInspector.cropText.text = `Crop: ${selectedCrop ?? "None"}`;
-    tileInspector.plantedText.text = `Planted: ${
-      Array.isArray(growth.processes) ? growth.processes.length : 0
-    }`;
-    tileInspector.maturedText.text = `Matured: D${
-      pool.diamond ?? 0
-    } G${pool.gold ?? 0} S${pool.silver ?? 0} B${pool.bronze ?? 0}`;
-
-    // Inspector no longer exposes crop selection controls.
-  }
-
-  function showTileInspector(view, anchor) {
-    if (!tileInspector || !view?.tile) return;
-    inspectedTile = view.tile;
-    tileInspector.container.visible = true;
-    updateTileInspector();
-    positionTileInspector(anchor);
-  }
-
-  function hideTileInspector() {
-    if (!tileInspector) return;
-    inspectedTile = null;
-    tileInspector.container.visible = false;
   }
 
   function openCropDropdown(view, anchorRect) {
@@ -141,92 +64,10 @@ export function createTilePanels(opts) {
   // Crop selection handled via tile tag UI, not the inspector panel.
 
   return {
-    showTileInspector,
-    hideTileInspector,
-    updateTileInspector,
-    isInspectorVisible: () => !!tileInspector?.container.visible,
     openCropDropdown,
     hideCropDropdown: () => cropDropdown?.hide?.(),
     isCropDropdownVisible: () => cropDropdown?.isVisible?.() ?? false,
     cropDropdownContainsPoint: (pos) => cropDropdown?.containsPoint?.(pos),
-  };
-}
-
-function createTileInspector(layer) {
-  if (!layer) return null;
-
-  const width = 240;
-  const height = 130;
-  const container = new PIXI.Container();
-  container.visible = false;
-  container.zIndex = 30;
-  layer.addChild(container);
-
-  const bg = new PIXI.Graphics()
-    .beginFill(0x141b2b, 0.95)
-    .drawRoundedRect(0, 0, width, height, 10)
-    .endFill();
-  container.addChild(bg);
-
-  const titleText = new PIXI.Text("Tile Inspector", {
-    fill: 0xffffff,
-    fontSize: 12,
-    fontWeight: "bold",
-  });
-  titleText.x = 10;
-  titleText.y = 8;
-  container.addChild(titleText);
-
-  const hydrationText = new PIXI.Text("Hydration: --/--", {
-    fill: 0xbad7ff,
-    fontSize: 11,
-  });
-  hydrationText.x = 10;
-  hydrationText.y = 30;
-  container.addChild(hydrationText);
-
-  const fertilityText = new PIXI.Text("Fertility: --", {
-    fill: 0xbad7ff,
-    fontSize: 11,
-  });
-  fertilityText.x = 10;
-  fertilityText.y = 48;
-  container.addChild(fertilityText);
-
-  const cropText = new PIXI.Text("Crop: None", {
-    fill: 0xffffff,
-    fontSize: 11,
-  });
-  cropText.x = 10;
-  cropText.y = 66;
-  container.addChild(cropText);
-
-  const plantedText = new PIXI.Text("Planted: 0", {
-    fill: 0xffffff,
-    fontSize: 11,
-  });
-  plantedText.x = 10;
-  plantedText.y = 84;
-  container.addChild(plantedText);
-
-  const maturedText = new PIXI.Text("Matured: D0 G0 S0 B0", {
-    fill: 0xffffff,
-    fontSize: 11,
-  });
-  maturedText.x = 10;
-  maturedText.y = 102;
-  container.addChild(maturedText);
-
-  return {
-    container,
-    width,
-    height,
-    titleText,
-    hydrationText,
-    fertilityText,
-    cropText,
-    plantedText,
-    maturedText,
   };
 }
 
