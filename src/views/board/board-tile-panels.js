@@ -17,7 +17,15 @@ export function createTilePanels(opts) {
   const cropDropdown = createCropDropdown(dropdownLayer, app);
 
   function getCropList() {
-    return Object.values(cropDefs || {}).filter(Boolean);
+    const crops = Object.values(cropDefs || {}).filter(Boolean);
+    return [
+      {
+        cropId: null,
+        name: "Pause planting",
+        isPauseOption: true,
+      },
+      ...crops,
+    ];
   }
 
   function openCropDropdown(view, anchorRect) {
@@ -125,16 +133,17 @@ function createCropDropdown(layer, app) {
     name.y = 4;
     row.addChild(name);
 
-    const seasonText = Array.isArray(entry.plantSeasons)
-      ? entry.plantSeasons.join(", ")
-      : "";
-    const detail = new PIXI.Text(
-      `Seasons: ${seasonText || "any"} | ${entry.maturitySec ?? "?"}s`,
-      {
-        fill: 0xc7d2ee,
-        fontSize: 9,
-      }
-    );
+    const detailText = entry.isPauseOption
+      ? "Planting paused"
+      : `Seasons: ${
+          Array.isArray(entry.plantSeasons)
+            ? entry.plantSeasons.join(", ")
+            : "any"
+        } | ${entry.maturitySec ?? "?"}s`;
+    const detail = new PIXI.Text(detailText, {
+      fill: 0xc7d2ee,
+      fontSize: 9,
+    });
     detail.x = 8;
     detail.y = 18;
     row.addChild(detail);
