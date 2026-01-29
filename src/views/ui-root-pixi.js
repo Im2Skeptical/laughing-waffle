@@ -50,7 +50,9 @@ let flashActionLogAp = null;
 
 const runner = createSimRunner({
   onInvalidate: (reason) => {
-    timeGraphController.handleInvalidate(reason);
+    goldGraphController.handleInvalidate(reason);
+    foodGraphController.handleInvalidate(reason);
+    apGraphController.handleInvalidate(reason);
     systemGraphController.handleInvalidate(reason);
     if (goldGraphView?.isOpen()) goldGraphView.render();
     if (foodGraphView?.isOpen()) foodGraphView.render();
@@ -107,10 +109,22 @@ function flushQueuedActions() {
   }
 }
 
-const timeGraphController = createTimeGraphController({
+const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
-  metric: GRAPH_METRICS.all,
+  metric: GRAPH_METRICS.gold,
+});
+
+const foodGraphController = createTimeGraphController({
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  metric: GRAPH_METRICS.food,
+});
+
+const apGraphController = createTimeGraphController({
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  metric: GRAPH_METRICS.ap,
 });
 
 function resizeCanvas() {
@@ -654,7 +668,7 @@ const charactersView = createCharactersView({
 let goldGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
-  controller: timeGraphController,
+  controller: goldGraphController,
   metric: GRAPH_METRICS.gold,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
@@ -668,7 +682,7 @@ let goldGraphView = createMetricGraphView({
 let foodGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
-  controller: timeGraphController,
+  controller: foodGraphController,
   metric: GRAPH_METRICS.food,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
@@ -681,7 +695,7 @@ let foodGraphView = createMetricGraphView({
 let apGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
-  controller: timeGraphController,
+  controller: apGraphController,
   metric: GRAPH_METRICS.ap,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
@@ -861,12 +875,22 @@ app.ticker.add((delta) => {
     goldGraphView.isOpen() ||
     foodGraphView.isOpen() ||
     apGraphView.isOpen();
-  timeGraphController.setActive?.(anyMetricGraphOpen);
+  goldGraphController.setActive?.(goldGraphView.isOpen());
+  foodGraphController.setActive?.(foodGraphView.isOpen());
+  apGraphController.setActive?.(apGraphView.isOpen());
   if (anyMetricGraphOpen) {
-    timeGraphController.update();
-    if (goldGraphView.isOpen()) goldGraphView.render();
-    if (foodGraphView.isOpen()) foodGraphView.render();
-    if (apGraphView.isOpen()) apGraphView.render();
+    if (goldGraphView.isOpen()) {
+      goldGraphController.update();
+      goldGraphView.render();
+    }
+    if (foodGraphView.isOpen()) {
+      foodGraphController.update();
+      foodGraphView.render();
+    }
+    if (apGraphView.isOpen()) {
+      apGraphController.update();
+      apGraphView.render();
+    }
   }
 
   const systemGraphOpen = systemGraphView.isOpen();
