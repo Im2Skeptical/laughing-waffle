@@ -6,6 +6,7 @@
 import {
   buildProjectionStateWindowFromTimeline,
   buildProjectionStateWindowFromStateData,
+  buildMetricGraphHistoryCacheFromTimeline,
   getStateAtSecond,
 } from "./projection.js";
 
@@ -14,7 +15,7 @@ import { serializeGameState, deserializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
 
-const DEFAULT_PROJECTION_CACHE_MAX_SECS = 2048;
+const DEFAULT_PROJECTION_CACHE_MAX_SECS = 4096;
 
 function clampSec(v) {
   if (!Number.isFinite(v)) return 0;
@@ -285,6 +286,11 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     ensureStateAtSecond,
     ensureForecastWindow,
     getStateData: (sec) => touch(clampSec(sec)),
+    setStateData: (sec, data) => {
+      const t = clampSec(sec);
+      set(t, data);
+      return { ok: true };
+    },
     clear: () => reset(-1),
     getSize: () => stateDataBySecond.size,
     maxEntries: limit,
@@ -353,17 +359,27 @@ export function createTimeGraphController({
     metricLabel = resolveLabel(metricDef, subject, cs);
 
     const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+    const boundSeries = activeSeries.map((s) => ({
+      ...s,
+      getValue: (st) => (typeof s.getValue === "function" ? s.getValue(st, subject) : 0),
+    }));
 
-    const history = [];
-    for (let sec = 0; sec <= maxReachedSec; sec++) {
-      if (!shouldSampleHistory(sec, maxReachedSec, historyStrideSecCur)) continue;
-      const res = projection.ensureStateAtSecond(tl, sec);
-      if (!res.ok) return res;
-      history.push({
-        tSec: sec,
-        values: computeValuesFromStateData(res.stateData, activeSeries, subject),
-      });
+    const histRes = buildMetricGraphHistoryCacheFromTimeline(tl, {
+      series: boundSeries,
+      historyStrideSec: historyStrideSecCur,
+    });
+    if (!histRes.ok) return histRes;
+
+    // Seed projection cache with history checkpoints to avoid per-sec rebuilds later.
+    for (const [sec, sd] of histRes.stateDataByBoundary.entries()) {
+      projection.ensureSignature(tl);
+      projection.setStateData?.(sec, sd);
     }
+
+    const history = histRes.history.map((p) => ({
+      tSec: p.tSec,
+      values: p.values,
+    }));
 
     const baseSec = maxReachedSec;
     const endSec = baseSec + horizonSecCur;
