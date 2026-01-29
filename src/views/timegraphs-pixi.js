@@ -316,6 +316,9 @@ export function createMetricGraphView({
     plotG.clear();
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
+    const subjectKey = data?.subjectKey ?? null;
+    const useSubjectValues =
+      subjectKey != null && typeof controller?.getSeriesValuesForSeconds === "function";
 
     const history = Array.isArray(data.cache?.history)
       ? data.cache.history
@@ -325,9 +328,6 @@ export function createMetricGraphView({
       : [];
 
     if ((!history.length && !forecast.length) || !seriesList.length) return;
-
-    let minValue = Infinity;
-    let maxValue = -Infinity;
 
     // Merge-scan history + forecast (both sorted) within the visible window.
     let hi = 0;
@@ -347,16 +347,60 @@ export function createMetricGraphView({
       if (t > maxSec) break;
       if (t >= minSec) {
         filteredPoints.push(pick);
-        for (const s of seriesList) {
-          const override = getSeriesValueOverride?.(t, s.id, pick);
-          const v =
-            Number.isFinite(override) ? override : getSeriesValue(pick, s.id);
-          if (v < minValue) minValue = v;
-          if (v > maxValue) maxValue = v;
-        }
       }
       if (hp && pick === hp) hi++;
       else if (fp) fi++;
+    }
+
+    let pointsForDraw = filteredPoints;
+    const maxPlotPoints = Math.min(
+      MAX_PLOT_POINTS,
+      Math.max(200, Math.floor(plot.w) * 2)
+    );
+    if (filteredPoints.length > maxPlotPoints) {
+      const step = Math.ceil(filteredPoints.length / maxPlotPoints);
+      const decimated = [];
+      for (let i = 0; i < filteredPoints.length; i += step) {
+        decimated.push(filteredPoints[i]);
+      }
+      const last = filteredPoints[filteredPoints.length - 1];
+      if (last && decimated[decimated.length - 1] !== last) {
+        decimated.push(last);
+      }
+      pointsForDraw = decimated;
+    }
+
+    if (!pointsForDraw.length) return;
+
+    const secsForDraw = pointsForDraw.map((p) =>
+      Math.max(0, Math.floor(p?.tSec ?? 0))
+    );
+    const valuesBySec = useSubjectValues
+      ? controller.getSeriesValuesForSeconds(secsForDraw)
+      : null;
+
+    function resolveValue(point, seriesDef) {
+      const t = Math.max(0, Math.floor(point?.tSec ?? 0));
+      const override = getSeriesValueOverride?.(t, seriesDef.id, point);
+      if (Number.isFinite(override)) return override;
+      if (valuesBySec && valuesBySec.has(t)) {
+        const values = valuesBySec.get(t);
+        if (values && values[seriesDef.id] != null) {
+          const v = values[seriesDef.id];
+          return Number.isFinite(v) ? v : 0;
+        }
+      }
+      return getSeriesValue(point, seriesDef.id);
+    }
+
+    let minValue = Infinity;
+    let maxValue = -Infinity;
+    for (const p of pointsForDraw) {
+      for (const s of seriesList) {
+        const v = resolveValue(p, s);
+        if (v < minValue) minValue = v;
+        if (v > maxValue) maxValue = v;
+      }
     }
 
     if (!Number.isFinite(minValue)) {
@@ -375,20 +419,6 @@ export function createMetricGraphView({
     function yForValue(v) {
       const t = (v - minValue) / Math.max(1e-6, maxValue - minValue);
       return plot.y + plot.h - t * plot.h;
-    }
-
-    let pointsForDraw = filteredPoints;
-    if (filteredPoints.length > MAX_PLOT_POINTS) {
-      const step = Math.ceil(filteredPoints.length / MAX_PLOT_POINTS);
-      const decimated = [];
-      for (let i = 0; i < filteredPoints.length; i += step) {
-        decimated.push(filteredPoints[i]);
-      }
-      const last = filteredPoints[filteredPoints.length - 1];
-      if (last && decimated[decimated.length - 1] !== last) {
-        decimated.push(last);
-      }
-      pointsForDraw = decimated;
     }
 
     // Grid
@@ -416,9 +446,7 @@ export function createMetricGraphView({
         const t = p.tSec ?? 0;
 
         const x = timeToX(t);
-        const override = getSeriesValueOverride?.(t, s.id, p);
-        const value =
-          Number.isFinite(override) ? override : getSeriesValue(p, s.id);
+        const value = resolveValue(p, s);
         const y = yForValue(value);
 
         if (first) {

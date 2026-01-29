@@ -19,6 +19,7 @@ import { updateGame } from "./game-model.js";
 import { applyAction } from "./actions.js";
 
 const DEFAULT_PROJECTION_CACHE_MAX_SECS = 4096;
+const MAX_HISTORY_POINTS = 2000;
 
 function clampSec(v) {
   if (!Number.isFinite(v)) return 0;
@@ -107,6 +108,11 @@ function resolveSubjectKey(metricDef, subject, explicitKey) {
     if (subject.col != null) return subject.col;
   }
   return null;
+}
+
+function getSeriesSignature(series) {
+  if (!Array.isArray(series) || !series.length) return "";
+  return series.map((s) => s?.id ?? "").join("|");
 }
 
 function computeActionSig(tl) {
@@ -428,8 +434,11 @@ export function createTimeGraphController({
   let seriesDirty = true;
   let cacheVersion = 0;
   let lastActionSig = null;
+  let valuesRevision = 0;
 
   const MAX_TAIL_REBUILD_SEC = 240;
+  const SUBJECT_VALUE_CACHE_MAX = 5000;
+  const subjectValueCache = new Map();
 
   // Config (mutable locals; never assign to function parameters)
   let historyStrideSecCur = historyStrideSec;
@@ -441,9 +450,23 @@ export function createTimeGraphController({
 
   const projection = projectionCache || getSharedProjectionCache();
 
+  function invalidateSubjectValues() {
+    valuesRevision += 1;
+    subjectValueCache.clear();
+  }
+
   function clampStride(v, fallback) {
     const n = Math.floor(v);
     return Number.isFinite(n) && n > 0 ? n : fallback;
+  }
+
+  function resolveHistoryStride(maxReachedSec) {
+    const maxPts = Number.isFinite(MAX_HISTORY_POINTS)
+      ? Math.max(256, Math.floor(MAX_HISTORY_POINTS))
+      : 2000;
+    const sec = clampSec(maxReachedSec);
+    if (sec <= 0) return 1;
+    return Math.max(1, Math.ceil(sec / maxPts));
   }
 
   function rebuildGraphCache() {
@@ -467,6 +490,10 @@ export function createTimeGraphController({
     metricLabel = resolveLabel(metricDef, subject, cs);
 
     const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
+    historyStrideSecCur = Math.max(
+      historyStrideSecCur,
+      resolveHistoryStride(maxReachedSec)
+    );
     const boundSeries = activeSeries.map((s) => ({
       ...s,
       getValue: (st) => (typeof s.getValue === "function" ? s.getValue(st, subject) : 0),
@@ -540,6 +567,7 @@ export function createTimeGraphController({
       subjectKey,
       version: ++cacheVersion,
     };
+    invalidateSubjectValues();
 
     lastKnownMaxReachedSec = maxReachedSec;
 
@@ -563,49 +591,6 @@ export function createTimeGraphController({
 
     if (!graphCache) {
       return rebuildGraphCache();
-    }
-
-    const stateDataByBoundary = graphCache.stateDataByBoundary;
-    const history = Array.isArray(graphCache.history) ? graphCache.history : [];
-    for (const point of history) {
-      const sec = clampSec(point?.tSec ?? 0);
-      let stateData = stateDataByBoundary?.get?.(sec);
-      if (stateData == null) {
-        const res = projection.ensureStateAtSecond(
-          tl,
-          sec,
-          undefined,
-          forecastStepSecCur
-        );
-        if (!res.ok) return rebuildGraphCache();
-        stateData = res.stateData;
-        if (stateData != null && stateDataByBoundary) {
-          stateDataByBoundary.set(sec, stateData);
-        }
-      }
-      point.values = computeValuesFromStateData(stateData, activeSeries, subject);
-    }
-
-    const forecast = Array.isArray(graphCache.window?.forecast)
-      ? graphCache.window.forecast
-      : [];
-    for (const point of forecast) {
-      const sec = clampSec(point?.tSec ?? 0);
-      let stateData = stateDataByBoundary?.get?.(sec);
-      if (stateData == null) {
-        const res = projection.ensureStateAtSecond(
-          tl,
-          sec,
-          undefined,
-          forecastStepSecCur
-        );
-        if (!res.ok) return rebuildGraphCache();
-        stateData = res.stateData;
-        if (stateData != null && stateDataByBoundary) {
-          stateDataByBoundary.set(sec, stateData);
-        }
-      }
-      point.values = computeValuesFromStateData(stateData, activeSeries, subject);
     }
 
     graphCache.series = activeSeries;
@@ -662,10 +647,35 @@ export function createTimeGraphController({
     }
 
     graphCache.version = ++cacheVersion;
+    invalidateSubjectValues();
     return true;
   }
 
-  function tryHandleAppendMutation(tl, maxReachedSec) {
+  function pruneHistoryAfterSec(limitSec) {
+    if (!graphCache) return;
+    const limit = clampSec(limitSec);
+    const history = Array.isArray(graphCache.history) ? graphCache.history : [];
+    graphCache.history = history.filter(
+      (p) => clampSec(p?.tSec ?? 0) <= limit
+    );
+
+    if (graphCache.stateDataByBoundary) {
+      for (const sec of graphCache.stateDataByBoundary.keys()) {
+        if (sec > limit) {
+          graphCache.stateDataByBoundary.delete(sec);
+        }
+      }
+    }
+
+    if (graphCache.window) {
+      graphCache.window.baseSec = limit;
+      graphCache.window.forecast = [];
+    }
+
+    graphCache.maxReachedSec = limit;
+  }
+
+  function tryHandleAppendMutation(tl, maxReachedSec, opts = {}) {
     if (!graphCache || !tl) return false;
 
     const nextSig = computeActionSig(tl);
@@ -688,7 +698,9 @@ export function createTimeGraphController({
     const okHistory = patchHistoryFromSecond(tl, actionSec, frontier);
     if (!okHistory) return false;
 
-    const okForecast = rebuildForecastAtFrontier();
+    const okForecast = rebuildForecastAtFrontier({
+      forceRebuild: !!opts.forceForecastRebuild,
+    });
     if (!okForecast) return false;
 
     lastActionSig = nextSig;
@@ -698,7 +710,7 @@ export function createTimeGraphController({
     return true;
   }
 
-  function tryHandleMutationHint(tl, maxReachedSec) {
+  function tryHandleMutationHint(tl, maxReachedSec, opts = {}) {
     if (!graphCache || !tl) return false;
     const kind = tl._lastMutationKind;
     const sec = clampSec(tl._lastMutationSec ?? -1);
@@ -715,7 +727,9 @@ export function createTimeGraphController({
     const okHistory = patchHistoryFromSecond(tl, sec, frontier);
     if (!okHistory) return false;
 
-    const okForecast = rebuildForecastAtFrontier();
+    const okForecast = rebuildForecastAtFrontier({
+      forceRebuild: !!opts.forceForecastRebuild,
+    });
     if (!okForecast) return false;
 
     lastKnownMaxReachedSec = frontier;
@@ -732,22 +746,85 @@ export function createTimeGraphController({
     const target = clampSec(newMaxReachedSec ?? 0);
     if (target <= oldMax) return true;
 
-    for (let sec = oldMax + 1; sec <= target; sec++) {
-      if (!shouldSampleHistory(sec, target, historyStrideSecCur)) continue;
-      const res = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        forecastStepSecCur
-      );
-      if (!res.ok) return false;
-      if (res.stateData != null && graphCache.stateDataByBoundary) {
-        graphCache.stateDataByBoundary.set(sec, res.stateData);
+    const history = Array.isArray(graphCache.history) ? graphCache.history : [];
+    const lastPoint = history.length ? history[history.length - 1] : null;
+    const startSec = clampSec(lastPoint?.tSec ?? oldMax);
+    const stride = Math.max(1, historyStrideSecCur);
+
+    let streamed = false;
+    if (startSec <= oldMax && target - startSec >= stride) {
+      const startData = graphCache.stateDataByBoundary?.get?.(startSec) ?? null;
+      if (startData != null) {
+        const steps = Math.floor((target - startSec) / stride);
+        const horizonSec = steps * stride;
+        const win = buildProjectionStateStepWindowFromStateData(
+          startData,
+          startSec,
+          { horizonSec, stepSec: stride }
+        );
+        if (win.ok) {
+          for (const [sec, sd] of win.stateDataBySecond.entries()) {
+            if (sec === startSec) continue;
+            if (graphCache.stateDataByBoundary) {
+              graphCache.stateDataByBoundary.set(sec, sd);
+            }
+            history.push({
+              tSec: sec,
+              values: computeValuesFromStateData(sd, activeSeries, subject),
+            });
+          }
+          streamed = true;
+        }
       }
-      graphCache.history.push({
-        tSec: sec,
-        values: computeValuesFromStateData(res.stateData, activeSeries, subject),
-      });
+    }
+
+    if (!streamed) {
+      for (let sec = oldMax + 1; sec <= target; sec++) {
+        if (!shouldSampleHistory(sec, target, historyStrideSecCur)) continue;
+        const res = projection.ensureStateAtSecond(
+          tl,
+          sec,
+          undefined,
+          forecastStepSecCur
+        );
+        if (!res.ok) return false;
+        if (res.stateData != null && graphCache.stateDataByBoundary) {
+          graphCache.stateDataByBoundary.set(sec, res.stateData);
+        }
+        history.push({
+          tSec: sec,
+          values: computeValuesFromStateData(
+            res.stateData,
+            activeSeries,
+            subject
+          ),
+        });
+      }
+    }
+
+    // Ensure the frontier point is sampled even when not stride-aligned.
+    if (target % stride !== 0) {
+      const exists = history.length && clampSec(history[history.length - 1]?.tSec ?? 0) === target;
+      if (!exists) {
+        const res = projection.ensureStateAtSecond(
+          tl,
+          target,
+          undefined,
+          forecastStepSecCur
+        );
+        if (!res.ok) return false;
+        if (res.stateData != null && graphCache.stateDataByBoundary) {
+          graphCache.stateDataByBoundary.set(target, res.stateData);
+        }
+        history.push({
+          tSec: target,
+          values: computeValuesFromStateData(
+            res.stateData,
+            activeSeries,
+            subject
+          ),
+        });
+      }
     }
 
     graphCache.maxReachedSec = target;
@@ -755,7 +832,10 @@ export function createTimeGraphController({
     return true;
   }
 
-  function rebuildForecastAtFrontier() {
+  function rebuildForecastAtFrontier({
+    invalidateValues = true,
+    forceRebuild = false,
+  } = {}) {
     const tl = getTimeline?.();
     if (!graphCache || !tl) return false;
 
@@ -776,26 +856,28 @@ export function createTimeGraphController({
 
     let forecast = [];
     const prevWindow = graphCache.window;
-    if (
-      prevWindow &&
-      prevWindow.stepSec === forecastStepSecCur &&
-      prevWindow.horizonSec === horizonSecCur &&
-      baseSec >= prevWindow.baseSec
-    ) {
-      forecast = Array.isArray(prevWindow.forecast)
-        ? prevWindow.forecast.slice()
-        : [];
-      // Drop points that are now before the new base.
-      forecast = forecast.filter((p) => (p?.tSec ?? -1) >= baseSec);
-    }
-
-    if (!forecast.length || forecast[0].tSec !== baseSec) {
-      // If base isn't aligned to step, fall back to full rebuild.
+    if (!forceRebuild) {
       if (
         prevWindow &&
-        (baseSec - prevWindow.baseSec) % forecastStepSecCur !== 0
+        prevWindow.stepSec === forecastStepSecCur &&
+        prevWindow.horizonSec === horizonSecCur &&
+        baseSec >= prevWindow.baseSec
       ) {
-        forecast = [];
+        forecast = Array.isArray(prevWindow.forecast)
+          ? prevWindow.forecast.slice()
+          : [];
+        // Drop points that are now before the new base.
+        forecast = forecast.filter((p) => (p?.tSec ?? -1) >= baseSec);
+      }
+
+      if (!forecast.length || forecast[0].tSec !== baseSec) {
+        // If base isn't aligned to step, fall back to full rebuild.
+        if (
+          prevWindow &&
+          (baseSec - prevWindow.baseSec) % forecastStepSecCur !== 0
+        ) {
+          forecast = [];
+        }
       }
     }
 
@@ -884,6 +966,7 @@ export function createTimeGraphController({
       forecast,
     };
     graphCache.version = ++cacheVersion;
+    if (invalidateValues) invalidateSubjectValues();
 
     return true;
   }
@@ -906,10 +989,44 @@ export function createTimeGraphController({
     const sigRes = projection.ensureSignature(tl);
     if (sigRes?.changed) {
       const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
-      if (tryHandleAppendMutation(tl, maxReachedSec)) {
+      const mutationSec = clampSec(tl._lastMutationSec ?? maxReachedSec);
+      invalidateSubjectValues();
+
+      if (graphCache && mutationSec <= maxReachedSec) {
+        if (maxReachedSec < lastKnownMaxReachedSec) {
+          pruneHistoryAfterSec(maxReachedSec);
+        }
+
+        const okHistory = patchHistoryFromSecond(
+          tl,
+          mutationSec,
+          maxReachedSec
+        );
+        if (okHistory) {
+          const okForecast = rebuildForecastAtFrontier({
+            forceRebuild: true,
+          });
+          if (okForecast) {
+            lastKnownMaxReachedSec = maxReachedSec;
+            stateDirty = false;
+            seriesDirty = false;
+            return { ok: true, reason: "mutationPatch" };
+          }
+        }
+      }
+
+      if (
+        tryHandleAppendMutation(tl, maxReachedSec, {
+          forceForecastRebuild: true,
+        })
+      ) {
         return { ok: true, reason: "appendPatch" };
       }
-      if (tryHandleMutationHint(tl, maxReachedSec)) {
+      if (
+        tryHandleMutationHint(tl, maxReachedSec, {
+          forceForecastRebuild: true,
+        })
+      ) {
         return { ok: true, reason: "hintPatch" };
       }
       stateDirty = true;
@@ -933,10 +1050,17 @@ export function createTimeGraphController({
     }
 
     if (maxReachedSec > lastKnownMaxReachedSec) {
+      const requiredStride = resolveHistoryStride(maxReachedSec);
+      if (requiredStride > historyStrideSecCur) {
+        historyStrideSecCur = requiredStride;
+        stateDirty = true;
+        seriesDirty = true;
+        return rebuildGraphCache();
+      }
       const okHistory = extendHistoryTo(maxReachedSec);
       if (!okHistory) return rebuildGraphCache();
 
-      const okForecast = rebuildForecastAtFrontier();
+      const okForecast = rebuildForecastAtFrontier({ invalidateValues: false });
       if (!okForecast) return rebuildGraphCache();
 
       lastKnownMaxReachedSec = maxReachedSec;
@@ -959,12 +1083,21 @@ export function createTimeGraphController({
     if (sigRes?.changed) {
       stateDirty = true;
       seriesDirty = true;
+      invalidateSubjectValues();
       handleInvalidate("active");
       return;
     }
 
     const maxReachedSec = clampSec(tl.maxReachedSec ?? 0);
     if (maxReachedSec > lastKnownMaxReachedSec) {
+      const requiredStride = resolveHistoryStride(maxReachedSec);
+      if (requiredStride > historyStrideSecCur) {
+        historyStrideSecCur = requiredStride;
+        stateDirty = true;
+        seriesDirty = true;
+        handleInvalidate("active");
+        return;
+      }
       const okHistory = extendHistoryTo(maxReachedSec);
       if (!okHistory) {
         stateDirty = true;
@@ -973,7 +1106,7 @@ export function createTimeGraphController({
         return;
       }
 
-      const okForecast = rebuildForecastAtFrontier();
+      const okForecast = rebuildForecastAtFrontier({ invalidateValues: false });
       if (!okForecast) {
         stateDirty = true;
         seriesDirty = true;
@@ -1007,6 +1140,68 @@ export function createTimeGraphController({
       projectionCacheSize: projection.getSize?.(),
       projectionCacheCap: projection.maxEntries,
     };
+  }
+
+  function getSeriesValuesForSeconds(seconds) {
+    const tl = getTimeline?.();
+    if (!tl || !graphCache) return null;
+
+    const seriesSig = getSeriesSignature(activeSeries);
+    const cacheKey = subjectKey ?? "__global__";
+    let entry = subjectValueCache.get(cacheKey);
+    if (
+      !entry ||
+      entry.revision !== valuesRevision ||
+      entry.seriesSig !== seriesSig
+    ) {
+      entry = {
+        revision: valuesRevision,
+        seriesSig,
+        valuesBySec: new Map(),
+        order: [],
+      };
+      subjectValueCache.set(cacheKey, entry);
+    }
+
+    const valuesBySec = entry.valuesBySec;
+    const order = entry.order;
+    for (const secRaw of seconds || []) {
+      const sec = clampSec(secRaw);
+      if (valuesBySec.has(sec)) continue;
+
+      let stateData = graphCache.stateDataByBoundary?.get?.(sec);
+      if (stateData == null) {
+        const res = projection.ensureStateAtSecond(
+          tl,
+          sec,
+          undefined,
+          forecastStepSecCur
+        );
+        if (!res?.ok) {
+          valuesBySec.set(sec, {});
+          order.push(sec);
+          continue;
+        }
+        stateData = res.stateData ?? null;
+        if (stateData != null && graphCache.stateDataByBoundary) {
+          graphCache.stateDataByBoundary.set(sec, stateData);
+        }
+      }
+
+      const values = computeValuesFromStateData(
+        stateData,
+        activeSeries,
+        subject
+      );
+      valuesBySec.set(sec, values);
+      order.push(sec);
+      if (order.length > SUBJECT_VALUE_CACHE_MAX) {
+        const oldest = order.shift();
+        if (oldest != null) valuesBySec.delete(oldest);
+      }
+    }
+
+    return valuesBySec;
   }
 
   function getStateDataAt(tSec) {
@@ -1051,6 +1246,7 @@ export function createTimeGraphController({
     handleInvalidate,
     update,
     getData,
+    getSeriesValuesForSeconds,
     getStateDataAt,
     getStateAt,
     setMetric,

@@ -14,6 +14,7 @@ import {
   appendActionAtCursor,
   truncateActionsAfterSecond,
   truncateCheckpointsAfterSecond,
+  truncateTimelineAfterSecond,
   replaceActionsAtSecond,
   rebuildStateAtSecond,
   maintainCheckpoints,
@@ -792,31 +793,38 @@ export function createSimRunner({
       const tSec = Math.floor(cursorState.tSec ?? 0);
 
       // Truncate future
-      if (Array.isArray(timeline.actions) && timeline.actions.length) {
-        const lastAction = timeline.actions[timeline.actions.length - 1];
-        const lastActionSec = Math.floor(lastAction?.tSec ?? -1);
-        if (lastActionSec > tSec) {
-          timeline.actions = truncateActionsAfterSecond(timeline.actions, tSec);
+      const prevMaxReached = Math.floor(timeline.maxReachedSec ?? 0);
+      if (tSec < prevMaxReached) {
+        truncateTimelineAfterSecond(timeline, tSec);
+      } else {
+        if (Array.isArray(timeline.actions) && timeline.actions.length) {
+          const lastAction = timeline.actions[timeline.actions.length - 1];
+          const lastActionSec = Math.floor(lastAction?.tSec ?? -1);
+          if (lastActionSec > tSec) {
+            timeline.actions = truncateActionsAfterSecond(
+              timeline.actions,
+              tSec
+            );
+          }
         }
-      }
-      if (
-        Array.isArray(timeline.checkpoints) &&
-        timeline.checkpoints.length
-      ) {
-        const lastCheckpoint =
-          timeline.checkpoints[timeline.checkpoints.length - 1];
-        const lastCheckpointSec = Math.floor(
-          lastCheckpoint?.checkpointSec ?? -1
-        );
-        if (lastCheckpointSec > tSec) {
-          timeline.checkpoints = truncateCheckpointsAfterSecond(
-            timeline.checkpoints,
-            tSec
+        if (
+          Array.isArray(timeline.checkpoints) &&
+          timeline.checkpoints.length
+        ) {
+          const lastCheckpoint =
+            timeline.checkpoints[timeline.checkpoints.length - 1];
+          const lastCheckpointSec = Math.floor(
+            lastCheckpoint?.checkpointSec ?? -1
           );
+          if (lastCheckpointSec > tSec) {
+            timeline.checkpoints = truncateCheckpointsAfterSecond(
+              timeline.checkpoints,
+              tSec
+            );
+          }
         }
+        timeline.maxReachedSec = tSec;
       }
-
-      timeline.maxReachedSec = tSec;
 
       // Apply Live
       const exec = applyAction(cursorState, {

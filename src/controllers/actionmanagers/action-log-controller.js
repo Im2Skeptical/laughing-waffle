@@ -358,8 +358,30 @@ export function createActionLogController({
   getCursorState,
   getOwnerLabel,
 } = {}) {
-  let lastTimelineRevision = null;
   let cachedActionSecs = [];
+  let lastActionSig = null;
+
+  function computeActionSig(tl) {
+    const acts = Array.isArray(tl?.actions) ? tl.actions : [];
+    const len = acts.length;
+    const last = len ? acts[len - 1] : null;
+    return {
+      ref: acts,
+      len,
+      lastRef: last,
+      lastSec: last ? Math.floor(last.tSec ?? 0) : 0,
+    };
+  }
+
+  function actionSigEquals(a, b) {
+    if (!a || !b) return false;
+    return (
+      a.ref === b.ref &&
+      a.len === b.len &&
+      a.lastRef === b.lastRef &&
+      a.lastSec === b.lastSec
+    );
+  }
 
   function getTimelineSafe() {
     return typeof getTimeline === "function" ? getTimeline() : null;
@@ -375,9 +397,14 @@ export function createActionLogController({
 
   function rebuildActionSecs() {
     const tl = getTimelineSafe();
-    const rev = Math.floor(tl?.revision ?? -1);
-    if (rev === lastTimelineRevision) return;
-    lastTimelineRevision = rev;
+    if (!tl) {
+      cachedActionSecs = [];
+      lastActionSig = null;
+      return;
+    }
+    const sig = computeActionSig(tl);
+    if (actionSigEquals(sig, lastActionSig)) return;
+    lastActionSig = sig;
 
     const set = new Set();
     for (const action of tl?.actions || []) {
@@ -394,15 +421,29 @@ export function createActionLogController({
 
   function getPrevNextSecs(currentSec) {
     const list = getActionSecs();
+    if (!list.length) return { prev: null, next: null };
+
+    let lo = 0;
+    let hi = list.length - 1;
     let prev = null;
     let next = null;
-    for (const sec of list) {
-      if (sec < currentSec) prev = sec;
-      if (sec > currentSec) {
-        next = sec;
-        break;
+
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const val = list[mid];
+      if (val < currentSec) {
+        prev = val;
+        lo = mid + 1;
+      } else if (val > currentSec) {
+        next = val;
+        hi = mid - 1;
+      } else {
+        prev = mid > 0 ? list[mid - 1] : null;
+        next = mid < list.length - 1 ? list[mid + 1] : null;
+        return { prev, next };
       }
     }
+
     return { prev, next };
   }
 
