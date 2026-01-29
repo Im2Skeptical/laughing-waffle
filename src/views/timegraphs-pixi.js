@@ -312,23 +312,46 @@ export function createMetricGraphView({
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
 
-    const all = [...(data.cache?.history || []), ...(data.cache?.window?.forecast || [])];
-    if (!all.length || !seriesList.length) return;
+    const history = Array.isArray(data.cache?.history)
+      ? data.cache.history
+      : [];
+    const forecast = Array.isArray(data.cache?.window?.forecast)
+      ? data.cache.window.forecast
+      : [];
+
+    if ((!history.length && !forecast.length) || !seriesList.length) return;
 
     let minValue = Infinity;
     let maxValue = -Infinity;
 
-    for (const p of all) {
-      const t = p.tSec ?? 0;
-      if (t < minSec || t > maxSec) continue;
-
-      for (const s of seriesList) {
-        const override = getSeriesValueOverride?.(t, s.id, p);
-        const v =
-          Number.isFinite(override) ? override : getSeriesValue(p, s.id);
-        if (v < minValue) minValue = v;
-        if (v > maxValue) maxValue = v;
+    // Merge-scan history + forecast (both sorted) within the visible window.
+    let hi = 0;
+    let fi = 0;
+    const filteredPoints = [];
+    while (hi < history.length || fi < forecast.length) {
+      const hp = hi < history.length ? history[hi] : null;
+      const fp = fi < forecast.length ? forecast[fi] : null;
+      let pick = null;
+      if (hp && fp) {
+        pick = (hp.tSec ?? 0) <= (fp.tSec ?? 0) ? hp : fp;
+      } else {
+        pick = hp || fp;
       }
+      if (!pick) break;
+      const t = pick.tSec ?? 0;
+      if (t > maxSec) break;
+      if (t >= minSec) {
+        filteredPoints.push(pick);
+        for (const s of seriesList) {
+          const override = getSeriesValueOverride?.(t, s.id, pick);
+          const v =
+            Number.isFinite(override) ? override : getSeriesValue(pick, s.id);
+          if (v < minValue) minValue = v;
+          if (v > maxValue) maxValue = v;
+        }
+      }
+      if (hp && pick === hp) hi++;
+      else if (fp) fi++;
     }
 
     if (!Number.isFinite(minValue)) {
@@ -365,16 +388,13 @@ export function createMetricGraphView({
     }
 
     // Data Line
-    all.sort((a, b) => (a.tSec ?? 0) - (b.tSec ?? 0));
-
     for (const s of seriesList) {
       const lineColor = Number.isFinite(s.color) ? s.color : 0xffffff;
       plotG.lineStyle(2, lineColor, 1);
       let first = true;
 
-      for (const p of all) {
+      for (const p of filteredPoints) {
         const t = p.tSec ?? 0;
-        if (t < minSec || t > maxSec) continue;
 
         const x = timeToX(t);
         const override = getSeriesValueOverride?.(t, s.id, p);
