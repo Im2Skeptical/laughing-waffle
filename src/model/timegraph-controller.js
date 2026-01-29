@@ -34,11 +34,6 @@ function ensureSeriesArray(series) {
   return Array.isArray(series) ? series : [];
 }
 
-function getTimelineRevision(tl) {
-  const r = tl?.revision;
-  return Number.isFinite(r) ? Math.floor(r) : 0;
-}
-
 function shouldSampleHistory(sec, frontierSec, strideSec) {
   if (sec === frontierSec) return true;
   return sec % strideSec === 0;
@@ -86,8 +81,32 @@ function resolveSubjectKey(metricDef, subject, explicitKey) {
   return null;
 }
 
+function computeTimelineSignature(tl) {
+  const actions = Array.isArray(tl?.actions) ? tl.actions : [];
+  const len = actions.length;
+  const last = len ? actions[len - 1] : null;
+  return {
+    baseRef: tl?.baseStateData ?? null,
+    actionsRef: actions,
+    actionsLen: len,
+    lastRef: last,
+    lastSec: last ? Math.floor(last.tSec ?? 0) : 0,
+  };
+}
+
+function signatureEquals(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.baseRef === b.baseRef &&
+    a.actionsRef === b.actionsRef &&
+    a.actionsLen === b.actionsLen &&
+    a.lastRef === b.lastRef &&
+    a.lastSec === b.lastSec
+  );
+}
+
 function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS } = {}) {
-  let revision = -1;
+  let signature = null;
   let forecastBaseSec = 0;
   let forecastEndSec = 0;
   const stateDataBySecond = new Map();
@@ -96,8 +115,8 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     ? Math.max(256, Math.floor(maxEntries))
     : DEFAULT_PROJECTION_CACHE_MAX_SECS;
 
-  function reset(nextRevision) {
-    revision = Number.isFinite(nextRevision) ? nextRevision : -1;
+  function reset(nextSignature) {
+    signature = nextSignature || null;
     forecastBaseSec = 0;
     forecastEndSec = 0;
     stateDataBySecond.clear();
@@ -121,14 +140,16 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     }
   }
 
-  function ensureRevision(tl) {
-    const tlRev = getTimelineRevision(tl);
-    if (tlRev !== revision) reset(tlRev);
-    return tlRev;
+  function ensureSignature(tl) {
+    const nextSig = computeTimelineSignature(tl);
+    const changed = !signatureEquals(nextSig, signature);
+    if (changed) reset(nextSig);
+    return { changed, signature };
   }
 
   function ensureForecastWindow(tl, targetEndSec, dtStep) {
     if (!tl) return { ok: false, reason: "noTimeline" };
+    ensureSignature(tl);
 
     const baseSec = clampSec(tl.maxReachedSec ?? 0);
     const target = clampSec(targetEndSec);
@@ -167,7 +188,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
   function ensureStateAtSecond(tl, sec, dtStep) {
     if (!tl) return { ok: false, reason: "noTimeline" };
 
-    ensureRevision(tl);
+    ensureSignature(tl);
 
     const t = clampSec(sec);
     const cached = touch(t);
@@ -195,7 +216,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
   }
 
   return {
-    ensureRevision,
+    ensureSignature,
     ensureStateAtSecond,
     ensureForecastWindow,
     getStateData: (sec) => touch(clampSec(sec)),
@@ -240,7 +261,6 @@ export function createTimeGraphController({
 
   // Change detection
   let lastKnownMaxReachedSec = 0;
-  let lastKnownRevision = 0;
 
   const projection = projectionCache || getSharedProjectionCache();
 
@@ -258,7 +278,7 @@ export function createTimeGraphController({
       return { ok: false, reason: "no state" };
     }
 
-    projection.ensureRevision(tl);
+    const sigRes = projection.ensureSignature(tl);
 
     historyStrideSecCur = clampStride(historyStrideSecCur, 5);
     forecastStepSecCur = clampStride(forecastStepSecCur, 5);
@@ -317,7 +337,6 @@ export function createTimeGraphController({
     };
 
     lastKnownMaxReachedSec = maxReachedSec;
-    lastKnownRevision = getTimelineRevision(tl);
 
     dirty = false;
     return { ok: true };
@@ -394,8 +413,8 @@ export function createTimeGraphController({
       return { ok: true, reason: "deferred" };
     }
 
-    const tlRev = getTimelineRevision(tl);
-    if (tlRev !== lastKnownRevision) {
+    const sigRes = projection.ensureSignature(tl);
+    if (sigRes?.changed) {
       dirty = true;
     }
 
@@ -433,8 +452,8 @@ export function createTimeGraphController({
     const tl = getTimeline?.();
     if (!tl) return;
 
-    const tlRev = getTimelineRevision(tl);
-    if (tlRev !== lastKnownRevision) {
+    const sigRes = projection.ensureSignature(tl);
+    if (sigRes?.changed) {
       dirty = true;
       handleInvalidate("active");
       return;
