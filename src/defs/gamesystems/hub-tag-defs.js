@@ -33,4 +33,13 @@ export const hubTagDefs = {
       },
     ],
   },
+  deposit: {
+    id: "deposit",
+    kind: "hubTag",
+    ui: { name: "Deposit", description: "Deposit grain into the granary." },
+    systems: ["granaryStore"],
+    passives: [],
+    intents: [],
+    affordances: ["deposit"],
+  },
 };

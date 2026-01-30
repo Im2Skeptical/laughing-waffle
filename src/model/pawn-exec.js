@@ -5,6 +5,7 @@ import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { ensurePawnSystems } from "./state.js";
+import { applyFollowerHungerDebt } from "./prestige-system.js";
 
 function requirementsPass(requires, pawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -81,6 +82,10 @@ export function stepPawnSecond(state, tSec) {
       }
       executed = true;
       break;
+    }
+
+    if (pawn.role === "follower") {
+      applyFollowerHungerDebt(state, pawn);
     }
 
     if (executed) continue;

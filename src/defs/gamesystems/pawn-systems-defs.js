@@ -16,6 +16,6 @@ export const pawnSystemDefs = {
     ui: { name: "Hunger", description: "Need for food" },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
-    stateDefaults: { cur: 80, max: 100 },
+    stateDefaults: { cur: 80, max: 100, belowThresholdSec: 0, debtCadenceSec: 0 },
   },
 };

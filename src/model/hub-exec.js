@@ -5,6 +5,7 @@ import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
+import { applyGranaryDepositsForStructure } from "./prestige-system.js";
 
 function requirementsPass(requires, seasonKey, structure, hasPawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -132,6 +133,10 @@ export function stepHubSecond(state, tSec) {
 
     const pawns = getPawnsOnHubAnchor(state, structure);
     const hasPawn = pawns.length > 0;
+
+    if (hasPawn && tags.includes("deposit") && !isTagDisabled(structure, "deposit")) {
+      applyGranaryDepositsForStructure(state, structure, pawns);
+    }
 
     const baseContext = {
       kind: "game",

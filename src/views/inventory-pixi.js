@@ -9,6 +9,11 @@
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
+import {
+  PRESTIGE_COST_PER_FOLLOWER,
+  HUNGER_THRESHOLD,
+  SECONDS_BELOW_HUNGER_THRESHOLD,
+} from "../defs/gamesettings/gamerules-defs.js";
 
 
 
@@ -29,6 +34,8 @@ const ITEM_TIER_BORDER_COLORS = {
   diamond: 0x7fd0ff,
   default: 0x333333,
 };
+const LEADER_PANEL_HEIGHT = 86;
+const LEADER_PANEL_PADDING = 6;
 
 function getItemTierBorderColor(item, def) {
   const tier = item?.tier ?? def?.defaultTier ?? null;
@@ -53,6 +60,7 @@ export function createInventoryView({
   moveItemBetweenOwners,
   splitStackAndPlace,
   cancelItemTransfer,
+  adjustFollowerCount,
   requestPauseForAction,
 }) {
   const stage = layer.parent;
@@ -95,6 +103,71 @@ export function createInventoryView({
   let activeSplit = null;
 
   // ---------------------------------------------------------------------------
+  // Leader/follower helpers
+  // ---------------------------------------------------------------------------
+
+  function getStateSafe() {
+    return typeof getState === "function" ? getState() : null;
+  }
+
+  function getLeaderForOwner(ownerId) {
+    const state = getStateSafe();
+    const chars = state?.characters;
+    if (!Array.isArray(chars)) return null;
+    const ch = chars.find((c) => c?.id === ownerId);
+    return ch && ch.role === "leader" ? ch : null;
+  }
+
+  function getFollowersForLeader(state, leaderId) {
+    if (!state || leaderId == null) return [];
+    const chars = Array.isArray(state.characters) ? state.characters : [];
+    return chars.filter(
+      (c) => c && c.role === "follower" && c.leaderId === leaderId
+    );
+  }
+
+  function computeLeaderPanelData(leader) {
+    const state = getStateSafe();
+    const followers = getFollowersForLeader(state, leader?.id);
+    const followerCount = followers.length;
+    const reserved = followerCount * PRESTIGE_COST_PER_FOLLOWER;
+    const base = Math.max(0, Math.floor(leader?.prestigeCapBase ?? 0));
+    const debt = Math.max(0, Math.floor(leader?.prestigeCapDebt ?? 0));
+    const effective =
+      Number.isFinite(leader?.prestigeCapEffective)
+        ? Math.max(0, Math.floor(leader.prestigeCapEffective))
+        : Math.max(0, base - Math.min(base, debt));
+    const debtByFollower =
+      leader?.prestigeDebtByFollowerId && typeof leader.prestigeDebtByFollowerId === "object"
+        ? leader.prestigeDebtByFollowerId
+        : {};
+    let hungryDebt = 0;
+    let hungryCount = 0;
+    for (const follower of followers) {
+      const hunger = follower?.systemState?.hunger;
+      if (!hunger) continue;
+      const cur = Math.floor(hunger.cur ?? 0);
+      const below = cur < HUNGER_THRESHOLD;
+      const exposure =
+        Math.floor(hunger.belowThresholdSec ?? 0) >=
+        Math.max(1, Math.floor(SECONDS_BELOW_HUNGER_THRESHOLD));
+      if (!below || !exposure) continue;
+      hungryCount += 1;
+      const key = String(follower?.id ?? "");
+      hungryDebt += Math.max(0, Math.floor(debtByFollower[key] ?? 0));
+    }
+    return {
+      followerCount,
+      reserved,
+      base,
+      effective,
+      debt,
+      hungryCount,
+      hungryDebt,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Small visual helpers
   // ---------------------------------------------------------------------------
 
@@ -132,6 +205,36 @@ export function createInventoryView({
     }, 120);
   }
 
+  function flashWindowError(ownerId) {
+    if (ownerId == null) return;
+    const win = ensureWindow(ownerId);
+    if (!win) return;
+
+    const overlay = win.warningOverlay;
+    if (!overlay) return;
+
+    if (win.warningTimeout) {
+      clearTimeout(win.warningTimeout);
+      win.warningTimeout = null;
+    }
+
+    overlay.clear();
+    overlay.lineStyle(2, 0xff4f5e, 1);
+    overlay.beginFill(0x8a1f2a, 0.2);
+    overlay.drawRoundedRect(1, 1, win.panelWidth - 2, win.panelHeight - 2, 10);
+    overlay.endFill();
+    overlay.visible = true;
+
+    flashingOwners.add(ownerId);
+
+    win.warningTimeout = setTimeout(() => {
+      overlay.visible = false;
+      win.warningTimeout = null;
+      flashingOwners.delete(ownerId);
+      rebuildWindow(ownerId);
+    }, 180);
+  }
+
   // ---------------------------------------------------------------------------
   // WINDOW CREATION
   // ---------------------------------------------------------------------------
@@ -143,9 +246,13 @@ export function createInventoryView({
     const cols = inv?.cols ?? DEFAULT_COLS;
     const rows = inv?.rows ?? DEFAULT_ROWS;
     const cellSize = DEFAULT_CELL_SIZE;
+    const leader = getLeaderForOwner(ownerId);
 
     const w = cols * cellSize + INNER_PADDING * 2;
-    const h = HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
+    const baseHeight =
+      HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
+    const leaderPanelHeight = leader ? LEADER_PANEL_HEIGHT + INNER_PADDING : 0;
+    const h = baseHeight + leaderPanelHeight;
 
     const c = new PIXI.Container();
     c.visible = false;
@@ -158,6 +265,11 @@ export function createInventoryView({
     bg.drawRoundedRect(0, 0, w, h, 8);
     bg.endFill();
     c.addChild(bg);
+
+    const warningOverlay = new PIXI.Graphics();
+    warningOverlay.visible = false;
+    warningOverlay.eventMode = "none";
+    c.addChild(warningOverlay);
 
     // Header (drag handle)
     const header = new PIXI.Graphics();
@@ -219,6 +331,8 @@ export function createInventoryView({
       hovered: false,
       panelWidth: w,
       panelHeight: h,
+      warningOverlay,
+      leaderPanel: null,
     };
 
     windows.set(ownerId, win);
@@ -247,6 +361,127 @@ export function createInventoryView({
     closeText.on("pointertap", () => {
       hideWindow(ownerId);
     });
+
+    // Leader panel (optional)
+    if (leader) {
+      const panel = new PIXI.Container();
+      panel.x = INNER_PADDING;
+      panel.y = HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
+      c.addChild(panel);
+
+      const panelBg = new PIXI.Graphics();
+      panelBg.beginFill(0x1b1b28, 0.95);
+      panelBg.drawRoundedRect(0, 0, w - INNER_PADDING * 2, LEADER_PANEL_HEIGHT, 6);
+      panelBg.endFill();
+      panel.addChild(panelBg);
+
+      const prestigeText = new PIXI.Text("", {
+        fill: 0xffffff,
+        fontSize: 12,
+      });
+      prestigeText.x = LEADER_PANEL_PADDING;
+      prestigeText.y = LEADER_PANEL_PADDING;
+      panel.addChild(prestigeText);
+
+      const reservedText = new PIXI.Text("", {
+        fill: 0xffffff,
+        fontSize: 12,
+      });
+      reservedText.x = LEADER_PANEL_PADDING;
+      reservedText.y = prestigeText.y + 16;
+      panel.addChild(reservedText);
+
+      const hungryText = new PIXI.Text("", {
+        fill: 0xff9999,
+        fontSize: 11,
+      });
+      hungryText.x = LEADER_PANEL_PADDING;
+      hungryText.y = reservedText.y + 16;
+      panel.addChild(hungryText);
+
+      const followerLabel = new PIXI.Text("Followers:", {
+        fill: 0xffffff,
+        fontSize: 12,
+      });
+      followerLabel.x = LEADER_PANEL_PADDING;
+      followerLabel.y = hungryText.y + 18;
+      panel.addChild(followerLabel);
+
+      const followerCountText = new PIXI.Text("0", {
+        fill: 0xffffaa,
+        fontSize: 13,
+        fontWeight: "bold",
+      });
+      followerCountText.x = followerLabel.x + 78;
+      followerCountText.y = followerLabel.y - 1;
+      panel.addChild(followerCountText);
+
+      const minusBtn = new PIXI.Container();
+      minusBtn.x = w - INNER_PADDING * 2 - 46;
+      minusBtn.y = followerLabel.y - 4;
+      minusBtn.eventMode = "static";
+      minusBtn.cursor = "pointer";
+      panel.addChild(minusBtn);
+
+      const minusBg = new PIXI.Graphics();
+      minusBg.beginFill(0x333355);
+      minusBg.drawRoundedRect(0, 0, 18, 18, 4);
+      minusBg.endFill();
+      minusBtn.addChild(minusBg);
+
+      const minusText = new PIXI.Text("-", {
+        fill: 0xffffff,
+        fontSize: 14,
+      });
+      minusText.x = 6;
+      minusText.y = 1;
+      minusBtn.addChild(minusText);
+
+      const plusBtn = new PIXI.Container();
+      plusBtn.x = w - INNER_PADDING * 2 - 22;
+      plusBtn.y = followerLabel.y - 4;
+      plusBtn.eventMode = "static";
+      plusBtn.cursor = "pointer";
+      panel.addChild(plusBtn);
+
+      const plusBg = new PIXI.Graphics();
+      plusBg.beginFill(0x333355);
+      plusBg.drawRoundedRect(0, 0, 18, 18, 4);
+      plusBg.endFill();
+      plusBtn.addChild(plusBg);
+
+      const plusText = new PIXI.Text("+", {
+        fill: 0xffffff,
+        fontSize: 13,
+      });
+      plusText.x = 5;
+      plusText.y = 1;
+      plusBtn.addChild(plusText);
+
+      minusBtn.on("pointertap", () => {
+        if (uiBlocked) return;
+        if (typeof adjustFollowerCount === "function") {
+          adjustFollowerCount({ leaderId: ownerId, delta: -1 });
+        }
+      });
+
+      plusBtn.on("pointertap", () => {
+        if (uiBlocked) return;
+        if (typeof adjustFollowerCount === "function") {
+          adjustFollowerCount({ leaderId: ownerId, delta: 1 });
+        }
+      });
+
+      win.leaderPanel = {
+        container: panel,
+        prestigeText,
+        reservedText,
+        hungryText,
+        followerCountText,
+        minusBtn,
+        plusBtn,
+      };
+    }
 
     // Initial build
     rebuildWindow(ownerId);
@@ -515,6 +750,7 @@ export function createInventoryView({
     drawItems(win, inv, preview);
 
     win.title.text = getOwnerLabel(ownerId);
+    updateLeaderPanel(win);
 
     lastVersionByOwner.set(ownerId, inv.version ?? 0);
   }
@@ -686,6 +922,42 @@ export function createInventoryView({
         });
       }
     }
+  }
+
+  function revealWindow(ownerId, opts = {}) {
+    const win = ensureWindow(ownerId);
+    if (!win) return { ok: false, reason: "noWindow" };
+    if (opts.pinned) {
+      win.pinned = true;
+      win.pinText.text = "[*]";
+    }
+    win.hovered = true;
+    win.container.visible = true;
+    return { ok: true };
+  }
+
+  function updateLeaderPanel(win) {
+    if (!win?.leaderPanel) return;
+    const leader = getLeaderForOwner(win.ownerId);
+    if (!leader) {
+      win.leaderPanel.container.visible = false;
+      return;
+    }
+    const data = computeLeaderPanelData(leader);
+    win.leaderPanel.container.visible = true;
+    win.leaderPanel.prestigeText.text = `Prestige: ${data.effective}/${data.base}`;
+    win.leaderPanel.reservedText.text = `Reserved: ${data.reserved} (Debt ${data.debt})`;
+    if (data.hungryCount > 0) {
+      win.leaderPanel.hungryText.text = `Hungry: ${data.hungryCount} (Debt ${data.hungryDebt})`;
+    } else {
+      win.leaderPanel.hungryText.text = `Hungry: 0`;
+    }
+    win.leaderPanel.followerCountText.text = String(data.followerCount);
+
+    const canMinus = data.followerCount > 0;
+    win.leaderPanel.minusBtn.alpha = canMinus ? 1 : 0.35;
+    win.leaderPanel.minusBtn.eventMode = canMinus ? "static" : "none";
+    win.leaderPanel.minusBtn.cursor = canMinus ? "pointer" : "default";
   }
 
   // ---------------------------------------------------------------------------
@@ -1278,6 +1550,8 @@ export function createInventoryView({
 
       if (v !== last || previewChanged) {
         rebuildWindow(ownerId);
+      } else {
+        updateLeaderPanel(win);
       }
     }
 
@@ -1297,6 +1571,8 @@ export function createInventoryView({
     hideOnHoverOut,
     hideWindow,
     togglePinned,
+    revealWindow,
+    flashWindowError,
 
     rebuildWindow,
     ensureWindow,

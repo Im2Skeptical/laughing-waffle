@@ -162,6 +162,60 @@ export function ensurePawnSystems(pawn) {
     if (!existing || typeof existing !== "object") {
       pawn.systemState[systemId] = deepCloneSerializable(def.stateDefaults ?? {});
     }
+    if (systemId === "hunger") {
+      const hunger = pawn.systemState[systemId];
+      if (!Number.isFinite(hunger.belowThresholdSec)) {
+        hunger.belowThresholdSec = 0;
+      }
+      if (!Number.isFinite(hunger.debtCadenceSec)) {
+        hunger.debtCadenceSec = 0;
+      }
+    }
+  }
+}
+
+function ensureLeaderPrestigeFields(pawn) {
+  if (!pawn || pawn.role !== "leader") return;
+  if (!pawn.totalDepositedAmountByTier || typeof pawn.totalDepositedAmountByTier !== "object") {
+    pawn.totalDepositedAmountByTier = {};
+  }
+  if (!pawn.prestigeDebtByFollowerId || typeof pawn.prestigeDebtByFollowerId !== "object") {
+    pawn.prestigeDebtByFollowerId = {};
+  }
+  if (!Number.isFinite(pawn.prestigeCapBase)) pawn.prestigeCapBase = 0;
+  if (!Number.isFinite(pawn.prestigeCapDebt)) pawn.prestigeCapDebt = 0;
+  const base = Math.max(0, Math.floor(pawn.prestigeCapBase ?? 0));
+  const debt = Math.max(0, Math.floor(pawn.prestigeCapDebt ?? 0));
+  pawn.prestigeCapBase = base;
+  pawn.prestigeCapDebt = debt;
+  pawn.prestigeCapEffective = Math.max(0, base - Math.min(debt, base));
+}
+
+function ensureFollowerFields(pawn, fallbackOrderIndex = null) {
+  if (!pawn || pawn.role !== "follower") return;
+  if (pawn.leaderId == null) pawn.leaderId = null;
+  if (!Number.isFinite(pawn.followerCreationOrderIndex)) {
+    pawn.followerCreationOrderIndex =
+      Number.isFinite(fallbackOrderIndex) && fallbackOrderIndex >= 0
+        ? Math.floor(fallbackOrderIndex)
+        : 0;
+  }
+  const hunger = pawn.systemState?.hunger;
+  if (hunger && typeof hunger === "object") {
+    if (!Number.isFinite(hunger.belowThresholdSec)) hunger.belowThresholdSec = 0;
+    if (!Number.isFinite(hunger.debtCadenceSec)) hunger.debtCadenceSec = 0;
+  }
+}
+
+function ensurePawnRoleFields(state, pawn, fallbackFollowerOrderIndex = null) {
+  if (!pawn || typeof pawn !== "object") return;
+  if (pawn.role !== "leader" && pawn.role !== "follower") {
+    pawn.role = "leader";
+  }
+  if (pawn.role === "leader") {
+    ensureLeaderPrestigeFields(pawn);
+  } else if (pawn.role === "follower") {
+    ensureFollowerFields(pawn, fallbackFollowerOrderIndex);
   }
 }
 
@@ -225,6 +279,7 @@ export function createEmptyState(seed = 123456789) {
 
     characters: [],
     nextCharacterId: 101,
+    nextFollowerCreationOrderIndex: 1,
 
     rng: { seed },
   };
@@ -680,9 +735,36 @@ export function deserializeGameState(data) {
   }
   ensureBoardState(state);
   ensureHubState(state);
+  let nextFollowerIndex = Number.isFinite(state.nextFollowerCreationOrderIndex)
+    ? Math.floor(state.nextFollowerCreationOrderIndex)
+    : 1;
+  let maxFollowerIndex = 0;
+
   for (const ch of state.characters) {
     ensurePawnSystems(ch);
+    if (ch?.role !== "leader" && ch?.role !== "follower") {
+      ch.role = "leader";
+    }
+    if (ch?.role === "follower" && Number.isFinite(ch.followerCreationOrderIndex)) {
+      maxFollowerIndex = Math.max(
+        maxFollowerIndex,
+        Math.floor(ch.followerCreationOrderIndex)
+      );
+    }
   }
+
+  if (nextFollowerIndex <= maxFollowerIndex) {
+    nextFollowerIndex = maxFollowerIndex + 1;
+  }
+
+  for (const ch of state.characters) {
+    if (ch?.role === "follower" && !Number.isFinite(ch.followerCreationOrderIndex)) {
+      ensurePawnRoleFields(state, ch, nextFollowerIndex++);
+      continue;
+    }
+    ensurePawnRoleFields(state, ch, null);
+  }
+  state.nextFollowerCreationOrderIndex = nextFollowerIndex;
   state._boardDirty = false;
   state._seasonChanged = false;
 

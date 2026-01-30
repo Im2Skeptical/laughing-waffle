@@ -27,6 +27,7 @@ import { stepPawnSecond } from "./pawn-exec.js";
 import { stepEnvSecond } from "./env-exec.js";
 import { stepHubSecond } from "./hub-exec.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
+import { adjustFollowerCount, enforcePrestigeFollowerCap } from "./prestige-system.js";
 
 const TICKS_PER_SEC = 60;
 
@@ -181,6 +182,7 @@ export function cmdTickSimulation(state, dt) {
     stepPawnSecond(state, state.tSec);
     stepEnvSecond(state, state.tSec);
     stepHubSecond(state, state.tSec);
+    enforcePrestigeFollowerCap(state);
     if (state._seasonChanged) state._seasonChanged = false;
   }
 
@@ -446,6 +448,22 @@ export function cmdStackItemsInOwner(
   );
 
   return ctx.out || { ok: false, reason: "effectFailed" };
+}
+
+// =============================================================================
+// FOLLOWER COMMANDS
+// =============================================================================
+
+export function cmdAdjustFollowerCount(state, payload = {}) {
+  const leaderId = Number.isFinite(payload.leaderId)
+    ? Math.floor(payload.leaderId)
+    : null;
+  if (leaderId == null) return { ok: false, reason: "badLeaderId" };
+
+  const delta = Number.isFinite(payload.delta) ? Math.trunc(payload.delta) : 0;
+  if (delta === 0) return { ok: true, result: "noChange", leaderId };
+
+  return adjustFollowerCount(state, leaderId, delta);
 }
 
 // =============================================================================

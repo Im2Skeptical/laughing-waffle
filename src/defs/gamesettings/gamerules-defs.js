@@ -23,3 +23,16 @@ export const SEASON_DISPLAY = {
   autumn: "Autumn",
   winter: "Winter",
 };
+
+// --- Prestige + Followers ---
+export const PRESTIGE_COST_PER_FOLLOWER = 10;
+export const HUNGER_THRESHOLD = 40;
+export const SECONDS_BELOW_HUNGER_THRESHOLD = 5;
+export const PRESTIGE_DEBT_CADENCE_SEC = 5;
+export const PRESTIGE_DEBT_PER_HUNGRY_FOLLOWER = 1;
+export const PRESTIGE_CURVE_A_BY_TIER = {
+  bronze: 3,
+  silver: 5,
+  gold: 8,
+  diamond: 12,
+};

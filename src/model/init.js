@@ -53,6 +53,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.nextEnvInstanceId = 1;
   state.nextItemId = 1;
   state.nextCharacterId = 101;
+  state.nextFollowerCreationOrderIndex = 1;
 
   const boardCols = getBoardColsFromSetup(setup, state);
   const hubCols = getHubColsFromSetup(setup);
@@ -68,7 +69,10 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.board.layers.tile.anchors = buildTileAnchors(setup, boardCols, state);
 
   // characters
-  state.characters = (setup.characters || []).map((c, index) => {
+  const charSpecs = setup.characters || [];
+  const created = [];
+  for (let index = 0; index < charSpecs.length; index++) {
+    const c = charSpecs[index];
     const wantsEnvRow = c?.row === "env" || Number.isFinite(c?.envCol);
     const envCol = wantsEnvRow
       ? getColIndex({ envCol: c.envCol }, index, boardCols)
@@ -77,7 +81,8 @@ export function createInitialState(scenario = "testing", seed = null) {
       ? null
       : getColIndex({ hubCol: c.hubCol }, index, hubCols);
     const { systemTiers, systemState } = buildPawnSystemDefaults();
-    return {
+    const role = c?.role === "follower" ? "follower" : "leader";
+    const pawn = {
       id: state.nextCharacterId++,
       pawnDefId: typeof c?.pawnDefId === "string" ? c.pawnDefId : "default",
       name: c.name,
@@ -87,8 +92,39 @@ export function createInitialState(scenario = "testing", seed = null) {
       systemTiers,
       systemState,
       props: {},
+      role,
+      leaderId: null,
     };
-  });
+    if (role === "follower") {
+      pawn.followerCreationOrderIndex = state.nextFollowerCreationOrderIndex++;
+      pawn._leaderIndex = Number.isFinite(c?.leaderIndex)
+        ? Math.floor(c.leaderIndex)
+        : null;
+      pawn._leaderId = Number.isFinite(c?.leaderId) ? Math.floor(c.leaderId) : null;
+    } else {
+      pawn.totalDepositedAmountByTier = {};
+      pawn.prestigeCapBase = 0;
+      pawn.prestigeCapDebt = 0;
+      pawn.prestigeCapEffective = 0;
+      pawn.prestigeDebtByFollowerId = {};
+    }
+    created.push(pawn);
+  }
+
+  for (const pawn of created) {
+    if (pawn.role !== "follower") continue;
+    const leaderId =
+      Number.isFinite(pawn._leaderIndex) && created[pawn._leaderIndex]
+        ? created[pawn._leaderIndex].id
+        : Number.isFinite(pawn._leaderId)
+        ? pawn._leaderId
+        : null;
+    pawn.leaderId = leaderId;
+    delete pawn._leaderIndex;
+    delete pawn._leaderId;
+  }
+
+  state.characters = created;
 
   // inventories
   state.ownerInventories = {};

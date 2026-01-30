@@ -71,4 +71,12 @@ export const itemTagDefs = {
     passives: [],
     intents: [],
   },
+  grain: {
+    id: "grain",
+    kind: "itemTag",
+    ui: { name: "Grain", description: "Stored in granaries for prestige." },
+    systems: [],
+    passives: [],
+    intents: [],
+  },
 };

@@ -7,7 +7,7 @@ export const itemDefs = {
     name: "Barley",
     color: 0xd4b45a,
     maxStack: 25,
-    baseTags: ["edible", "crop", "currency", "rotatable"],
+    baseTags: ["edible", "crop", "currency", "rotatable", "grain"],
     baseSystemTiers: { freshness: "bronze" },
     rotChancePerSec: 0.0057,
     defaultWidth: 1,
@@ -28,11 +28,12 @@ export const itemDefs = {
     name: "Wheat",
     color: 0xdaa520,
     maxStack: 25,
-    baseTags: ["edible", "crop", "currency", "rotatable"],
+    baseTags: ["edible", "crop", "currency", "rotatable", "grain"],
     baseSystemTiers: { freshness: "bronze" },
     rotChancePerSec: 0.0057,
     defaultWidth: 1,
     defaultHeight: 2,
+    defaultTier: "bronze",
     ui: {
       title: "Wheat",
       lines: [

@@ -546,7 +546,8 @@ const tooltipView = createTooltipView({
   interaction: interactionController,
 });
 
-const inventoryView = createInventoryView({
+let inventoryView = null;
+inventoryView = createInventoryView({
   layer: uiLayers.inventoryLayer,
   dragLayer: uiLayers.dragLayer,
   tooltipView,
@@ -608,6 +609,23 @@ const inventoryView = createInventoryView({
         { apCost: 0 }
       )
     ),
+  adjustFollowerCount: ({ leaderId, delta }) =>
+    queueActionWhenPaused(() => {
+      const res = runner.dispatchAction(
+        ActionKinds.ADJUST_FOLLOWER_COUNT,
+        { leaderId, delta },
+        { apCost: 0 }
+      );
+      if (res?.result === "followerDespawnBlocked" && res.followerId != null) {
+        inventoryView.revealWindow?.(res.followerId, { pinned: true });
+        inventoryView.flashWindowError?.(res.followerId);
+        inventoryView.rebuildWindow?.(res.followerId);
+      }
+      if (leaderId != null) {
+        inventoryView.rebuildWindow?.(leaderId);
+      }
+      return res;
+    }),
   requestPauseForAction,
 });
 

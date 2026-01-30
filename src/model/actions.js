@@ -12,6 +12,7 @@ import {
   cmdSetHubTagOrder,
   cmdSetTileCropSelection,
   cmdDebugQueueEnvEvent,
+  cmdAdjustFollowerCount,
 } from "./commands.js";
 
 export const ActionKinds = {
@@ -23,6 +24,7 @@ export const ActionKinds = {
   SET_TILE_TAG_ORDER: "setTileTagOrder",
   SET_HUB_TAG_ORDER: "setHubTagOrder",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
+  ADJUST_FOLLOWER_COUNT: "adjustFollowerCount",
   DEBUG_SET_CAP: "debugSetCap",
   DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
 };
@@ -47,6 +49,7 @@ function getActionApCost(action) {
     kind === ActionKinds.BUILD_DESIGNATE ||
     kind === ActionKinds.SET_TILE_CROP_SELECTION
     || kind === ActionKinds.SET_HUB_TAG_ORDER
+    || kind === ActionKinds.ADJUST_FOLLOWER_COUNT
   ) {
     console.warn(
       "Action missing apCost; defaulting to 0 for replay safety.",
@@ -148,6 +151,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.SET_TILE_CROP_SELECTION:
       result = cmdSetTileCropSelection(state, payload);
+      break;
+
+    case ActionKinds.ADJUST_FOLLOWER_COUNT:
+      result = cmdAdjustFollowerCount(state, payload);
       break;
 
     case ActionKinds.DEBUG_SET_CAP:
