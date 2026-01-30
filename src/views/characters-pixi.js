@@ -54,6 +54,7 @@ export function createCharactersView(opts) {
   const DRAG_THRESHOLD_PX = 3;
   const FAN_SPACING = 40;
   const RADIUS = 20;
+  const LEADER_DIAMOND_SCALE = 1.15;
   let focusGhost = null;
   let focusedCharId = null;
 
@@ -340,6 +341,37 @@ export function createCharactersView(opts) {
     };
   }
 
+  function getFollowerOrdinal(char) {
+    if (!char || char.role !== "follower") return null;
+    const leaderId = char.leaderId ?? null;
+    const chars = getCharsSafe();
+    const followers = chars
+      .filter((c) => c && c.role === "follower" && c.leaderId === leaderId)
+      .slice()
+      .sort((a, b) => {
+        const ai = Number.isFinite(a?.followerCreationOrderIndex)
+          ? a.followerCreationOrderIndex
+          : 0;
+        const bi = Number.isFinite(b?.followerCreationOrderIndex)
+          ? b.followerCreationOrderIndex
+          : 0;
+        if (ai !== bi) return ai - bi;
+        return (a?.id ?? 0) - (b?.id ?? 0);
+      });
+    for (let i = 0; i < followers.length; i++) {
+      if (followers[i]?.id === char.id) return i + 1;
+    }
+    return null;
+  }
+
+  function getLabelForChar(char) {
+    if (char?.role === "follower") {
+      const ordinal = getFollowerOrdinal(char);
+      return ordinal != null ? `F${ordinal}` : "F";
+    }
+    return char?.name || "";
+  }
+
   // ---------------------------------------------------------------------------
   // Layout helper: fan characters when multiple occupy a slot
   // ---------------------------------------------------------------------------
@@ -444,30 +476,58 @@ export function createCharactersView(opts) {
     container.cursor = "pointer";
 
     const fillColor = typeof char.color === "number" ? char.color : 0xaa66ff;
+    const isLeader = char?.role === "leader";
+    const leaderRadius = Math.round(RADIUS * LEADER_DIAMOND_SCALE);
 
-    const shadow = new PIXI.Graphics()
-      .beginFill(GAMEPIECE_SHADOW_COLOR, GAMEPIECE_SHADOW_ALPHA)
-      .drawCircle(
+    function drawDiamond(gfx, radius) {
+      gfx.drawPolygon([0, -radius, radius, 0, 0, radius, -radius, 0]);
+    }
+
+    const shadow = new PIXI.Graphics().beginFill(
+      GAMEPIECE_SHADOW_COLOR,
+      GAMEPIECE_SHADOW_ALPHA
+    );
+    if (isLeader) {
+      const r = leaderRadius + 2;
+      shadow.drawPolygon([
+        GAMEPIECE_SHADOW_OFFSET_X,
+        -r + GAMEPIECE_SHADOW_OFFSET_Y,
+        r + GAMEPIECE_SHADOW_OFFSET_X,
+        GAMEPIECE_SHADOW_OFFSET_Y,
+        GAMEPIECE_SHADOW_OFFSET_X,
+        r + GAMEPIECE_SHADOW_OFFSET_Y,
+        -r + GAMEPIECE_SHADOW_OFFSET_X,
+        GAMEPIECE_SHADOW_OFFSET_Y,
+      ]);
+    } else {
+      shadow.drawCircle(
         GAMEPIECE_SHADOW_OFFSET_X,
         GAMEPIECE_SHADOW_OFFSET_Y,
         RADIUS + 2
-      )
-      .endFill();
+      );
+    }
+    shadow.endFill();
     shadow.visible = false;
     container.addChild(shadow);
 
-    const gfx = new PIXI.Graphics()
-      .beginFill(fillColor)
-      .drawCircle(0, 0, RADIUS)
-      .endFill();
+    const gfx = new PIXI.Graphics().beginFill(fillColor);
+    if (isLeader) {
+      drawDiamond(gfx, leaderRadius);
+    } else {
+      gfx.drawCircle(0, 0, RADIUS);
+    }
+    gfx.endFill();
     container.addChild(gfx);
 
-    const outline = new PIXI.Graphics()
-      .lineStyle(2, 0x000000, 1)
-      .drawCircle(0, 0, RADIUS + 1);
+    const outline = new PIXI.Graphics().lineStyle(2, 0x000000, 1);
+    if (isLeader) {
+      drawDiamond(outline, leaderRadius + 1);
+    } else {
+      outline.drawCircle(0, 0, RADIUS + 1);
+    }
     container.addChild(outline);
 
-    const label = new PIXI.Text(char.name || "", {
+    const label = new PIXI.Text(getLabelForChar(char), {
       fill: 0xffffff,
       fontSize: 16,
       fontWeight: "bold",
@@ -493,6 +553,7 @@ export function createCharactersView(opts) {
       attachedScale: 1,
       hoverParent: null,
       hoverIndex: null,
+      label,
     };
 
     // -----------------------------------------------------------------------
@@ -729,6 +790,12 @@ export function createCharactersView(opts) {
 
   function update() {
     layoutAllCharacters();
+    for (const view of viewsById.values()) {
+      const nextLabel = getLabelForChar(view.char);
+      if (view.label && view.label.text !== nextLabel) {
+        view.label.text = nextLabel;
+      }
+    }
     updateFocus();
   }
 

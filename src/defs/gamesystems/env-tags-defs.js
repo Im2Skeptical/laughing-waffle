@@ -42,7 +42,7 @@ export const envTagDefs = {
         requires: {
           hasSelectedCrop: true,
           hasMaturedPool: false,
-          season: ["autumn", "winter"],
+          season: ["winter"],
         },
         cost: {
           charges: [

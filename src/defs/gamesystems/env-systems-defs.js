@@ -15,7 +15,7 @@ export const envSystemDefs = {
     ui: { name: "Hydration", description: "Soil moisture" },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
-    stateDefaults: { cur: 100, max: 100, decayPerSec: 2, sumRatio: 0 },
+    stateDefaults: { cur: 0, max: 100, decayPerSec: 2, sumRatio: 0 },
   },
   fishStock: {
     id: "fishStock",

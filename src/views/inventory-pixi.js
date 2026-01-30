@@ -34,6 +34,9 @@ const ITEM_TIER_BORDER_COLORS = {
   diamond: 0x7fd0ff,
   default: 0x333333,
 };
+const ITEM_GLYPH_COLOR = 0x111111;
+const ITEM_GLYPH_SHADOW = 0xffffff;
+const ITEM_GLYPH_ALPHA = 0.9;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
 
@@ -831,6 +834,39 @@ export function createInventoryView({
 
     c.bg = box;
     c.bg.__baseTint = 0xffffff;
+
+    const defName = def?.name ?? item.kind ?? "";
+    const rawGlyph =
+      def?.ui?.shortLabel ??
+      def?.shortLabel ??
+      (typeof defName === "string" && defName.length > 0
+        ? defName.slice(0, 1)
+        : "");
+    const glyphText = String(rawGlyph || "").trim();
+    if (glyphText) {
+      const glyph = new PIXI.Text(glyphText, {
+        fill: ITEM_GLYPH_COLOR,
+        fontSize: 16,
+        fontWeight: "bold",
+      });
+      glyph.anchor.set(0.5);
+      glyph.x = (item.width * cellSize - 2) / 2;
+      glyph.y = (item.height * cellSize - 2) / 2;
+      glyph.alpha = ITEM_GLYPH_ALPHA;
+
+      const glyphShadow = new PIXI.Text(glyphText, {
+        fill: ITEM_GLYPH_SHADOW,
+        fontSize: 16,
+        fontWeight: "bold",
+      });
+      glyphShadow.anchor.set(0.5);
+      glyphShadow.x = glyph.x + 1;
+      glyphShadow.y = glyph.y + 1;
+      glyphShadow.alpha = 0.35;
+
+      c.addChild(glyphShadow);
+      c.addChild(glyph);
+    }
 
     if (item.quantity > 1) {
       const t = new PIXI.Text(String(item.quantity), {
