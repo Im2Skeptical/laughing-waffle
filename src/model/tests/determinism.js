@@ -8,10 +8,16 @@ import { serializeGameState, deserializeGameState } from "../state.js";
 import {
   createTimelineFromInitialState,
   rebuildStateAtSecond,
+  replaceActionsAtSecond,
 } from "../timeline.js";
 import { updateGame, createInitialState } from "../game-model.js";
 import { buildMetricGraphWindowFromTimeline } from "../projection.js";
 import { canonicalizeSnapshot } from "../canonicalize.js";
+import { ActionKinds } from "../actions.js";
+import {
+  createTimeGraphController,
+  getSharedProjectionCache,
+} from "../timegraph-controller.js";
 
 const DT_STEP = 1 / 60;
 const TEST_SEED = 99999;
@@ -68,6 +74,23 @@ function computeStateHash(state) {
   return (hash >>> 0).toString(16);
 }
 
+function summarizeEnvEvents(state) {
+  const anchors = Array.isArray(state?.board?.layers?.event?.anchors)
+    ? state.board.layers.event.anchors
+    : [];
+  if (!anchors.length) return "";
+  const entries = anchors.map((anchor) => {
+    const defId = anchor?.defId ?? "unknown";
+    const col = Number.isFinite(anchor?.col) ? Math.floor(anchor.col) : 0;
+    const createdSec = Number.isFinite(anchor?.createdSec)
+      ? Math.floor(anchor.createdSec)
+      : 0;
+    return `${defId}@${col}:${createdSec}`;
+  });
+  entries.sort();
+  return entries.join("|");
+}
+
 // -----------------------------------------------------------------------------
 // Scenarios
 // -----------------------------------------------------------------------------
@@ -80,6 +103,8 @@ export function runDeterminismSuite() {
     results.push(testRebuildConsistency());
     results.push(testLiveVsReplay());
     results.push(testProjectionVsReplay());
+    results.push(testHistoryStableAfterFutureAction());
+    results.push(testHistoryPreviewMatchesReplay());
   } catch (e) {
     console.error("Suite crashed:", e);
     results.push({ name: "Suite Integrity", passed: false, error: e.message });
@@ -241,6 +266,159 @@ function testProjectionVsReplay() {
     }
 
     return { name, passed: true, hash: projHash };
+  } catch (e) {
+    return { name, passed: false, reason: e.message };
+  }
+}
+
+function testHistoryStableAfterFutureAction() {
+  const name = "History Stable After Future Action";
+  try {
+    const historyEndSec = 300;
+    const sampleSec = 120;
+    const actionSec = 240;
+
+    const s0 = createInitialState("testing", TEST_SEED);
+    const tl = createTimelineFromInitialState(s0);
+    tl.historyEndSec = historyEndSec;
+    tl.cursorSec = historyEndSec;
+
+    const before = rebuildStateAtSecond(tl, sampleSec);
+    if (!before.ok) throw new Error("Rebuild failed: " + before.reason);
+
+    const beforeHash = computeStateHash(before.state);
+    const beforeEvents = summarizeEnvEvents(before.state);
+
+    const action = {
+      kind: ActionKinds.DEBUG_SET_CAP,
+      payload: { cap: 42, points: 42, enabled: true },
+      apCost: 0,
+    };
+    const replaceRes = replaceActionsAtSecond(tl, actionSec, [action], {
+      truncateFuture: true,
+    });
+    if (!replaceRes.ok) {
+      throw new Error("replaceActionsAtSecond failed: " + replaceRes.reason);
+    }
+
+    tl.historyEndSec = actionSec;
+    tl.cursorSec = actionSec;
+
+    const after = rebuildStateAtSecond(tl, sampleSec);
+    if (!after.ok) throw new Error("Rebuild failed: " + after.reason);
+
+    const afterHash = computeStateHash(after.state);
+    const afterEvents = summarizeEnvEvents(after.state);
+
+    if (beforeHash !== afterHash) {
+      return {
+        name,
+        passed: false,
+        reason: `Hash mismatch at t=${sampleSec} (before ${beforeHash} vs after ${afterHash})`,
+        beforeEvents,
+        afterEvents,
+      };
+    }
+
+    return { name, passed: true, hash: beforeHash };
+  } catch (e) {
+    return { name, passed: false, reason: e.message };
+  }
+}
+
+function testHistoryPreviewMatchesReplay() {
+  const name = "History Preview Matches Replay";
+  try {
+    const historyEndSec = 300;
+    const sampleSec = 120;
+    const actionSec = 240;
+
+    const s0 = createInitialState("testing", TEST_SEED + 1);
+    const tl = createTimelineFromInitialState(s0);
+    tl.historyEndSec = historyEndSec;
+    tl.cursorSec = historyEndSec;
+
+    const cursorRes = rebuildStateAtSecond(tl, historyEndSec);
+    if (!cursorRes.ok) throw new Error("Rebuild failed: " + cursorRes.reason);
+    let cursorState = cursorRes.state;
+
+    const projection = getSharedProjectionCache();
+    projection.clear?.();
+
+    const controller = createTimeGraphController({
+      getTimeline: () => tl,
+      getCursorState: () => cursorState,
+    });
+    controller.setActive(true);
+    const cacheRes = controller.ensureCache();
+    if (cacheRes && cacheRes.ok === false) {
+      throw new Error("Cache build failed: " + cacheRes.reason);
+    }
+
+    const previewBefore = controller.getStateAt(sampleSec);
+    if (!previewBefore) throw new Error("Preview state missing (before edit)");
+    const previewBeforeHash = computeStateHash(previewBefore);
+
+    const replayBefore = rebuildStateAtSecond(tl, sampleSec);
+    if (!replayBefore.ok) throw new Error("Rebuild failed: " + replayBefore.reason);
+    const replayBeforeHash = computeStateHash(replayBefore.state);
+
+    if (previewBeforeHash !== replayBeforeHash) {
+      return {
+        name,
+        passed: false,
+        reason: `Preview mismatch before edit at t=${sampleSec} (${previewBeforeHash} vs ${replayBeforeHash})`,
+      };
+    }
+
+    const action = {
+      kind: ActionKinds.DEBUG_SET_CAP,
+      payload: { cap: 37, points: 37, enabled: true },
+      apCost: 0,
+    };
+    const replaceRes = replaceActionsAtSecond(tl, actionSec, [action], {
+      truncateFuture: true,
+    });
+    if (!replaceRes.ok) {
+      throw new Error("replaceActionsAtSecond failed: " + replaceRes.reason);
+    }
+
+    tl.historyEndSec = actionSec;
+    tl.cursorSec = actionSec;
+
+    const nextCursorRes = rebuildStateAtSecond(tl, actionSec);
+    if (!nextCursorRes.ok) {
+      throw new Error("Rebuild failed: " + nextCursorRes.reason);
+    }
+    cursorState = nextCursorRes.state;
+
+    controller.handleInvalidate?.("actionDispatched");
+
+    const previewAfter = controller.getStateAt(sampleSec);
+    if (!previewAfter) throw new Error("Preview state missing (after edit)");
+    const previewAfterHash = computeStateHash(previewAfter);
+
+    const replayAfter = rebuildStateAtSecond(tl, sampleSec);
+    if (!replayAfter.ok) throw new Error("Rebuild failed: " + replayAfter.reason);
+    const replayAfterHash = computeStateHash(replayAfter.state);
+
+    if (replayAfterHash !== replayBeforeHash) {
+      return {
+        name,
+        passed: false,
+        reason: `Replay history changed after edit at t=${sampleSec} (${replayBeforeHash} vs ${replayAfterHash})`,
+      };
+    }
+
+    if (previewAfterHash !== replayAfterHash) {
+      return {
+        name,
+        passed: false,
+        reason: `Preview mismatch after edit at t=${sampleSec} (${previewAfterHash} vs ${replayAfterHash})`,
+      };
+    }
+
+    return { name, passed: true, hash: replayAfterHash };
   } catch (e) {
     return { name, passed: false, reason: e.message };
   }

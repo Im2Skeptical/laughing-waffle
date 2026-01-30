@@ -316,9 +316,10 @@ export function createMetricGraphView({
     plotG.clear();
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
-    const subjectKey = data?.subjectKey ?? null;
     const useSubjectValues =
-      subjectKey != null && typeof controller?.getSeriesValuesForSeconds === "function";
+      typeof controller?.getSeriesValuesForSeconds === "function" &&
+      (data.metric?.useSubjectValues === true ||
+        data.subjectKey != null);
 
     const history = Array.isArray(data.cache?.history)
       ? data.cache.history
@@ -575,6 +576,7 @@ export function createMetricGraphView({
     const defaultY = app.screen.height - WIN_H - 800;
     root.x = openPosition?.x ?? defaultX;
     root.y = openPosition?.y ?? defaultY;
+    controller?.setActive?.(true);
     controller.handleInvalidate?.("open");
     controller.ensureCache();
     render();
@@ -585,6 +587,7 @@ export function createMetricGraphView({
     root.visible = false;
     isScrubbing = false;
     clearPreviewState?.();
+    controller?.setActive?.(false);
   }
 
   function isOpen() {

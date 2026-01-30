@@ -237,12 +237,11 @@ function getSystemGraphTargetKey(target) {
 const systemGraphMetric = {
   id: "systemTarget",
   label: "Systems",
-  getSeries: (subject, state) =>
-    buildSystemSeriesForTarget(subject, state).series,
-  getLabel: (subject, state) =>
-    buildSystemSeriesForTarget(subject, state).label,
+  series: [],
   getSubjectKey: (subject) => getSystemGraphTargetKey(subject),
-  dynamicSeries: true,
+  createSnapshotResolver: (snapshot, subject) =>
+    buildSystemSnapshotResolver(snapshot, subject),
+  useSubjectValues: true,
 };
 
 const systemGraphController = createTimeGraphController({
@@ -314,6 +313,41 @@ function findPawnById(snapshot, id) {
   return null;
 }
 
+function buildSystemSnapshotResolver(snapshot, target) {
+  if (!snapshot || !target) return null;
+  if (target.kind === "tile") {
+    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
+    const occTile =
+      col != null && Array.isArray(snapshot?.board?.occ?.tile)
+        ? snapshot.board.occ.tile[col] ?? null
+        : null;
+    return {
+      kind: "tile",
+      col,
+      tile:
+        occTile ??
+        (col != null ? findTileAnchorAtCol(snapshot, col) : null),
+    };
+  }
+  if (target.kind === "hub") {
+    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
+    return {
+      kind: "hub",
+      col,
+      hubStructure: col != null ? findHubStructureAtCol(snapshot, col) : null,
+    };
+  }
+  if (target.kind === "pawn") {
+    const id = target.id;
+    return {
+      kind: "pawn",
+      id,
+      pawn: id != null ? findPawnById(snapshot, id) : null,
+    };
+  }
+  return null;
+}
+
 function buildSystemSeriesForTarget(target, state) {
   if (!target || !state) {
     return {
@@ -368,8 +402,10 @@ function buildSystemSeriesForTarget(target, state) {
             const pool = t?.systemState?.growth?.maturedPool;
             return sumMaturedPool(pool);
           },
-          getValueFromSnapshot: (snapshot) => {
-            const t = findTileAnchorAtCol(snapshot, col);
+          getValueFromSnapshot: (snapshot, _subject, resolved) => {
+            const t =
+              (resolved?.kind === "tile" ? resolved.tile : null) ??
+              findTileAnchorAtCol(snapshot, col);
             const pool = t?.systemState?.growth?.maturedPool;
             return sumMaturedPool(pool);
           },
@@ -391,8 +427,10 @@ function buildSystemSeriesForTarget(target, state) {
             t?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
           return getTierValue(envSystemDefs, systemId, tier);
         },
-        getValueFromSnapshot: (snapshot) => {
-          const t = findTileAnchorAtCol(snapshot, col);
+        getValueFromSnapshot: (snapshot, _subject, resolved) => {
+          const t =
+            (resolved?.kind === "tile" ? resolved.tile : null) ??
+            findTileAnchorAtCol(snapshot, col);
           const sysState = t?.systemState?.[systemId];
           if (Number.isFinite(sysState?.cur)) return sysState.cur;
           if (Number.isFinite(sysState?.value)) return sysState.value;
@@ -433,8 +471,10 @@ function buildSystemSeriesForTarget(target, state) {
             s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
           return getTierValue(hubSystemDefs, systemId, tier);
         },
-        getValueFromSnapshot: (snapshot) => {
-          const s = col != null ? findHubStructureAtCol(snapshot, col) : null;
+        getValueFromSnapshot: (snapshot, _subject, resolved) => {
+          const s =
+            (resolved?.kind === "hub" ? resolved.hubStructure : null) ??
+            (col != null ? findHubStructureAtCol(snapshot, col) : null);
           const sysState = s?.systemState?.[systemId];
           if (Number.isFinite(sysState?.cur)) return sysState.cur;
           if (Number.isFinite(sysState?.value)) return sysState.value;
@@ -470,8 +510,10 @@ function buildSystemSeriesForTarget(target, state) {
             p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
           return getTierValue(pawnSystemDefs, systemId, tier);
         },
-        getValueFromSnapshot: (snapshot) => {
-          const p = findPawnById(snapshot, id);
+        getValueFromSnapshot: (snapshot, _subject, resolved) => {
+          const p =
+            (resolved?.kind === "pawn" ? resolved.pawn : null) ??
+            findPawnById(snapshot, id);
           const sysState = p?.systemState?.[systemId];
           if (Number.isFinite(sysState?.cur)) return sysState.cur;
           if (Number.isFinite(sysState?.value)) return sysState.value;
@@ -750,6 +792,9 @@ function updateSystemGraphTarget() {
   const nextKey = getSystemGraphTargetKey(target);
   if (nextKey === lastSystemGraphTargetKey) return false;
   lastSystemGraphTargetKey = nextKey;
+  const state = runner.getCursorState?.();
+  const resolved = buildSystemSeriesForTarget(target, state);
+  systemGraphController.setSeries?.(resolved.series, resolved.label);
   systemGraphController.setSubject?.(target, nextKey);
   return true;
 }
@@ -935,4 +980,3 @@ window.__DBG__ = {
     runner.getLastPlannerCommitError?.() ?? null,
   test: runDeterminismSuite,
 };
-

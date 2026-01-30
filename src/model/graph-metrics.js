@@ -13,6 +13,8 @@ export const GRAPH_METRICS = {
         label: "Gold",
         color: 0xffd966,
         getValue: (state, _subject) => state?.resources?.gold ?? state?.gold ?? 0,
+        getValueFromSnapshot: (snapshot, _subject) =>
+          snapshot?.resources?.gold ?? snapshot?.gold ?? 0,
         formatValue: (value) =>
           Number.isFinite(value) ? value.toFixed(1) : "0.0",
       },
@@ -33,6 +35,13 @@ export const GRAPH_METRICS = {
           const edibleSafe = Number.isFinite(edible) ? edible : 0;
           return baseSafe + edibleSafe;
         },
+        getValueFromSnapshot: (snapshot, _subject) => {
+          const base = snapshot?.resources?.food ?? 0;
+          const edible = getTotalFoodFromEdibles(snapshot);
+          const baseSafe = Number.isFinite(base) ? base : 0;
+          const edibleSafe = Number.isFinite(edible) ? edible : 0;
+          return baseSafe + edibleSafe;
+        },
         formatValue: (value) =>
           Number.isFinite(value) ? value.toFixed(1) : "0.0",
       },
@@ -47,6 +56,8 @@ export const GRAPH_METRICS = {
         label: "AP Cap",
         color: 0xffaa66,
         getValue: (state, _subject) => state?.actionPointCap ?? 0,
+        getValueFromSnapshot: (snapshot, _subject) =>
+          snapshot?.actionPointCap ?? 0,
         formatValue: (value) =>
           Number.isFinite(value) ? `${Math.floor(value)}` : "0",
       },
@@ -55,6 +66,8 @@ export const GRAPH_METRICS = {
         label: "AP",
         color: 0x66ccff,
         getValue: (state, _subject) => state?.actionPoints ?? 0,
+        getValueFromSnapshot: (snapshot, _subject) =>
+          snapshot?.actionPoints ?? 0,
         formatValue: (value) =>
           Number.isFinite(value) ? `${Math.floor(value)}` : "0",
       },
