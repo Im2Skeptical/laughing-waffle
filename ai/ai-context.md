@@ -204,6 +204,11 @@ Before writing any code, always perform an **Impact Analysis**:
 4. **Layering**
    - Is logic leaking across Model / Controller / View boundaries?
 
+5. **Clarity**
+   - Use explicit, intention-revealing variable names. Conversly avoid abbreviated or ambiguous variable names
+
+
+
 ---
 
 ## 9. Collaboration Preferences
