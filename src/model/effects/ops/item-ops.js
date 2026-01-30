@@ -58,16 +58,25 @@ export function handleCheckItemRot(state, effect, context) {
   const rotKind = effect.rotKind || "rot";
   if (!itemDefs[rotKind]) return false;
 
-  const chancePerUnit = Number.isFinite(effect.rotChancePerSec)
-    ? Math.max(0, effect.rotChancePerSec)
-    : 0;
-  if (chancePerUnit <= 0) return false;
+  if (Number.isFinite(effect.rotChancePerSec)) {
+    const chancePerUnit = Math.max(0, effect.rotChancePerSec);
+    if (chancePerUnit <= 0) return false;
+    return handleExpireItemChance(
+      state,
+      { chance: chancePerUnit, targetKind: rotKind },
+      context
+    );
+  }
 
-  return handleExpireItemChance(
-    state,
-    { chance: chancePerUnit, targetKind: rotKind },
-    context
-  );
+  if (effect.chanceFromDefKey) {
+    return handleExpireItemChance(
+      state,
+      { chanceFromDefKey: effect.chanceFromDefKey, targetKind: rotKind },
+      context
+    );
+  }
+
+  return false;
 }
 
 export function handleExpireItemChance(state, effect, context) {

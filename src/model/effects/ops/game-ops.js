@@ -1,4 +1,5 @@
 import { itemDefs } from "../../../defs/gamepieces/item-defs.js";
+import { forageDropTables } from "../../../defs/gamepieces/forage-droptables-defs.js";
 import {
   Inventory,
   canStackItems,
@@ -7,6 +8,7 @@ import {
   mergeItemSystemStateForStacking,
 } from "../../inventory-model.js";
 import { resolveAmount } from "../core/amount.js";
+import { selectWeightedEntry } from "../core/drop-table.js";
 import { bumpInvVersion } from "../core/inventory-version.js";
 import { resolveEffectDef } from "../core/registry.js";
 import { ensureSystemState } from "../core/system-state.js";
@@ -234,6 +236,51 @@ export function handleSpawnItem(state, effect, context) {
   return changed;
 }
 
+export function handleSpawnFromDropTable(state, effect, context) {
+  if (!context || context.kind !== "game") return false;
+  if (typeof state?.rngNextFloat !== "function") return false;
+
+  const tableKey =
+    typeof effect?.tableKey === "string" ? effect.tableKey : "forageDrops";
+  const source = context.source;
+  const tags = Array.isArray(source?.tags) ? source.tags : [];
+  const table = resolveDropTableForTile(source, tableKey);
+  if (!table.length) return false;
+
+  const entry = selectWeightedEntry(state, table, { tags });
+  if (!entry || !passesDropChance(state, entry)) return false;
+  if (!entry.kind) return false;
+
+  const kind = entry.kind;
+  if (!kind || !itemDefs[kind]) return false;
+
+  const quantity = rollDropQuantity(state, entry);
+  if (!Number.isFinite(quantity) || quantity <= 0) return false;
+
+  const tier =
+    typeof entry.tier === "string"
+      ? entry.tier
+      : typeof effect.tier === "string"
+        ? effect.tier
+        : itemDefs[kind]?.defaultTier ?? "bronze";
+
+  const targetSpec = resolveDropTarget(effect, context);
+  if (!targetSpec) return false;
+
+  return handleSpawnItem(
+    state,
+    {
+      op: "SpawnItem",
+      itemKind: kind,
+      amount: quantity,
+      target: targetSpec,
+      perOwner: effect.perOwner,
+      tier,
+    },
+    context
+  );
+}
+
 function sortItemsForConsumption(items, order) {
   const tierOrder = Array.isArray(order) ? order : TIER_ASC;
   return items.sort((a, b) => {
@@ -338,4 +385,119 @@ function maturedPoolHasAny(pool) {
     (pool.gold ?? 0) > 0 ||
     (pool.diamond ?? 0) > 0
   );
+}
+
+function resolveDropTableForTile(source, tableKey) {
+  const registry =
+    tableKey && forageDropTables && typeof forageDropTables === "object"
+      ? forageDropTables[tableKey]
+      : null;
+  if (!registry || typeof registry !== "object") return [];
+
+  const tileDefId = typeof source?.defId === "string" ? source.defId : null;
+  const byTile =
+    tileDefId && Array.isArray(registry.byTile?.[tileDefId])
+      ? registry.byTile[tileDefId]
+      : null;
+  const table = byTile ?? registry.default;
+  return normalizeDropTable(table);
+}
+
+function normalizeDropTable(table) {
+  const list = Array.isArray(table) ? table : [];
+  if (!list.length) return [];
+
+  const merged = Object.create(null);
+  for (const entry of list) {
+    const normalized = normalizeDropEntry(entry);
+    if (!normalized) continue;
+    const existing = merged[normalized.key];
+    if (existing) {
+      existing.weight += normalized.entry.weight;
+    } else {
+      merged[normalized.key] = normalized.entry;
+    }
+  }
+
+  const keys = Object.keys(merged);
+  keys.sort();
+  return keys.map((key) => merged[key]);
+}
+
+function normalizeDropEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const hasKind =
+    typeof entry.kind === "string" && entry.kind.trim().length > 0;
+  const isMiss = entry.miss === true || entry.empty === true || !hasKind;
+  const kind = hasKind ? entry.kind.trim() : null;
+
+  const weight = Number.isFinite(entry.weight) ? Math.max(0, entry.weight) : 0;
+  if (weight <= 0) return null;
+
+  let qtyMin = Number.isFinite(entry.qtyMin)
+    ? Math.max(1, Math.floor(entry.qtyMin))
+    : 1;
+  let qtyMax = Number.isFinite(entry.qtyMax)
+    ? Math.max(1, Math.floor(entry.qtyMax))
+    : qtyMin;
+  if (qtyMax < qtyMin) qtyMax = qtyMin;
+
+  const chance = Number.isFinite(entry.chance)
+    ? Math.min(1, Math.max(0, entry.chance))
+    : null;
+  const tier = typeof entry.tier === "string" ? entry.tier : null;
+  const requiresTag = normalizeRequiresTag(entry.requiresTag);
+
+  const keyKind = isMiss ? "miss" : kind;
+  const keyParts = [keyKind, tier ?? "", qtyMin, qtyMax, chance ?? ""];
+  if (requiresTag) {
+    keyParts.push(Array.isArray(requiresTag) ? requiresTag.join("&") : requiresTag);
+  }
+  const key = keyParts.join("|");
+
+  const normalized = { kind: isMiss ? null : kind, weight, qtyMin, qtyMax };
+  if (chance != null) normalized.chance = chance;
+  if (requiresTag) normalized.requiresTag = requiresTag;
+  if (tier) normalized.tier = tier;
+
+  return { key, entry: normalized };
+}
+
+function normalizeRequiresTag(requiresTag) {
+  if (typeof requiresTag === "string") return requiresTag;
+  if (!Array.isArray(requiresTag)) return null;
+  const tags = requiresTag.filter((tag) => typeof tag === "string");
+  tags.sort();
+  if (tags.length === 1) return tags[0];
+  return tags.length > 1 ? tags : null;
+}
+
+function passesDropChance(state, entry) {
+  const chance = Number.isFinite(entry?.chance)
+    ? Math.min(1, Math.max(0, entry.chance))
+    : 1;
+  if (chance <= 0) return false;
+  if (chance >= 1) return true;
+  if (typeof state?.rngNextFloat !== "function") return false;
+  return state.rngNextFloat() < chance;
+}
+
+function rollDropQuantity(state, entry) {
+  const min = Number.isFinite(entry?.qtyMin)
+    ? Math.max(1, Math.floor(entry.qtyMin))
+    : 1;
+  const max = Number.isFinite(entry?.qtyMax)
+    ? Math.max(min, Math.floor(entry.qtyMax))
+    : min;
+  if (min === max) return min;
+  if (typeof state?.rngNextInt === "function") return state.rngNextInt(min, max);
+  if (typeof state?.rngNextFloat !== "function") return min;
+  return min + Math.floor(state.rngNextFloat() * (max - min + 1));
+}
+
+function resolveDropTarget(effect, context) {
+  if (effect?.target && typeof effect.target === "object") return effect.target;
+  const ownerId = context?.pawnId ?? context?.ownerId ?? null;
+  if (ownerId != null) return { ownerId };
+  return { kind: "tileOccupants" };
 }

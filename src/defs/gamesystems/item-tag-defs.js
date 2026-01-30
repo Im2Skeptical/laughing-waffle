@@ -23,7 +23,7 @@ export const itemTagDefs = {
             op: "CheckItemRot",
             system: "freshness",
             ageKey: "ageSec",
-            rotChancePerSec: 0.0057,
+            chanceFromDefKey: "rotChancePerSec",
             rotKind: "rot",
           },
         ],

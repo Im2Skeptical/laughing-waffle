@@ -9,6 +9,7 @@ export const itemDefs = {
     maxStack: 25,
     baseTags: ["edible", "crop", "currency", "rotatable"],
     baseSystemTiers: { freshness: "bronze" },
+    rotChancePerSec: 0.0057,
     defaultWidth: 1,
     defaultHeight: 2,
     defaultTier: "bronze",
@@ -29,6 +30,7 @@ export const itemDefs = {
     maxStack: 25,
     baseTags: ["edible", "crop", "currency", "rotatable"],
     baseSystemTiers: { freshness: "bronze" },
+    rotChancePerSec: 0.0057,
     defaultWidth: 1,
     defaultHeight: 2,
     ui: {

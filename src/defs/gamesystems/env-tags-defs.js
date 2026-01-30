@@ -156,7 +156,7 @@ export const envTagDefs = {
         id: "forage",
         verb: "forage",
         requires: { season: ["spring", "autumn"] },
-        effect: { op: "AddResource", resource: "food", amount: 1 },
+        effect: { op: "SpawnFromDropTable", tableKey: "forageDrops" },
       },
     ],
   },

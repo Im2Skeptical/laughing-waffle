@@ -21,6 +21,7 @@ const EFFECT_OPS = new Set([
   "ConsumeItem",
   "TransferUnits",
   "SpawnItem",
+  "SpawnFromDropTable",
   "CreateProcess",
   "FinalizeProcess",
 ]);

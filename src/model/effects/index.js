@@ -9,6 +9,7 @@ import {
   handleConsumeItem,
   handleTransferUnits,
   handleSpawnItem,
+  handleSpawnFromDropTable,
 } from "./ops/game-ops.js";
 import {
   handleTransformItem,
@@ -59,6 +60,7 @@ const handlers = {
   ConsumeItem: handleConsumeItem,
   TransferUnits: handleTransferUnits,
   SpawnItem: handleSpawnItem,
+  SpawnFromDropTable: handleSpawnFromDropTable,
   CreateProcess: handleCreateProcess,
   FinalizeProcess: handleFinalizeProcess,
   AddTag: handleAddTag,
