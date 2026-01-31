@@ -6,7 +6,7 @@ Local instructions for Codex agents working in this repo.
 - Read `ai/ai-context.md` before making changes.
 
 ## Current goal context
-- The current working prompt is `ai/PrestigeFeatureBuildoutPrompt_01.md`
+- General patches and feature building
 
 ## Core constraints (non-negotiable)
 - Determinism: no `Math.random()`; all randomness must go through `state.rng`.
