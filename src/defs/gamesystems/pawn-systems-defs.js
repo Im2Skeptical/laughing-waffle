@@ -18,4 +18,16 @@ export const pawnSystemDefs = {
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
     stateDefaults: { cur: 80, max: 100, belowThresholdSec: 0, debtCadenceSec: 0 },
   },
+  leadership: {
+    id: "leadership",
+    kind: "pawnSystem",
+    ui: {
+      name: "Leadership",
+      description: "Leader-only controls.",
+      hideInTooltip: true,
+    },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: { followersAutoFollow: true },
+  },
 };

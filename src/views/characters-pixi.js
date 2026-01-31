@@ -315,6 +315,7 @@ export function createCharactersView(opts) {
     for (const systemId of systemIds) {
       const def = pawnSystemDefs[systemId];
       if (!def || typeof def !== "object") continue;
+      if (def.ui?.hideInTooltip) continue;
       const label = def.ui?.name || systemId;
       const tier =
         typeof systemTiers[systemId] === "string" ? systemTiers[systemId] : null;

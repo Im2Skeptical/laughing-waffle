@@ -214,6 +214,12 @@ function ensurePawnRoleFields(state, pawn, fallbackFollowerOrderIndex = null) {
   }
   if (pawn.role === "leader") {
     ensureLeaderPrestigeFields(pawn);
+    const leadership = pawn.systemState?.leadership;
+    if (leadership && typeof leadership === "object") {
+      if (typeof leadership.followersAutoFollow !== "boolean") {
+        leadership.followersAutoFollow = true;
+      }
+    }
   } else if (pawn.role === "follower") {
     ensureFollowerFields(pawn, fallbackFollowerOrderIndex);
   }

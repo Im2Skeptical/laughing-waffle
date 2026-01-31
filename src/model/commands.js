@@ -513,6 +513,9 @@ export function cmdPlaceCharacter(state, payload = {}) {
     return { ok: false, reason: isEnvTarget ? "badEnvCol" : "badHubCol" };
   }
 
+  let nextEnvCol = null;
+  let nextHubCol = null;
+
   if (isEnvTarget) {
     const tile = state?.board?.occ?.tile?.[col] ?? null;
     if (!tile) return { ok: false, reason: "noTile" };
@@ -524,26 +527,79 @@ export function cmdPlaceCharacter(state, payload = {}) {
         return { ok: false, reason: "tileBlocked" };
       }
     }
-    ch.envCol = col;
-    ch.hubCol = null;
-    return { ok: true, result: "placed", charId, envCol: col };
+    nextEnvCol = col;
+  } else {
+    let hubTargetCol = col;
+    const hubOcc = state?.hub?.occ;
+    if (Array.isArray(hubOcc)) {
+      const anchor = hubOcc[col];
+      if (anchor && Number.isFinite(anchor.col)) {
+        hubTargetCol = Math.floor(anchor.col);
+      }
+    }
+    if (hubTargetCol < 0 || hubTargetCol >= hubCols) {
+      return { ok: false, reason: "badHubCol" };
+    }
+    nextHubCol = hubTargetCol;
   }
 
-  let hubTargetCol = col;
-  const hubOcc = state?.hub?.occ;
-  if (Array.isArray(hubOcc)) {
-    const anchor = hubOcc[col];
-    if (anchor && Number.isFinite(anchor.col)) {
-      hubTargetCol = Math.floor(anchor.col);
+  ch.hubCol = nextHubCol;
+  ch.envCol = nextEnvCol;
+
+  maybeAutoFollowLeader(state, ch);
+
+  return {
+    ok: true,
+    result: "placed",
+    charId,
+    envCol: nextEnvCol,
+    hubCol: nextHubCol,
+  };
+}
+
+function shouldFollowersAutoFollow(leader) {
+  const flag = leader?.systemState?.leadership?.followersAutoFollow;
+  return typeof flag === "boolean" ? flag : true;
+}
+
+function getFollowersForLeaderSorted(state, leaderId) {
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const followers = chars.filter(
+    (c) => c && c.role === "follower" && c.leaderId === leaderId
+  );
+  followers.sort((a, b) => {
+    const ai = Number.isFinite(a?.followerCreationOrderIndex)
+      ? a.followerCreationOrderIndex
+      : 0;
+    const bi = Number.isFinite(b?.followerCreationOrderIndex)
+      ? b.followerCreationOrderIndex
+      : 0;
+    if (ai !== bi) return ai - bi;
+    return (a?.id ?? 0) - (b?.id ?? 0);
+  });
+  return followers;
+}
+
+function maybeAutoFollowLeader(state, leader) {
+  if (!leader || leader.role !== "leader") return;
+  if (!shouldFollowersAutoFollow(leader)) return;
+
+  const followers = getFollowersForLeaderSorted(state, leader.id);
+  if (!followers.length) return;
+
+  const hubCol = Number.isFinite(leader.hubCol) ? Math.floor(leader.hubCol) : null;
+  const envCol = Number.isFinite(leader.envCol) ? Math.floor(leader.envCol) : null;
+
+  for (const follower of followers) {
+    if (!follower) continue;
+    if (hubCol != null) {
+      follower.hubCol = hubCol;
+      follower.envCol = null;
+    } else if (envCol != null) {
+      follower.envCol = envCol;
+      follower.hubCol = null;
     }
   }
-  if (hubTargetCol < 0 || hubTargetCol >= hubCols) {
-    return { ok: false, reason: "badHubCol" };
-  }
-
-  ch.hubCol = hubTargetCol;
-  ch.envCol = null;
-  return { ok: true, result: "placed", charId, hubCol: hubTargetCol };
 }
 
 // =============================================================================
