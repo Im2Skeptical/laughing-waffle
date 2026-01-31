@@ -39,6 +39,11 @@ const ITEM_GLYPH_SHADOW = 0xffffff;
 const ITEM_GLYPH_ALPHA = 0.9;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
+const AP_OVERLAY_ALPHA = 0.45;
+const AP_OVERLAY_FADE_IN = 14;
+const AP_OVERLAY_FADE_OUT = 8;
+const AP_OVERLAY_FILL = 0x8a1f2a;
+const AP_OVERLAY_STROKE = 0xff4f5e;
 
 function getItemTierBorderColor(item, def) {
   const tier = item?.tier ?? def?.defaultTier ?? null;
@@ -58,6 +63,7 @@ export function createInventoryView({
   getFocusIntent,
   onGhostClick,
   hasItemTransferIntent,
+  getItemTransferAffordability,
 
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
@@ -65,6 +71,7 @@ export function createInventoryView({
   cancelItemTransfer,
   adjustFollowerCount,
   requestPauseForAction,
+  setApDragWarning,
 }) {
   const stage = layer.parent;
 
@@ -100,6 +107,7 @@ export function createInventoryView({
 
     cellOffsetGX: 0,
     cellOffsetGY: 0,
+    lastGlobalPos: null,
   };
 
   // Active split modal
@@ -238,6 +246,62 @@ export function createInventoryView({
     }, 180);
   }
 
+  function updateApOverlayAlpha(win, dt) {
+    if (!win?.apOverlay) return;
+    const target = Number.isFinite(win.apOverlayTarget)
+      ? win.apOverlayTarget
+      : 0;
+    const frameDt = Number.isFinite(dt) ? dt : 1 / 60;
+    const fadeSpeed = target > win.apOverlayAlpha ? AP_OVERLAY_FADE_IN : AP_OVERLAY_FADE_OUT;
+    const step = fadeSpeed * frameDt;
+    if (win.apOverlayAlpha < target) {
+      win.apOverlayAlpha = Math.min(target, win.apOverlayAlpha + step);
+    } else if (win.apOverlayAlpha > target) {
+      win.apOverlayAlpha = Math.max(target, win.apOverlayAlpha - step);
+    }
+    win.apOverlay.alpha = win.apOverlayAlpha;
+    win.apOverlay.visible = win.apOverlayAlpha > 0.01;
+  }
+
+  function updateApDragOverlays(dt) {
+    const dragging = dragItem.active && !!dragItem.item;
+    const sourceOwner =
+      dragItem.sourceOwnerOverride != null
+        ? dragItem.sourceOwnerOverride
+        : dragItem.ownerId;
+    const canAfford =
+      dragging && typeof getItemTransferAffordability === "function";
+    const invalidOwners = canAfford ? new Set() : null;
+
+    for (const win of windows.values()) {
+      let targetAlpha = 0;
+      if (canAfford && sourceOwner != null && win.ownerId !== sourceOwner) {
+        const affordability = getItemTransferAffordability({
+          fromOwnerId: sourceOwner,
+          toOwnerId: win.ownerId,
+          itemId: dragItem.item.id,
+          targetGX: 0,
+          targetGY: 0,
+        });
+        if (affordability?.ok && affordability.affordable === false) {
+          targetAlpha = AP_OVERLAY_ALPHA;
+          invalidOwners?.add(win.ownerId);
+        }
+      }
+      win.apOverlayTarget = targetAlpha;
+      updateApOverlayAlpha(win, dt);
+    }
+
+    let hoverInvalid = false;
+    if (dragging && invalidOwners && dragItem.lastGlobalPos) {
+      const hovered = findWindowAt(dragItem.lastGlobalPos);
+      hoverInvalid = !!hovered && invalidOwners.has(hovered.ownerId);
+    }
+    if (dragging && typeof setApDragWarning === "function") {
+      setApDragWarning(hoverInvalid);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // WINDOW CREATION
   // ---------------------------------------------------------------------------
@@ -273,6 +337,16 @@ export function createInventoryView({
     warningOverlay.visible = false;
     warningOverlay.eventMode = "none";
     c.addChild(warningOverlay);
+
+    const apOverlay = new PIXI.Graphics();
+    apOverlay
+      .beginFill(AP_OVERLAY_FILL, 0.5)
+      .lineStyle(2, AP_OVERLAY_STROKE, 1)
+      .drawRoundedRect(1, 1, w - 2, h - 2, 10)
+      .endFill();
+    apOverlay.alpha = 0;
+    apOverlay.visible = false;
+    apOverlay.eventMode = "none";
 
     // Header (drag handle)
     const header = new PIXI.Graphics();
@@ -335,6 +409,9 @@ export function createInventoryView({
       panelWidth: w,
       panelHeight: h,
       warningOverlay,
+      apOverlay,
+      apOverlayAlpha: 0,
+      apOverlayTarget: 0,
       leaderPanel: null,
     };
 
@@ -485,6 +562,10 @@ export function createInventoryView({
         plusBtn,
       };
     }
+
+    c.addChild(apOverlay);
+    c.addChild(focusOutline);
+    c.addChild(warningOverlay);
 
     // Initial build
     rebuildWindow(ownerId);
@@ -1024,6 +1105,7 @@ export function createInventoryView({
     requestPauseForAction?.();
     const g = ev.data.global;
 
+    dragItem.lastGlobalPos = { x: g.x, y: g.y };
     const localInBody = win.body.toLocal(g);
     const clickGX = Math.floor(localInBody.x / win.cellSize);
     const clickGY = Math.floor(localInBody.y / win.cellSize);
@@ -1103,6 +1185,7 @@ export function createInventoryView({
     if (!dragItem.active) return;
 
     const g = ev.data.global;
+    dragItem.lastGlobalPos = { x: g.x, y: g.y };
     const s = dragItem.sprite;
 
     s.x = g.x - dragItem.offsetX;
@@ -1138,11 +1221,15 @@ export function createInventoryView({
 
     cleanupDragSprite();
     dragItem.active = false;
+    dragItem.lastGlobalPos = null;
 
     const finish = () => {
       restoreItemView(view);
       dragItem.view = null;
       dragItem.sourceOwnerOverride = null;
+      if (typeof setApDragWarning === "function") {
+        setApDragWarning(false);
+      }
     };
 
     if (uiBlocked) {
@@ -1564,7 +1651,8 @@ export function createInventoryView({
 
   function init() {}
 
-  function update() {
+  function update(dt) {
+    updateApDragOverlays(dt);
     if (dragItem.active || activeSplit || flashingOwners.size > 0) {
       return;
     }

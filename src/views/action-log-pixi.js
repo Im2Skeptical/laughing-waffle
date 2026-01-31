@@ -9,6 +9,9 @@ const HEADER_HEIGHT = 64;
 const ROW_HEIGHT = 54;
 const ROW_GAP = 8;
 const PADDING = 16;
+const AP_HOVER_OVERLAY_ALPHA = 0.45;
+const AP_HOVER_FADE_IN = 14;
+const AP_HOVER_FADE_OUT = 8;
 
 export function createActionLogView({
   app,
@@ -85,6 +88,17 @@ export function createActionLogView({
   apPanel.endFill();
   header.addChild(apPanel);
 
+  const apHoverOverlay = new PIXI.Graphics();
+  apHoverOverlay
+    .beginFill(0x8a1f2a, 0.5)
+    .lineStyle(2, 0xff4f5e, 1)
+    .drawRoundedRect(PADDING, 12, 64, 44, 12)
+    .endFill();
+  apHoverOverlay.alpha = 0;
+  apHoverOverlay.visible = false;
+  apHoverOverlay.eventMode = "none";
+  header.addChild(apHoverOverlay);
+
   const apFlash = new PIXI.Graphics();
   apFlash.visible = false;
   header.addChild(apFlash);
@@ -149,6 +163,8 @@ export function createActionLogView({
 
   let flashTimeout = null;
   let apFlashTimeout = null;
+  let apHoverTarget = 0;
+  let apHoverAlpha = 0;
 
   let lastVersion = -1;
   let lastPreviewing = null;
@@ -233,7 +249,7 @@ export function createActionLogView({
     buildRows(rowSpecs, null);
   }
 
-  function update() {
+  function update(dt) {
     const planner = typeof getPlanner === "function" ? getPlanner() : null;
     if (!planner) return;
 
@@ -265,6 +281,18 @@ export function createActionLogView({
     nextBtn.cursor = next == null ? "default" : "pointer";
 
     apValue.text = logController.getApText(previewing);
+
+    const frameDt = Number.isFinite(dt) ? dt : 1 / 60;
+    const fadeSpeed =
+      apHoverTarget > apHoverAlpha ? AP_HOVER_FADE_IN : AP_HOVER_FADE_OUT;
+    const step = fadeSpeed * frameDt;
+    if (apHoverAlpha < apHoverTarget) {
+      apHoverAlpha = Math.min(apHoverTarget, apHoverAlpha + step);
+    } else if (apHoverAlpha > apHoverTarget) {
+      apHoverAlpha = Math.max(apHoverTarget, apHoverAlpha - step);
+    }
+    apHoverOverlay.alpha = apHoverAlpha;
+    apHoverOverlay.visible = apHoverAlpha > 0.01;
   }
 
   function init() {}
@@ -306,6 +334,13 @@ export function createActionLogView({
     }, 260);
   }
 
+  function setApDragWarning(active) {
+    apHoverTarget = active ? AP_HOVER_OVERLAY_ALPHA : 0;
+    if (apHoverTarget > 0) {
+      apHoverOverlay.visible = true;
+    }
+  }
+
   prevBtn.on("pointertap", () => {
     const { prev } = logController.getPrevNextForCursor();
     if (prev == null) return;
@@ -330,5 +365,5 @@ export function createActionLogView({
     onClearActions?.();
   });
 
-  return { init, update, container, flashInsufficientAp };
+  return { init, update, container, flashInsufficientAp, setApDragWarning };
 }

@@ -50,6 +50,7 @@ import {
  *  - dispatchAction: (kind, payload, opts?) => any
  *  - queueActionWhenPaused?: (fn) => any
  *  - requestPauseForAction?: () => void
+ *  - setApDragWarning?: (active: boolean) => void
  */
 export function createBoardView(opts) {
   const {
@@ -67,6 +68,7 @@ export function createBoardView(opts) {
     dispatchAction,
     queueActionWhenPaused,
     requestPauseForAction,
+    setApDragWarning,
   } = opts;
 
   const tileViews = [];
@@ -87,6 +89,11 @@ export function createBoardView(opts) {
   const TAG_DRAG_SCALE = 1.06;
   const TAG_DRAG_BUMP = 6;
   const TAG_DRAG_RELEASE_PAD = 12;
+  const AP_OVERLAY_ALPHA = 0.45;
+  const AP_OVERLAY_FADE_IN = 14;
+  const AP_OVERLAY_FADE_OUT = 8;
+  const AP_OVERLAY_FILL = 0x8a1f2a;
+  const AP_OVERLAY_STROKE = 0xff4f5e;
   const BASE_TEXT_RESOLUTION = Math.max(
     2,
     Math.floor(globalThis?.devicePixelRatio || 1)
@@ -98,6 +105,7 @@ export function createBoardView(opts) {
   let activeTagDrag = null;
   let activeHubTagDrag = null;
   let activeHover = null;
+  let apDragWarningActive = false;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
   const tooltipLayer = tooltipView?.getContainer?.()?.parent;
@@ -123,6 +131,37 @@ export function createBoardView(opts) {
       node.resolution = resolution;
       if (node.dirty != null) node.dirty = true;
     }
+  }
+
+  function createApOverlay(width, height, radius) {
+    const overlay = new PIXI.Graphics();
+    overlay
+      .beginFill(AP_OVERLAY_FILL, 0.5)
+      .lineStyle(2, AP_OVERLAY_STROKE, 1)
+      .drawRoundedRect(1, 1, width - 2, height - 2, radius)
+      .endFill();
+    overlay.alpha = 0;
+    overlay.visible = false;
+    overlay.eventMode = "none";
+    return overlay;
+  }
+
+  function updateApOverlay(view, dt) {
+    if (!view?.apOverlay) return;
+    const target = Number.isFinite(view.apOverlayTarget)
+      ? view.apOverlayTarget
+      : 0;
+    const frameDt = Number.isFinite(dt) ? dt : 1 / 60;
+    const fadeSpeed =
+      target > view.apOverlayAlpha ? AP_OVERLAY_FADE_IN : AP_OVERLAY_FADE_OUT;
+    const step = fadeSpeed * frameDt;
+    if (view.apOverlayAlpha < target) {
+      view.apOverlayAlpha = Math.min(target, view.apOverlayAlpha + step);
+    } else if (view.apOverlayAlpha > target) {
+      view.apOverlayAlpha = Math.max(target, view.apOverlayAlpha - step);
+    }
+    view.apOverlay.alpha = view.apOverlayAlpha;
+    view.apOverlay.visible = view.apOverlayAlpha > 0.01;
   }
 
   tagUi = createTagUi({
@@ -245,6 +284,15 @@ export function createBoardView(opts) {
 
   function clearHoverContext() {
     interaction?.clearHovered?.();
+  }
+
+  function setApDragWarningSafe(active) {
+    const next = !!active;
+    if (apDragWarningActive === next) return;
+    apDragWarningActive = next;
+    if (typeof setApDragWarning === "function") {
+      setApDragWarning(next);
+    }
   }
 
   function trackPointerPos(ev) {
@@ -918,6 +966,9 @@ export function createBoardView(opts) {
     pawnBadge.visible = false;
     content.addChild(pawnBadge);
 
+    const apOverlay = createApOverlay(TILE_WIDTH, TILE_HEIGHT, 8);
+    content.addChild(apOverlay);
+
     hoverTextBaseNodes.push(titleText, pawnText);
     hoverTextNodes.push(...hoverTextBaseNodes);
 
@@ -975,6 +1026,9 @@ export function createBoardView(opts) {
         holdHoverForOccupant: false,
         pawnBadge,
         pawnText,
+        apOverlay,
+        apOverlayAlpha: 0,
+        apOverlayTarget: 0,
       };
 
     tagUi?.rebuildTileTags?.(view, tileInst);
@@ -1228,6 +1282,9 @@ export function createBoardView(opts) {
     tagContainer.y = tagStartY;
     content.addChild(tagContainer);
 
+    const apOverlay = createApOverlay(width, height, 10);
+    content.addChild(apOverlay);
+
     function structureHasInventory() {
       const s = getGameState?.();
       return !!s?.ownerInventories?.[structureInst.instanceId];
@@ -1252,6 +1309,9 @@ export function createBoardView(opts) {
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
+      apOverlay,
+      apOverlayAlpha: 0,
+      apOverlayTarget: 0,
     };
 
     hubTagUi?.rebuildStructureTags?.(view, structureInst);
@@ -1485,6 +1545,13 @@ export function createBoardView(opts) {
       .endFill();
     cont.addChild(bg);
 
+    const apOverlay = createApOverlay(
+      HUB_STRUCTURE_WIDTH,
+      HUB_STRUCTURE_HEIGHT,
+      10
+    );
+    cont.addChild(apOverlay);
+
     const pos = layoutHubColPos(
       app.screen.width,
       col,
@@ -1495,7 +1562,13 @@ export function createBoardView(opts) {
     cont.y = pos.y;
 
     hubStructuresLayer.addChild(cont);
-    return cont;
+    return {
+      container: cont,
+      col,
+      apOverlay,
+      apOverlayAlpha: 0,
+      apOverlayTarget: 0,
+    };
   }
 
   function syncHubSlots(cols) {
@@ -1511,13 +1584,13 @@ export function createBoardView(opts) {
           HUB_STRUCTURE_WIDTH,
           HUB_STRUCTURE_ROW_Y
         );
-        view.x = pos.x;
-        view.y = pos.y;
+        view.container.x = pos.x;
+        view.container.y = pos.y;
       }
     }
 
     for (let i = cols; i < hubSlotViews.length; i++) {
-      removeFromParent(hubSlotViews[i]);
+      removeFromParent(hubSlotViews[i]?.container);
     }
     hubSlotViews.length = cols;
   }
@@ -1617,7 +1690,122 @@ export function createBoardView(opts) {
   // update
   // --------------------------------------------------------
 
-  function update() {
+  function updateApDragOverlays(dt) {
+    const drag = interaction?.getDragged?.();
+    const isCharDrag = drag?.type === "character" && drag?.id != null;
+    const charId = isCharDrag ? drag.id : null;
+    const state = getGameState?.();
+    const envCols = Number.isFinite(state?.board?.cols)
+      ? Math.floor(state.board.cols)
+      : BOARD_COLS;
+    const hubCols = Array.isArray(state?.hub?.slots)
+      ? state.hub.slots.length
+      : HUB_COLS;
+
+    const invalidEnv = new Set();
+    const invalidHub = new Set();
+
+    if (isCharDrag && typeof actionPlanner?.getPawnMoveAffordability === "function") {
+      for (let col = 0; col < envCols; col++) {
+        const aff = actionPlanner.getPawnMoveAffordability({
+          charId,
+          toEnvCol: col,
+        });
+        if (aff?.ok && aff.affordable === false) invalidEnv.add(col);
+      }
+      for (let col = 0; col < hubCols; col++) {
+        const aff = actionPlanner.getPawnMoveAffordability({
+          charId,
+          toHubCol: col,
+        });
+        if (aff?.ok && aff.affordable === false) invalidHub.add(col);
+      }
+    }
+
+    for (const view of tileViews) {
+      if (!view) continue;
+      const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
+      const isInvalid = isCharDrag && col != null && invalidEnv.has(col);
+      view.apOverlayTarget = isInvalid ? AP_OVERLAY_ALPHA : 0;
+      updateApOverlay(view, dt);
+    }
+
+    const coveredHubCols = new Set();
+    for (const view of hubStructureViews.values()) {
+      const structure = view.structure;
+      const def = structure ? hubStructureDefs[structure.defId] : null;
+      const base = Number.isFinite(structure?.col)
+        ? Math.floor(structure.col)
+        : Number.isFinite(view?.col)
+        ? Math.floor(view.col)
+        : 0;
+      const span =
+        Number.isFinite(structure?.span) && structure.span > 0
+          ? Math.floor(structure.span)
+          : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+          ? Math.floor(def.defaultSpan)
+          : 1;
+      let invalid = false;
+      for (let c = base; c < base + span; c++) {
+        coveredHubCols.add(c);
+        if (isCharDrag && invalidHub.has(c)) invalid = true;
+      }
+      view.apOverlayTarget = invalid ? AP_OVERLAY_ALPHA : 0;
+      updateApOverlay(view, dt);
+    }
+
+    for (const view of hubSlotViews) {
+      if (!view) continue;
+      const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
+      const isInvalid =
+        isCharDrag &&
+        col != null &&
+        !coveredHubCols.has(col) &&
+        invalidHub.has(col);
+      view.apOverlayTarget = isInvalid ? AP_OVERLAY_ALPHA : 0;
+      updateApOverlay(view, dt);
+    }
+
+    let hoverInvalid = false;
+    if (isCharDrag && lastPointerPos) {
+      for (const view of tileViews) {
+        if (!view) continue;
+        const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
+        if (col == null || !invalidEnv.has(col)) continue;
+        if (isPointerInsideView(view, lastPointerPos)) {
+          hoverInvalid = true;
+          break;
+        }
+      }
+
+      if (!hoverInvalid) {
+        for (const view of hubStructureViews.values()) {
+          if (!view?.apOverlayTarget) continue;
+          if (isPointerInsideView(view, lastPointerPos)) {
+            hoverInvalid = true;
+            break;
+          }
+        }
+      }
+
+      if (!hoverInvalid) {
+        for (const view of hubSlotViews) {
+          if (!view) continue;
+          const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
+          if (col == null || coveredHubCols.has(col)) continue;
+          if (!invalidHub.has(col)) continue;
+          if (isPointerInsideView(view, lastPointerPos)) {
+            hoverInvalid = true;
+            break;
+          }
+        }
+      }
+    }
+
+    setApDragWarningSafe(hoverInvalid);
+  }
+
+  function update(dt) {
     const s = getGameState?.();
     if (!s?.board) return;
 
@@ -1641,6 +1829,8 @@ export function createBoardView(opts) {
         }
       }
     }
+
+    updateApDragOverlays(dt);
   }
 
   function init() {

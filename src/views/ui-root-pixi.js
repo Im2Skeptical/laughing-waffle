@@ -48,6 +48,7 @@ export const app = new PIXI.Application({
 document.body.appendChild(app.view);
 
 let flashActionLogAp = null;
+let actionLogView = null;
 
 const runner = createSimRunner({
   onInvalidate: (reason) => {
@@ -547,6 +548,9 @@ const tooltipView = createTooltipView({
 });
 
 let inventoryView = null;
+const setApDragWarning = (active) => {
+  actionLogView?.setApDragWarning?.(active);
+};
 inventoryView = createInventoryView({
   layer: uiLayers.inventoryLayer,
   dragLayer: uiLayers.dragLayer,
@@ -576,6 +580,11 @@ inventoryView = createInventoryView({
     runner.isPreviewing?.()
       ? null
       : actionPlanner?.getInventoryPreview?.(ownerId) ?? null,
+  getItemTransferAffordability: (spec) =>
+    actionPlanner?.getItemTransferAffordability?.(spec) ?? {
+      ok: true,
+      affordable: true,
+    },
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
@@ -627,6 +636,7 @@ inventoryView = createInventoryView({
       return res;
     }),
   requestPauseForAction,
+  setApDragWarning,
 });
 
 function togglePause() {
@@ -665,6 +675,7 @@ const boardView = createBoardView({
   inventoryView,
   queueActionWhenPaused,
   requestPauseForAction,
+  setApDragWarning,
   dispatchAction: (kind, payload, opts) =>
     runner.dispatchAction(kind, payload, opts),
 });
@@ -868,7 +879,7 @@ const debugView = createDebugOverlay({
   onOpenSystemGraph: () => openSystemGraphForHover(),
 });
 
-const actionLogView = createActionLogView({
+actionLogView = createActionLogView({
   app,
   layer: uiLayers.controlsLayer,
   getPlanner: () => actionPlanner,

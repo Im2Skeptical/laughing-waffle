@@ -638,12 +638,13 @@ export function createActionPlanner({
     };
   }
 
-  function canAffordIntent(intent, existingId) {
+  function canAffordIntent(intent, existingId, opts = {}) {
     ensureActive();
     const state = getStateSafe();
     const budgetInfo = getPlannerBudget();
     const budget = budgetInfo.budget ?? 0;
     const key = intent?.id ?? intent?.subjectKey ?? existingId ?? null;
+    const notify = opts?.notify !== false;
 
     const nextList = [];
     const ordered = getOrderedIntents();
@@ -663,7 +664,7 @@ export function createActionPlanner({
     const total = summary?.total ?? 0;
 
     if (total > budget) {
-      if (typeof onInsufficientAp === "function") {
+      if (notify && typeof onInsufficientAp === "function") {
         onInsufficientAp({
           intent,
           needed: total,
@@ -870,6 +871,185 @@ export function createActionPlanner({
     if (!afford.ok) return afford;
 
     return setIntent(intent);
+  }
+
+  function buildPawnMoveIntentForPreview({
+    charId,
+    fromHubCol,
+    fromEnvCol,
+    toHubCol,
+    toEnvCol,
+  }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (charId == null) return { ok: false, reason: "noChar" };
+    if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
+      return { ok: false, reason: "badTarget" };
+    }
+
+    const subjectKey = `pawn:${charId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+
+    let fromPlacement = existing?.fromPlacement ?? null;
+    let baselinePlacement = existing?.baselinePlacement ?? null;
+
+    if (!fromPlacement) {
+      const ch = state?.characters?.find((c) => c.id === charId);
+      if (ch) {
+        fromPlacement = makePawnPlacement({
+          hubCol: ch.hubCol,
+          envCol: ch.envCol,
+        });
+      }
+    }
+
+    if (
+      !fromPlacement &&
+      (Number.isFinite(fromHubCol) || Number.isFinite(fromEnvCol))
+    ) {
+      fromPlacement = makePawnPlacement({
+        hubCol: fromHubCol,
+        envCol: fromEnvCol,
+      });
+    }
+
+    const normalizedHubCol =
+      Number.isFinite(toHubCol) && state
+        ? normalizeHubColForStructure(state, toHubCol)
+        : toHubCol;
+    const toPlacement = makePawnPlacement({
+      hubCol: normalizedHubCol,
+      envCol: toEnvCol,
+    });
+
+    const intent = makePawnMoveIntent({
+      id: subjectKey,
+      subjectKey,
+      charId,
+      fromPlacement,
+      toPlacement,
+      baselinePlacement: baselinePlacement || clonePlacement(fromPlacement),
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "preview",
+    });
+
+    return { ok: true, intent, existingId: existing?.id ?? null };
+  }
+
+  function buildItemTransferIntentForPreview({
+    fromOwnerId,
+    toOwnerId,
+    itemId,
+    targetGX,
+    targetGY,
+  }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (fromOwnerId == null || toOwnerId == null) {
+      return { ok: false, reason: "badOwner" };
+    }
+    if (itemId == null) return { ok: false, reason: "noItem" };
+
+    const subjectKey = `item:${itemId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+
+    let itemSnapshot = existing?.item ?? null;
+    let fromPlacement = existing?.fromPlacement ?? null;
+    let baselinePlacement = existing?.baselinePlacement ?? null;
+
+    if (!itemSnapshot || !fromPlacement) {
+      const inv = getInventoryForOwner(state, fromOwnerId);
+      const item = findItemInOwner(inv, itemId);
+      itemSnapshot = itemSnapshot || makeItemSnapshot(item);
+      if (item) {
+        fromPlacement = fromPlacement || {
+          ownerId: fromOwnerId,
+          gx: item.gridX,
+          gy: item.gridY,
+        };
+      }
+      if (!itemSnapshot) {
+        const found = findItemInState(state, itemId);
+        itemSnapshot = found ? makeItemSnapshot(found.item) : null;
+        if (found && !fromPlacement) {
+          fromPlacement = {
+            ownerId: fromOwnerId,
+            gx: found.item.gridX,
+            gy: found.item.gridY,
+          };
+        }
+      }
+    }
+
+    if (!itemSnapshot || !fromPlacement) {
+      return { ok: false, reason: "noItemData" };
+    }
+
+    const toPlacement = {
+      ownerId: toOwnerId,
+      gx: targetGX ?? 0,
+      gy: targetGY ?? 0,
+    };
+
+    const intent = makeItemTransferIntent({
+      id: subjectKey,
+      subjectKey,
+      itemId,
+      item: itemSnapshot,
+      fromOwnerId: fromPlacement.ownerId ?? fromOwnerId,
+      toOwnerId,
+      fromPlacement,
+      toPlacement,
+      baselinePlacement: baselinePlacement || clonePlacement(fromPlacement),
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "preview",
+    });
+
+    return { ok: true, intent, existingId: existing?.id ?? null };
+  }
+
+  function getPawnMoveAffordability(spec) {
+    ensureActive();
+    const state = getStateSafe();
+    const built = buildPawnMoveIntentForPreview(spec || {});
+    if (!built.ok) return built;
+    const intent = built.intent;
+    if (placementEquals(intent.fromPlacement, intent.toPlacement)) {
+      return { ok: true, affordable: true, cost: 0 };
+    }
+    const cost = estimateIntentApCost(intent, { stateStart: state });
+    const afford = canAffordIntent(intent, built.existingId, { notify: false });
+    return {
+      ok: true,
+      affordable: afford.ok === true,
+      cost,
+      reason: afford.reason,
+      needed: afford.needed,
+      current: afford.current,
+    };
+  }
+
+  function getItemTransferAffordability(spec) {
+    ensureActive();
+    const state = getStateSafe();
+    const built = buildItemTransferIntentForPreview(spec || {});
+    if (!built.ok) return built;
+    const intent = built.intent;
+    if (placementEquals(intent.fromPlacement, intent.toPlacement)) {
+      return { ok: true, affordable: true, cost: 0 };
+    }
+    const cost = estimateIntentApCost(intent, { stateStart: state });
+    const afford = canAffordIntent(intent, built.existingId, { notify: false });
+    return {
+      ok: true,
+      affordable: afford.ok === true,
+      cost,
+      reason: afford.reason,
+      needed: afford.needed,
+      current: afford.current,
+    };
   }
 
   function setBuildDesignationIntent({ buildKey, defId, target }) {
@@ -1240,6 +1420,8 @@ export function createActionPlanner({
     toggleFocus,
     setItemTransferIntent,
     setPawnMoveIntent,
+    getPawnMoveAffordability,
+    getItemTransferAffordability,
     setBuildDesignationIntent,
     setTileTagOrderIntent,
     setHubTagOrderIntent,
