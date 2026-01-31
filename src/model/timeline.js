@@ -71,6 +71,9 @@ function bumpRevision(tl) {
   // Clear memo eagerly to prevent growth; revision-keying also invalidates hits.
   if (tl.memoStateBySec) tl.memoStateBySec.clear();
   if (tl.memoFifo) tl.memoFifo.length = 0;
+  if (tl._actionSecondsRangeCache) {
+    tl._actionSecondsRangeCache = null;
+  }
   return tl.revision;
 }
 
@@ -156,6 +159,15 @@ function ensureActionsBySecFresh(tl) {
   if (!actionsSigEquals(cur, tl._actionsBySecSig) || !tl.actionsBySec) {
     rebuildActionsBySecIndex(tl);
   }
+}
+
+function ensureActionSecondsRangeCache(tl) {
+  const rev = ensureRevision(tl);
+  const cache = tl._actionSecondsRangeCache;
+  if (!cache || cache.revision !== rev || !cache.map) {
+    tl._actionSecondsRangeCache = { revision: rev, map: new Map() };
+  }
+  return tl._actionSecondsRangeCache.map;
 }
 
 // -----------------------------------------------------------------------------
@@ -514,6 +526,42 @@ export function getStateDataAtSecond(tl, targetSec) {
   const stateData = serializeGameState(rebuilt.state);
   memoPutStateData(tl, target, stateData);
   return { ok: true, stateData, source: "rebuild" };
+}
+
+// -----------------------------------------------------------------------------
+// Action seconds range query (cached per revision)
+// -----------------------------------------------------------------------------
+
+export function getActionSecondsInRange(tl, startSec, endSec) {
+  if (!isValidTimeline(tl)) return [];
+  const start = Math.max(0, Math.floor(startSec ?? 0));
+  const end = Math.max(0, Math.floor(endSec ?? 0));
+  if (end < start) return [];
+
+  // Ensure actionsBySec is fresh and revision cache is valid.
+  ensureRevisionFreshAgainstOutOfBandMutations(tl);
+
+  const cacheMap = ensureActionSecondsRangeCache(tl);
+  const key = `${start}:${end}`;
+  const cached = cacheMap.get(key);
+  if (cached) return cached.slice();
+
+  const actionsBySec = tl.actionsBySec;
+  if (!actionsBySec || typeof actionsBySec.keys !== "function") {
+    cacheMap.set(key, []);
+    return [];
+  }
+
+  const secs = [];
+  for (const secRaw of actionsBySec.keys()) {
+    const sec = Math.max(0, Math.floor(secRaw));
+    if (sec < start || sec > end) continue;
+    secs.push(sec);
+  }
+  if (secs.length > 1) secs.sort((a, b) => a - b);
+
+  cacheMap.set(key, secs);
+  return secs.slice();
 }
 
 // -----------------------------------------------------------------------------

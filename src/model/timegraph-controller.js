@@ -14,7 +14,7 @@ import { GRAPH_METRICS } from "./graph-metrics.js";
 import { deserializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
-import { getStateDataAtSecond } from "./timeline.js";
+import { getActionSecondsInRange, getStateDataAtSecond } from "./timeline.js";
 import {
   perfEnabled,
   perfNowMs,
@@ -140,32 +140,7 @@ function collectHistorySampleSeconds(historyEndSec, strideSec) {
 }
 
 function collectActionSecondsInRange(tl, startSec, endSec) {
-  const start = clampSec(startSec);
-  const end = clampSec(endSec);
-  if (end < start) return [];
-
-  const actionsBySec = tl?.actionsBySec;
-  if (actionsBySec && typeof actionsBySec.keys === "function") {
-    const secs = [];
-    for (const key of actionsBySec.keys()) {
-      const sec = clampSec(key);
-      if (sec < start || sec > end) continue;
-      secs.push(sec);
-    }
-    if (!secs.length) return [];
-    return secs.sort((a, b) => a - b);
-  }
-
-  const acts = Array.isArray(tl?.actions) ? tl.actions : [];
-  if (!acts.length) return [];
-  const seen = new Set();
-  for (const action of acts) {
-    const sec = clampSec(action?.tSec ?? 0);
-    if (sec < start || sec > end) continue;
-    seen.add(sec);
-  }
-  if (!seen.size) return [];
-  return Array.from(seen.values()).sort((a, b) => a - b);
+  return getActionSecondsInRange(tl, startSec, endSec);
 }
 
 function collectHistorySampleSecondsInRange(tl, startSec, endSec, strideSec) {

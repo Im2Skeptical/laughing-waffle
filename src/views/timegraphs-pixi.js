@@ -4,6 +4,7 @@
 
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
 import { perfEnabled, perfNowMs, recordGraphRender } from "../model/perf.js";
+import { getActionSecondsInRange } from "../model/timeline.js";
 
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {
@@ -152,6 +153,7 @@ export function createMetricGraphView({
   let statusNote = "";
   let cachedActionSecs = [];
   let lastActionRevision = null;
+  let lastActionRangeKey = "";
   const ACTION_SNAP_THRESHOLD_SEC = 0.75;
 
   function clampInt(v, lo, hi) {
@@ -187,7 +189,7 @@ export function createMetricGraphView({
   }
 
   function applyActionSnap(t) {
-    const list = getActionSecs();
+    const list = getActionSecs(minSec, maxSec);
     if (!list.length) return t;
 
     let lo = 0;
@@ -217,20 +219,16 @@ export function createMetricGraphView({
     return bestDist <= ACTION_SNAP_THRESHOLD_SEC ? best : t;
   }
 
-  function getActionSecs() {
+  function getActionSecs(startSec, endSec) {
     const tl = getTimeline?.();
     const rev = Math.floor(tl?.revision ?? -1);
-    if (rev !== lastActionRevision) {
+    const start = Math.max(0, Math.floor(startSec ?? 0));
+    const end = Math.max(0, Math.floor(endSec ?? 0));
+    const rangeKey = `${start}:${end}`;
+    if (rev !== lastActionRevision || rangeKey !== lastActionRangeKey) {
       lastActionRevision = rev;
-      cachedActionSecs = [];
-      if (tl?.actions?.length) {
-        const set = new Set();
-        for (const a of tl.actions) {
-          const sec = Math.max(0, Math.floor(a.tSec ?? 0));
-          set.add(sec);
-        }
-        cachedActionSecs = Array.from(set.values()).sort((a, b) => a - b);
-      }
+      lastActionRangeKey = rangeKey;
+      cachedActionSecs = getActionSecondsInRange(tl, start, end);
     }
     return cachedActionSecs;
   }
@@ -462,12 +460,11 @@ export function createMetricGraphView({
     }
 
     // Markers (actions)
-    const tl = getTimeline?.();
-    if (tl && tl.actions) {
+    const actionSecs = getActionSecs(minSec, maxSec);
+    if (actionSecs.length) {
       plotG.beginFill(0x55ff55);
       plotG.lineStyle(0);
-      for (const entry of tl.actions) {
-        const t = entry.tSec ?? 0;
+      for (const t of actionSecs) {
         if (t >= minSec && t <= maxSec) {
           const x = timeToX(t);
           plotG.drawCircle(x, plot.y + plot.h - 3, 3);
