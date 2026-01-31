@@ -7,6 +7,12 @@ import { deserializeGameState, serializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { applyAction } from "./actions.js";
 import { updateGame } from "./game-model.js";
+import {
+  perfEnabled,
+  perfNowMs,
+  recordTimelineRebuild,
+  recordCheckpointMaintenance,
+} from "./perf.js";
 
 const TICKS_PER_SEC = 60;
 const MICROSTEP_DT = 1 / TICKS_PER_SEC;
@@ -307,6 +313,8 @@ export function replaceActionsAtSecond(tl, tSec, actionsAtSec, opts = {}) {
 export function maintainCheckpoints(tl, state) {
   if (!tl || !state) return;
 
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
   const currentSec = Math.floor(state.tSec ?? 0);
 
   tl.cursorSec = currentSec;
@@ -361,6 +369,10 @@ export function maintainCheckpoints(tl, state) {
     bumpRevision(tl);
     tl._memoGuardSig = computeTimelineMutationSig(tl);
   }
+
+  if (perfEnabled()) {
+    recordCheckpointMaintenance(perfNowMs() - perfStart);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -373,6 +385,8 @@ export function rebuildStateAtSecond(tl, targetSec) {
     return { ok: false, reason: "badTargetSec" };
   }
 
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
   // Invalidate memo if timeline mutated out-of-band, and keep actionsBySec index fresh.
   ensureRevisionFreshAgainstOutOfBandMutations(tl);
 
@@ -383,6 +397,12 @@ export function rebuildStateAtSecond(tl, targetSec) {
   if (memoStateData != null) {
     const state = deserializeGameState(memoStateData);
     canonicalizeSnapshot(state);
+    if (perfEnabled()) {
+      recordTimelineRebuild({
+        ms: perfNowMs() - perfStart,
+        memoHit: true,
+      });
+    }
     return { ok: true, state, memoHit: true };
   }
 
@@ -444,6 +464,12 @@ export function rebuildStateAtSecond(tl, targetSec) {
   // Keep actionsBySec fresh in case callers rely on it post-rebuild.
   ensureActionsBySecFresh(tl);
 
+  if (perfEnabled()) {
+    recordTimelineRebuild({
+      ms: perfNowMs() - perfStart,
+      memoHit: false,
+    });
+  }
   return { ok: true, state, memoHit: false };
 }
 

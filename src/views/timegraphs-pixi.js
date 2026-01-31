@@ -3,6 +3,7 @@
 // STAGE 3: tSec aware.
 
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
+import { perfEnabled, perfNowMs, recordGraphRender } from "../model/perf.js";
 
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {
@@ -313,6 +314,7 @@ export function createMetricGraphView({
 
   function drawPlot() {
     resolveMetric();
+    const perfStart = perfEnabled() ? perfNowMs() : 0;
     plotG.clear();
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
@@ -472,6 +474,14 @@ export function createMetricGraphView({
         }
       }
       plotG.endFill();
+    }
+
+    if (perfEnabled()) {
+      recordGraphRender({
+        ms: perfNowMs() - perfStart,
+        points: pointsForDraw.length,
+        metric: data.metric?.id ?? metricDef?.id ?? metricDef?.label ?? null,
+      });
     }
   }
 

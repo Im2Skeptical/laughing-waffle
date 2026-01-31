@@ -9,6 +9,13 @@ import { rebuildStateAtSecond, isValidTimeline } from "./timeline.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { updateGame } from "./game-model.js";
 import { applyAction } from "./actions.js";
+import {
+  perfEnabled,
+  perfNowMs,
+  recordProjectionHistoryBuild,
+  recordProjectionForecastBuild,
+  recordProjectionStateWindowBuild,
+} from "./perf.js";
 
 const TICKS_PER_SEC = 60;
 const DEFAULT_DT_STEP = 1 / TICKS_PER_SEC;
@@ -175,6 +182,8 @@ function simulateUntilNextSeasonEventPure(
 export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
   const series = normalizeSeries(opts?.series);
   const historyEndSec = clampSec(tl.historyEndSec ?? 0);
 
@@ -233,6 +242,18 @@ export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
     }
   }
 
+  if (perfEnabled()) {
+    recordProjectionHistoryBuild({
+      ms: perfNowMs() - perfStart,
+      points: history.length,
+    });
+  }
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     history,
@@ -247,6 +268,8 @@ export function buildMetricGraphWindowFromTimeline(
   opts = null
 ) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const series = normalizeSeries(opts?.series);
   const dtStep =
@@ -349,6 +372,12 @@ export function buildMetricGraphWindowFromTimeline(
     }
   }
 
+  if (perfEnabled()) {
+    recordProjectionForecastBuild({
+      ms: perfNowMs() - perfStart,
+      points: forecast.length,
+    });
+  }
   return {
     ok: true,
     window: {
@@ -371,6 +400,8 @@ export function buildProjectionStateWindowFromTimeline(
   opts = null
 ) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const dtStep =
     typeof opts?.dtStep === "number" && opts.dtStep > 0
@@ -426,6 +457,8 @@ export function buildProjectionStateStepWindowFromTimeline(
 ) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
   const dtStep =
     typeof opts?.dtStep === "number" && opts.dtStep > 0
       ? opts.dtStep
@@ -466,6 +499,12 @@ export function buildProjectionStateStepWindowFromTimeline(
     stateDataBySecond.set(curSec, serializeGameState(s));
   }
 
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     window: {
@@ -487,6 +526,8 @@ export function buildProjectionStateStepWindowFromStateData(
   opts = null
 ) {
   if (baseStateData == null) return { ok: false, reason: "noBaseStateData" };
+
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const dtStep =
     typeof opts?.dtStep === "number" && opts.dtStep > 0
@@ -524,6 +565,12 @@ export function buildProjectionStateStepWindowFromStateData(
     stateDataBySecond.set(curSec, serializeGameState(s));
   }
 
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     window: {
@@ -545,6 +592,8 @@ export function buildProjectionStateWindowFromStateData(
   opts = null
 ) {
   if (baseStateData == null) return { ok: false, reason: "noBaseStateData" };
+
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const dtStep =
     typeof opts?.dtStep === "number" && opts.dtStep > 0
@@ -576,6 +625,12 @@ export function buildProjectionStateWindowFromStateData(
     stateDataBySecond.set(curSec, serializeGameState(s));
   }
 
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     window: {

@@ -14,6 +14,14 @@ import { GRAPH_METRICS } from "./graph-metrics.js";
 import { serializeGameState, deserializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import {
+  perfEnabled,
+  perfNowMs,
+  recordProjectionHistoryBuild,
+  recordProjectionForecastBuild,
+  recordTimegraphCacheHit,
+  recordTimegraphCacheMiss,
+} from "./perf.js";
 
 const DEFAULT_PROJECTION_CACHE_MAX_SECS = 4096;
 const MAX_HISTORY_POINTS = 2000;
@@ -579,6 +587,7 @@ export function createTimeGraphController({
     const history = [];
     const stateDataByBoundary = new Map();
 
+    const historyPerfStart = perfEnabled() ? perfNowMs() : 0;
     for (const sec of historySecList) {
       const res = projection.ensureStateAtSecond(
         tl,
@@ -600,6 +609,12 @@ export function createTimeGraphController({
         ),
       });
     }
+    if (perfEnabled()) {
+      recordProjectionHistoryBuild({
+        ms: perfNowMs() - historyPerfStart,
+        points: history.length,
+      });
+    }
 
     const baseSec = historyEndSec;
     const endSec = baseSec + horizonSecCur;
@@ -617,6 +632,7 @@ export function createTimeGraphController({
     }
 
     const forecast = [];
+    const forecastPerfStart = perfEnabled() ? perfNowMs() : 0;
     for (let i = 0; i <= steps; i++) {
       const sec = baseSec + i * forecastStepSecCur;
       const res = projection.ensureStateAtSecond(
@@ -635,6 +651,12 @@ export function createTimeGraphController({
           subject,
           resolverFactory
         ),
+      });
+    }
+    if (perfEnabled()) {
+      recordProjectionForecastBuild({
+        ms: perfNowMs() - forecastPerfStart,
+        points: forecast.length,
       });
     }
 
@@ -798,7 +820,13 @@ export function createTimeGraphController({
 
     let streamed = false;
     if (startSec <= oldMax && target - startSec >= stride) {
-      const startData = graphCache.stateDataByBoundary?.get?.(startSec) ?? null;
+      let startData = null;
+      if (graphCache.stateDataByBoundary?.has?.(startSec)) {
+        recordTimegraphCacheHit();
+        startData = graphCache.stateDataByBoundary.get(startSec);
+      } else {
+        recordTimegraphCacheMiss();
+      }
       if (startData != null) {
         const steps = Math.floor((target - startSec) / stride);
         const horizonSec = steps * stride;
@@ -1253,7 +1281,13 @@ export function createTimeGraphController({
       const sec = clampSec(secRaw);
       if (valuesBySec.has(sec)) continue;
 
-      let stateData = graphCache.stateDataByBoundary?.get?.(sec);
+      let stateData = null;
+      if (graphCache.stateDataByBoundary?.has?.(sec)) {
+        recordTimegraphCacheHit();
+        stateData = graphCache.stateDataByBoundary.get(sec);
+      } else {
+        recordTimegraphCacheMiss();
+      }
       if (stateData == null) {
         const res = projection.ensureStateAtSecond(
           tl,
@@ -1292,14 +1326,24 @@ export function createTimeGraphController({
   function getStateDataAt(tSec) {
     const tl = getTimeline?.();
     if (!tl) return null;
+    const sec = clampSec(tSec);
+    if (graphCache?.stateDataByBoundary?.has?.(sec)) {
+      recordTimegraphCacheHit();
+      return graphCache.stateDataByBoundary.get(sec);
+    }
+    recordTimegraphCacheMiss();
     const res = projection.ensureStateAtSecond(
       tl,
-      tSec,
+      sec,
       undefined,
       forecastStepSecCur
     );
     if (!res.ok) return null;
-    return res.stateData ?? null;
+    const stateData = res.stateData ?? null;
+    if (stateData != null && graphCache?.stateDataByBoundary) {
+      graphCache.stateDataByBoundary.set(sec, stateData);
+    }
+    return stateData;
   }
 
   function getStateAt(tSec) {
