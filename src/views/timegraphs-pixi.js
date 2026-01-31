@@ -316,55 +316,32 @@ export function createMetricGraphView({
     plotG.clear();
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
-    const useSubjectValues =
-      typeof controller?.getSeriesValuesForSeconds === "function" &&
-      (data.metric?.useSubjectValues === true ||
-        data.subjectKey != null);
-
-    const history = Array.isArray(data.cache?.history)
-      ? data.cache.history
+    const cs = getCursorState?.();
+    const cursorSec = Math.floor(cs?.tSec ?? 0);
+    const sampleRes = controller.getSamplesForWindow?.({
+      startSec: minSec,
+      endSec: maxSec,
+      focus: zoomed,
+      cursorSec,
+    });
+    const sampledPoints = Array.isArray(sampleRes?.points)
+      ? sampleRes.points
       : [];
-    const forecast = Array.isArray(data.cache?.window?.forecast)
-      ? data.cache.window.forecast
-      : [];
 
-    if ((!history.length && !forecast.length) || !seriesList.length) return;
+    if (!sampledPoints.length || !seriesList.length) return;
 
-    // Merge-scan history + forecast (both sorted) within the visible window.
-    let hi = 0;
-    let fi = 0;
-    const filteredPoints = [];
-    while (hi < history.length || fi < forecast.length) {
-      const hp = hi < history.length ? history[hi] : null;
-      const fp = fi < forecast.length ? forecast[fi] : null;
-      let pick = null;
-      if (hp && fp) {
-        pick = (hp.tSec ?? 0) <= (fp.tSec ?? 0) ? hp : fp;
-      } else {
-        pick = hp || fp;
-      }
-      if (!pick) break;
-      const t = pick.tSec ?? 0;
-      if (t > maxSec) break;
-      if (t >= minSec) {
-        filteredPoints.push(pick);
-      }
-      if (hp && pick === hp) hi++;
-      else if (fp) fi++;
-    }
-
-    let pointsForDraw = filteredPoints;
+    let pointsForDraw = sampledPoints;
     const maxPlotPoints = Math.min(
       MAX_PLOT_POINTS,
       Math.max(200, Math.floor(plot.w) * 2)
     );
-    if (filteredPoints.length > maxPlotPoints) {
-      const step = Math.ceil(filteredPoints.length / maxPlotPoints);
+    if (sampledPoints.length > maxPlotPoints) {
+      const step = Math.ceil(sampledPoints.length / maxPlotPoints);
       const decimated = [];
-      for (let i = 0; i < filteredPoints.length; i += step) {
-        decimated.push(filteredPoints[i]);
+      for (let i = 0; i < sampledPoints.length; i += step) {
+        decimated.push(sampledPoints[i]);
       }
-      const last = filteredPoints[filteredPoints.length - 1];
+      const last = sampledPoints[sampledPoints.length - 1];
       if (last && decimated[decimated.length - 1] !== last) {
         decimated.push(last);
       }
@@ -373,24 +350,10 @@ export function createMetricGraphView({
 
     if (!pointsForDraw.length) return;
 
-    const secsForDraw = pointsForDraw.map((p) =>
-      Math.max(0, Math.floor(p?.tSec ?? 0))
-    );
-    const valuesBySec = useSubjectValues
-      ? controller.getSeriesValuesForSeconds(secsForDraw)
-      : null;
-
     function resolveValue(point, seriesDef) {
       const t = Math.max(0, Math.floor(point?.tSec ?? 0));
       const override = getSeriesValueOverride?.(t, seriesDef.id, point);
       if (Number.isFinite(override)) return override;
-      if (valuesBySec && valuesBySec.has(t)) {
-        const values = valuesBySec.get(t);
-        if (values && values[seriesDef.id] != null) {
-          const v = values[seriesDef.id];
-          return Number.isFinite(v) ? v : 0;
-        }
-      }
       return getSeriesValue(point, seriesDef.id);
     }
 

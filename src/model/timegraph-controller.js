@@ -26,6 +26,14 @@ import {
 
 const DEFAULT_PROJECTION_CACHE_MAX_SECS = 4096;
 const MAX_HISTORY_POINTS = 2000;
+const NORMAL_SAMPLE_TARGET = 320;
+const NORMAL_SAMPLE_MIN = 250;
+const NORMAL_SAMPLE_MAX = 400;
+const FOCUS_SAMPLE_TARGET = 1200;
+const FOCUS_SAMPLE_MIN = 900;
+const FOCUS_SAMPLE_MAX = 1400;
+const FOCUS_NEAR_CURSOR_HALFSPAN_SEC = 60;
+const SAMPLING_BUCKET_SEC = 60;
 
 function clampSec(v) {
   if (!Number.isFinite(v)) return 0;
@@ -34,6 +42,92 @@ function clampSec(v) {
 
 function safeNumber(value) {
   return Number.isFinite(value) ? value : 0;
+}
+
+function getSamplingModeSignature(focus, windowSec) {
+  const span = Math.max(1, Math.floor(windowSec ?? 0));
+  const bucket = Math.max(1, Math.round(span / SAMPLING_BUCKET_SEC));
+  return `${focus ? "focus" : "normal"}:${bucket}`;
+}
+
+function resolveSampleTarget(focus) {
+  if (focus) {
+    return Math.max(
+      FOCUS_SAMPLE_MIN,
+      Math.min(FOCUS_SAMPLE_MAX, FOCUS_SAMPLE_TARGET)
+    );
+  }
+  return Math.max(
+    NORMAL_SAMPLE_MIN,
+    Math.min(NORMAL_SAMPLE_MAX, NORMAL_SAMPLE_TARGET)
+  );
+}
+
+function addFillerSamples(sampleSet, startSec, endSec, count) {
+  const start = clampSec(startSec);
+  const end = clampSec(endSec);
+  if (count <= 0 || end <= start) return;
+  const span = end - start;
+  const step = span / (count + 1);
+  for (let i = 1; i <= count; i++) {
+    const sec = Math.round(start + step * i);
+    if (sec > start && sec < end) {
+      sampleSet.add(sec);
+    }
+  }
+}
+
+function buildSampleSeconds({
+  startSec,
+  endSec,
+  historyEndSec,
+  cursorSec,
+  actionSecs,
+  focus,
+}) {
+  const start = clampSec(startSec);
+  const end = clampSec(endSec);
+  if (end < start) return [];
+
+  const samples = new Set([start, end]);
+  const historyEnd = clampSec(historyEndSec ?? 0);
+  if (historyEnd >= start && historyEnd <= end) samples.add(historyEnd);
+  if (Number.isFinite(cursorSec)) {
+    const cursor = clampSec(cursorSec);
+    if (cursor >= start && cursor <= end) samples.add(cursor);
+  }
+
+  for (const sec of actionSecs || []) {
+    const t = clampSec(sec);
+    if (t >= start && t <= end) samples.add(t);
+  }
+
+  const target = resolveSampleTarget(!!focus);
+  if (samples.size >= target) {
+    return Array.from(samples.values()).sort((a, b) => a - b);
+  }
+
+  let remaining = target - samples.size;
+
+  if (focus && Number.isFinite(cursorSec)) {
+    const cursor = clampSec(cursorSec);
+    const focusStart = Math.max(start, cursor - FOCUS_NEAR_CURSOR_HALFSPAN_SEC);
+    const focusEnd = Math.min(end, cursor + FOCUS_NEAR_CURSOR_HALFSPAN_SEC);
+    if (focusEnd > focusStart) {
+      const focusFill = Math.min(
+        remaining,
+        Math.max(0, Math.floor(target * 0.4))
+      );
+      addFillerSamples(samples, focusStart, focusEnd, focusFill);
+      remaining = target - samples.size;
+    }
+  }
+
+  if (remaining > 0) {
+    addFillerSamples(samples, start, end, remaining);
+  }
+
+  return Array.from(samples.values()).sort((a, b) => a - b);
 }
 
 function resolveMetricDef(metric) {
@@ -578,126 +672,25 @@ export function createTimeGraphController({
     metricLabel = resolveActiveLabel(cs);
 
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    historyStrideSecCur = Math.max(
-      historyStrideSecCur,
-      resolveHistoryStride(historyEndSec)
-    );
-    const resolverFactory =
-      typeof metricDef?.createSnapshotResolver === "function"
-        ? metricDef.createSnapshotResolver
-        : null;
-
-    const historySecs = collectHistorySampleSeconds(
-      historyEndSec,
-      historyStrideSecCur
-    );
-    const actionSecs = collectActionSecondsInRange(tl, 0, historyEndSec);
-    const historySecSet = new Set(historySecs);
-    for (const sec of actionSecs) historySecSet.add(sec);
-    historySecSet.add(historyEndSec);
-    const historySecList = Array.from(historySecSet.values()).sort(
-      (a, b) => a - b
-    );
-
-    const history = [];
-    const stateDataByBoundary = new Map();
-
-    const historyPerfStart = perfEnabled() ? perfNowMs() : 0;
-    for (const sec of historySecList) {
-      const res = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        forecastStepSecCur
-      );
-      if (!res.ok) return res;
-      cacheForecastStateData(
-        stateDataByBoundary,
-        sec,
-        historyEndSec,
-        res.stateData
-      );
-      history.push({
-        tSec: sec,
-        values: computeValuesFromStateData(
-          res.stateData,
-          activeSeries,
-          subject,
-          resolverFactory
-        ),
-      });
-    }
-    if (perfEnabled()) {
-      recordProjectionHistoryBuild({
-        ms: perfNowMs() - historyPerfStart,
-        points: history.length,
-      });
-    }
-
     const baseSec = historyEndSec;
     const endSec = baseSec + horizonSecCur;
-    const steps = Math.floor(horizonSecCur / forecastStepSecCur);
-    const lastForecastSec = baseSec + steps * forecastStepSecCur;
-
-    if (horizonSecCur > 0) {
-      const forecastRes = projection.ensureForecastWindow(
-        tl,
-        lastForecastSec,
-        undefined,
-        forecastStepSecCur
-      );
-      if (!forecastRes.ok) return forecastRes;
-    }
-
-    const forecast = [];
-    const forecastPerfStart = perfEnabled() ? perfNowMs() : 0;
-    for (let i = 0; i <= steps; i++) {
-      const sec = baseSec + i * forecastStepSecCur;
-      const res = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        forecastStepSecCur
-      );
-      if (!res.ok) return res;
-      cacheForecastStateData(
-        stateDataByBoundary,
-        sec,
-        historyEndSec,
-        res.stateData
-      );
-      forecast.push({
-        tSec: sec,
-        values: computeValuesFromStateData(
-          res.stateData,
-          activeSeries,
-          subject,
-          resolverFactory
-        ),
-      });
-    }
-    if (perfEnabled()) {
-      recordProjectionForecastBuild({
-        ms: perfNowMs() - forecastPerfStart,
-        points: forecast.length,
-      });
-    }
 
     graphCache = {
-      history,
+      history: [],
       historyEndSec,
       window: {
         baseSec,
         endSec,
         horizonSec: horizonSecCur,
         stepSec: forecastStepSecCur,
-        forecast,
+        forecast: [],
       },
-      stateDataByBoundary,
+      stateDataByBoundary: new Map(),
       series: activeSeries,
       metricLabel,
       metric: metricDef,
       subjectKey,
+      sampleCache: new Map(),
       version: ++cacheVersion,
     };
     invalidateSubjectValues();
@@ -734,6 +727,7 @@ export function createTimeGraphController({
     graphCache.metricLabel = metricLabel;
     graphCache.metric = metricDef;
     graphCache.subjectKey = subjectKey;
+    if (graphCache.sampleCache) graphCache.sampleCache.clear();
     graphCache.version = ++cacheVersion;
 
     invalidateSubjectValues();
@@ -1162,7 +1156,6 @@ export function createTimeGraphController({
     const signatureChanged = !!sigRes?.changed;
 
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    const mutationSec = clampSec(tl._lastMutationSec ?? historyEndSec);
 
     if (
       !signatureChanged &&
@@ -1177,25 +1170,9 @@ export function createTimeGraphController({
       return { ok: true, reason: "noChange" };
     }
 
-    if (graphCache && !stateDirty && !windowDirty && reason && reason !== "active") {
-      if (historyEndSec < lastKnownHistoryEndSec) {
-        pruneHistoryAfterSec(historyEndSec);
-        rebuildForecastAtFrontier({ forceRebuild: true });
-        lastKnownHistoryEndSec = historyEndSec;
-        return { ok: true, reason: "truncatePatch" };
-      }
-
-      const okHistory = patchHistoryFromSecond(tl, mutationSec, historyEndSec);
-      if (okHistory) {
-        const okForecast = rebuildForecastAtFrontier({ forceRebuild: true });
-        if (!okForecast) return rebuildGraphCache();
-        lastKnownHistoryEndSec = historyEndSec;
-        stateDirty = false;
-        windowDirty = false;
-        seriesDirty = false;
-        valuesDirty = false;
-        return { ok: true, reason: "mutationPatch" };
-      }
+    if (signatureChanged || historyEndSec !== lastKnownHistoryEndSec) {
+      stateDirty = true;
+      windowDirty = true;
     }
 
     if (stateDirty || windowDirty || !graphCache) {
@@ -1239,36 +1216,10 @@ export function createTimeGraphController({
     }
 
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    if (historyEndSec < lastKnownHistoryEndSec) {
-      pruneHistoryAfterSec(historyEndSec);
-      rebuildForecastAtFrontier({ forceRebuild: true });
-      lastKnownHistoryEndSec = historyEndSec;
-      if (graphCache) graphCache.version = ++cacheVersion;
-      return;
-    }
-    if (historyEndSec > lastKnownHistoryEndSec) {
-      const requiredStride = resolveHistoryStride(historyEndSec);
-      if (requiredStride > historyStrideSecCur) {
-        historyStrideSecCur = requiredStride;
-        windowDirty = true;
-        handleInvalidate("active");
-        return;
-      }
-      const okHistory = extendHistoryTo(historyEndSec);
-      if (!okHistory) {
-        stateDirty = true;
-        handleInvalidate("active");
-        return;
-      }
-
-      const okForecast = rebuildForecastAtFrontier({ invalidateValues: false });
-      if (!okForecast) {
-        stateDirty = true;
-        handleInvalidate("active");
-        return;
-      }
-
-      lastKnownHistoryEndSec = historyEndSec;
+    if (historyEndSec !== lastKnownHistoryEndSec) {
+      stateDirty = true;
+      windowDirty = true;
+      handleInvalidate("active");
     }
   }
 
@@ -1303,6 +1254,79 @@ export function createTimeGraphController({
       projectionCacheSize: projection.getSize?.(),
       projectionCacheCap: projection.maxEntries,
     };
+  }
+
+  function getSamplesForWindow({
+    startSec,
+    endSec,
+    focus = false,
+    cursorSec = null,
+  } = {}) {
+    const tl = getTimeline?.();
+    if (!tl) return { ok: false, reason: "noTimeline" };
+    if (!graphCache || stateDirty || windowDirty || seriesDirty) {
+      const res = ensureCache();
+      if (!res?.ok) return res || { ok: false, reason: "cacheMissing" };
+    }
+
+    const start = clampSec(startSec);
+    const end = clampSec(endSec);
+    if (end < start) return { ok: true, points: [], seconds: [] };
+
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
+    const actionSecs = getActionSecondsInRange(tl, start, end);
+    const samplingSig = getSamplingModeSignature(!!focus, end - start);
+    const metricId = metricDef?.id ?? metricDef?.label ?? "metric";
+    const subjectKeyTag = subjectKey ?? "__global__";
+    const cacheKey = `${metricId}|${subjectKeyTag}|${samplingSig}|${start}:${end}|${historyEndSec}`;
+
+    let sampleSecs = graphCache.sampleCache?.get(cacheKey) ?? null;
+    if (!sampleSecs) {
+      sampleSecs = buildSampleSeconds({
+        startSec: start,
+        endSec: end,
+        historyEndSec,
+        cursorSec,
+        actionSecs,
+        focus: !!focus,
+      });
+      if (graphCache.sampleCache) {
+        graphCache.sampleCache.set(cacheKey, sampleSecs);
+      }
+    }
+
+    let valuesBySec = new Map();
+    if (perfEnabled()) {
+      const historySecs = sampleSecs.filter((sec) => sec <= historyEndSec);
+      const forecastSecs = sampleSecs.filter((sec) => sec > historyEndSec);
+
+      const historyStart = perfNowMs();
+      const historyValues =
+        getSeriesValuesForSeconds(historySecs) ?? new Map();
+      recordProjectionHistoryBuild({
+        ms: perfNowMs() - historyStart,
+        points: historySecs.length,
+      });
+
+      const forecastStart = perfNowMs();
+      const forecastValues =
+        getSeriesValuesForSeconds(forecastSecs) ?? new Map();
+      recordProjectionForecastBuild({
+        ms: perfNowMs() - forecastStart,
+        points: forecastSecs.length,
+      });
+
+      valuesBySec = new Map([...historyValues, ...forecastValues]);
+    } else {
+      valuesBySec = getSeriesValuesForSeconds(sampleSecs) ?? new Map();
+    }
+
+    const points = sampleSecs.map((sec) => ({
+      tSec: sec,
+      values: valuesBySec.get(sec) ?? {},
+    }));
+
+    return { ok: true, points, seconds: sampleSecs, samplingSig };
   }
 
   function getSeriesValuesForSeconds(seconds) {
@@ -1468,6 +1492,7 @@ export function createTimeGraphController({
     handleInvalidate,
     update,
     getData,
+    getSamplesForWindow,
     getSeriesValuesForSeconds,
     getStateDataAt,
     getStateAt,
