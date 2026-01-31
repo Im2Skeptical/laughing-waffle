@@ -474,6 +474,49 @@ export function rebuildStateAtSecond(tl, targetSec) {
 }
 
 // -----------------------------------------------------------------------------
+// StateData Snapshot Service (timeline-owned)
+// -----------------------------------------------------------------------------
+
+export function getStateDataAtSecond(tl, targetSec) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+  if (!Number.isFinite(targetSec) || targetSec < 0) {
+    return { ok: false, reason: "badTargetSec" };
+  }
+
+  // Invalidate memo if timeline mutated out-of-band, and keep actionsBySec index fresh.
+  ensureRevisionFreshAgainstOutOfBandMutations(tl);
+
+  const target = Math.floor(targetSec);
+
+  // Exact checkpoint fast-path.
+  for (const cp of tl.checkpoints || []) {
+    if (Math.floor(cp?.checkpointSec ?? -1) === target && cp?.stateData != null) {
+      memoPutStateData(tl, target, cp.stateData);
+      return { ok: true, stateData: cp.stateData, source: "checkpoint" };
+    }
+  }
+
+  // Memo fast-path.
+  const memoStateData = memoGetStateData(tl, target);
+  if (memoStateData != null) {
+    return { ok: true, stateData: memoStateData, source: "memo" };
+  }
+
+  // Rebuild path (writes memo).
+  const rebuilt = rebuildStateAtSecond(tl, target);
+  if (!rebuilt.ok) return rebuilt;
+
+  const fromMemo = memoGetStateData(tl, target);
+  if (fromMemo != null) {
+    return { ok: true, stateData: fromMemo, source: "rebuild" };
+  }
+
+  const stateData = serializeGameState(rebuilt.state);
+  memoPutStateData(tl, target, stateData);
+  return { ok: true, stateData, source: "rebuild" };
+}
+
+// -----------------------------------------------------------------------------
 // Pure truncation helpers (still exported)
 // -----------------------------------------------------------------------------
 

@@ -5,7 +5,11 @@
 
 import { serializeGameState, deserializeGameState } from "./state.js";
 import { GRAPH_METRICS } from "./graph-metrics.js";
-import { rebuildStateAtSecond, isValidTimeline } from "./timeline.js";
+import {
+  rebuildStateAtSecond,
+  getStateDataAtSecond,
+  isValidTimeline,
+} from "./timeline.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { updateGame } from "./game-model.js";
 import { applyAction } from "./actions.js";
@@ -100,16 +104,11 @@ export function getStateAtSecond(tl, tSec) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
   const s = clampSec(tSec);
 
-  // Fast path if there's an exact checkpoint at s.
-  const cpMap = checkpointMapBySecFromTimeline(tl);
-  const sd = cpMap.get(s);
-  if (sd != null) {
-    const st = deserializeGameState(sd);
-    canonicalizeSnapshot(st);
-    return { ok: true, state: st };
-  }
-
-  return rebuildStateAtSecond(tl, s);
+  const sdRes = getStateDataAtSecond(tl, s);
+  if (!sdRes.ok) return sdRes;
+  const st = deserializeGameState(sdRes.stateData);
+  canonicalizeSnapshot(st);
+  return { ok: true, state: st, stateData: sdRes.stateData };
 }
 
 // -----------------------------------------------------------------------------
