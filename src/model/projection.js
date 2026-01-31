@@ -25,6 +25,17 @@ function clampSec(v) {
   return Math.max(0, Math.floor(v));
 }
 
+function resolveDtStepStrict(dtStep) {
+  if (dtStep == null) return { ok: true, dt: DEFAULT_DT_STEP };
+  if (!Number.isFinite(dtStep)) {
+    return { ok: false, reason: "unsupportedDtStep" };
+  }
+  if (dtStep !== DEFAULT_DT_STEP) {
+    return { ok: false, reason: "unsupportedDtStep" };
+  }
+  return { ok: true, dt: DEFAULT_DT_STEP };
+}
+
 function cloneState(state) {
   // serializeGameState strips derived fields; deserializeGameState rebuilds them.
   return deserializeGameState(serializeGameState(state));
@@ -106,8 +117,9 @@ export function getStateAtSecond(tl, tSec) {
 // -----------------------------------------------------------------------------
 
 function simulateForwardSecondsInPlace(state, seconds, dtStep) {
-  const dt =
-    typeof dtStep === "number" && dtStep > 0 ? dtStep : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dt = dtRes.dt;
 
   const totalSec = Math.max(0, clampSec(seconds));
 
@@ -115,11 +127,7 @@ function simulateForwardSecondsInPlace(state, seconds, dtStep) {
   state.paused = false;
 
   // Default semantics: fixed-step 60 ticks per second when dt=1/60.
-  // If dt differs, we approximate by stepping floor(totalSec/dt).
-  const steps =
-    dt === DEFAULT_DT_STEP
-      ? totalSec * TICKS_PER_SEC
-      : Math.max(0, Math.floor(totalSec / dt));
+  const steps = totalSec * TICKS_PER_SEC;
 
   for (let i = 0; i < steps; i++) {
     updateGame(dt, state);
@@ -130,7 +138,8 @@ function simulateForwardSecondsInPlace(state, seconds, dtStep) {
 
 function simulateForwardSecondsPure(startState, seconds, dtStep) {
   const state = cloneState(startState);
-  simulateForwardSecondsInPlace(state, seconds, dtStep);
+  const res = simulateForwardSecondsInPlace(state, seconds, dtStep);
+  if (!res.ok) return res;
   return { ok: true, state };
 }
 
@@ -151,18 +160,16 @@ function simulateUntilNextSeasonEventPure(
   dtStep,
   stepCapSec = 600
 ) {
-  const dt =
-    typeof dtStep === "number" && dtStep > 0 ? dtStep : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dt = dtRes.dt;
 
   const state = cloneState(startState);
   canonicalizeSnapshot(state);
   state.paused = false;
 
   const startSeason = state.currentSeasonIndex ?? 0;
-  const maxSteps =
-    dt === DEFAULT_DT_STEP
-      ? Math.max(1, Math.floor(stepCapSec) * TICKS_PER_SEC)
-      : Math.max(1, Math.floor(stepCapSec / dt));
+  const maxSteps = Math.max(1, Math.floor(stepCapSec) * TICKS_PER_SEC);
 
   for (let i = 0; i < maxSteps; i++) {
     updateGame(dt, state);
@@ -272,10 +279,9 @@ export function buildMetricGraphWindowFromTimeline(
   const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const series = normalizeSeries(opts?.series);
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -403,10 +409,9 @@ export function buildProjectionStateWindowFromTimeline(
 
   const perfStart = perfEnabled() ? perfNowMs() : 0;
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -459,10 +464,9 @@ export function buildProjectionStateStepWindowFromTimeline(
 
   const perfStart = perfEnabled() ? perfNowMs() : 0;
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -529,10 +533,9 @@ export function buildProjectionStateStepWindowFromStateData(
 
   const perfStart = perfEnabled() ? perfNowMs() : 0;
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -595,10 +598,9 @@ export function buildProjectionStateWindowFromStateData(
 
   const perfStart = perfEnabled() ? perfNowMs() : 0;
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
