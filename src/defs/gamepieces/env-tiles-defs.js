@@ -140,7 +140,10 @@ export const envTileDefs = {
     id: "tile_river",
     kind: "envTile",
     name: "River",
-    ui: { description: "Flowing water and aquatic life." },
+    ui: { 
+      description: "Flowing water and aquatic life.",
+      color: 0x1e90ff
+     },
     baseTags: ["fishable"],
     seasonTables: {
       spring: [

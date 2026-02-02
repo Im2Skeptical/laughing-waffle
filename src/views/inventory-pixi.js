@@ -34,8 +34,8 @@ const ITEM_TIER_BORDER_COLORS = {
   diamond: 0x7fd0ff,
   default: 0x333333,
 };
-const ITEM_GLYPH_COLOR = 0x111111;
-const ITEM_GLYPH_SHADOW = 0xffffff;
+const ITEM_GLYPH_COLOR = 0xffffff; //0xffffff
+const ITEM_GLYPH_SHADOW = 0x111111;
 const ITEM_GLYPH_ALPHA = 0.9;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
@@ -945,7 +945,7 @@ export function createInventoryView({
       glyphShadow.y = glyph.y + 1;
       glyphShadow.alpha = 0.35;
 
-      c.addChild(glyphShadow);
+      //c.addChild(glyphShadow);
       c.addChild(glyph);
     }
 

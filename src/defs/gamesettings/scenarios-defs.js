@@ -28,6 +28,7 @@ export const setupDefs = {
     hub: {
       cols: 10,
       structures: [
+        { defId: "itemzoo", hubCol: 0 },
         { defId: "hearth", hubCol: 4 },
         { defId: "granary", hubCol: 6 },
 
@@ -44,6 +45,27 @@ export const setupDefs = {
     // owner: { type: "hubStructure", hubCol: 6 } means "hub structure at column 6"
     // owner: { type: "character", index: 0 } means "1st character in characters array"
     inventories: [
+      {
+        owner: { type: "hubStructure", hubCol: 0 },
+        // Item Zoo: one of each item (laid out with spacing to avoid overlap)
+        items: [
+          { kind: "barley", quantity: 1, gridX: 0, gridY: 0 },
+          { kind: "wheat", quantity: 1, gridX: 2, gridY: 0 },
+          { kind: "barleyPorridge", gridX: 4, gridY: 0 },
+          { kind: "dates", gridX: 6, gridY: 0 },
+          { kind: "rot", quantity: 1, gridX: 8, gridY: 0 },
+          { kind: "flint", gridX: 10, gridY: 0 },
+          { kind: "dung", gridX: 12, gridY: 0 },
+          { kind: "dryVegetation", gridX: 14, gridY: 0 },
+          { kind: "straw", gridX: 16, gridY: 0 },
+          { kind: "stone", gridX: 18, gridY: 0 },
+          { kind: "reeds", gridX: 20, gridY: 0 },
+          { kind: "fibres", gridX: 22, gridY: 0 },
+          { kind: "clay", gridX: 24, gridY: 0 },
+          { kind: "silt", gridX: 26, gridY: 0 },
+          { kind: "temper", gridX: 28, gridY: 0 },
+        ],
+      },
       {
         owner: { type: "hubStructure", hubCol: 4 },
         items: [

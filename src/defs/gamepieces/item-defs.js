@@ -47,7 +47,7 @@ export const itemDefs = {
   barleyPorridge: {
     id: "barleyPorridge",
     name: "Barley Porridge",
-    color: 0x8b4513,
+    color: 0xccc08f,    //#ccc08f
     maxStack: 1,
     baseTags: ["edible"],
     defaultWidth: 2,
@@ -68,7 +68,7 @@ export const itemDefs = {
     color: 0x8b4513,
     maxStack: 1,
     baseTags: ["edible"],
-    defaultWidth: 2,
+    defaultWidth: 1,
     defaultHeight: 1,
     ui: {
       title: "Dates",
@@ -105,7 +105,7 @@ export const itemDefs = {
   flint: {
     id: "flint",
     name: "Flint",
-    color: 0x808080,
+    color: 0x808080,  //#808080
     maxStack: 1,
     baseTags: ["firematerials"],
     defaultWidth: 1,
@@ -123,7 +123,7 @@ export const itemDefs = {
   dung: {
     id: "dung",
     name: "Dung",
-    color: 0x808080,
+    color: 0x2a2b1d,  //#2a2b1d
     maxStack: 1,
     baseTags: ["firematerials"],
     defaultWidth: 1,
@@ -141,7 +141,8 @@ export const itemDefs = {
   dryVegetation: {
     id: "dryVegetation",
     name: "Dry Vegetation",
-    color: 0x808080,
+    color: 0x4f4a41,  //#4f4a41
+    maxStack: 1,
     maxStack: 1,
     baseTags: ["firematerials"],
     defaultWidth: 1,
@@ -159,7 +160,7 @@ export const itemDefs = {
   straw: {
     id: "straw",
     name: "Straw",
-    color: 0x6ba017,
+    color: 0xe2cc4b,  //#e2cc4b
     maxStack: 1,
     baseTags: ["firematerials"],
     defaultWidth: 1,
@@ -177,13 +178,13 @@ export const itemDefs = {
   stone: {
     id: "stone",
     name: "Stone",
-    color: 0x808080,
+    color: 0x595959,  //#595959
     maxStack: 1,
     baseTags: ["firematerials"],
     defaultWidth: 1,
     defaultHeight: 2,
     ui: {
-      title: "Straw",
+      title: "Stone",
       lines: [
         "Item id: {id}",
         "Owner: {ownerLabel}",
@@ -195,7 +196,7 @@ export const itemDefs = {
   reeds: {
     id: "reeds",
     name: "Reeds",
-    color: 0x6ba017,
+    color: 0x75963f,  //#75963f
     maxStack: 1,
     baseTags: ["crafting"],
     defaultWidth: 1,
@@ -213,7 +214,7 @@ export const itemDefs = {
   fibres: {
     id: "fibres",
     name: "Fibres",
-    color: 0x6ba017,
+    color: 0x67794b,  //#67794b  
     maxStack: 1,
     baseTags: ["crafting"],
     defaultWidth: 1,
@@ -231,11 +232,11 @@ export const itemDefs = {
   clay: {
     id: "clay",
     name: "Clay",
-    color: 0x8b4513,
+    color: 0x8b4513,  //#8b4513
     maxStack: 1,
     baseTags: ["crafting"],
-    defaultWidth: 1,
-    defaultHeight: 1,
+    defaultWidth: 2,
+    defaultHeight: 2,
     ui: {
       title: "Clay",
       lines: [
@@ -249,13 +250,13 @@ export const itemDefs = {
   silt: {
     id: "silt",
     name: "Silt",
-    color: 0x8b4513,
+    color: 0x6a4e25,  //#6a4e25
     maxStack: 1,
     baseTags: ["crafting"],
-    defaultWidth: 1,
-    defaultHeight: 1,
+    defaultWidth: 2,
+    defaultHeight: 2,
     ui: {
-      title: "Clay",
+      title: "Silt",
       lines: [
         "Item id: {id}",
         "Owner: {ownerLabel}",
@@ -267,7 +268,7 @@ export const itemDefs = {
   temper: {
     id: "temper",
     name: "Temper",
-    color: 0x8b4513,
+    color: 0xdccebb,  //#dccebb
     maxStack: 1,
     baseTags: ["crafting"],
     defaultWidth: 1,
