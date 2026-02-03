@@ -59,15 +59,15 @@ export const envTagDefs = {
               target: { ref: "pawnInv" },
               itemId: {
                 var: "selectedCropId",
-                map: { 
+                map: {
                   barley: "barley",
-                  wheat: "wheat", 
+                  wheat: "wheat",
                 },
                 default: null,
               },
               amount: {
                 var: "selectedCropId",
-                map: { 
+                map: {
                   barley: 1,
                   wheat: 1, 
                 },
@@ -77,7 +77,7 @@ export const envTagDefs = {
           ],
         },
         effect: {
-          op: "CreateProcess",
+          op: "CreateWorkProcess",
           system: "growth",
           defRegistry: "crops",
           defIdFromSystemKey: "selectedCropId",
@@ -88,6 +88,8 @@ export const envTagDefs = {
           captureSystem: "hydration",
           captureKey: "sumRatio",
           captureAs: "sumAtStart",
+          completionPolicy: "cropGrowth",
+          poolKey: "maturedPool",
         },
       },
     ],
@@ -123,11 +125,13 @@ export const envTagDefs = {
         id: "farmProcessFinalize",
         timing: { cadenceSec: 1 },
         effect: {
-          op: "FinalizeProcess",
+          op: "AdvanceWorkProcess",
           system: "growth",
           queueKey: "processes",
           poolKey: "maturedPool",
           processType: "cropGrowth",
+          mode: "time",
+          deltaSec: 1,
         },
       },
     ],

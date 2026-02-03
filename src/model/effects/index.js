@@ -22,8 +22,8 @@ import {
   handleAccumulateRatio,
   handleResetSystemState,
   handleAdjustSystemState,
-  handleCreateProcess,
-  handleFinalizeProcess,
+  handleCreateWorkProcess,
+  handleAdvanceWorkProcess,
 } from "./ops/system-ops.js";
 import {
   handleAddTag,
@@ -47,10 +47,7 @@ const handlers = {
   AddResource: handleAddResource,
   TransformItem: handleTransformItem,
   RemoveItem: handleRemoveItem,
-
-  // Generic expiry/decay mechanism (used by rotatable and any future chance-based transforms).
   ExpireItemChance: handleExpireItemChance,
-
   AddToSystemState: handleAddToSystemState,
   ClampSystemState: handleClampSystemState,
   AccumulateRatio: handleAccumulateRatio,
@@ -60,8 +57,8 @@ const handlers = {
   TransferUnits: handleTransferUnits,
   SpawnItem: handleSpawnItem,
   SpawnFromDropTable: handleSpawnFromDropTable,
-  CreateProcess: handleCreateProcess,
-  FinalizeProcess: handleFinalizeProcess,
+  CreateWorkProcess: handleCreateWorkProcess,
+  AdvanceWorkProcess: handleAdvanceWorkProcess,
   AddTag: handleAddTag,
   DisableTag: handleDisableTag,
   EnableTag: handleEnableTag,

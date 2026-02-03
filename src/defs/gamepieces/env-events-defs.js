@@ -197,6 +197,7 @@ export const envEventDefs = {
         },
       },
       { op: "DisableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+      { op: "DisableTag", target: { ref: "self", layer: "tile" }, tag: "forageable" },
     ],
     onExit: [
       { op: "EnableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },

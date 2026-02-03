@@ -9,6 +9,12 @@ import { resolveEffectDef } from "../core/registry.js";
 import { ensureSystemState, getTierValueForSystem } from "../core/system-state.js";
 import { resolveBoardTargets } from "../core/targets-board.js";
 
+// Process refactor:
+// - CreateWorkProcess: enqueue a process with progress tracking (time or work)
+// - AdvanceWorkProcess: advance progress and complete when done
+//
+// This fully replaces CreateProcess / FinalizeProcess.
+
 export function handleAddToSystemState(state, effect, context) {
   const systemId = effect.system;
   const key = effect.key;
@@ -207,7 +213,19 @@ export function handleAdjustSystemState(state, effect, context) {
   return changed;
 }
 
-export function handleCreateProcess(state, effect, context) {
+function nowSecFrom(state, context) {
+  return Number.isFinite(context?.tSec)
+    ? Math.floor(context.tSec)
+    : Math.floor(state?.tSec ?? 0);
+}
+
+// Process schema
+// - mode: "time" (default) or "work"
+// - progress: numeric (seconds or work units)
+// - durationSec: required units until completion
+// - completionPolicy: "cropGrowth" (built-in) or "none"
+
+export function handleCreateWorkProcess(state, effect, context) {
   const systemId = effect.system;
   if (!systemId || typeof systemId !== "string") return false;
 
@@ -223,9 +241,7 @@ export function handleCreateProcess(state, effect, context) {
     if (!target) continue;
     const systemState = ensureSystemState(target, systemId);
     const queueKey = effect.queueKey || "processes";
-    if (!Array.isArray(systemState[queueKey])) {
-      systemState[queueKey] = [];
-    }
+    if (!Array.isArray(systemState[queueKey])) systemState[queueKey] = [];
 
     const { defId, def } = resolveEffectDef(effect, target, context);
     if (!defId || !def) continue;
@@ -244,18 +260,27 @@ export function handleCreateProcess(state, effect, context) {
       : null;
     if (!durationSec) continue;
 
-    const nowSec = Number.isFinite(context?.tSec)
-      ? Math.floor(context.tSec)
-      : Math.floor(state.tSec ?? 0);
+    const type = effect.processType || effect.type || "process";
+    if (effect.uniqueType === true) {
+      const existing = systemState[queueKey].some((p) => p?.type === type);
+      if (existing) continue;
+    }
 
+    const nowSec = nowSecFrom(state, context);
     const process = {
       id: `proc_${target.instanceId}_${nowSec}_${systemState[queueKey].length}`,
-      type: effect.processType || effect.type || "process",
+      type,
+      mode: effect.mode === "work" ? "work" : "time",
       defRegistry: effect.defRegistry || effect.registry || null,
       defId,
       startSec: nowSec,
       durationSec,
+      progress: 0,
       inputAmount,
+      completionPolicy:
+        effect.completionPolicy ||
+        (type === "cropGrowth" ? "cropGrowth" : "none"),
+      poolKey: effect.poolKey || "maturedPool",
     };
 
     if (effect.captureSystem && effect.captureKey) {
@@ -276,7 +301,43 @@ export function handleCreateProcess(state, effect, context) {
   return changed;
 }
 
-export function handleFinalizeProcess(state, effect, context) {
+function countEnvWorkers(state, envCol) {
+  const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+  if (col == null) return 0;
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  let n = 0;
+  for (const ch of chars) {
+    if (!ch) continue;
+    const c = Number.isFinite(ch.envCol) ? Math.floor(ch.envCol) : null;
+    if (c === col) n++;
+  }
+  return n;
+}
+
+function countHubWorkers(state, structure) {
+  if (!structure) return 0;
+  const col = Number.isFinite(structure.col) ? Math.floor(structure.col) : null;
+  const span =
+    Number.isFinite(structure.span) && structure.span > 0
+      ? Math.floor(structure.span)
+      : Number.isFinite(structure.defaultSpan) && structure.defaultSpan > 0
+        ? Math.floor(structure.defaultSpan)
+        : 1;
+  if (col == null) return 0;
+  const maxCol = col + span - 1;
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  let n = 0;
+  for (const ch of chars) {
+    if (!ch) continue;
+    if (Number.isFinite(ch.envCol)) continue; // env pawns are not in hub
+    const c = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
+    if (c == null) continue;
+    if (c >= col && c <= maxCol) n++;
+  }
+  return n;
+}
+
+export function handleAdvanceWorkProcess(state, effect, context) {
   const systemId = effect.system;
   if (!systemId || typeof systemId !== "string") return false;
 
@@ -286,6 +347,10 @@ export function handleFinalizeProcess(state, effect, context) {
       ? [context.source]
       : [];
   if (!targets.length) return false;
+
+  const deltaTime = Number.isFinite(effect.deltaSec)
+    ? Math.max(1, Math.floor(effect.deltaSec))
+    : 1;
 
   let changed = false;
   for (const target of targets) {
@@ -300,6 +365,7 @@ export function handleFinalizeProcess(state, effect, context) {
     }
     if (processes.length === 0) continue;
 
+    // ensure pool exists for cropGrowth completion
     const poolKey = effect.poolKey || "maturedPool";
     if (!systemState[poolKey] || typeof systemState[poolKey] !== "object") {
       systemState[poolKey] = {
@@ -309,78 +375,94 @@ export function handleFinalizeProcess(state, effect, context) {
         diamond: 0,
       };
     }
-    const pool = systemState[poolKey];
-
-    const nowSec = Number.isFinite(context?.tSec)
-      ? Math.floor(context.tSec)
-      : Math.floor(state.tSec ?? 0);
 
     const nextQueue = [];
     for (const process of processes) {
       if (!process) continue;
-      if (
-        effect.processType &&
-        process.type &&
-        process.type !== effect.processType
-      ) {
+      if (effect.processType && process.type !== effect.processType) {
         nextQueue.push(process);
         continue;
       }
 
-      const startSec = Math.floor(process.startSec ?? 0);
-      const durationSec = Math.floor(process.durationSec ?? 0);
-      if (durationSec <= 0 || nowSec < startSec + durationSec) {
-        nextQueue.push(process);
-        continue;
+      const durationSec = Math.max(1, Math.floor(process.durationSec ?? 0));
+      const mode = process.mode === "work" ? "work" : "time";
+
+      let inc = deltaTime;
+      if (mode === "work") {
+        const workersFrom = effect.workersFrom || "auto";
+        let workers = 0;
+        if (workersFrom === "envCol" || (workersFrom === "auto" && context?.envCol != null)) {
+          workers = countEnvWorkers(state, context?.envCol);
+        } else if (workersFrom === "hubAnchor" || (workersFrom === "auto" && context?.hubCol != null)) {
+          workers = countHubWorkers(state, context?.source);
+        } else {
+          workers = 1;
+        }
+        inc = Math.max(0, Math.floor(workers));
       }
 
-      const { def } = resolveEffectDef(
-        { defRegistry: process.defRegistry, defId: process.defId },
-        target,
-        context
-      );
-      if (!def) {
+      const cur = Number.isFinite(process.progress) ? process.progress : 0;
+      const next = cur + inc;
+      if (next !== cur) {
+        process.progress = next;
         changed = true;
+      }
+
+      if (next < durationSec) {
+        nextQueue.push(process);
         continue;
       }
 
-      const hydrationTier = getTierValueForSystem(target, "hydration");
-      const fertilityTier = getTierValueForSystem(target, "fertility");
-      const hydrationState = target.systemState?.hydration || {};
-      const sumRatio = Number.isFinite(hydrationState.sumRatio)
-        ? hydrationState.sumRatio
-        : 0;
-      const sumAtStart = Number.isFinite(process.sumAtStart)
-        ? process.sumAtStart
-        : 0;
-      const rAvg = clamp((sumRatio - sumAtStart) / durationSec, 0, 1);
+      // complete
+      const policy = process.completionPolicy || "none";
+      if (policy === "cropGrowth") {
+        const { def } = resolveEffectDef(
+          { defRegistry: process.defRegistry, defId: process.defId },
+          target,
+          context
+        );
+        if (def) {
+          const hydrationTier = getTierValueForSystem(target, "hydration");
+          const fertilityTier = getTierValueForSystem(target, "fertility");
+          const hydrationState = target.systemState?.hydration || {};
+          const sumRatio = Number.isFinite(hydrationState.sumRatio)
+            ? hydrationState.sumRatio
+            : 0;
+          const sumAtStart = Number.isFinite(process.sumAtStart)
+            ? process.sumAtStart
+            : 0;
+          const rAvg = clamp((sumRatio - sumAtStart) / durationSec, 0, 1);
 
-      const curveSource = envSystemDefs[systemId];
-      const curveByTier = curveSource?.hydrationCurveByTier || null;
-      const curve =
-        curveByTier?.[hydrationTier] ||
-        curveByTier?.silver ||
-        { A: 1, P: 1 };
-      const factor =
-        (Number.isFinite(curve?.A) ? curve.A : 1) *
-        Math.pow(rAvg, Number.isFinite(curve?.P) ? curve.P : 1);
+          const curveSource = envSystemDefs[systemId];
+          const curveByTier = curveSource?.hydrationCurveByTier || null;
+          const curve =
+            curveByTier?.[hydrationTier] ||
+            curveByTier?.silver ||
+            { A: 1, P: 1 };
+          const factor =
+            (Number.isFinite(curve?.A) ? curve.A : 1) *
+            Math.pow(rAvg, Number.isFinite(curve?.P) ? curve.P : 1);
 
-      const inputAmount = Math.max(0, Math.floor(process.inputAmount ?? 0));
-      const baseYield = Number.isFinite(def.baseYieldMultiplier)
-        ? def.baseYieldMultiplier
-        : 1;
-      const maturedUnits = Math.floor(inputAmount * baseYield * factor);
-      if (maturedUnits > 0) {
-        const table =
-          def?.qualityTablesByFertilityTier?.[fertilityTier] ??
-          def?.qualityTablesByFertilityTier?.silver ??
-          [];
-        for (let i = 0; i < maturedUnits; i++) {
-          const tier = rollQualityTier(state, table);
-          pool[tier] = (pool[tier] ?? 0) + 1;
+          const inputAmount = Math.max(0, Math.floor(process.inputAmount ?? 0));
+          const baseYield = Number.isFinite(def.baseYieldMultiplier)
+            ? def.baseYieldMultiplier
+            : 1;
+          const maturedUnits = Math.floor(inputAmount * baseYield * factor);
+          if (maturedUnits > 0) {
+            const table =
+              def?.qualityTablesByFertilityTier?.[fertilityTier] ??
+              def?.qualityTablesByFertilityTier?.silver ??
+              [];
+            const pool = systemState[process.poolKey || poolKey];
+            for (let i = 0; i < maturedUnits; i++) {
+              const tier = rollQualityTier(state, table);
+              pool[tier] = (pool[tier] ?? 0) + 1;
+            }
+          }
         }
         changed = true;
       } else {
+        // policy === "none": just drop the process
         changed = true;
       }
     }

@@ -66,14 +66,14 @@ export function resolveCosts(costSpec, ctx) {
         amount: amountRaw,
         clampMin,
       });
-    } else if (charge.kind === "item") {
+    } else if (charge.kind === "item" || charge.kind === "requireItem") {
       if (charge.target?.ref !== "pawnInv") return null;
       const itemId = resolveItemIdExpr(charge.itemId, ctx);
       if (!itemId) return null;
       const amountRaw = resolveAmountExpr(charge.amount, ctx);
       if (!Number.isFinite(amountRaw) || amountRaw < 0) return null;
       const amount = Math.floor(amountRaw);
-      charges.push({ kind: "item", pawnId, itemId, amount });
+      charges.push({ kind: charge.kind, pawnId, itemId, amount });
     } else {
       return null;
     }
@@ -104,7 +104,7 @@ export function canAffordCosts(resolvedCosts, ctx) {
     if (charge.kind === "system") {
       const value = pawn.systemState?.[charge.system]?.[charge.key];
       if (!Number.isFinite(value) || value < charge.amount) return false;
-    } else if (charge.kind === "item") {
+    } else if (charge.kind === "item" || charge.kind === "requireItem") {
       if (charge.amount <= 0) continue;
       const total = countItemUnits(pawnInv, charge.itemId);
       if (total < charge.amount) return false;
@@ -178,6 +178,8 @@ export function applyCosts(resolvedCosts, ctx) {
     } else if (charge.kind === "item") {
       if (charge.amount <= 0) continue;
       consumeFromInventoryForCost(pawnInv, charge.itemId, charge.amount);
+    } else if (charge.kind === "requireItem") {
+      // requirement only; no consumption
     }
   }
 }
