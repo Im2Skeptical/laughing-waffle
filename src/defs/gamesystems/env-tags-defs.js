@@ -155,7 +155,18 @@ export const envTagDefs = {
       {
         id: "forage",
         verb: "forage",
-        requires: { season: ["spring", "autumn"] },
+        cost: {
+          charges: [
+            {
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
+              amount: { const: 3 },
+              clampMin: 0,
+            },
+          ],
+        },
         effect: { op: "SpawnFromDropTable", tableKey: "forageDrops" },
       },
     ],

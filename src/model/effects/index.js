@@ -14,9 +14,7 @@ import {
 import {
   handleTransformItem,
   handleRemoveItem,
-  handleCheckItemRot,
   handleExpireItemChance,
-  handleTickItemSeasonExpiry,
 } from "./ops/item-ops.js";
 import {
   handleAddToSystemState,
@@ -49,9 +47,10 @@ const handlers = {
   AddResource: handleAddResource,
   TransformItem: handleTransformItem,
   RemoveItem: handleRemoveItem,
-  CheckItemRot: handleCheckItemRot,
+
+  // Generic expiry/decay mechanism (used by rotatable and any future chance-based transforms).
   ExpireItemChance: handleExpireItemChance,
-  TickItemSeasonExpiry: handleTickItemSeasonExpiry,
+
   AddToSystemState: handleAddToSystemState,
   ClampSystemState: handleClampSystemState,
   AccumulateRatio: handleAccumulateRatio,

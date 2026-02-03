@@ -7,9 +7,9 @@ export const itemDefs = {
     name: "Barley",
     color: 0xd4b45a,
     maxStack: 25,
-    baseTags: ["edible", "crop", "currency", "rotatable", "grain"],
-    baseSystemTiers: { freshness: "bronze" },
-    rotChancePerSec: 0.0057,
+    baseTags: ["edible", "crop", "currency", "perishable", "grain"],
+    baseSystemTiers: { perishability: "bronze" },
+    rotChancePerSec: 0.005,
     defaultWidth: 1,
     defaultHeight: 2,
     defaultTier: "bronze",
@@ -28,9 +28,9 @@ export const itemDefs = {
     name: "Wheat",
     color: 0xdaa520,
     maxStack: 25,
-    baseTags: ["edible", "crop", "currency", "rotatable", "grain"],
-    baseSystemTiers: { freshness: "bronze" },
-    rotChancePerSec: 0.0057,
+    baseTags: ["edible", "crop", "currency", "perishable", "grain"],
+    baseSystemTiers: { perishability: "bronze" },
+    rotChancePerSec: 0.005,
     defaultWidth: 1,
     defaultHeight: 2,
     defaultTier: "bronze",
@@ -65,8 +65,8 @@ export const itemDefs = {
   dates: {
     id: "dates",
     name: "Dates",
-    color: 0x8b4513,
-    maxStack: 1,
+    color: 0x842e20,  //#842e20
+    maxStack: 20,
     baseTags: ["edible"],
     defaultWidth: 1,
     defaultHeight: 1,
@@ -106,10 +106,10 @@ export const itemDefs = {
     id: "flint",
     name: "Flint",
     color: 0x808080,  //#808080
-    maxStack: 1,
+    maxStack: 5,
     baseTags: ["firematerials"],
     defaultWidth: 1,
-    defaultHeight: 2,
+    defaultHeight: 1,
     ui: {
       title: "Flint",
       lines: [
@@ -124,10 +124,10 @@ export const itemDefs = {
     id: "dung",
     name: "Dung",
     color: 0x2a2b1d,  //#2a2b1d
-    maxStack: 1,
+    maxStack: 10,
     baseTags: ["firematerials"],
-    defaultWidth: 1,
-    defaultHeight: 2,
+    defaultWidth: 2,
+    defaultHeight: 1,
     ui: {
       title: "Dung",
       lines: [
@@ -142,11 +142,10 @@ export const itemDefs = {
     id: "dryVegetation",
     name: "Dry Vegetation",
     color: 0x4f4a41,  //#4f4a41
-    maxStack: 1,
-    maxStack: 1,
+    maxStack: 20,
     baseTags: ["firematerials"],
     defaultWidth: 1,
-    defaultHeight: 2,
+    defaultHeight: 1,
     ui: {
       title: "Dry Vegetation",
       lines: [
@@ -161,7 +160,7 @@ export const itemDefs = {
     id: "straw",
     name: "Straw",
     color: 0xe2cc4b,  //#e2cc4b
-    maxStack: 1,
+    maxStack: 25,
     baseTags: ["firematerials"],
     defaultWidth: 1,
     defaultHeight: 2,
@@ -181,7 +180,7 @@ export const itemDefs = {
     color: 0x595959,  //#595959
     maxStack: 1,
     baseTags: ["firematerials"],
-    defaultWidth: 1,
+    defaultWidth: 2,
     defaultHeight: 2,
     ui: {
       title: "Stone",
@@ -197,7 +196,7 @@ export const itemDefs = {
     id: "reeds",
     name: "Reeds",
     color: 0x75963f,  //#75963f
-    maxStack: 1,
+    maxStack: 25,
     baseTags: ["crafting"],
     defaultWidth: 1,
     defaultHeight: 2,
@@ -215,7 +214,7 @@ export const itemDefs = {
     id: "fibres",
     name: "Fibres",
     color: 0x67794b,  //#67794b  
-    maxStack: 1,
+    maxStack: 25,
     baseTags: ["crafting"],
     defaultWidth: 1,
     defaultHeight: 1,
@@ -233,7 +232,7 @@ export const itemDefs = {
     id: "clay",
     name: "Clay",
     color: 0x8b4513,  //#8b4513
-    maxStack: 1,
+    maxStack: 10,
     baseTags: ["crafting"],
     defaultWidth: 2,
     defaultHeight: 2,
@@ -251,7 +250,7 @@ export const itemDefs = {
     id: "silt",
     name: "Silt",
     color: 0x6a4e25,  //#6a4e25
-    maxStack: 1,
+    maxStack: 10,
     baseTags: ["crafting"],
     defaultWidth: 2,
     defaultHeight: 2,
@@ -269,12 +268,48 @@ export const itemDefs = {
     id: "temper",
     name: "Temper",
     color: 0xdccebb,  //#dccebb
-    maxStack: 1,
+    maxStack: 25,
     baseTags: ["crafting"],
     defaultWidth: 1,
     defaultHeight: 1,
     ui: {
       title: "Temper",
+      lines: [
+        "Item id: {id}",
+        "Owner: {ownerLabel}",
+        "Quantity: {quantity}",
+        "Size: {width}x{height}",
+      ],
+    },
+  },
+  feathers: {
+    id: "feathers",
+    name: "Feathers",
+    color: 0x5b5550,  //#5b5550
+    maxStack: 15,
+    baseTags: ["crafting"],
+    defaultWidth: 1,
+    defaultHeight: 1,
+    ui: {
+      title: "Feathers",
+      lines: [
+        "Item id: {id}",
+        "Owner: {ownerLabel}",
+        "Quantity: {quantity}",
+        "Size: {width}x{height}",
+      ],
+    },
+  },
+  eggs: {
+    id: "eggs",
+    name: "Eggs",
+    color: 0xf4f4b3,  //#f4f4b3
+    maxStack: 12,
+    baseTags: ["edible"],
+    defaultWidth: 1,
+    defaultHeight: 1,
+    ui: {
+      title: "Eggs",
       lines: [
         "Item id: {id}",
         "Owner: {ownerLabel}",

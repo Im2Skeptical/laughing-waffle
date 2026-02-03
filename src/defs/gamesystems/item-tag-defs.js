@@ -2,29 +2,20 @@
 // Item tag registry (data only).
 
 export const itemTagDefs = {
-  rotatable: {
-    id: "rotatable",
+  perishable: {
+    id: "perishable",
     kind: "itemTag",
-    ui: { name: "Rotatable", description: "Can decay into rot over time." },
-    systems: ["freshness"],
+    ui: { name: "Perishable", description: "Can decay into rot over time." },
+    systems: ["perishability"],
     passives: [
       {
         id: "rotTick",
         timing: { cadenceSec: 1 },
         effect: [
           {
-            op: "AddToSystemState",
-            target: { ref: "self" },
-            system: "freshness",
-            key: "ageSec",
-            amount: 1,
-          },
-          {
-            op: "CheckItemRot",
-            system: "freshness",
-            ageKey: "ageSec",
+            op: "ExpireItemChance",
             chanceFromDefKey: "rotChancePerSec",
-            rotKind: "rot",
+            targetKind: "rot",
           },
         ],
       },

@@ -29,7 +29,8 @@ export const setupDefs = {
       cols: 10,
       structures: [
         { defId: "itemzoo", hubCol: 0 },
-        { defId: "hearth", hubCol: 4 },
+        { defId: "makeshiftShelter", hubCol: 3 },
+        { defId: "hearth", hubCol: 5 },
         { defId: "granary", hubCol: 6 },
 
       ],
@@ -37,8 +38,8 @@ export const setupDefs = {
 
     // characters placed by board column
     characters: [
-      { name: "Char 1", color: 0xff9999, hubCol: 4, role: "leader" },
-      { name: "Char 2", color: 0x9999ff, hubCol: 4, role: "leader" },
+      { name: "Char 1", color: 0xff9999, hubCol: 5, role: "leader" },
+      { name: "Char 2", color: 0x9999ff, hubCol: 5, role: "leader" },
     ],
 
     // inventories keyed by owner selector:
