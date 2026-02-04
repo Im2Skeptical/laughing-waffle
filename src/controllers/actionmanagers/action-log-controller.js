@@ -71,6 +71,14 @@ function isTilePlanIntent(intent) {
   );
 }
 
+function isHubPlanIntent(intent) {
+  if (!intent) return false;
+  return (
+    intent.kind === IntentKinds.HUB_TAG_ORDER ||
+    intent.kind === IntentKinds.HUB_TAG_TOGGLE
+  );
+}
+
 function isTilePlanAction(action) {
   const kind = action?.kind;
   return (
@@ -80,9 +88,22 @@ function isTilePlanAction(action) {
   );
 }
 
+function isHubPlanAction(action) {
+  const kind = action?.kind;
+  return (
+    kind === ActionKinds.SET_HUB_TAG_ORDER ||
+    kind === ActionKinds.TOGGLE_HUB_TAG
+  );
+}
+
 function formatTilePlanLabel(envCol, state) {
   const tileName = formatTileName(envCol, state);
   return `Tags > ${tileName} changed`;
+}
+
+function formatHubPlanLabel(hubCol, state) {
+  const hubName = formatHubName(hubCol, state);
+  return `Tags > ${hubName} changed`;
 }
 
 function getTilePlanIntentSignature(intent) {
@@ -97,6 +118,18 @@ function getTilePlanIntentSignature(intent) {
   if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
     const crop = intent.cropId ?? "none";
     return `crop:${crop}`;
+  }
+  return intent.kind || "";
+}
+
+function getHubPlanIntentSignature(intent) {
+  if (!intent) return "";
+  if (intent.kind === IntentKinds.HUB_TAG_ORDER) {
+    const tags = Array.isArray(intent.tagIds) ? intent.tagIds : [];
+    return `order:${tags.join(",")}`;
+  }
+  if (intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
+    return `toggle:${intent.tagId ?? ""}:${intent.disabled === true}`;
   }
   return intent.kind || "";
 }
@@ -198,6 +231,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
   const groupByKey = new Map();
   const groupKeyByIntentId = new Map();
   const tilePlanGroups = new Map();
+  const hubPlanGroups = new Map();
 
   for (const intent of intents) {
     if (intent?.kind !== IntentKinds.ITEM_TRANSFER) continue;
@@ -235,6 +269,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
   const rowsOut = [];
   const emittedGroups = new Set();
   const emittedTilePlans = new Set();
+  const emittedHubPlans = new Set();
 
   for (const intent of intents) {
     if (!isTilePlanIntent(intent)) continue;
@@ -264,6 +299,37 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
       if (focus && focus.id === intentId) group.isFocused = true;
     }
     const sig = getTilePlanIntentSignature(intent);
+    if (sig) group.signatures.push(sig);
+  }
+
+  for (const intent of intents) {
+    if (!isHubPlanIntent(intent)) continue;
+    const hubCol = Number.isFinite(intent.hubCol)
+      ? Math.floor(intent.hubCol)
+      : null;
+    if (hubCol == null) continue;
+    const key = hubCol;
+    let group = hubPlanGroups.get(key);
+    if (!group) {
+      group = {
+        hubCol,
+        intentIds: [],
+        cost: 0,
+        isFocused: false,
+        focusIntentId: null,
+        signatures: [],
+      };
+      hubPlanGroups.set(key, group);
+    }
+    const intentId = intent?.id ?? intent?.subjectKey ?? null;
+    if (intentId != null) {
+      group.intentIds.push(intentId);
+      const cost = planner?.getIntentCost?.(intentId) ?? 0;
+      if (cost > group.cost) group.cost = cost;
+      if (!group.focusIntentId) group.focusIntentId = intentId;
+      if (focus && focus.id === intentId) group.isFocused = true;
+    }
+    const sig = getHubPlanIntentSignature(intent);
     if (sig) group.signatures.push(sig);
   }
 
@@ -314,6 +380,28 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
       continue;
     }
 
+    if (isHubPlanIntent(intent)) {
+      const hubCol = Number.isFinite(intent.hubCol)
+        ? Math.floor(intent.hubCol)
+        : null;
+      if (hubCol == null) continue;
+      if (emittedHubPlans.has(hubCol)) continue;
+      emittedHubPlans.add(hubCol);
+      const group = hubPlanGroups.get(hubCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `hubPlan:${hubCol}`,
+        description: formatHubPlanLabel(hubCol, state),
+        cost: group.cost,
+        signature: group.signatures.slice().sort().join("|"),
+        intentIds: group.intentIds.slice(),
+        focusIntentId: group.focusIntentId,
+        isFocused: group.isFocused,
+        isUndoable: true,
+      });
+      continue;
+    }
+
     if (!intent) continue;
     const intentCost = planner?.getIntentCost?.(intentId) ?? 0;
     if (intent.kind === IntentKinds.ITEM_TRANSFER && intentCost <= 0) continue;
@@ -341,6 +429,7 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
   const groupByKey = new Map();
   const groupKeyByAction = new Map();
   const tilePlanGroups = new Map();
+  const hubPlanGroups = new Map();
 
   for (const action of actions) {
     if (action.kind !== ActionKinds.INVENTORY_MOVE) continue;
@@ -396,9 +485,32 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     if (apCost > group.cost) group.cost = apCost;
   }
 
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    if (!isHubPlanAction(action)) continue;
+    const payload = action.payload || {};
+    const hubCol = Number.isFinite(payload.hubCol)
+      ? Math.floor(payload.hubCol)
+      : Number.isFinite(payload.toHubCol)
+      ? Math.floor(payload.toHubCol)
+      : null;
+    if (hubCol == null) continue;
+    let group = hubPlanGroups.get(hubCol);
+    if (!group) {
+      group = { hubCol, cost: 0, firstIndex: i };
+      hubPlanGroups.set(hubCol, group);
+    }
+    const apCost =
+      Number.isFinite(action.apCost) || Number.isFinite(payload.apCost)
+        ? Math.floor(action.apCost ?? payload.apCost ?? 0)
+        : 0;
+    if (apCost > group.cost) group.cost = apCost;
+  }
+
   const rowsOut = [];
   const emittedGroups = new Set();
   const emittedTilePlans = new Set();
+  const emittedHubPlans = new Set();
 
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i];
@@ -435,6 +547,26 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       rowsOut.push({
         id: `tilePlan:${envCol}:${group.firstIndex}`,
         description: formatTilePlanLabel(envCol, state),
+        cost: group.cost,
+        isUndoable: false,
+      });
+      continue;
+    }
+
+    if (isHubPlanAction(action)) {
+      const hubCol = Number.isFinite(payload.hubCol)
+        ? Math.floor(payload.hubCol)
+        : Number.isFinite(payload.toHubCol)
+        ? Math.floor(payload.toHubCol)
+        : null;
+      if (hubCol == null) continue;
+      if (emittedHubPlans.has(hubCol)) continue;
+      emittedHubPlans.add(hubCol);
+      const group = hubPlanGroups.get(hubCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `hubPlan:${hubCol}:${group.firstIndex}`,
+        description: formatHubPlanLabel(hubCol, state),
         cost: group.cost,
         isUndoable: false,
       });

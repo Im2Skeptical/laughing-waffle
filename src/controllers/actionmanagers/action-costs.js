@@ -41,8 +41,26 @@ function getTilePlanKey(intent) {
   return null;
 }
 
+function getHubPlanKey(intent) {
+  if (!intent || typeof intent !== "object") return null;
+  if (intent.kind === "hubTagOrder" || intent.kind === "hubTagToggle") {
+    if (!Number.isFinite(intent.hubCol)) return null;
+    return `hubPlan:${Math.floor(intent.hubCol)}`;
+  }
+  return null;
+}
+
 function getTilePlanCost() {
   return INTENT_AP_COSTS.tilePlan ?? INTENT_AP_COSTS.tileTagOrder ?? 0;
+}
+
+function getHubPlanCost() {
+  return (
+    INTENT_AP_COSTS.hubPlan ??
+    INTENT_AP_COSTS.tilePlan ??
+    INTENT_AP_COSTS.hubTagOrder ??
+    0
+  );
 }
 
 export function estimateIntentApCost(intent, { stateStart } = {}) {
@@ -124,6 +142,8 @@ export function computeIntentCostSummary(intents, ctx = {}) {
   const currencyGroups = new Map();
   const tilePlanGroups = new Map();
   const tilePlanIntentIds = new Set();
+  const hubPlanGroups = new Map();
+  const hubPlanIntentIds = new Set();
 
   for (const intent of list) {
     if (!intent) continue;
@@ -161,6 +181,26 @@ export function computeIntentCostSummary(intents, ctx = {}) {
   }
 
   for (const intent of list) {
+    const hubPlanKey = getHubPlanKey(intent);
+    if (hubPlanKey) {
+      const intentId = intent?.id ?? intent?.subjectKey ?? null;
+      if (intentId != null) hubPlanIntentIds.add(intentId);
+      const cost = estimateIntentApCost(intent, ctx);
+      if (cost > 0 && intentId != null) {
+        let group = hubPlanGroups.get(hubPlanKey);
+        if (!group) {
+          group = { intentIds: [], anchorId: null };
+          hubPlanGroups.set(hubPlanKey, group);
+        }
+        if (!group.intentIds.includes(intentId)) {
+          group.intentIds.push(intentId);
+        }
+        if (!group.anchorId) group.anchorId = intentId;
+      }
+    }
+  }
+
+  for (const intent of list) {
     const cost = estimateIntentApCost(intent, ctx);
     const key = intent?.id ?? intent?.subjectKey ?? null;
     if (key == null) continue;
@@ -169,6 +209,10 @@ export function computeIntentCostSummary(intents, ctx = {}) {
       continue;
     }
     if (tilePlanIntentIds.has(key)) {
+      byId[key] = 0;
+      continue;
+    }
+    if (hubPlanIntentIds.has(key)) {
       byId[key] = 0;
       continue;
     }
@@ -194,6 +238,17 @@ export function computeIntentCostSummary(intents, ctx = {}) {
       if (!anchorId) continue;
       byId[anchorId] = tilePlanCost;
       total += tilePlanCost;
+    }
+  }
+
+  const hubPlanCost = getHubPlanCost();
+  if (hubPlanCost > 0) {
+    for (const group of hubPlanGroups.values()) {
+      if (!group || !group.intentIds?.length) continue;
+      const anchorId = group.anchorId ?? group.intentIds[0] ?? null;
+      if (!anchorId) continue;
+      byId[anchorId] = hubPlanCost;
+      total += hubPlanCost;
     }
   }
 

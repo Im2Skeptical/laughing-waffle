@@ -109,6 +109,7 @@ export function createBoardView(opts) {
   let activeHubTagDrag = null;
   let activeHover = null;
   let focusedTileCol = null;
+  let focusedHubCol = null;
   let apDragWarningActive = false;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
@@ -493,9 +494,40 @@ export function createBoardView(opts) {
     focusedTileCol = null;
   }
 
-  function updateTileFocus() {
+  function setHubFocus(view, active) {
+    if (!view?.focusOutline) return;
+    const next = !!active;
+    if (view.isFocused === next) return;
+    view.isFocused = next;
+    view.focusOutline.visible = next;
+  }
+
+  function clearAllHubFocus() {
+    for (const view of hubStructureViews.values()) {
+      if (!view?.isFocused) continue;
+      setHubFocus(view, false);
+    }
+    focusedHubCol = null;
+  }
+
+  function findHubViewByCol(hubCol) {
+    const target = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
+    if (target == null) return null;
+    for (const view of hubStructureViews.values()) {
+      const anchorCol = Number.isFinite(view?.structure?.col)
+        ? Math.floor(view.structure.col)
+        : Number.isFinite(view?.col)
+        ? Math.floor(view.col)
+        : null;
+      if (anchorCol === target) return view;
+    }
+    return null;
+  }
+
+  function updatePlanFocus() {
     if (!actionPlanner?.getFocusIntent) {
       if (focusedTileCol != null) clearAllTileFocus();
+      if (focusedHubCol != null) clearAllHubFocus();
       return;
     }
     const intent = actionPlanner.getFocusIntent?.();
@@ -504,23 +536,46 @@ export function createBoardView(opts) {
       (intent.kind === "tileTagOrder" ||
         intent.kind === "tileTagToggle" ||
         intent.kind === "tileCropSelect");
-    const nextCol =
+    const isHubPlan =
+      intent &&
+      (intent.kind === "hubTagOrder" || intent.kind === "hubTagToggle");
+
+    const nextTileCol =
       isTilePlan && Number.isFinite(intent.envCol)
         ? Math.floor(intent.envCol)
         : null;
-    if (nextCol == null) {
+    const nextHubCol =
+      isHubPlan && Number.isFinite(intent.hubCol)
+        ? Math.floor(intent.hubCol)
+        : null;
+
+    if (nextTileCol == null) {
       if (focusedTileCol != null) clearAllTileFocus();
-      return;
-    }
-    if (focusedTileCol !== nextCol) {
-      if (focusedTileCol != null) {
-        const prev = tileViews[focusedTileCol];
-        if (prev) setTileFocus(prev, false);
+    } else {
+      if (focusedTileCol !== nextTileCol) {
+        if (focusedTileCol != null) {
+          const prev = tileViews[focusedTileCol];
+          if (prev) setTileFocus(prev, false);
+        }
+        focusedTileCol = nextTileCol;
       }
-      focusedTileCol = nextCol;
+      const view = tileViews[nextTileCol];
+      if (view) setTileFocus(view, true);
     }
-    const view = tileViews[nextCol];
-    if (view) setTileFocus(view, true);
+
+    if (nextHubCol == null) {
+      if (focusedHubCol != null) clearAllHubFocus();
+    } else {
+      if (focusedHubCol !== nextHubCol) {
+        if (focusedHubCol != null) {
+          const prev = findHubViewByCol(focusedHubCol);
+          if (prev) setHubFocus(prev, false);
+        }
+        focusedHubCol = nextHubCol;
+      }
+      const view = findHubViewByCol(nextHubCol);
+      if (view) setHubFocus(view, true);
+    }
   }
 
   function applyHubStructureHover(view) {
@@ -1557,6 +1612,12 @@ export function createBoardView(opts) {
     const apOverlay = createApOverlay(width, height, 10);
     content.addChild(apOverlay);
 
+    const focusOutline = new PIXI.Graphics();
+    focusOutline.lineStyle(2, 0x7fd0ff, 1);
+    focusOutline.drawRoundedRect(2, 2, width - 4, height - 4, 8);
+    focusOutline.visible = false;
+    content.addChild(focusOutline);
+
     function structureHasInventory() {
       const s = getGameState?.();
       return !!s?.ownerInventories?.[structureInst.instanceId];
@@ -1585,6 +1646,8 @@ export function createBoardView(opts) {
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      focusOutline,
+      isFocused: false,
     };
 
     hubTagUi?.rebuildStructureTags?.(view, structureInst);
@@ -2068,7 +2131,7 @@ export function createBoardView(opts) {
     syncTiles(s, cols);
     syncEvents(s, cols);
     syncHubStructures(s, hubCols);
-    updateTileFocus();
+    updatePlanFocus();
 
     if (activeHover?.view?.holdHoverForOccupant) {
       const view = activeHover.view;
