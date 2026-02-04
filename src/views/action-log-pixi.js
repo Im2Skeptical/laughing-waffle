@@ -207,7 +207,7 @@ export function createActionLogView({
       const entry = ghostEntries.get(id);
       if (!entry) continue;
       let placed = false;
-      if (entry.status === "pending" && entry.spec?.intentId) {
+      if (entry.isDrag && entry.spec?.intentId) {
         const rowEntry = rowEntriesByIntent.get(entry.spec.intentId);
         if (rowEntry?.row) {
           entry.container.y = rowEntry.row.y;
@@ -269,7 +269,6 @@ export function createActionLogView({
     entry.timeout = setTimeout(() => {
       removeGhost(id);
     }, GHOST_FLASH_MS);
-    layoutGhostRows();
   }
 
   function createGhostEntry(spec, { isDrag } = {}) {
@@ -369,16 +368,6 @@ export function createActionLogView({
   function flashGhost(spec, status = "success") {
     if (!spec) return;
     const entry = createGhostEntry(spec, { isDrag: false });
-    if (status === "success" && spec.intentId) {
-      pendingRowFlash = {
-        intentId: spec.intentId,
-        status,
-        ghostId: entry.id,
-        deadline: Date.now() + GHOST_FLASH_MS + 120,
-      };
-      layoutGhostRows();
-      return;
-    }
     resolveGhost(entry.id, status);
   }
 
