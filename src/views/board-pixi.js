@@ -5,10 +5,12 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
+import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
   BOARD_COLS,
   BOARD_COL_GAP,
@@ -568,16 +570,28 @@ export function createBoardView(opts) {
 
   function dispatchTagOrder(envCol, tagIds) {
     const run = () => {
+      const tileName = getTileNameByCol(envCol);
+      const ghostSpec = {
+        description: `Tags > ${tileName} reorder`,
+        cost: getTilePlanCost(),
+      };
       if (actionPlanner?.setTileTagOrderIntent) {
-        return actionPlanner.setTileTagOrderIntent({ envCol, tagIds });
+        const res = actionPlanner.setTileTagOrderIntent({ envCol, tagIds });
+        if (res?.ok === false && res?.reason === "insufficientAP") {
+          flashTilePlanFailure(ghostSpec);
+        }
+        return res;
       }
       if (!dispatchAction) return { ok: false, reason: "noDispatch" };
-      dispatchAction(
+      const res = dispatchAction(
         ActionKinds.SET_TILE_TAG_ORDER,
         { envCol, tagIds },
         { apCost: 10 }
       );
-      return { ok: true };
+      if (res?.ok === false && res?.reason === "insufficientAP") {
+        flashTilePlanFailure(ghostSpec);
+      }
+      return res ?? { ok: true };
     };
     if (typeof queueActionWhenPaused === "function") {
       return queueActionWhenPaused(run);
@@ -590,6 +604,8 @@ export function createBoardView(opts) {
 
   function dispatchTileTagToggle({ envCol, tagId, disabled } = {}) {
     const run = () => {
+      const tileName = getTileNameByCol(envCol);
+      const tagName = envTagDefs?.[tagId]?.ui?.name || tagId || "Tag";
       let nextDisabled = disabled;
       if (typeof nextDisabled !== "boolean") {
         if (actionPlanner?.getTileTagTogglePreview) {
@@ -604,19 +620,36 @@ export function createBoardView(opts) {
         }
       }
       if (actionPlanner?.setTileTagToggleIntent) {
-        return actionPlanner.setTileTagToggleIntent({
+        const res = actionPlanner.setTileTagToggleIntent({
           envCol,
           tagId,
           disabled: nextDisabled,
         });
+        if (res?.ok === false && res?.reason === "insufficientAP") {
+          flashTilePlanFailure({
+            description: `Tag ${tagName} > ${tileName}: ${
+              nextDisabled ? "Off" : "On"
+            }`,
+            cost: getTilePlanCost(),
+          });
+        }
+        return res;
       }
       if (!dispatchAction) return { ok: false, reason: "noDispatch" };
-      dispatchAction(
+      const res = dispatchAction(
         ActionKinds.TOGGLE_TILE_TAG,
         { envCol, tagId, disabled: nextDisabled },
         { apCost: 5 }
       );
-      return { ok: true };
+      if (res?.ok === false && res?.reason === "insufficientAP") {
+        flashTilePlanFailure({
+          description: `Tag ${tagName} > ${tileName}: ${
+            nextDisabled ? "Off" : "On"
+          }`,
+          cost: getTilePlanCost(),
+        });
+      }
+      return res ?? { ok: true };
     };
     if (typeof queueActionWhenPaused === "function") {
       return queueActionWhenPaused(run);
@@ -944,6 +977,31 @@ export function createBoardView(opts) {
       : def?.color ?? 0x6f8a6f;
     const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
     return { def, title, desc, color, tags };
+  }
+
+  function getTileNameByCol(envCol) {
+    const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+    const state = getGameState?.();
+    const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
+    if (tile) {
+      const def = envTileDefs[tile.defId];
+      return def?.name || tile.defId || `Tile ${col}`;
+    }
+    return col != null ? `Tile ${col}` : "Tile";
+  }
+
+  function getTilePlanCost() {
+    return Math.max(
+      0,
+      Math.floor(
+        INTENT_AP_COSTS?.tilePlan ?? INTENT_AP_COSTS?.tileTagOrder ?? 0
+      )
+    );
+  }
+
+  function flashTilePlanFailure(spec) {
+    if (!spec || typeof flashActionGhost !== "function") return;
+    flashActionGhost(spec, "fail");
   }
 
 

@@ -68,8 +68,12 @@ export function createTilePanels(opts) {
               envCol,
               cropId: nextCrop,
             });
-            if (typeof flashActionGhost === "function") {
-              flashActionGhost(ghostSpec, res?.ok === false ? "fail" : "success");
+            if (
+              res?.ok === false &&
+              res?.reason === "insufficientAP" &&
+              typeof flashActionGhost === "function"
+            ) {
+              flashActionGhost(ghostSpec, "fail");
             }
             return res;
           }
@@ -79,9 +83,6 @@ export function createTilePanels(opts) {
             { envCol, cropId: nextCrop },
             { apCost: 10 }
           );
-          if (typeof flashActionGhost === "function") {
-            flashActionGhost(ghostSpec, "success");
-          }
           return { ok: true };
         };
         if (typeof queueActionWhenPaused === "function") {

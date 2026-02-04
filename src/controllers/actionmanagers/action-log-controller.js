@@ -62,6 +62,45 @@ function formatTileName(envCol, state) {
   return def?.name || tile?.defId || `Tile ${col}`;
 }
 
+function isTilePlanIntent(intent) {
+  if (!intent) return false;
+  return (
+    intent.kind === IntentKinds.TILE_TAG_ORDER ||
+    intent.kind === IntentKinds.TILE_TAG_TOGGLE ||
+    intent.kind === IntentKinds.TILE_CROP_SELECT
+  );
+}
+
+function isTilePlanAction(action) {
+  const kind = action?.kind;
+  return (
+    kind === ActionKinds.SET_TILE_TAG_ORDER ||
+    kind === ActionKinds.TOGGLE_TILE_TAG ||
+    kind === ActionKinds.SET_TILE_CROP_SELECTION
+  );
+}
+
+function formatTilePlanLabel(envCol, state) {
+  const tileName = formatTileName(envCol, state);
+  return `Tags > ${tileName} changed`;
+}
+
+function getTilePlanIntentSignature(intent) {
+  if (!intent) return "";
+  if (intent.kind === IntentKinds.TILE_TAG_ORDER) {
+    const tags = Array.isArray(intent.tagIds) ? intent.tagIds : [];
+    return `order:${tags.join(",")}`;
+  }
+  if (intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
+    return `toggle:${intent.tagId ?? ""}:${intent.disabled === true}`;
+  }
+  if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
+    const crop = intent.cropId ?? "none";
+    return `crop:${crop}`;
+  }
+  return intent.kind || "";
+}
+
 function formatPlacementName(placement, state) {
   if (!placement) return "Location";
   if (Number.isFinite(placement.envCol)) {
@@ -158,6 +197,7 @@ function formatCurrencyGroupDescription(group, getOwnerLabel) {
 function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
   const groupByKey = new Map();
   const groupKeyByIntentId = new Map();
+  const tilePlanGroups = new Map();
 
   for (const intent of intents) {
     if (intent?.kind !== IntentKinds.ITEM_TRANSFER) continue;
@@ -194,6 +234,38 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
 
   const rowsOut = [];
   const emittedGroups = new Set();
+  const emittedTilePlans = new Set();
+
+  for (const intent of intents) {
+    if (!isTilePlanIntent(intent)) continue;
+    const envCol = Number.isFinite(intent.envCol)
+      ? Math.floor(intent.envCol)
+      : null;
+    if (envCol == null) continue;
+    const key = envCol;
+    let group = tilePlanGroups.get(key);
+    if (!group) {
+      group = {
+        envCol,
+        intentIds: [],
+        cost: 0,
+        isFocused: false,
+        focusIntentId: null,
+        signatures: [],
+      };
+      tilePlanGroups.set(key, group);
+    }
+    const intentId = intent?.id ?? intent?.subjectKey ?? null;
+    if (intentId != null) {
+      group.intentIds.push(intentId);
+      const cost = planner?.getIntentCost?.(intentId) ?? 0;
+      if (cost > group.cost) group.cost = cost;
+      if (!group.focusIntentId) group.focusIntentId = intentId;
+      if (focus && focus.id === intentId) group.isFocused = true;
+    }
+    const sig = getTilePlanIntentSignature(intent);
+    if (sig) group.signatures.push(sig);
+  }
 
   for (const intent of intents) {
     const intentId = intent?.id ?? intent?.subjectKey ?? null;
@@ -215,6 +287,28 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
         intentIds: group.intentIds.slice(),
         focusIntentId: isFocused ? focus.id : group.intentIds[0] ?? null,
         isFocused,
+        isUndoable: true,
+      });
+      continue;
+    }
+
+    if (isTilePlanIntent(intent)) {
+      const envCol = Number.isFinite(intent.envCol)
+        ? Math.floor(intent.envCol)
+        : null;
+      if (envCol == null) continue;
+      if (emittedTilePlans.has(envCol)) continue;
+      emittedTilePlans.add(envCol);
+      const group = tilePlanGroups.get(envCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `tilePlan:${envCol}`,
+        description: formatTilePlanLabel(envCol, state),
+        cost: group.cost,
+        signature: group.signatures.slice().sort().join("|"),
+        intentIds: group.intentIds.slice(),
+        focusIntentId: group.focusIntentId,
+        isFocused: group.isFocused,
         isUndoable: true,
       });
       continue;
@@ -246,6 +340,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
 function buildActionRowSpecs(actions, state, getOwnerLabel) {
   const groupByKey = new Map();
   const groupKeyByAction = new Map();
+  const tilePlanGroups = new Map();
 
   for (const action of actions) {
     if (action.kind !== ActionKinds.INVENTORY_MOVE) continue;
@@ -279,8 +374,31 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     groupKeyByAction.set(action, info.key);
   }
 
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    if (!isTilePlanAction(action)) continue;
+    const payload = action.payload || {};
+    const envCol = Number.isFinite(payload.envCol)
+      ? Math.floor(payload.envCol)
+      : Number.isFinite(payload.toEnvCol)
+      ? Math.floor(payload.toEnvCol)
+      : null;
+    if (envCol == null) continue;
+    let group = tilePlanGroups.get(envCol);
+    if (!group) {
+      group = { envCol, cost: 0, firstIndex: i };
+      tilePlanGroups.set(envCol, group);
+    }
+    const apCost =
+      Number.isFinite(action.apCost) || Number.isFinite(payload.apCost)
+        ? Math.floor(action.apCost ?? payload.apCost ?? 0)
+        : 0;
+    if (apCost > group.cost) group.cost = apCost;
+  }
+
   const rowsOut = [];
   const emittedGroups = new Set();
+  const emittedTilePlans = new Set();
 
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i];
@@ -297,6 +415,26 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       rowsOut.push({
         id: groupKey,
         description: desc,
+        cost: group.cost,
+        isUndoable: false,
+      });
+      continue;
+    }
+
+    if (isTilePlanAction(action)) {
+      const envCol = Number.isFinite(payload.envCol)
+        ? Math.floor(payload.envCol)
+        : Number.isFinite(payload.toEnvCol)
+        ? Math.floor(payload.toEnvCol)
+        : null;
+      if (envCol == null) continue;
+      if (emittedTilePlans.has(envCol)) continue;
+      emittedTilePlans.add(envCol);
+      const group = tilePlanGroups.get(envCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `tilePlan:${envCol}:${group.firstIndex}`,
+        description: formatTilePlanLabel(envCol, state),
         cost: group.cost,
         isUndoable: false,
       });

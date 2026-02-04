@@ -186,6 +186,8 @@ export function createActionLogView({
   const rowEntriesByIntent = new Map();
   const hiddenRowIntentIds = new Set();
   let pendingRowFlash = null;
+  let hasBuiltIntentRows = false;
+  let lastRowSignature = new Map();
 
   function applyGhostSpec(entry, spec) {
     if (!entry || !spec) return;
@@ -395,11 +397,18 @@ export function createActionLogView({
     }, GHOST_FLASH_MS);
   }
 
-  function buildRows(rowSpecs, planner) {
+  function buildRows(rowSpecs, planner, opts = {}) {
     rows.removeChildren();
     rowEntriesByIntent.clear();
     let y = 0;
+    const trackSignature = !!opts.trackSignature;
+    const flashChanged = !!opts.flashChanged;
+    const canFlash = flashChanged && hasBuiltIntentRows;
+    const nextRowSignature = new Map();
+    const rowsToFlash = [];
+    const pendingIntentId = pendingRowFlash?.intentId ?? null;
 
+    let rowIndex = 0;
     for (const spec of rowSpecs) {
       const row = new PIXI.Container();
       row.x = 0;
@@ -461,6 +470,28 @@ export function createActionLogView({
       rows.addChild(row);
       y += ROW_HEIGHT + ROW_GAP;
 
+      const rowId = spec.id ?? `row:${rowIndex}`;
+      const sig = `${spec.description ?? ""}|${spec.cost ?? 0}|${
+        spec.signature ?? ""
+      }`;
+      if (trackSignature) {
+        nextRowSignature.set(rowId, sig);
+        if (canFlash) {
+          const prevSig = lastRowSignature.get(rowId);
+          if (prevSig == null || prevSig !== sig) {
+            const intentIds = Array.isArray(spec.intentIds)
+              ? spec.intentIds
+              : [];
+            if (
+              !pendingIntentId ||
+              !intentIds.includes(pendingIntentId)
+            ) {
+              rowsToFlash.push(row);
+            }
+          }
+        }
+      }
+
       if (Array.isArray(spec.intentIds)) {
         for (const intentId of spec.intentIds) {
           if (!intentId) continue;
@@ -470,6 +501,12 @@ export function createActionLogView({
     }
 
     currentRowCount = Array.isArray(rowSpecs) ? rowSpecs.length : 0;
+
+    if (trackSignature) {
+      lastRowSignature = nextRowSignature;
+      hasBuiltIntentRows = true;
+      rowIndex += 1;
+    }
 
     if (pendingRowFlash) {
       const entry = rowEntriesByIntent.get(pendingRowFlash.intentId);
@@ -489,18 +526,26 @@ export function createActionLogView({
     }
 
     layoutGhostRows();
+
+    if (canFlash) {
+      for (const row of rowsToFlash) {
+        flashRow(row, "success");
+      }
+    }
   }
 
   function rebuildFromIntents() {
     const planner = typeof getPlanner === "function" ? getPlanner() : null;
     if (!planner) return;
     const rowSpecs = logController.getIntentRowSpecs();
-    buildRows(rowSpecs, planner);
+    buildRows(rowSpecs, planner, { trackSignature: true, flashChanged: true });
   }
 
   function rebuildFromTimeline() {
     const rowSpecs = logController.getActionRowSpecsForCurrentSec();
     buildRows(rowSpecs, null);
+    hasBuiltIntentRows = false;
+    lastRowSignature.clear();
   }
 
   function update(dt) {
