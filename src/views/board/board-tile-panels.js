@@ -61,6 +61,7 @@ export function createTilePanels(opts) {
               INTENT_AP_COSTS?.tilePlan ?? INTENT_AP_COSTS?.tileCropSelect ?? 0
             )
           ),
+          intentId: `tileCrop:${envCol}`,
         };
         const run = () => {
           if (actionPlanner?.setTileCropSelectionIntent) {
