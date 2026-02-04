@@ -6,6 +6,8 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
@@ -1127,6 +1129,10 @@ export function createBoardView(opts) {
 
   function getHubStructureUi(structureInst) {
     const def = hubStructureDefs[structureInst.defId];
+    const build = structureInst?.build;
+    if (build && build.status === "underConstruction") {
+      return getConstructionUi(structureInst, def);
+    }
     const ui = def?.ui || {};
     const title =
       (typeof ui.title === "function"
@@ -1141,6 +1147,50 @@ export function createBoardView(opts) {
       .filter(Boolean);
     const meters = Array.isArray(ui.meters) ? ui.meters : [];
     return { def, title, lines, color: def?.color ?? 0x336699, meters };
+  }
+
+  function formatBuildRequirementLabel(req) {
+    if (!req || typeof req !== "object") return "Resource";
+    if (req.kind === "item") {
+      const def = itemDefs?.[req.itemId];
+      return def?.name || req.itemId || "Item";
+    }
+    if (req.kind === "tag") {
+      const def = itemTagDefs?.[req.tag];
+      return def?.ui?.name || req.tag || "Tag";
+    }
+    if (req.kind === "resource") {
+      return req.resource || "Resource";
+    }
+    return "Resource";
+  }
+
+  function getConstructionUi(structureInst, def) {
+    const build = structureInst?.build || {};
+    const title = `${def?.name || structureInst.defId} (Construction)`;
+    const lines = [];
+    const requirements = Array.isArray(build.requirements)
+      ? build.requirements
+      : [];
+
+    if (requirements.length > 0) {
+      lines.push("Resources:");
+      for (const req of requirements) {
+        const label = formatBuildRequirementLabel(req);
+        const required = Math.max(0, Math.floor(req?.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+        lines.push(`${label}: ${progress}/${required}`);
+      }
+    } else {
+      lines.push("Resources: none");
+    }
+
+    const laborRequired = Math.max(0, Math.floor(build.laborRequiredSec ?? 0));
+    const laborProgress = Math.max(0, Math.floor(build.laborProgress ?? 0));
+    const laborRemaining = Math.max(0, laborRequired - laborProgress);
+    lines.push(`Labor: ${laborRemaining}s remaining`);
+
+    return { def, title, lines, color: 0x6f6f6f, meters: [] };
   }
 
   // --------------------------------------------------------
@@ -1213,6 +1263,94 @@ export function createBoardView(opts) {
       barFill.drawRoundedRect(8, labelText.y + 14, width * ratio, 6, 3);
       barFill.endFill();
     }
+  }
+
+  function updateHubStructureViewUi(view, structureInst) {
+    if (!view || !structureInst) return false;
+    const ui = getHubStructureUi(structureInst);
+    const signature = `${ui.title}|${ui.lines.join("|")}|${ui.color}`;
+    if (signature === view.uiSignature) {
+      if (view.cancelButton) {
+        view.cancelButton.visible =
+          structureInst?.build?.status === "underConstruction";
+      }
+      return false;
+    }
+    view.uiSignature = signature;
+
+    if (view.cardFill && view.cardFillColor !== ui.color) {
+      view.cardFill.clear();
+      view.cardFill
+        .beginFill(ui.color)
+        .drawRoundedRect(3, 3, view.cardWidth - 6, view.cardHeight - 6, 8)
+        .endFill();
+      view.cardFillColor = ui.color;
+    }
+
+    if (view.titleText) {
+      view.titleText.text = ui.title;
+    }
+
+    if (Array.isArray(view.lineTextNodes)) {
+      for (const node of view.lineTextNodes) {
+        if (node?.parent) node.parent.removeChild(node);
+      }
+      view.lineTextNodes.length = 0;
+    } else {
+      view.lineTextNodes = [];
+    }
+
+    let y = view.titleText.y + view.titleText.height + 2;
+    const maxLineY = view.cardHeight - 40;
+    for (const line of ui.lines) {
+      const t = new PIXI.Text(line, {
+        fill: 0x000000,
+        fontSize: 10,
+        wordWrap: true,
+        wordWrapWidth: view.cardWidth - 12,
+      });
+      t.x = 6;
+      t.y = y;
+      view.content.addChild(t);
+      view.lineTextNodes.push(t);
+      y += t.height + 1;
+      if (y > maxLineY) break;
+    }
+
+    if (Array.isArray(view.hoverTextBaseNodes)) {
+      view.hoverTextBaseNodes.length = 0;
+      view.hoverTextBaseNodes.push(view.titleText, ...view.lineTextNodes);
+    }
+
+    if (Array.isArray(view.hoverTextNodes)) {
+      view.hoverTextNodes.length = 0;
+      if (Array.isArray(view.hoverTextBaseNodes)) {
+        view.hoverTextNodes.push(...view.hoverTextBaseNodes);
+      }
+      for (const meterView of view.meterViews || []) {
+        if (meterView?.labelText) view.hoverTextNodes.push(meterView.labelText);
+      }
+      for (const entry of view.tagEntries || []) {
+        if (entry?.labelText) view.hoverTextNodes.push(entry.labelText);
+        if (entry?.expandText) view.hoverTextNodes.push(entry.expandText);
+      }
+      setTextResolution(
+        view.hoverTextNodes,
+        view.isHovered ? HOVER_TEXT_RESOLUTION : BASE_TEXT_RESOLUTION
+      );
+    }
+
+    view.tagStartY = Math.min(y + 4, view.cardHeight - 12);
+    view.tagContainer.y = view.tagStartY;
+    view.tagMaxY = view.cardHeight - 6;
+    hubTagUi?.layoutTagEntries?.(view);
+
+    if (view.cancelButton) {
+      view.cancelButton.visible =
+        structureInst?.build?.status === "underConstruction";
+    }
+
+    return true;
   }
 
   // --------------------------------------------------------
@@ -1534,6 +1672,7 @@ export function createBoardView(opts) {
     cont.cursor = "pointer";
     cont.zIndex = 1;
     const hoverTextNodes = [];
+    const hoverTextBaseNodes = [];
     const { content, setActive: setHoverActive } = attachHoverFx(
       cont,
       width,
@@ -1542,19 +1681,17 @@ export function createBoardView(opts) {
       () => hoverTextNodes
     );
 
-    content.addChild(
-      new PIXI.Graphics()
-        .beginFill(0x3a3a3a)
-        .drawRoundedRect(0, 0, width, height, 10)
-        .endFill()
-    );
+    const baseBg = new PIXI.Graphics()
+      .beginFill(0x3a3a3a)
+      .drawRoundedRect(0, 0, width, height, 10)
+      .endFill();
+    content.addChild(baseBg);
 
-    content.addChild(
-      new PIXI.Graphics()
-        .beginFill(color)
-        .drawRoundedRect(3, 3, width - 6, height - 6, 8)
-        .endFill()
-    );
+    const cardFill = new PIXI.Graphics()
+      .beginFill(color)
+      .drawRoundedRect(3, 3, width - 6, height - 6, 8)
+      .endFill();
+    content.addChild(cardFill);
 
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
@@ -1565,9 +1702,11 @@ export function createBoardView(opts) {
     titleText.x = 6;
     titleText.y = 6;
     content.addChild(titleText);
+    hoverTextBaseNodes.push(titleText);
     hoverTextNodes.push(titleText);
 
     let y = titleText.y + titleText.height + 2;
+    const lineTextNodes = [];
     for (const line of lines) {
       const t = new PIXI.Text(line, {
         fill: 0x000000,
@@ -1578,6 +1717,8 @@ export function createBoardView(opts) {
       t.x = 6;
       t.y = y;
       content.addChild(t);
+      lineTextNodes.push(t);
+      hoverTextBaseNodes.push(t);
       hoverTextNodes.push(t);
       y += t.height + 1;
       if (y > height - 40) break;
@@ -1618,6 +1759,47 @@ export function createBoardView(opts) {
     focusOutline.visible = false;
     content.addChild(focusOutline);
 
+    const cancelButton = new PIXI.Container();
+    cancelButton.eventMode = "static";
+    cancelButton.cursor = "pointer";
+    cancelButton.x = Math.max(6, width - 58);
+    cancelButton.y = 6;
+    cancelButton.visible = structureInst?.build?.status === "underConstruction";
+
+    const cancelBg = new PIXI.Graphics()
+      .beginFill(0x8a1f2a, 0.9)
+      .drawRoundedRect(0, 0, 52, 16, 6)
+      .endFill();
+    cancelButton.addChild(cancelBg);
+
+    const cancelText = new PIXI.Text("Cancel", {
+      fill: 0xffffff,
+      fontSize: 9,
+      fontWeight: "bold",
+    });
+    cancelText.x = 6;
+    cancelText.y = 2;
+    cancelButton.addChild(cancelText);
+
+    cancelButton.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      if (typeof queueActionWhenPaused !== "function" || !dispatchAction) return;
+      const anchorCol = Number.isFinite(structureInst?.col)
+        ? Math.floor(structureInst.col)
+        : Number.isFinite(col)
+        ? Math.floor(col)
+        : 0;
+      queueActionWhenPaused(() =>
+        dispatchAction(
+          ActionKinds.BUILD_CANCEL,
+          { hubCol: anchorCol, defId: structureInst.defId },
+          { apCost: 0 }
+        )
+      );
+    });
+
+    content.addChild(cancelButton);
+
     function structureHasInventory() {
       const s = getGameState?.();
       return !!s?.ownerInventories?.[structureInst.instanceId];
@@ -1625,11 +1807,15 @@ export function createBoardView(opts) {
 
     const view = {
       container: cont,
+      content,
       structure: structureInst,
       col,
       isHovered: false,
       pawnCount: 0,
       meterViews,
+      lineTextNodes,
+      titleText,
+      hoverTextBaseNodes,
       tagContainer,
       tagStartY,
       tagMaxY,
@@ -1643,11 +1829,17 @@ export function createBoardView(opts) {
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
+      cardFill,
+      cardFillColor: color,
+      cardWidth: width,
+      cardHeight: height,
+      uiSignature: null,
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
       focusOutline,
       isFocused: false,
+      cancelButton,
     };
 
     hubTagUi?.rebuildStructureTags?.(view, structureInst);
@@ -1949,12 +2141,16 @@ export function createBoardView(opts) {
     for (const view of hubStructureViews.values()) {
       const col = Number.isFinite(view.col) ? view.col : 0;
       view.pawnCount = pawnCounts[col] || 0;
+      updateHubStructureViewUi(view, view.structure);
       if (view.meterViews.length > 0) {
         updateMeters(view.meterViews, view.structure);
       }
-      const tags = Array.isArray(view.structure?.tags)
-        ? view.structure.tags
-        : [];
+      const tags =
+        view.structure?.build?.status === "underConstruction"
+          ? []
+          : Array.isArray(view.structure?.tags)
+          ? view.structure.tags
+          : [];
       const signature = tags.join("|");
       if (signature !== view.tagSignature) {
         hubTagUi?.rebuildStructureTags?.(view, view.structure);

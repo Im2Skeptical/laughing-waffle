@@ -21,6 +21,7 @@ import {
   computeIntentCostSummary,
 } from "./action-costs.js";
 import { placementEquals } from "./action-placement-utils.js";
+import { validateHubConstructionPlacement } from "../../model/build-helpers.js";
 
 function clonePlacement(p) {
   return p ? { ...p } : null;
@@ -100,6 +101,16 @@ function normalizeApCost(value) {
 function normalizeCropId(value) {
   if (value == null || value === "") return null;
   return String(value);
+}
+
+function normalizeBuildHubCol(target) {
+  if (!target || typeof target !== "object") return null;
+  const raw =
+    target.hubCol ??
+    target.col ??
+    target.hub ??
+    null;
+  return Number.isFinite(raw) ? Math.floor(raw) : null;
 }
 
 export function createActionPlanner({
@@ -1112,17 +1123,34 @@ export function createActionPlanner({
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
-    if (!buildKey) return { ok: false, reason: "noBuildKey" };
+    const targetCol = normalizeBuildHubCol(target);
+    const resolvedKey =
+      buildKey ||
+      (Number.isFinite(targetCol) ? `hub:${Math.floor(targetCol)}` : null);
+    if (!resolvedKey) return { ok: false, reason: "noBuildKey" };
+    if (!defId) return { ok: false, reason: "badDefId" };
 
-    const subjectKey = `build:${buildKey}`;
+    const placementCheck = validateHubConstructionPlacement(
+      state,
+      defId,
+      targetCol
+    );
+    if (!placementCheck?.ok) return placementCheck || { ok: false, reason: "badPlacement" };
+
+    const subjectKey = `build:${resolvedKey}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+
+    const normalizedTarget =
+      target && typeof target === "object"
+        ? { ...target, hubCol: placementCheck.hubCol }
+        : { hubCol: placementCheck.hubCol };
 
     const intent = makeBuildDesignateIntent({
       id: subjectKey,
       subjectKey,
-      buildKey,
+      buildKey: resolvedKey,
       defId: defId ?? existing?.defId ?? null,
-      target: target ?? existing?.target ?? null,
+      target: normalizedTarget ?? existing?.target ?? null,
       apCostOverride:
         existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
       source: existing?.source ?? "planner",

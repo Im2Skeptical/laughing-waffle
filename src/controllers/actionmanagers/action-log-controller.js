@@ -593,6 +593,15 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       desc = `${pawnName} > ${dest}`;
     } else if (kind === ActionKinds.BUILD_DESIGNATE) {
       desc = `Build ${payload.defId || payload.buildKey || "Plan"}`;
+    } else if (kind === ActionKinds.BUILD_CANCEL) {
+      const hubCol = Number.isFinite(payload.hubCol)
+        ? Math.floor(payload.hubCol)
+        : null;
+      const hubName = hubCol != null ? formatHubName(hubCol, state) : "Hub";
+      const defName = payload.defId
+        ? hubStructureDefs[payload.defId]?.name || payload.defId
+        : "Structure";
+      desc = `Cancel ${defName} @ ${hubName}`;
     } else if (kind === ActionKinds.SET_TILE_TAG_ORDER) {
       const tileName = formatTileName(payload.envCol, state);
       desc = `Tags > ${tileName}`;
@@ -643,6 +652,7 @@ function isLogAction(action) {
   }
   if (kind === ActionKinds.PLACE_CHARACTER) return true;
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
+  if (kind === ActionKinds.BUILD_CANCEL) return true;
   if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;
   if (kind === ActionKinds.SET_HUB_TAG_ORDER) return true;
   if (kind === ActionKinds.TOGGLE_TILE_TAG) return true;

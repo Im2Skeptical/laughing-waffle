@@ -25,6 +25,8 @@ import {
   cmdSetPaused,
   cmdSetTileTagOrder,
   cmdSetTileCropSelection,
+  cmdBuildDesignate,
+  cmdCancelBuild,
   canOwnerAcceptItem,
   cmdAdjustFollowerCount,
 } from "./commands.js";
@@ -109,6 +111,8 @@ export {
   cmdSetPaused,
   cmdSetTileTagOrder,
   cmdSetTileCropSelection,
+  cmdBuildDesignate,
+  cmdCancelBuild,
   cmdAdjustFollowerCount,
   canOwnerAcceptItem,
 };

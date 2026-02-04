@@ -6,6 +6,7 @@ import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { validateHubConstructionPlacement } from "./build-helpers.js";
 import {
   SEASON_DURATION_SEC,
   AP_INCOME_PER_SEC,
@@ -16,6 +17,9 @@ import {
 import {
   getCurrentSeasonKey,
   buildSeasonDeckForCurrentSeason,
+  makeHubStructureInstance,
+  ensureHubState,
+  rebuildHubOccupancy,
 } from "./state.js";
 
 import {
@@ -120,6 +124,162 @@ function maybeAdvanceSeasonBySimTime(state, dt) {
   }
 
   return advanced;
+}
+
+// =============================================================================
+// HUB CONSTRUCTION
+// =============================================================================
+
+function normalizeBuildRequirements(def) {
+  const raw = Array.isArray(def?.build?.requirements) ? def.build.requirements : [];
+  const out = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const amountRaw = entry.amount;
+    const amount = Number.isFinite(amountRaw) ? Math.max(0, Math.floor(amountRaw)) : 0;
+    if (amount <= 0) continue;
+
+    const kind =
+      typeof entry.kind === "string" && entry.kind.length
+        ? entry.kind
+        : null;
+    const itemId =
+      typeof entry.itemId === "string" && entry.itemId.length
+        ? entry.itemId
+        : null;
+    const tag =
+      typeof entry.tag === "string" && entry.tag.length
+        ? entry.tag
+        : typeof entry.itemTag === "string" && entry.itemTag.length
+        ? entry.itemTag
+        : null;
+    const resource =
+      typeof entry.resource === "string" && entry.resource.length
+        ? entry.resource
+        : null;
+
+    if (kind === "item" || (!kind && itemId)) {
+      if (!itemId) continue;
+      out.push({ kind: "item", itemId, amount });
+      continue;
+    }
+    if (kind === "tag" || (!kind && tag)) {
+      if (!tag) continue;
+      out.push({ kind: "tag", tag, amount });
+      continue;
+    }
+    if (kind === "resource" || (!kind && resource)) {
+      if (!resource) continue;
+      out.push({ kind: "resource", resource, amount });
+      continue;
+    }
+  }
+  return out;
+}
+
+function createConstructionState(def, tSec) {
+  const laborRaw = def?.build?.laborSec ?? def?.build?.labor ?? 0;
+  const laborRequiredSec = Number.isFinite(laborRaw)
+    ? Math.max(0, Math.floor(laborRaw))
+    : 0;
+  const requirements = normalizeBuildRequirements(def).map((req) => ({
+    ...req,
+    progress: 0,
+  }));
+  return {
+    status: "underConstruction",
+    startedSec: Number.isFinite(tSec) ? Math.floor(tSec) : 0,
+    laborRequiredSec,
+    laborProgress: 0,
+    requirements,
+  };
+}
+
+export function cmdBuildDesignate(state, payload = {}) {
+  const defId = payload.defId ?? null;
+  const target = payload.target ?? {};
+  const hubCol =
+    payload.hubCol ??
+    target.hubCol ??
+    target.col ??
+    null;
+
+  const validity = validateHubConstructionPlacement(state, defId, hubCol);
+  if (!validity?.ok) return validity || { ok: false, reason: "badPlacement" };
+
+  const def = validity.def;
+  const col = validity.hubCol;
+  const structure = makeHubStructureInstance(defId, state);
+  structure.build = createConstructionState(def, state?.tSec ?? 0);
+
+  const slot = state.hub.slots[col];
+  if (slot && typeof slot === "object") {
+    slot.structure = structure;
+  } else {
+    state.hub.slots[col] = { structure };
+  }
+
+  ensureHubState(state);
+  rebuildHubOccupancy(state);
+
+  return {
+    ok: true,
+    result: "buildDesignated",
+    defId,
+    hubCol: col,
+    structureId: structure.instanceId,
+  };
+}
+
+export function cmdCancelBuild(state, payload = {}) {
+  if (!state?.hub || !Array.isArray(state.hub.slots)) {
+    return { ok: false, reason: "noHub" };
+  }
+  const target = payload.target ?? {};
+  const hubCol =
+    payload.hubCol ??
+    target.hubCol ??
+    target.col ??
+    null;
+  if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+  const col = Math.floor(hubCol);
+
+  const structure =
+    state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
+  if (!structure) return { ok: false, reason: "noHubStructure" };
+  if (structure?.build?.status !== "underConstruction") {
+    return { ok: false, reason: "notUnderConstruction" };
+  }
+
+  const anchorCol = Number.isFinite(structure.col)
+    ? Math.floor(structure.col)
+    : col;
+
+  const slot = state.hub.slots[anchorCol];
+  if (slot?.structure?.instanceId === structure.instanceId) {
+    slot.structure = null;
+  } else {
+    for (const s of state.hub.slots) {
+      if (s?.structure?.instanceId === structure.instanceId) {
+        s.structure = null;
+        break;
+      }
+    }
+  }
+
+  if (state.ownerInventories) {
+    delete state.ownerInventories[structure.instanceId];
+  }
+
+  rebuildHubOccupancy(state);
+
+  return {
+    ok: true,
+    result: "buildCancelled",
+    defId: structure.defId,
+    hubCol: anchorCol,
+    structureId: structure.instanceId,
+  };
 }
 
 // =============================================================================
@@ -799,7 +959,7 @@ function getOwnerKindAndDef(state, ownerId) {
   for (const slot of slots) {
     if (slot.structure && slot.structure.instanceId === ownerId) {
       const def = hubStructureDefs[slot.structure.defId];
-      return { kind: "hubStructure", def };
+      return { kind: "hubStructure", def, structure: slot.structure };
     }
   }
 
@@ -816,7 +976,7 @@ function itemHasAnyTag(item, tags) {
 }
 
 export function canOwnerAcceptItem(state, ownerId, item) {
-  const { kind, def } = getOwnerKindAndDef(state, ownerId);
+  const { kind, def, structure } = getOwnerKindAndDef(state, ownerId);
 
   if (kind === "character") {
     const tags = Array.isArray(item?.tags) ? item.tags : [];
@@ -825,6 +985,7 @@ export function canOwnerAcceptItem(state, ownerId, item) {
   }
 
   if (kind === "hubStructure" && def) {
+    if (structure?.build?.status === "underConstruction") return true;
     const rules = def.inventoryRules;
     if (!rules) return true;
     if (rules.allowedAll) return true;

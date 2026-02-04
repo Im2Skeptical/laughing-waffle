@@ -47,6 +47,7 @@ export function createCharactersView(opts) {
     tooltipView,
     inventoryView,
     onCharacterDropped,
+    onCharacterClicked,
     requestPauseForAction,
     getPawnMoveAffordability,
     setDragGhost,
@@ -782,6 +783,7 @@ export function createCharactersView(opts) {
       const g = ev.data.global;
 
       if (!wasDragging) {
+        onCharacterClicked?.({ charId: char.id });
         // click -> toggle pinned inventory (optional)
         const inv = getInvSafe();
         inv?.togglePinned?.(char.id);

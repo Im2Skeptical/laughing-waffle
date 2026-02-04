@@ -16,6 +16,8 @@ import {
   cmdSetTileCropSelection,
   cmdDebugQueueEnvEvent,
   cmdAdjustFollowerCount,
+  cmdBuildDesignate,
+  cmdCancelBuild,
 } from "./commands.js";
 
 export const ActionKinds = {
@@ -25,6 +27,7 @@ export const ActionKinds = {
   INVENTORY_STACK: "inventoryStack",
   INVENTORY_DISCARD: "inventoryDiscard",
   BUILD_DESIGNATE: "buildDesignate",
+  BUILD_CANCEL: "buildCancel",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
   SET_HUB_TAG_ORDER: "setHubTagOrder",
   TOGGLE_TILE_TAG: "toggleTileTag",
@@ -53,6 +56,7 @@ function getActionApCost(action) {
     kind === ActionKinds.INVENTORY_SPLIT ||
     kind === ActionKinds.INVENTORY_STACK ||
     kind === ActionKinds.BUILD_DESIGNATE ||
+    kind === ActionKinds.BUILD_CANCEL ||
     kind === ActionKinds.SET_TILE_CROP_SELECTION
     || kind === ActionKinds.SET_HUB_TAG_ORDER
     || kind === ActionKinds.TOGGLE_TILE_TAG
@@ -150,7 +154,11 @@ export function applyAction(state, action, context = {}) {
       break;
 
     case ActionKinds.BUILD_DESIGNATE:
-      result = { ok: true, result: "designated" };
+      result = cmdBuildDesignate(state, payload);
+      break;
+
+    case ActionKinds.BUILD_CANCEL:
+      result = cmdCancelBuild(state, payload);
       break;
 
     case ActionKinds.SET_TILE_TAG_ORDER:

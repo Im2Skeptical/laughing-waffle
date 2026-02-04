@@ -6,6 +6,8 @@ import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { applyGranaryDepositsForStructure } from "./prestige-system.js";
+import { Inventory } from "./inventory-model.js";
+import { bumpInvVersion } from "./effects/core/inventory-version.js";
 
 function requirementsPass(requires, seasonKey, structure, hasPawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -114,6 +116,174 @@ function getPawnsOnHubAnchor(state, anchor) {
   return out;
 }
 
+function itemHasTag(item, tag) {
+  if (!item || !tag) return false;
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  return tags.includes(tag);
+}
+
+function getItemIdsInGridOrder(inv) {
+  if (!inv) return [];
+  const grid = Array.isArray(inv.grid) ? inv.grid : null;
+  if (!grid) {
+    return Array.isArray(inv.items) ? inv.items.map((it) => it?.id) : [];
+  }
+  const seen = new Set();
+  const order = [];
+  for (let idx = 0; idx < grid.length; idx++) {
+    const id = grid[idx];
+    if (id == null || seen.has(id)) continue;
+    seen.add(id);
+    order.push(id);
+  }
+  return order;
+}
+
+function getItemsInGridOrder(inv) {
+  const ids = getItemIdsInGridOrder(inv);
+  if (!inv || !ids.length) return [];
+  const out = [];
+  for (const id of ids) {
+    const item = inv.itemsById?.[id] ?? inv.items?.find((it) => it.id === id);
+    if (item) out.push(item);
+  }
+  return out;
+}
+
+function consumeForRequirement(inv, requirement, amount) {
+  if (!inv || !requirement || amount <= 0) return 0;
+  const items = getItemsInGridOrder(inv);
+  let remaining = Math.max(0, Math.floor(amount));
+  let consumed = 0;
+
+  for (const item of items) {
+    if (remaining <= 0) break;
+    if (!item) continue;
+    if (requirement.kind === "item") {
+      if (item.kind !== requirement.itemId) continue;
+    } else if (requirement.kind === "tag") {
+      if (!itemHasTag(item, requirement.tag)) continue;
+    } else {
+      continue;
+    }
+
+    const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+    if (qty <= 0) continue;
+    const take = Math.min(qty, remaining);
+    item.quantity = qty - take;
+    consumed += take;
+    remaining -= take;
+    if (item.quantity <= 0) {
+      Inventory.removeItem(inv, item.id);
+    }
+  }
+
+  return consumed;
+}
+
+function getContributingPawns(state, structure) {
+  const pawns = getPawnsOnHubAnchor(state, structure);
+  const contributors = [];
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    ensurePawnSystems(pawn);
+    const stamina = pawn.systemState?.stamina;
+    const cur = Number.isFinite(stamina?.cur) ? Math.floor(stamina.cur) : 0;
+    if (cur <= 0) continue;
+    contributors.push(pawn);
+  }
+  return contributors;
+}
+
+function stepConstructionForStructure(state, structure, tSec) {
+  const build = structure?.build;
+  if (!build || build.status !== "underConstruction") return false;
+  if (build.blocked === true || build.blockedByEvent === true) return false;
+
+  const contributors = getContributingPawns(state, structure);
+  if (!contributors.length) return false;
+
+  const laborRequired = Math.max(0, Math.floor(build.laborRequiredSec ?? 0));
+  const laborProgress = Math.max(0, Math.floor(build.laborProgress ?? 0));
+  const laborRemaining = Math.max(0, laborRequired - laborProgress);
+
+  const inv = state?.ownerInventories?.[structure.instanceId] ?? null;
+  if (inv) {
+    Inventory.rebuildDerived(inv);
+  }
+
+  let didConsume = false;
+  let resourceBudget = contributors.length;
+  const reqs = Array.isArray(build.requirements) ? build.requirements : [];
+
+  for (const req of reqs) {
+    if (resourceBudget <= 0) break;
+    if (!req || typeof req !== "object") continue;
+    const required = Math.max(0, Math.floor(req.amount ?? 0));
+    const progress = Math.max(0, Math.floor(req.progress ?? 0));
+    const remaining = required - progress;
+    if (remaining <= 0) continue;
+
+    if (req.kind === "resource") {
+      const key = req.resource;
+      const available = Number.isFinite(state?.resources?.[key])
+        ? Math.max(0, Math.floor(state.resources[key]))
+        : 0;
+      if (available <= 0) continue;
+      const take = Math.min(remaining, resourceBudget, available);
+      if (take <= 0) continue;
+      state.resources[key] = available - take;
+      req.progress = progress + take;
+      resourceBudget -= take;
+      didConsume = true;
+      continue;
+    }
+
+    if (!inv) continue;
+    const take = consumeForRequirement(inv, req, Math.min(remaining, resourceBudget));
+    if (take <= 0) continue;
+    req.progress = progress + take;
+    resourceBudget -= take;
+    didConsume = true;
+  }
+
+  const laborDelta = Math.min(laborRemaining, contributors.length);
+  if (laborDelta > 0) {
+    build.laborProgress = laborProgress + laborDelta;
+  }
+
+  for (const pawn of contributors) {
+    const stamina = pawn.systemState?.stamina;
+    if (!stamina || typeof stamina !== "object") continue;
+    const cur = Number.isFinite(stamina.cur) ? Math.floor(stamina.cur) : 0;
+    stamina.cur = Math.max(0, cur - 1);
+  }
+
+  if (inv && didConsume) {
+    Inventory.rebuildDerived(inv);
+    bumpInvVersion(inv);
+  }
+
+  const laborDone =
+    Math.max(0, Math.floor(build.laborProgress ?? 0)) >= laborRequired;
+  let reqsDone = true;
+  for (const req of reqs) {
+    if (!req || typeof req !== "object") continue;
+    const required = Math.max(0, Math.floor(req.amount ?? 0));
+    const progress = Math.max(0, Math.floor(req.progress ?? 0));
+    if (progress < required) {
+      reqsDone = false;
+      break;
+    }
+  }
+
+  if (laborDone && reqsDone) {
+    delete structure.build;
+  }
+
+  return true;
+}
+
 export function stepHubSecond(state, tSec) {
   if (!state || !state.hub) return;
 
@@ -124,6 +294,10 @@ export function stepHubSecond(state, tSec) {
 
   for (const structure of anchors) {
     if (!structure) continue;
+    if (structure?.build?.status === "underConstruction") {
+      stepConstructionForStructure(state, structure, tSec);
+      continue;
+    }
     const hubCol = Number.isFinite(structure.col)
       ? Math.floor(structure.col)
       : 0;

@@ -6,6 +6,7 @@ export const pawnDefs = {
     id: "default",
     kind: "pawn",
     name: "Default Pawn",
+    buildableStructureIds: ["granary", "storehouse"],
     systems: ["stamina", "hunger"],
     passives: [
       {

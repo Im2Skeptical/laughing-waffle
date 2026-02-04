@@ -92,6 +92,11 @@ export function createHubTagUi(opts) {
     return entry?.disabled === true;
   }
 
+  function getStructureTags(structure) {
+    if (structure?.build?.status === "underConstruction") return [];
+    return Array.isArray(structure?.tags) ? structure.tags : [];
+  }
+
   function updateToggleVisual(entry, isDisabled) {
     if (!entry?.toggleBg || !entry?.toggleIcon) return;
     const fill = isDisabled ? 0x5a2a31 : 0x2e5c3f;
@@ -297,7 +302,7 @@ export function createHubTagUi(opts) {
   }
 
   function updateTagEntries(view, structure) {
-    const tags = Array.isArray(structure?.tags) ? structure.tags : [];
+    const tags = getStructureTags(structure);
     const enabledTags = tags.filter((tagId) => !isTagDisabled(structure, tagId));
     const topTagId = enabledTags[0] ?? null;
     const pawnCount =
@@ -335,7 +340,7 @@ export function createHubTagUi(opts) {
   }
 
   function rebuildStructureTags(view, structure) {
-    const tags = Array.isArray(structure?.tags) ? structure.tags : [];
+    const tags = getStructureTags(structure);
     view.tagSignature = tags.join("|");
 
     view.tagContainer.removeChildren();
