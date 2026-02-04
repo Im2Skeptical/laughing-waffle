@@ -26,6 +26,8 @@ const INNER_PADDING = 8;
 const DEFAULT_COLS = 5;
 const DEFAULT_ROWS = 3;
 const DEFAULT_CELL_SIZE = 40;
+const BIN_CELL_SIZE = 2;
+const BIN_PAD = 6;
 const ITEM_TIER_BORDER_WIDTH = 2;
 const ITEM_TIER_BORDER_COLORS = {
   bronze: 0x8b6a3f,
@@ -319,7 +321,9 @@ export function createInventoryView({
     const cellSize = DEFAULT_CELL_SIZE;
     const leader = getLeaderForOwner(ownerId);
 
-    const w = cols * cellSize + INNER_PADDING * 2;
+    const gridWidth = cols * cellSize;
+    const binSize = cellSize * BIN_CELL_SIZE;
+    const w = gridWidth + INNER_PADDING * 3 + binSize;
     const baseHeight =
       HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
     const leaderPanelHeight = leader ? LEADER_PANEL_HEIGHT + INNER_PADDING : 0;
@@ -385,8 +389,8 @@ export function createInventoryView({
 
     // Bin (discard) drop target
     const bin = new PIXI.Container();
-    bin.x = w - 62;
-    bin.y = 4;
+    bin.x = INNER_PADDING + gridWidth + INNER_PADDING;
+    bin.y = HEADER_HEIGHT + INNER_PADDING;
     bin.eventMode = "static";
     bin.cursor = "default";
     c.addChild(bin);
@@ -395,18 +399,18 @@ export function createInventoryView({
     binBg
       .lineStyle(1, 0x4b4f66, 1)
       .beginFill(0x1b1f2f, 0.9)
-      .drawRoundedRect(0, 0, 16, 16, 3)
+      .drawRoundedRect(0, 0, binSize, binSize, 6)
       .endFill();
     bin.addChild(binBg);
 
     const binIcon = new PIXI.Graphics();
     binIcon
-      .lineStyle(1, 0xd6d6e0, 1)
-      .drawRoundedRect(5, 6, 6, 7, 1)
-      .moveTo(4, 6)
-      .lineTo(12, 6)
-      .moveTo(6, 4)
-      .lineTo(10, 4);
+      .lineStyle(2, 0xd6d6e0, 1)
+      .drawRoundedRect(binSize * 0.35, binSize * 0.35, binSize * 0.3, binSize * 0.4, 2)
+      .moveTo(binSize * 0.3, binSize * 0.32)
+      .lineTo(binSize * 0.7, binSize * 0.32)
+      .moveTo(binSize * 0.42, binSize * 0.26)
+      .lineTo(binSize * 0.58, binSize * 0.26);
     bin.addChild(binIcon);
 
     // Close button

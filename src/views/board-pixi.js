@@ -515,7 +515,7 @@ export function createBoardView(opts) {
     return run();
   }
 
-  function dispatchTileTagToggle(envCol, tagId, disabled) {
+  function dispatchTileTagToggle({ envCol, tagId, disabled } = {}) {
     const run = () => {
       if (actionPlanner?.setTileTagToggleIntent) {
         return actionPlanner.setTileTagToggleIntent({ envCol, tagId, disabled });
@@ -604,7 +604,7 @@ export function createBoardView(opts) {
     return run();
   }
 
-  function dispatchHubTagToggle(hubCol, tagId, disabled) {
+  function dispatchHubTagToggle({ hubCol, tagId, disabled } = {}) {
     const run = () => {
       if (actionPlanner?.setHubTagToggleIntent) {
         return actionPlanner.setHubTagToggleIntent({ hubCol, tagId, disabled });
