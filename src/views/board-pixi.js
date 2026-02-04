@@ -108,6 +108,7 @@ export function createBoardView(opts) {
   let activeTagDrag = null;
   let activeHubTagDrag = null;
   let activeHover = null;
+  let focusedTileCol = null;
   let apDragWarningActive = false;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
@@ -474,6 +475,52 @@ export function createBoardView(opts) {
       },
       anchor
     );
+  }
+
+  function setTileFocus(view, active) {
+    if (!view?.focusOutline) return;
+    const next = !!active;
+    if (view.isFocused === next) return;
+    view.isFocused = next;
+    view.focusOutline.visible = next;
+  }
+
+  function clearAllTileFocus() {
+    for (const view of tileViews) {
+      if (!view?.isFocused) continue;
+      setTileFocus(view, false);
+    }
+    focusedTileCol = null;
+  }
+
+  function updateTileFocus() {
+    if (!actionPlanner?.getFocusIntent) {
+      if (focusedTileCol != null) clearAllTileFocus();
+      return;
+    }
+    const intent = actionPlanner.getFocusIntent?.();
+    const isTilePlan =
+      intent &&
+      (intent.kind === "tileTagOrder" ||
+        intent.kind === "tileTagToggle" ||
+        intent.kind === "tileCropSelect");
+    const nextCol =
+      isTilePlan && Number.isFinite(intent.envCol)
+        ? Math.floor(intent.envCol)
+        : null;
+    if (nextCol == null) {
+      if (focusedTileCol != null) clearAllTileFocus();
+      return;
+    }
+    if (focusedTileCol !== nextCol) {
+      if (focusedTileCol != null) {
+        const prev = tileViews[focusedTileCol];
+        if (prev) setTileFocus(prev, false);
+      }
+      focusedTileCol = nextCol;
+    }
+    const view = tileViews[nextCol];
+    if (view) setTileFocus(view, true);
   }
 
   function applyHubStructureHover(view) {
@@ -1186,6 +1233,12 @@ export function createBoardView(opts) {
     const apOverlay = createApOverlay(TILE_WIDTH, TILE_HEIGHT, 8);
     content.addChild(apOverlay);
 
+    const focusOutline = new PIXI.Graphics();
+    focusOutline.lineStyle(2, 0x7fd0ff, 1);
+    focusOutline.drawRoundedRect(2, 2, TILE_WIDTH - 4, TILE_HEIGHT - 4, 6);
+    focusOutline.visible = false;
+    content.addChild(focusOutline);
+
     hoverTextBaseNodes.push(titleText, pawnText);
     hoverTextNodes.push(...hoverTextBaseNodes);
 
@@ -1241,12 +1294,14 @@ export function createBoardView(opts) {
         holdHover: false,
         hoverHoldMove: null,
         holdHoverForOccupant: false,
-        pawnBadge,
-        pawnText,
-        apOverlay,
-        apOverlayAlpha: 0,
-        apOverlayTarget: 0,
-      };
+      pawnBadge,
+      pawnText,
+      apOverlay,
+      apOverlayAlpha: 0,
+      apOverlayTarget: 0,
+      focusOutline,
+      isFocused: false,
+    };
 
     tagUi?.rebuildTileTags?.(view, tileInst);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
@@ -2013,6 +2068,7 @@ export function createBoardView(opts) {
     syncTiles(s, cols);
     syncEvents(s, cols);
     syncHubStructures(s, hubCols);
+    updateTileFocus();
 
     if (activeHover?.view?.holdHoverForOccupant) {
       const view = activeHover.view;
