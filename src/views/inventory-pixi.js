@@ -65,6 +65,8 @@ export function createInventoryView({
   hasItemTransferIntent,
   getItemTransferAffordability,
   getDropTargetOwnerAt,
+  setDragGhost,
+  resolveDragGhost,
 
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
@@ -1166,6 +1168,8 @@ export function createInventoryView({
     dragItem.offsetX = g.x - sprite.x;
     dragItem.offsetY = g.y - sprite.y;
 
+    updateItemDragGhost(g);
+
     stage.on("pointermove", onItemDragMove);
     stage.on("pointerup", onItemDragEnd);
     stage.on("pointerupoutside", onItemDragEnd);
@@ -1222,6 +1226,8 @@ export function createInventoryView({
 
     s.x = g.x - dragItem.offsetX;
     s.y = g.y - dragItem.offsetY;
+
+    updateItemDragGhost(g);
   }
 
   function onItemDragEnd(ev) {
@@ -1255,18 +1261,27 @@ export function createInventoryView({
     dragItem.active = false;
     dragItem.lastGlobalPos = null;
 
-    const finish = () => {
+    const finish = (status = null) => {
       restoreItemView(view);
       dragItem.view = null;
       dragItem.sourceOwnerOverride = null;
       if (typeof setApDragWarning === "function") {
         setApDragWarning(false);
       }
+      if (typeof resolveDragGhost === "function") {
+        if (status === "success" || status === "fail") {
+          resolveDragGhost(status);
+        } else if (typeof setDragGhost === "function") {
+          setDragGhost(null);
+        }
+      } else if (typeof setDragGhost === "function") {
+        setDragGhost(null);
+      }
     };
 
     if (uiBlocked) {
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
       return;
     }
 
@@ -1282,11 +1297,11 @@ export function createInventoryView({
       if (!result.ok) {
         console.warn("discardItem failed:", result.reason, result);
         flashItemError(view, sourceOwner);
-        finish();
+        finish("fail");
         return;
       }
       rebuildWindow(sourceOwner);
-      finish();
+      finish("success");
       return;
     }
 
@@ -1313,7 +1328,7 @@ export function createInventoryView({
         if (!placement) {
           revealWindow(targetOwner);
           flashWindowError(targetOwner);
-          finish();
+          finish("fail");
           return;
         }
 
@@ -1337,18 +1352,18 @@ export function createInventoryView({
           revealWindow(targetOwner);
           flashWindowError(targetOwner);
           flashItemError(view, sourceOwner);
-          finish();
+          finish("fail");
           return;
         }
 
         rebuildWindow(sourceOwner);
         rebuildWindow(targetOwner);
-        finish();
+        finish("success");
         return;
       }
 
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
       return;
     }
 
@@ -1374,7 +1389,7 @@ export function createInventoryView({
       if (!result.ok) {
         console.warn("cancelItemTransfer failed:", result.reason, result);
         flashItemError(view, sourceOwner);
-        finish();
+        finish("fail");
         return;
       }
       rebuildWindow(targetOwner);
@@ -1404,7 +1419,7 @@ export function createInventoryView({
         if (baseId != null && baseId !== item.id && !hidden.has(baseId)) {
           if (hasItemTransferIntent(item.id) || hasItemTransferIntent(baseId)) {
             flashItemError(view, sourceOwner);
-            finish();
+            finish("fail");
             return;
           }
         }
@@ -1413,14 +1428,14 @@ export function createInventoryView({
 
     if (isPreviewAreaReserved(item, gx, gy, preview, item?.id)) {
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
       return;
     }
 
     if (isCrossOwner) {
       if (!canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id)) {
         flashItemError(view, sourceOwner);
-        finish();
+        finish("fail");
         return;
       }
     }
@@ -1443,13 +1458,13 @@ export function createInventoryView({
     if (!result.ok) {
       console.warn("inventoryMove failed:", result.reason, result);
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
       return;
     }
 
     rebuildWindow(sourceOwner);
     if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
-    finish();
+    finish("success");
   }
 
   function findWindowAt(globalPos) {
@@ -1604,6 +1619,88 @@ export function createInventoryView({
       }
     }
     return null;
+  }
+
+  function getItemDisplayName(item) {
+    if (!item) return "Item";
+    const def = itemDefs?.[item.kind];
+    return def?.name || item.kind || "Item";
+  }
+
+  function buildItemDragGhostSpec(globalPos) {
+    if (!dragItem.active || !dragItem.item) return null;
+
+    const sourceOwner =
+      dragItem.sourceOwnerOverride != null
+        ? dragItem.sourceOwnerOverride
+        : dragItem.ownerId;
+
+    const itemLabel = getItemDisplayName(dragItem.item);
+
+    let targetOwner = null;
+    let targetGX = null;
+    let targetGY = null;
+
+    const win = findWindowAt(globalPos);
+    if (win) {
+      targetOwner = win.ownerId;
+      let { gx, gy } = getGridCoords(win, globalPos);
+      gx -= dragItem.cellOffsetGX || 0;
+      gy -= dragItem.cellOffsetGY || 0;
+      targetGX = gx;
+      targetGY = gy;
+    } else if (typeof getDropTargetOwnerAt === "function") {
+      targetOwner = getDropTargetOwnerAt(globalPos);
+      if (targetOwner != null) {
+        const targetInv = getInventoryForOwner(targetOwner);
+        const preview =
+          typeof getInventoryPreview === "function"
+            ? getInventoryPreview(targetOwner)
+            : null;
+        const placement = findItemPlacement(
+          targetInv,
+          dragItem.item,
+          preview,
+          null
+        );
+        if (placement) {
+          targetGX = placement.gx;
+          targetGY = placement.gy;
+        }
+      }
+    }
+
+    const targetLabel =
+      targetOwner != null ? getOwnerLabel?.(targetOwner) : null;
+
+    const description = targetLabel
+      ? `${itemLabel} > ${targetLabel}`
+      : itemLabel;
+
+    let cost = 0;
+    if (
+      targetOwner != null &&
+      targetOwner !== sourceOwner &&
+      typeof getItemTransferAffordability === "function"
+    ) {
+      const aff = getItemTransferAffordability({
+        fromOwnerId: sourceOwner,
+        toOwnerId: targetOwner,
+        itemId: dragItem.item.id,
+        targetGX: targetGX ?? 0,
+        targetGY: targetGY ?? 0,
+      });
+      if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
+    }
+
+    return { description, cost };
+  }
+
+  function updateItemDragGhost(globalPos) {
+    if (typeof setDragGhost !== "function") return;
+    const spec = buildItemDragGhostSpec(globalPos);
+    if (!spec) return;
+    setDragGhost(spec);
   }
 
   // ---------------------------------------------------------------------------

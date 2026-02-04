@@ -2,6 +2,8 @@
 // Crop dropdown panel for the board view.
 
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
+import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 
 export function createTilePanels(opts) {
@@ -12,6 +14,7 @@ export function createTilePanels(opts) {
     queueActionWhenPaused,
     dispatchAction,
     dropdownLayer,
+    flashActionGhost,
   } = opts;
 
   const cropDropdown = createCropDropdown(dropdownLayer, app);
@@ -45,12 +48,25 @@ export function createTilePanels(opts) {
           ? Math.floor(view.tile.col)
           : view.col;
         const nextCrop = cropId ?? null;
+        const tileDef = envTileDefs?.[view.tile?.defId];
+        const tileName =
+          tileDef?.name || view.tile?.defId || `Tile ${envCol}`;
+        const cropName =
+          cropId != null ? cropDefs?.[cropId]?.name || cropId : "None";
+        const ghostSpec = {
+          description: `Crop > ${tileName}: ${cropName}`,
+          cost: Math.max(0, Math.floor(INTENT_AP_COSTS?.tileCropSelect ?? 0)),
+        };
         const run = () => {
           if (actionPlanner?.setTileCropSelectionIntent) {
-            return actionPlanner.setTileCropSelectionIntent({
+            const res = actionPlanner.setTileCropSelectionIntent({
               envCol,
               cropId: nextCrop,
             });
+            if (typeof flashActionGhost === "function") {
+              flashActionGhost(ghostSpec, res?.ok === false ? "fail" : "success");
+            }
+            return res;
           }
           if (!dispatchAction) return { ok: false, reason: "noDispatch" };
           dispatchAction(
@@ -58,6 +74,9 @@ export function createTilePanels(opts) {
             { envCol, cropId: nextCrop },
             { apCost: 10 }
           );
+          if (typeof flashActionGhost === "function") {
+            flashActionGhost(ghostSpec, "success");
+          }
           return { ok: true };
         };
         if (typeof queueActionWhenPaused === "function") {

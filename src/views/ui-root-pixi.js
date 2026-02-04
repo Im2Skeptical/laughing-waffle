@@ -589,6 +589,8 @@ inventoryView = createInventoryView({
     charactersView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     boardView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     null,
+  setDragGhost: (spec) => actionLogView?.setDragGhost?.(spec),
+  resolveDragGhost: (status) => actionLogView?.resolveDragGhost?.(status),
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
@@ -688,6 +690,8 @@ const boardView = createBoardView({
   queueActionWhenPaused,
   requestPauseForAction,
   setApDragWarning,
+  flashActionGhost: (spec, status) =>
+    actionLogView?.flashGhost?.(spec, status),
   dispatchAction: (kind, payload, opts) =>
     runner.dispatchAction(kind, payload, opts),
 });
@@ -705,6 +709,14 @@ const charactersView = createCharactersView({
   requestPauseForAction,
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
+  getPawnMoveAffordability: (spec) =>
+    actionPlanner?.getPawnMoveAffordability?.(spec) ?? {
+      ok: true,
+      affordable: true,
+      cost: 0,
+    },
+  setDragGhost: (spec) => actionLogView?.setDragGhost?.(spec),
+  resolveDragGhost: (status) => actionLogView?.resolveDragGhost?.(status),
   getPreviewHubCol: (charId) =>
     runner.isPreviewing?.()
       ? null

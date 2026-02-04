@@ -14,9 +14,14 @@ import {
   BOARD_COLS,
   HUB_COLS,
   HUB_STRUCTURE_WIDTH,
+  HUB_STRUCTURE_HEIGHT,
+  HUB_STRUCTURE_ROW_Y,
+  TILE_HEIGHT,
   TILE_WIDTH,
   TILE_ROW_Y,
   CHARACTER_ROW_OFFSET_Y,
+  getBoardColumnCenterX,
+  getHubColumnCenterX,
   layoutBoardColPos,
   layoutHubStructurePos,
   GAMEPIECE_HOVER_SCALE,
@@ -26,6 +31,8 @@ import {
   GAMEPIECE_SHADOW_OFFSET_Y,
 } from "./layout-pixi.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 
 export function createCharactersView(opts) {
   const {
@@ -41,6 +48,9 @@ export function createCharactersView(opts) {
     inventoryView,
     onCharacterDropped,
     requestPauseForAction,
+    getPawnMoveAffordability,
+    setDragGhost,
+    resolveDragGhost,
 
     // newer shape
     getGameState,
@@ -260,6 +270,88 @@ export function createCharactersView(opts) {
       : null;
 
     return { envCol, hubCol };
+  }
+
+  function formatTileName(envCol, state) {
+    const col = Math.floor(envCol);
+    const tile = state?.board?.occ?.tile?.[col];
+    const def = tile ? envTileDefs[tile.defId] : null;
+    return def?.name || tile?.defId || `Tile ${col}`;
+  }
+
+  function formatHubName(hubCol, state) {
+    const col = Math.floor(hubCol);
+    const slot = state?.hub?.slots?.[col];
+    const structure = slot?.structure;
+    if (structure) {
+      const def = hubStructureDefs[structure.defId];
+      return def?.name || def?.id || `Hub ${col}`;
+    }
+    return `Hub ${col}`;
+  }
+
+  function getDropTargetFromPos(globalPos) {
+    const state = getStateSafe();
+    if (!globalPos || !state) return null;
+    const envCols = getEnvColsSafe();
+    const hubCols = getHubColsSafe();
+
+    const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
+    const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT / 2;
+    const distToTile = Math.abs(globalPos.y - tileCenterY);
+    const distToHub = Math.abs(globalPos.y - hubCenterY);
+    const targetRow = distToTile <= distToHub ? "env" : "hub";
+
+    const colCount = targetRow === "env" ? envCols : hubCols;
+    const getCenterX =
+      targetRow === "env" ? getBoardColumnCenterX : getHubColumnCenterX;
+
+    let bestIndex = null;
+    let bestDist2 = Infinity;
+    for (let col = 0; col < colCount; col++) {
+      const cx = getCenterX(app.screen.width, col);
+      const dx = globalPos.x - cx;
+      const d2 = dx * dx;
+      if (d2 < bestDist2) {
+        bestDist2 = d2;
+        bestIndex = col;
+      }
+    }
+    if (bestIndex == null) return null;
+    return { row: targetRow, col: bestIndex };
+  }
+
+  function buildPawnDragGhostSpec(char, globalPos) {
+    if (!char) return null;
+    const state = getStateSafe();
+    const target = getDropTargetFromPos(globalPos);
+    const pawnName = char?.name || `Char ${char?.id ?? ""}`.trim() || "Pawn";
+    if (!target || !state) {
+      return { description: pawnName, cost: 0 };
+    }
+
+    const targetLabel =
+      target.row === "env"
+        ? formatTileName(target.col, state)
+        : formatHubName(target.col, state);
+
+    let cost = 0;
+    if (typeof getPawnMoveAffordability === "function") {
+      const aff =
+        target.row === "env"
+          ? getPawnMoveAffordability({ charId: char.id, toEnvCol: target.col })
+          : getPawnMoveAffordability({ charId: char.id, toHubCol: target.col });
+      if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
+    }
+
+    return { description: `${pawnName} > ${targetLabel}`, cost };
+  }
+
+  function updatePawnDragGhost(char, globalPos) {
+    if (typeof setDragGhost !== "function") return;
+    const spec = buildPawnDragGhostSpec(char, globalPos);
+    if (!spec) return;
+    setDragGhost(spec);
   }
 
   // ---------------------------------------------------------------------------
@@ -646,6 +738,9 @@ export function createCharactersView(opts) {
       view.attachedScale = 1;
       applyCharacterScale(view);
       hideHover();
+      if (pointerDownPos) {
+        updatePawnDragGhost(char, pointerDownPos);
+      }
     }
 
     function onMove(ev) {
@@ -666,6 +761,7 @@ export function createCharactersView(opts) {
 
       container.x = g.x + dragOffset.x;
       container.y = g.y + dragOffset.y;
+      updatePawnDragGhost(char, g);
     }
 
     function onUp(ev) {
@@ -688,6 +784,9 @@ export function createCharactersView(opts) {
         // click -> toggle pinned inventory (optional)
         const inv = getInvSafe();
         inv?.togglePinned?.(char.id);
+        if (typeof setDragGhost === "function") {
+          setDragGhost(null);
+        }
         return;
       }
 
@@ -699,6 +798,9 @@ export function createCharactersView(opts) {
       // If no handler, restore layout.
       if (!onCharacterDropped && !onDropCharacter) {
         layoutAllCharacters();
+        if (typeof setDragGhost === "function") {
+          setDragGhost(null);
+        }
         return;
       }
 
@@ -710,6 +812,16 @@ export function createCharactersView(opts) {
       ) {
         flashDragBlocked(view);
         layoutAllCharacters();
+        resolveDragGhost?.("fail");
+        return;
+      }
+
+      if (dropResult && dropResult.ok === false) {
+        resolveDragGhost?.("fail");
+      } else if (dropResult && (dropResult.ok === true || dropResult.queued)) {
+        resolveDragGhost?.("success");
+      } else if (typeof setDragGhost === "function") {
+        setDragGhost(null);
       }
     }
 

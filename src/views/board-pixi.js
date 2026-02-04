@@ -69,6 +69,7 @@ export function createBoardView(opts) {
     queueActionWhenPaused,
     requestPauseForAction,
     setApDragWarning,
+    flashActionGhost,
   } = opts;
 
   const tileViews = [];
@@ -119,6 +120,7 @@ export function createBoardView(opts) {
     queueActionWhenPaused,
     dispatchAction,
     dropdownLayer: cropDropdownLayer,
+    flashActionGhost,
   });
   let tagUi = null;
 

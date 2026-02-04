@@ -12,6 +12,8 @@ const PADDING = 16;
 const AP_HOVER_OVERLAY_ALPHA = 0.45;
 const AP_HOVER_FADE_IN = 14;
 const AP_HOVER_FADE_OUT = 8;
+const GHOST_ROW_ALPHA = 0.55;
+const GHOST_FLASH_MS = 220;
 
 export function createActionLogView({
   app,
@@ -126,6 +128,12 @@ export function createActionLogView({
   rows.y = HEADER_HEIGHT;
   container.addChild(rows);
 
+  const ghostLayer = new PIXI.Container();
+  ghostLayer.x = rows.x;
+  ghostLayer.y = rows.y;
+  ghostLayer.zIndex = rows.zIndex + 1;
+  container.addChild(ghostLayer);
+
   const resetBtn = new PIXI.Container();
   resetBtn.x = PADDING;
   resetBtn.y = PANEL_HEIGHT - 44;
@@ -169,6 +177,162 @@ export function createActionLogView({
   let lastVersion = -1;
   let lastPreviewing = null;
   let lastPreviewSec = null;
+
+  const ghostEntries = new Map();
+  let ghostOrder = [];
+  let nextGhostId = 1;
+  let dragGhostId = null;
+
+  function applyGhostSpec(entry, spec) {
+    if (!entry || !spec) return;
+    entry.spec = spec;
+    entry.costText.text = String(spec.cost ?? 0);
+    entry.descText.text = spec.description || "";
+  }
+
+  function layoutGhostRows() {
+    let y = 0;
+    for (const id of ghostOrder) {
+      const entry = ghostEntries.get(id);
+      if (!entry) continue;
+      entry.container.y = y;
+      y += ROW_HEIGHT + ROW_GAP;
+    }
+  }
+
+  function removeGhost(id) {
+    const entry = ghostEntries.get(id);
+    if (!entry) return;
+    if (entry.timeout) {
+      clearTimeout(entry.timeout);
+      entry.timeout = null;
+    }
+    if (entry.container?.parent) {
+      entry.container.parent.removeChild(entry.container);
+    }
+    ghostEntries.delete(id);
+    ghostOrder = ghostOrder.filter((gid) => gid !== id);
+    if (dragGhostId === id) dragGhostId = null;
+    layoutGhostRows();
+  }
+
+  function resolveGhost(id, status) {
+    const entry = ghostEntries.get(id);
+    if (!entry) return;
+    entry.status = status;
+    entry.container.alpha = 1;
+
+    const overlay = entry.overlay;
+    overlay.clear();
+    if (status === "success") {
+      overlay
+        .beginFill(0x1f6a32, 0.3)
+        .lineStyle(2, 0x7dff9e, 1)
+        .drawRoundedRect(0, 0, PANEL_WIDTH - PADDING * 2, ROW_HEIGHT, 12)
+        .endFill();
+    } else {
+      overlay
+        .beginFill(0x8a1f2a, 0.3)
+        .lineStyle(2, 0xff4f5e, 1)
+        .drawRoundedRect(0, 0, PANEL_WIDTH - PADDING * 2, ROW_HEIGHT, 12)
+        .endFill();
+    }
+    overlay.visible = true;
+
+    if (entry.timeout) clearTimeout(entry.timeout);
+    entry.timeout = setTimeout(() => {
+      removeGhost(id);
+    }, GHOST_FLASH_MS);
+  }
+
+  function createGhostEntry(spec, { isDrag } = {}) {
+    const row = new PIXI.Container();
+    row.x = 0;
+    row.y = 0;
+    row.eventMode = "none";
+    row.alpha = GHOST_ROW_ALPHA;
+
+    const rowWidth = PANEL_WIDTH - PADDING * 2;
+    const rowBg = new PIXI.Graphics();
+    rowBg.beginFill(0x2a2f42, 0.8);
+    rowBg.drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 12);
+    rowBg.endFill();
+    row.addChild(rowBg);
+
+    const costText = new PIXI.Text(String(spec?.cost ?? 0), {
+      fill: 0x7fd0ff,
+      fontSize: 16,
+      fontWeight: "bold",
+    });
+    costText.x = 16;
+    costText.y = 16;
+    row.addChild(costText);
+
+    const descText = new PIXI.Text(spec?.description || "", {
+      fill: 0xffffff,
+      fontSize: 16,
+    });
+    descText.x = 72;
+    descText.y = 16;
+    row.addChild(descText);
+
+    const overlay = new PIXI.Graphics();
+    overlay.visible = false;
+    row.addChild(overlay);
+
+    const id = nextGhostId++;
+    const entry = {
+      id,
+      isDrag: !!isDrag,
+      status: "pending",
+      container: row,
+      bg: rowBg,
+      costText,
+      descText,
+      overlay,
+      spec: spec || {},
+      timeout: null,
+    };
+
+    ghostEntries.set(id, entry);
+    if (entry.isDrag) {
+      dragGhostId = id;
+      ghostOrder = [id, ...ghostOrder.filter((gid) => gid !== id)];
+    } else {
+      ghostOrder.push(id);
+    }
+    ghostLayer.addChild(row);
+    applyGhostSpec(entry, spec || {});
+    layoutGhostRows();
+    return entry;
+  }
+
+  function setDragGhost(spec) {
+    if (!spec) {
+      if (dragGhostId != null) removeGhost(dragGhostId);
+      return;
+    }
+
+    if (dragGhostId != null && ghostEntries.has(dragGhostId)) {
+      const entry = ghostEntries.get(dragGhostId);
+      if (entry) applyGhostSpec(entry, spec);
+      layoutGhostRows();
+      return;
+    }
+
+    createGhostEntry(spec, { isDrag: true });
+  }
+
+  function resolveDragGhost(status) {
+    if (dragGhostId == null) return;
+    resolveGhost(dragGhostId, status);
+  }
+
+  function flashGhost(spec, status = "success") {
+    if (!spec) return;
+    const entry = createGhostEntry(spec, { isDrag: false });
+    resolveGhost(entry.id, status);
+  }
 
   function buildRows(rowSpecs, planner) {
     rows.removeChildren();
@@ -365,5 +529,14 @@ export function createActionLogView({
     onClearActions?.();
   });
 
-  return { init, update, container, flashInsufficientAp, setApDragWarning };
+  return {
+    init,
+    update,
+    container,
+    flashInsufficientAp,
+    setApDragWarning,
+    setDragGhost,
+    resolveDragGhost,
+    flashGhost,
+  };
 }
