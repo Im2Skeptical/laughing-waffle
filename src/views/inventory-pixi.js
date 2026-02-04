@@ -11,6 +11,7 @@ import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
+import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import {
   PRESTIGE_COST_PER_FOLLOWER,
   HUNGER_THRESHOLD,
@@ -19,6 +20,8 @@ import {
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
   HUB_COLS,
+  HUB_COL_GAP,
+  HUB_STRUCTURE_WIDTH,
   HUB_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_ROW_Y,
   getHubColumnCenterX,
@@ -61,6 +64,11 @@ const BUILD_PANEL_ROW_BG = 0x2a2f45;
 const BUILD_PANEL_ROW_BG_ACTIVE = 0x303a55;
 const BUILD_PANEL_TEXT = 0xffffff;
 const BUILD_PANEL_TEXT_MUTED = 0xb4bfd6;
+const BUILD_GHOST_SCALE_IDLE = 1.2;
+const BUILD_GHOST_SCALE_PLACE = 0.85;
+const BUILD_GHOST_PANEL_WIDTH = 140;
+const BUILD_GHOST_PANEL_PAD = 8;
+const BUILD_GHOST_PANEL_GAP = 10;
 const AP_OVERLAY_ALPHA = 0.45;
 const AP_OVERLAY_FADE_IN = 14;
 const AP_OVERLAY_FADE_OUT = 8;
@@ -109,6 +117,9 @@ export function createInventoryView({
   let lastPreviewVersion = null;
   let focusIntentCache = null;
   let activeBuildSpec = null;
+  let lastPointerPos = null;
+  let buildGhost = null;
+  let buildGhostDefId = null;
 
   // Owners currently showing an error flash; used to pause auto-rebuilds.
   const flashingOwners = new Set();
@@ -264,6 +275,34 @@ export function createInventoryView({
     return options;
   }
 
+  function formatBuildRequirementLabel(req) {
+    if (!req || typeof req !== "object") return "Resource";
+    if (req.kind === "item") {
+      const def = itemDefs?.[req.itemId];
+      return def?.name || req.itemId || "Item";
+    }
+    if (req.kind === "tag") {
+      const def = itemTagDefs?.[req.tag];
+      return def?.ui?.name || req.tag || "Tag";
+    }
+    if (req.kind === "resource") {
+      return req.resource || "Resource";
+    }
+    return "Resource";
+  }
+
+  function getBuildGhostCardSize(def) {
+    const span =
+      Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const safeSpan = Math.max(1, span);
+    const width =
+      HUB_STRUCTURE_WIDTH * safeSpan + HUB_COL_GAP * (safeSpan - 1);
+    const height = HUB_STRUCTURE_HEIGHT;
+    return { width, height, span: safeSpan };
+  }
+
   // ---------------------------------------------------------------------------
   // Small visual helpers
   // ---------------------------------------------------------------------------
@@ -335,6 +374,7 @@ export function createInventoryView({
   function clearActiveBuildForOwner(ownerId) {
     if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
     activeBuildSpec = null;
+    if (buildGhost) buildGhost.container.visible = false;
   }
 
   function setActiveBuild(ownerId, defId) {
@@ -345,10 +385,205 @@ export function createInventoryView({
       activeBuildSpec.defId === defId
     ) {
       activeBuildSpec = null;
+      if (buildGhost) buildGhost.container.visible = false;
       return;
     }
     requestPauseForAction?.();
     activeBuildSpec = { ownerId, defId };
+  }
+
+  function ensureBuildGhost() {
+    if (buildGhost) return buildGhost;
+    const ghostLayer = dragLayer || layer;
+    const container = new PIXI.Container();
+    container.visible = false;
+    container.eventMode = "none";
+    ghostLayer.addChild(container);
+
+    const card = new PIXI.Container();
+    const cardBg = new PIXI.Graphics()
+      .beginFill(0x3a3a3a, 0.8)
+      .drawRoundedRect(0, 0, 120, 80, 10)
+      .endFill();
+    card.addChild(cardBg);
+
+    const cardFill = new PIXI.Graphics()
+      .beginFill(0x6f6f6f, 0.9)
+      .drawRoundedRect(3, 3, 114, 74, 8)
+      .endFill();
+    card.addChild(cardFill);
+
+    const titleText = new PIXI.Text("", {
+      fill: 0xffffff,
+      fontSize: 12,
+      fontWeight: "bold",
+      wordWrap: true,
+      wordWrapWidth: 108,
+    });
+    titleText.x = 6;
+    titleText.y = 6;
+    card.addChild(titleText);
+
+    const subtitleText = new PIXI.Text("", {
+      fill: 0xe6e6e6,
+      fontSize: 10,
+      wordWrap: true,
+      wordWrapWidth: 108,
+    });
+    subtitleText.x = 6;
+    subtitleText.y = 26;
+    card.addChild(subtitleText);
+
+    const panel = new PIXI.Container();
+    const panelBg = new PIXI.Graphics()
+      .beginFill(0x1b1f2f, 0.95)
+      .drawRoundedRect(0, 0, BUILD_GHOST_PANEL_WIDTH, 10, 8)
+      .endFill();
+    panel.addChild(panelBg);
+
+    const panelTitle = new PIXI.Text("Costs", {
+      fill: 0xffffff,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    panelTitle.x = BUILD_GHOST_PANEL_PAD;
+    panelTitle.y = BUILD_GHOST_PANEL_PAD - 2;
+    panel.addChild(panelTitle);
+
+    const panelLines = [];
+
+    container.addChild(card);
+    container.addChild(panel);
+
+    buildGhost = {
+      container,
+      card,
+      cardFill,
+      cardBg,
+      titleText,
+      subtitleText,
+      panel,
+      panelBg,
+      panelTitle,
+      panelLines,
+      panelHeight: 0,
+      cardWidth: 120,
+      cardHeight: 80,
+    };
+    return buildGhost;
+  }
+
+  function updateBuildGhostContent(defId) {
+    const ghost = ensureBuildGhost();
+    if (!ghost) return;
+    if (!defId) {
+      ghost.container.visible = false;
+      buildGhostDefId = null;
+      return;
+    }
+    if (buildGhostDefId === defId) return;
+    buildGhostDefId = defId;
+
+    const def = hubStructureDefs[defId];
+    ghost.titleText.text = def?.name || defId || "Build";
+    ghost.subtitleText.text = "Construction Plan";
+
+    const { width, height } = getBuildGhostCardSize(def);
+    if (ghost.cardWidth !== width || ghost.cardHeight !== height) {
+      ghost.cardWidth = width;
+      ghost.cardHeight = height;
+      ghost.cardBg.clear();
+      ghost.cardBg
+        .beginFill(0x3a3a3a, 0.8)
+        .drawRoundedRect(0, 0, width, height, 10)
+        .endFill();
+      ghost.titleText.style.wordWrapWidth = Math.max(40, width - 12);
+      ghost.subtitleText.style.wordWrapWidth = Math.max(40, width - 12);
+      ghost.subtitleText.y = Math.min(26, height - 18);
+    }
+
+    const color = Number.isFinite(def?.color) ? def.color : 0x6f6f6f;
+    ghost.cardFill.clear();
+    ghost.cardFill
+      .beginFill(color, 0.9)
+      .drawRoundedRect(3, 3, ghost.cardWidth - 6, ghost.cardHeight - 6, 8)
+      .endFill();
+
+    for (const line of ghost.panelLines) {
+      if (line?.parent) line.parent.removeChild(line);
+    }
+    ghost.panelLines.length = 0;
+
+    const lines = [];
+    const apCost = INTENT_AP_COSTS?.buildDesignate ?? 0;
+    lines.push(`AP: ${apCost}`);
+
+    const reqs = Array.isArray(def?.build?.requirements) ? def.build.requirements : [];
+    for (const req of reqs) {
+      const amount = Math.max(0, Math.floor(req?.amount ?? 0));
+      if (amount <= 0) continue;
+      const label = formatBuildRequirementLabel(req);
+      lines.push(`${label}: ${amount}`);
+    }
+
+    let y = BUILD_GHOST_PANEL_PAD + 16;
+    for (const text of lines) {
+      const lineText = new PIXI.Text(text, {
+        fill: 0xc7d2ee,
+        fontSize: 10,
+      });
+      lineText.x = BUILD_GHOST_PANEL_PAD;
+      lineText.y = y;
+      ghost.panel.addChild(lineText);
+      ghost.panelLines.push(lineText);
+      y += 12;
+    }
+
+    const panelHeight = Math.max(
+      48,
+      y + BUILD_GHOST_PANEL_PAD - 4
+    );
+    ghost.panelBg.clear();
+    ghost.panelBg
+      .beginFill(0x1b1f2f, 0.95)
+      .drawRoundedRect(0, 0, BUILD_GHOST_PANEL_WIDTH, panelHeight, 8)
+      .endFill();
+    ghost.panelHeight = panelHeight;
+  }
+
+  function isHubPlacementZone(globalPos) {
+    if (!globalPos) return false;
+    return (
+      globalPos.y >= HUB_STRUCTURE_ROW_Y &&
+      globalPos.y <= HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT
+    );
+  }
+
+  function updateBuildGhostPosition(globalPos) {
+    if (!buildGhost || !globalPos) return;
+    const ghost = buildGhost;
+    const placing = isHubPlacementZone(globalPos);
+    const scale = placing ? BUILD_GHOST_SCALE_PLACE : BUILD_GHOST_SCALE_IDLE;
+    ghost.container.scale.set(scale);
+
+    ghost.card.x = 0;
+    ghost.card.y = 0;
+
+    const panelHeight = ghost.panelHeight || 60;
+    const panelWidth = BUILD_GHOST_PANEL_WIDTH;
+    const ghostWidth = ghost.cardWidth || 120;
+    const ghostHeight = ghost.cardHeight || 80;
+
+    let panelX = ghostWidth + BUILD_GHOST_PANEL_GAP;
+    if (globalPos.x + (ghostWidth + panelWidth + BUILD_GHOST_PANEL_GAP) * scale > DESIGN_WIDTH - 10) {
+      panelX = -panelWidth - BUILD_GHOST_PANEL_GAP;
+    }
+
+    ghost.panel.x = panelX;
+    ghost.panel.y = Math.max(0, (ghostHeight - panelHeight) / 2);
+
+    ghost.container.x = globalPos.x + 10;
+    ghost.container.y = globalPos.y + 10;
   }
 
   function resolveHubColFromPos(state, globalPos, screenWidth) {
@@ -827,6 +1062,8 @@ export function createInventoryView({
       const buildPanel = new PIXI.Container();
       buildPanel.x = 0;
       buildPanel.y = LEADER_PANEL_HEIGHT + (buildPanelHeight > 0 ? BUILD_PANEL_GAP : 0);
+      buildPanel.eventMode = "static";
+      buildPanel.cursor = "pointer";
       panel.addChild(buildPanel);
 
       let buildPanelBg = null;
@@ -923,6 +1160,14 @@ export function createInventoryView({
 
           row.on("pointertap", (ev) => {
             ev?.stopPropagation?.();
+            if (
+              activeBuildSpec &&
+              activeBuildSpec.ownerId === ownerId
+            ) {
+              clearActiveBuildForOwner(ownerId);
+              updateLeaderPanel(win);
+              return;
+            }
             if (!entry.available) return;
             setActiveBuild(ownerId, entry.id);
             updateLeaderPanel(win);
@@ -940,6 +1185,13 @@ export function createInventoryView({
 
           rowY += BUILD_PANEL_ROW_HEIGHT + BUILD_PANEL_ROW_GAP;
         }
+
+        buildPanel.on("pointertap", (ev) => {
+          if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
+          ev?.stopPropagation?.();
+          clearActiveBuildForOwner(ownerId);
+          updateLeaderPanel(win);
+        });
       }
 
       win.leaderPanel = {
@@ -1575,8 +1827,37 @@ export function createInventoryView({
       if (panel.buildHintText) {
         panel.buildHintText.text =
           activeDefId != null
-            ? "Click a hub slot to place."
+            ? "Drop here to cancel."
             : "Select a building to place.";
+      }
+
+      if (panel.buildPanelBg) {
+        const bgColor = activeDefId != null ? 0x3b1f2a : BUILD_PANEL_BG;
+        panel.buildPanelBg.clear();
+        panel.buildPanelBg.beginFill(bgColor, 0.95);
+        panel.buildPanelBg.drawRoundedRect(
+          0,
+          0,
+          win.panelWidth - INNER_PADDING * 2,
+          panel.buildPanelHeight,
+          6
+        );
+        panel.buildPanelBg.endFill();
+      }
+
+      if (panel.buildTitleText) {
+        panel.buildTitleText.text = activeDefId != null ? "Cancel Build" : "Build";
+        panel.buildTitleText.style.fill =
+          activeDefId != null ? 0xffc2c2 : BUILD_PANEL_TEXT;
+      }
+
+      if (panel.buildListContainer) {
+        panel.buildListContainer.alpha = activeDefId != null ? 0.35 : 1;
+        panel.buildListContainer.eventMode = activeDefId != null ? "none" : "static";
+      }
+
+      if (panel.buildPanel) {
+        panel.buildPanel.cursor = activeDefId != null ? "pointer" : "default";
       }
     }
   }
@@ -2375,12 +2656,35 @@ export function createInventoryView({
         if (win) updateLeaderPanel(win);
       }
     });
+
+    stage.on("pointermove", (ev) => {
+      const p = ev?.data?.global;
+      if (!p) return;
+      lastPointerPos = { x: p.x, y: p.y };
+      if (!activeBuildSpec) return;
+      updateBuildGhostContent(activeBuildSpec.defId);
+      if (buildGhost) {
+        buildGhost.container.visible = true;
+        updateBuildGhostPosition(lastPointerPos);
+      }
+    });
   }
 
   function update(dt) {
     updateApDragOverlays(dt);
     if (dragItem.active || activeSplit || flashingOwners.size > 0) {
       return;
+    }
+
+    if (activeBuildSpec) {
+      updateBuildGhostContent(activeBuildSpec.defId);
+      if (buildGhost) {
+        const pos = lastPointerPos || { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
+        buildGhost.container.visible = true;
+        updateBuildGhostPosition(pos);
+      }
+    } else if (buildGhost) {
+      buildGhost.container.visible = false;
     }
 
     const previewVersion =
