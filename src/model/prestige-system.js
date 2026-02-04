@@ -463,17 +463,23 @@ export function spawnFollowerForLeader(state, leader) {
 
   const { systemTiers, systemState } = buildPawnSystemDefaults();
 
-  const spawnCol = Number.isFinite(leader.hubCol)
-    ? Math.floor(leader.hubCol)
-    : 0;
+  const spawnEnvCol = Number.isFinite(leader.envCol)
+    ? Math.floor(leader.envCol)
+    : null;
+  const spawnHubCol =
+    spawnEnvCol == null
+      ? Number.isFinite(leader.hubCol)
+        ? Math.floor(leader.hubCol)
+        : 0
+      : null;
 
   const follower = {
     id: state.nextCharacterId++,
     pawnDefId: leader.pawnDefId || "default",
     name: `Follower ${state.nextCharacterId - 1}`,
     color: leader.color,
-    hubCol: spawnCol,
-    envCol: null,
+    hubCol: spawnHubCol,
+    envCol: spawnEnvCol,
     systemTiers,
     systemState,
     props: {},
