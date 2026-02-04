@@ -8,12 +8,21 @@
 
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
 import {
   PRESTIGE_COST_PER_FOLLOWER,
   HUNGER_THRESHOLD,
   SECONDS_BELOW_HUNGER_THRESHOLD,
 } from "../defs/gamesettings/gamerules-defs.js";
+import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
+import {
+  HUB_COLS,
+  HUB_STRUCTURE_HEIGHT,
+  HUB_STRUCTURE_ROW_Y,
+  getHubColumnCenterX,
+} from "./layout-pixi.js";
 
 
 
@@ -41,6 +50,17 @@ const ITEM_GLYPH_SHADOW = 0x111111;
 const ITEM_GLYPH_ALPHA = 0.9;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
+const BUILD_PANEL_HEADER_HEIGHT = 18;
+const BUILD_PANEL_ROW_HEIGHT = 24;
+const BUILD_PANEL_ROW_GAP = 4;
+const BUILD_PANEL_PADDING = 6;
+const BUILD_PANEL_HINT_HEIGHT = 12;
+const BUILD_PANEL_GAP = 8;
+const BUILD_PANEL_BG = 0x202436;
+const BUILD_PANEL_ROW_BG = 0x2a2f45;
+const BUILD_PANEL_ROW_BG_ACTIVE = 0x303a55;
+const BUILD_PANEL_TEXT = 0xffffff;
+const BUILD_PANEL_TEXT_MUTED = 0xb4bfd6;
 const AP_OVERLAY_ALPHA = 0.45;
 const AP_OVERLAY_FADE_IN = 14;
 const AP_OVERLAY_FADE_OUT = 8;
@@ -69,15 +89,18 @@ export function createInventoryView({
   getDropTargetOwnerAt,
   setDragGhost,
   resolveDragGhost,
+  actionPlanner,
 
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
   splitStackAndPlace,
   cancelItemTransfer,
   adjustFollowerCount,
+  queueActionWhenPaused,
   requestPauseForAction,
   setApDragWarning,
   discardItemFromOwner,
+  flashActionGhost,
 }) {
   const stage = layer.parent;
 
@@ -85,6 +108,7 @@ export function createInventoryView({
   let uiBlocked = false;
   let lastPreviewVersion = null;
   let focusIntentCache = null;
+  let activeBuildSpec = null;
 
   // Owners currently showing an error flash; used to pause auto-rebuilds.
   const flashingOwners = new Set();
@@ -184,6 +208,62 @@ export function createInventoryView({
     };
   }
 
+  function getBuildableIdsFromPawn(pawn) {
+    if (!pawn || typeof pawn !== "object") return [];
+    const defId = typeof pawn.pawnDefId === "string" ? pawn.pawnDefId : "default";
+    const def = pawnDefs[defId] || pawnDefs.default;
+    const list =
+      def?.buildableStructureIds ||
+      def?.buildableStructures ||
+      def?.buildables ||
+      [];
+    return Array.isArray(list) ? list : [];
+  }
+
+  function countStructuresByDefId(state) {
+    const counts = new Map();
+    const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+    for (const slot of slots) {
+      const structure = slot?.structure;
+      if (!structure) continue;
+      const id = structure.defId;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    return counts;
+  }
+
+  function computeBuildOptions(state, leader) {
+    if (!state || !leader) return [];
+    const buildable = new Set();
+    for (const id of getBuildableIdsFromPawn(leader)) {
+      if (typeof id === "string" && id.length) buildable.add(id);
+    }
+
+    const counts = countStructuresByDefId(state);
+    const options = [];
+
+    for (const id of buildable.values()) {
+      const def = hubStructureDefs[id];
+      if (!def) continue;
+      const maxInstances = Number.isFinite(def.maxInstances)
+        ? Math.max(0, Math.floor(def.maxInstances))
+        : 1;
+      const existing = counts.get(id) || 0;
+      const available = maxInstances === 0 ? false : existing < maxInstances;
+      options.push({
+        def,
+        id,
+        name: def.name || id,
+        available,
+        existing,
+        maxInstances,
+      });
+    }
+
+    options.sort((a, b) => a.name.localeCompare(b.name));
+    return options;
+  }
+
   // ---------------------------------------------------------------------------
   // Small visual helpers
   // ---------------------------------------------------------------------------
@@ -250,6 +330,133 @@ export function createInventoryView({
       flashingOwners.delete(ownerId);
       rebuildWindow(ownerId);
     }, 180);
+  }
+
+  function clearActiveBuildForOwner(ownerId) {
+    if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
+    activeBuildSpec = null;
+  }
+
+  function setActiveBuild(ownerId, defId) {
+    if (!ownerId || !defId) return;
+    if (
+      activeBuildSpec &&
+      activeBuildSpec.ownerId === ownerId &&
+      activeBuildSpec.defId === defId
+    ) {
+      activeBuildSpec = null;
+      return;
+    }
+    requestPauseForAction?.();
+    activeBuildSpec = { ownerId, defId };
+  }
+
+  function resolveHubColFromPos(state, globalPos, screenWidth) {
+    if (!state || !globalPos) return null;
+    const hubTop = HUB_STRUCTURE_ROW_Y;
+    const hubBottom = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT;
+    if (globalPos.y < hubTop || globalPos.y > hubBottom) return null;
+
+    const hubCols = Array.isArray(state?.hub?.slots)
+      ? state.hub.slots.length
+      : HUB_COLS;
+
+    let bestCol = null;
+    let bestDist2 = Infinity;
+    for (let col = 0; col < hubCols; col++) {
+      const cx = getHubColumnCenterX(screenWidth, col);
+      const dx = globalPos.x - cx;
+      const d2 = dx * dx;
+      if (d2 < bestDist2) {
+        bestDist2 = d2;
+        bestCol = col;
+      }
+    }
+    return bestCol;
+  }
+
+  function flashBuildGhost(defId) {
+    if (typeof flashActionGhost !== "function") return;
+    const def = hubStructureDefs[defId];
+    const name = def?.name || defId || "Build";
+    flashActionGhost(
+      {
+        description: `Build ${name}`,
+        cost: INTENT_AP_COSTS?.buildDesignate ?? 0,
+      },
+      "fail"
+    );
+  }
+
+  function placeBuildAt(col, ownerId, defId) {
+    const state = getStateSafe();
+    const leader = getLeaderForOwner(ownerId);
+    if (!state || !leader || !actionPlanner) {
+      return { ok: false, reason: "noLeader" };
+    }
+    if (!Number.isFinite(col)) return { ok: false, reason: "badHubCol" };
+    if (!defId) return { ok: false, reason: "noBuildSelected" };
+
+    const previewPlacement =
+      typeof actionPlanner.getCharacterOverridePlacement === "function"
+        ? actionPlanner.getCharacterOverridePlacement(leader.id)
+        : null;
+    const currentHubCol = Number.isFinite(previewPlacement?.hubCol)
+      ? Math.floor(previewPlacement.hubCol)
+      : Number.isFinite(leader.hubCol)
+      ? Math.floor(leader.hubCol)
+      : null;
+    const currentEnvCol = Number.isFinite(previewPlacement?.envCol)
+      ? Math.floor(previewPlacement.envCol)
+      : Number.isFinite(leader.envCol)
+      ? Math.floor(leader.envCol)
+      : null;
+    const alreadyThere = currentHubCol === col && currentEnvCol == null;
+
+    const buildKey = `hub:${col}`;
+    const target = { hubCol: col };
+
+    const run = () => {
+      let moveSet = false;
+      let moveRes = { ok: true };
+      if (!alreadyThere) {
+        moveRes = actionPlanner.setPawnMoveIntent({
+          charId: leader.id,
+          toHubCol: col,
+        });
+        if (!moveRes?.ok) {
+          if (moveRes?.reason === "insufficientAP") {
+            flashBuildGhost(defId);
+          }
+          return moveRes;
+        }
+        moveSet = true;
+      }
+
+      const buildRes = actionPlanner.setBuildDesignationIntent({
+        buildKey,
+        defId,
+        target,
+      });
+
+      if (!buildRes?.ok) {
+        if (buildRes?.reason === "insufficientAP") {
+          flashBuildGhost(defId);
+        }
+        if (moveSet && !previewPlacement) {
+          actionPlanner.removeIntent?.(`pawn:${leader.id}`);
+        }
+        return buildRes;
+      }
+
+      clearActiveBuildForOwner(ownerId);
+      return buildRes;
+    };
+
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
+    }
+    return run();
   }
 
   function updateApOverlayAlpha(win, dt) {
@@ -326,7 +533,25 @@ export function createInventoryView({
     const w = gridWidth + INNER_PADDING * 3 + binSize;
     const baseHeight =
       HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
-    const leaderPanelHeight = leader ? LEADER_PANEL_HEIGHT + INNER_PADDING : 0;
+    const buildOptions = leader
+      ? computeBuildOptions(getStateSafe(), leader)
+      : [];
+    const buildRowsHeight = buildOptions.length
+      ? buildOptions.length * BUILD_PANEL_ROW_HEIGHT +
+        Math.max(0, buildOptions.length - 1) * BUILD_PANEL_ROW_GAP
+      : 0;
+    const buildPanelHeight = buildOptions.length
+      ? BUILD_PANEL_HEADER_HEIGHT +
+        BUILD_PANEL_PADDING * 2 +
+        buildRowsHeight +
+        BUILD_PANEL_HINT_HEIGHT +
+        BUILD_PANEL_ROW_GAP
+      : 0;
+    const leaderPanelHeight = leader
+      ? LEADER_PANEL_HEIGHT +
+        (buildPanelHeight > 0 ? BUILD_PANEL_GAP + buildPanelHeight : 0) +
+        INNER_PADDING
+      : 0;
     const h = baseHeight + leaderPanelHeight;
 
     const c = new PIXI.Container();
@@ -488,8 +713,17 @@ export function createInventoryView({
       c.addChild(panel);
 
       const panelBg = new PIXI.Graphics();
+      const leaderPanelInnerHeight =
+        LEADER_PANEL_HEIGHT +
+        (buildPanelHeight > 0 ? BUILD_PANEL_GAP + buildPanelHeight : 0);
       panelBg.beginFill(0x1b1b28, 0.95);
-      panelBg.drawRoundedRect(0, 0, w - INNER_PADDING * 2, LEADER_PANEL_HEIGHT, 6);
+      panelBg.drawRoundedRect(
+        0,
+        0,
+        w - INNER_PADDING * 2,
+        leaderPanelInnerHeight,
+        6
+      );
       panelBg.endFill();
       panel.addChild(panelBg);
 
@@ -590,6 +824,124 @@ export function createInventoryView({
         }
       });
 
+      const buildPanel = new PIXI.Container();
+      buildPanel.x = 0;
+      buildPanel.y = LEADER_PANEL_HEIGHT + (buildPanelHeight > 0 ? BUILD_PANEL_GAP : 0);
+      panel.addChild(buildPanel);
+
+      let buildPanelBg = null;
+      let buildTitleText = null;
+      let buildHintText = null;
+      let buildListContainer = null;
+      let buildRows = [];
+
+      if (buildPanelHeight > 0) {
+        buildPanelBg = new PIXI.Graphics();
+        buildPanelBg.beginFill(BUILD_PANEL_BG, 0.95);
+        buildPanelBg.drawRoundedRect(
+          0,
+          0,
+          w - INNER_PADDING * 2,
+          buildPanelHeight,
+          6
+        );
+        buildPanelBg.endFill();
+        buildPanel.addChild(buildPanelBg);
+
+        buildTitleText = new PIXI.Text("Build", {
+          fill: BUILD_PANEL_TEXT,
+          fontSize: 12,
+          fontWeight: "bold",
+        });
+        buildTitleText.x = BUILD_PANEL_PADDING;
+        buildTitleText.y = BUILD_PANEL_PADDING - 1;
+        buildPanel.addChild(buildTitleText);
+
+        buildListContainer = new PIXI.Container();
+        buildListContainer.x = BUILD_PANEL_PADDING;
+        buildListContainer.y =
+          BUILD_PANEL_PADDING + BUILD_PANEL_HEADER_HEIGHT - 6;
+        buildPanel.addChild(buildListContainer);
+
+        buildHintText = new PIXI.Text("", {
+          fill: BUILD_PANEL_TEXT_MUTED,
+          fontSize: 10,
+        });
+        buildHintText.x = BUILD_PANEL_PADDING;
+        buildHintText.y =
+          buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
+        buildPanel.addChild(buildHintText);
+
+        const rowWidth = w - INNER_PADDING * 2 - BUILD_PANEL_PADDING * 2;
+        let rowY = 0;
+        for (const entry of buildOptions) {
+          const row = new PIXI.Container();
+          row.y = rowY;
+          row.eventMode = "static";
+          row.cursor = entry.available ? "pointer" : "default";
+
+          const isActive =
+            activeBuildSpec &&
+            activeBuildSpec.ownerId === ownerId &&
+            activeBuildSpec.defId === entry.id;
+          const fill = isActive ? BUILD_PANEL_ROW_BG_ACTIVE : BUILD_PANEL_ROW_BG;
+          const alpha = entry.available ? 0.95 : 0.5;
+
+          const rowBg = new PIXI.Graphics()
+            .beginFill(fill, alpha)
+            .drawRoundedRect(0, 0, rowWidth, BUILD_PANEL_ROW_HEIGHT, 6)
+            .endFill();
+          row.addChild(rowBg);
+
+          const label = new PIXI.Text(entry.name, {
+            fill: BUILD_PANEL_TEXT,
+            fontSize: 11,
+          });
+          label.x = 6;
+          label.y = 4;
+          row.addChild(label);
+
+          const cost = INTENT_AP_COSTS?.buildDesignate ?? 0;
+          const costText = new PIXI.Text(String(cost), {
+            fill: 0x7fd0ff,
+            fontSize: 10,
+          });
+          costText.x = rowWidth - 18;
+          costText.y = 5;
+          row.addChild(costText);
+
+          let limitText = null;
+          if (!entry.available) {
+            limitText = new PIXI.Text("Limit", {
+              fill: 0xffc2c2,
+              fontSize: 9,
+            });
+            limitText.x = rowWidth - 60;
+            limitText.y = 6;
+            row.addChild(limitText);
+          }
+
+          row.on("pointertap", (ev) => {
+            ev?.stopPropagation?.();
+            if (!entry.available) return;
+            setActiveBuild(ownerId, entry.id);
+            updateLeaderPanel(win);
+          });
+
+          buildListContainer.addChild(row);
+          buildRows.push({
+            id: entry.id,
+            row,
+            rowBg,
+            label,
+            costText,
+            limitText,
+          });
+
+          rowY += BUILD_PANEL_ROW_HEIGHT + BUILD_PANEL_ROW_GAP;
+        }
+      }
+
       win.leaderPanel = {
         container: panel,
         prestigeText,
@@ -598,6 +950,14 @@ export function createInventoryView({
         followerCountText,
         minusBtn,
         plusBtn,
+        buildPanel,
+        buildPanelBg,
+        buildTitleText,
+        buildHintText,
+        buildListContainer,
+        buildRows,
+        buildOptionsSignature: "",
+        buildPanelHeight,
       };
     }
 
@@ -669,6 +1029,7 @@ export function createInventoryView({
     win.hovered = false;
     if (!win.pinned) {
       win.container.visible = false;
+      clearActiveBuildForOwner(ownerId);
     }
   }
 
@@ -680,6 +1041,7 @@ export function createInventoryView({
     win.hovered = false;
     win.container.visible = false;
     win.pinText.text = "[ ]";
+    clearActiveBuildForOwner(ownerId);
   }
 
   function togglePinned(ownerId) {
@@ -689,6 +1051,7 @@ export function createInventoryView({
 
     if (!win.pinned && !win.hovered) {
       win.container.visible = false;
+      clearActiveBuildForOwner(ownerId);
     } else {
       win.container.visible = true;
     }
@@ -1096,6 +1459,7 @@ export function createInventoryView({
     const leader = getLeaderForOwner(win.ownerId);
     if (!leader) {
       win.leaderPanel.container.visible = false;
+      clearActiveBuildForOwner(win.ownerId);
       return;
     }
     const data = computeLeaderPanelData(leader);
@@ -1113,6 +1477,108 @@ export function createInventoryView({
     win.leaderPanel.minusBtn.alpha = canMinus ? 1 : 0.35;
     win.leaderPanel.minusBtn.eventMode = canMinus ? "static" : "none";
     win.leaderPanel.minusBtn.cursor = canMinus ? "pointer" : "default";
+
+    const panel = win.leaderPanel;
+    if (panel.buildListContainer) {
+      const options = computeBuildOptions(getStateSafe(), leader);
+      let activeDefId =
+        activeBuildSpec && activeBuildSpec.ownerId === win.ownerId
+          ? activeBuildSpec.defId
+          : null;
+      if (
+        activeDefId &&
+        !options.some((entry) => entry.id === activeDefId && entry.available)
+      ) {
+        clearActiveBuildForOwner(win.ownerId);
+        activeDefId = null;
+      }
+
+      const signature = `${options
+        .map((o) => `${o.id}:${o.available ? "1" : "0"}`)
+        .join("|")}|active:${activeDefId ?? ""}`;
+
+      if (signature !== panel.buildOptionsSignature) {
+        panel.buildOptionsSignature = signature;
+        panel.buildListContainer.removeChildren();
+        panel.buildRows = [];
+
+        const rowWidth =
+          win.panelWidth - INNER_PADDING * 2 - BUILD_PANEL_PADDING * 2;
+        let rowY = 0;
+        for (const entry of options) {
+          const row = new PIXI.Container();
+          row.y = rowY;
+          row.eventMode = "static";
+          row.cursor = entry.available ? "pointer" : "default";
+
+          const isActive = activeDefId === entry.id;
+          const fill = isActive
+            ? BUILD_PANEL_ROW_BG_ACTIVE
+            : BUILD_PANEL_ROW_BG;
+          const alpha = entry.available ? 0.95 : 0.5;
+
+          const rowBg = new PIXI.Graphics()
+            .beginFill(fill, alpha)
+            .drawRoundedRect(0, 0, rowWidth, BUILD_PANEL_ROW_HEIGHT, 6)
+            .endFill();
+          row.addChild(rowBg);
+
+          const label = new PIXI.Text(entry.name, {
+            fill: BUILD_PANEL_TEXT,
+            fontSize: 11,
+          });
+          label.x = 6;
+          label.y = 4;
+          row.addChild(label);
+
+          const cost = INTENT_AP_COSTS?.buildDesignate ?? 0;
+          const costText = new PIXI.Text(String(cost), {
+            fill: 0x7fd0ff,
+            fontSize: 10,
+          });
+          costText.x = rowWidth - 18;
+          costText.y = 5;
+          row.addChild(costText);
+
+          let limitText = null;
+          if (!entry.available) {
+            limitText = new PIXI.Text("Limit", {
+              fill: 0xffc2c2,
+              fontSize: 9,
+            });
+            limitText.x = rowWidth - 60;
+            limitText.y = 6;
+            row.addChild(limitText);
+          }
+
+          row.on("pointertap", (ev) => {
+            ev?.stopPropagation?.();
+            if (!entry.available) return;
+            setActiveBuild(win.ownerId, entry.id);
+            updateLeaderPanel(win);
+          });
+
+          panel.buildListContainer.addChild(row);
+          panel.buildRows.push({
+            id: entry.id,
+            row,
+            rowBg,
+            label,
+            costText,
+            limitText,
+          });
+
+          rowY += BUILD_PANEL_ROW_HEIGHT + BUILD_PANEL_ROW_GAP;
+        }
+      }
+
+      if (panel.buildHintText) {
+        panel.buildHintText.text =
+          activeDefId != null
+            ? "Click a hub slot to place."
+            : "Select a building to place.";
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1888,7 +2354,28 @@ export function createInventoryView({
   // PUBLIC API
   // ---------------------------------------------------------------------------
 
-  function init() {}
+  function init() {
+    stage.on("pointerdown", (ev) => {
+      if (!activeBuildSpec) return;
+      if (dragItem.active || dragWindow.active) return;
+      const p = ev?.data?.global;
+      if (!p) return;
+      if (findWindowAt(p)) return;
+
+      const state = getStateSafe();
+      const col = resolveHubColFromPos(state, p, DESIGN_WIDTH);
+      if (col == null) return;
+
+      ev?.stopPropagation?.();
+      const ownerId = activeBuildSpec.ownerId;
+      const defId = activeBuildSpec.defId;
+      const res = placeBuildAt(col, ownerId, defId);
+      if (res?.ok) {
+        const win = windows.get(ownerId);
+        if (win) updateLeaderPanel(win);
+      }
+    });
+  }
 
   function update(dt) {
     updateApDragOverlays(dt);

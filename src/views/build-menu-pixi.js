@@ -8,13 +8,21 @@ import {
   HUB_COLS,
   HUB_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_ROW_Y,
+  CHARACTER_ROW_OFFSET_Y,
+  TILE_HEIGHT,
+  TILE_ROW_Y,
   getHubColumnCenterX,
+  getBoardColumnCenterX,
+  layoutBoardColPos,
+  layoutHubStructurePos,
 } from "./layout-pixi.js";
 
 const PANEL_WIDTH = 240;
 const PANEL_PAD = 12;
 const ROW_HEIGHT = 34;
 const ROW_GAP = 6;
+const PANEL_MARGIN = 16;
+const PANEL_OFFSET_X = 48;
 
 function getBuildableIdsFromPawn(pawn) {
   if (!pawn || typeof pawn !== "object") return [];
@@ -382,8 +390,40 @@ export function createBuildMenuView(opts) {
     }
 
     titleText.text = `Build (${leader.name || "Leader"})`;
-    root.x = app.screen.width - PANEL_WIDTH - 24;
-    root.y = 120;
+
+    const screenWidth = app.screen.width;
+    const screenHeight = app.screen.height;
+    const panelHeight = lastPanelHeight > 0 ? lastPanelHeight : 160;
+
+    let centerX = screenWidth / 2;
+    let centerY = screenHeight / 2;
+    const envCol = Number.isFinite(leader.envCol) ? Math.floor(leader.envCol) : null;
+    const hubCol = Number.isFinite(leader.hubCol) ? Math.floor(leader.hubCol) : null;
+
+    if (envCol != null) {
+      const pos = layoutBoardColPos(screenWidth, envCol, 0, TILE_ROW_Y);
+      centerX = getBoardColumnCenterX(screenWidth, envCol);
+      centerY = pos.y - CHARACTER_ROW_OFFSET_Y;
+    } else if (hubCol != null) {
+      const pos = layoutHubStructurePos(screenWidth, hubCol);
+      centerX = getHubColumnCenterX(screenWidth, hubCol);
+      centerY = pos.y - CHARACTER_ROW_OFFSET_Y;
+    }
+
+    let desiredX = centerX + PANEL_OFFSET_X;
+    if (desiredX + PANEL_WIDTH > screenWidth - PANEL_MARGIN) {
+      desiredX = centerX - PANEL_OFFSET_X - PANEL_WIDTH;
+    }
+    let desiredY = centerY - panelHeight / 2;
+
+    root.x = Math.max(
+      PANEL_MARGIN,
+      Math.min(screenWidth - PANEL_WIDTH - PANEL_MARGIN, desiredX)
+    );
+    root.y = Math.max(
+      PANEL_MARGIN,
+      Math.min(screenHeight - panelHeight - PANEL_MARGIN, desiredY)
+    );
   }
 
   function init() {

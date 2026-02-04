@@ -16,7 +16,6 @@ import { createTooltipView } from "./tooltip-pixi.js";
 import { createInventoryView } from "./inventory-pixi.js";
 import { createCharactersView } from "./characters-pixi.js";
 import { createBoardView } from "./board-pixi.js";
-import { createBuildMenuView } from "./build-menu-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
 import {
@@ -193,16 +192,6 @@ const interactionController = createInteractionController({
   // Phase is derived from paused by policy.
   getPhase: () => runner.getCursorState().phase,
 });
-
-let selectedLeaderId = null;
-
-function setSelectedLeaderId(nextId) {
-  selectedLeaderId = nextId;
-}
-
-function getSelectedLeaderId() {
-  return selectedLeaderId;
-}
 
 const SYSTEM_GRAPH_COLORS = [
   0x7fd0ff,
@@ -591,6 +580,7 @@ inventoryView = createInventoryView({
     runner.isPreviewing?.()
       ? null
       : actionPlanner?.getInventoryPreview?.(ownerId) ?? null,
+  actionPlanner,
   getItemTransferAffordability: (spec) =>
     actionPlanner?.getItemTransferAffordability?.(spec) ?? {
       ok: true,
@@ -643,6 +633,7 @@ inventoryView = createInventoryView({
         { apCost: 0 }
       )
     ),
+  queueActionWhenPaused,
   adjustFollowerCount: ({ leaderId, delta }) =>
     queueActionWhenPaused(() => {
       const res = runner.dispatchAction(
@@ -662,6 +653,8 @@ inventoryView = createInventoryView({
     }),
   requestPauseForAction,
   setApDragWarning,
+  flashActionGhost: (spec, status) =>
+    actionLogView?.flashGhost?.(spec, status),
 });
 
 function togglePause() {
@@ -736,15 +729,6 @@ const charactersView = createCharactersView({
     runner.isPreviewing?.()
       ? null
       : actionPlanner?.getCharacterOverridePlacement?.(charId) ?? null,
-  onCharacterClicked({ charId }) {
-    const state = runner.getState();
-    const ch = state?.characters?.find((c) => c.id === charId);
-    if (!ch || ch.role !== "leader") {
-      setSelectedLeaderId(null);
-      return;
-    }
-    setSelectedLeaderId(selectedLeaderId === ch.id ? null : ch.id);
-  },
   onCharacterDropped({ charId, dropPos }) {
     const state = runner.getState();
     const envCols = Number.isFinite(state?.board?.cols)
@@ -795,18 +779,6 @@ const charactersView = createCharactersView({
         }) || { ok: false, reason: "noPlanner" }
     );
   },
-});
-
-const buildMenuView = createBuildMenuView({
-  app,
-  layer: uiLayers.controlsLayer,
-  getGameState: () => runner.getState(),
-  getSelectedLeaderId,
-  actionPlanner,
-  queueActionWhenPaused,
-  requestPauseForAction,
-  flashActionGhost: (spec, status) =>
-    actionLogView?.flashGhost?.(spec, status),
 });
 
 let goldGraphView = createMetricGraphView({
@@ -969,7 +941,6 @@ tooltipView.init();
 inventoryView.init();
 boardView.init();
 charactersView.init();
-buildMenuView.init();
 chromeView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
@@ -1012,7 +983,6 @@ app.ticker.add((delta) => {
   interactionController.update(frameDt);
   boardView.update(frameDt);
   charactersView.update(frameDt);
-  buildMenuView.update(frameDt);
   tooltipView.update(frameDt);
   inventoryView.update(frameDt);
   chromeView.update(frameDt);
