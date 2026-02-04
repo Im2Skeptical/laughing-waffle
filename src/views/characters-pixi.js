@@ -326,8 +326,9 @@ export function createCharactersView(opts) {
     const state = getStateSafe();
     const target = getDropTargetFromPos(globalPos);
     const pawnName = char?.name || `Char ${char?.id ?? ""}`.trim() || "Pawn";
+    const intentId = char?.id != null ? `pawn:${char.id}` : null;
     if (!target || !state) {
-      return { description: pawnName, cost: 0 };
+      return { description: pawnName, cost: 0, intentId };
     }
 
     const targetLabel =
@@ -344,7 +345,7 @@ export function createCharactersView(opts) {
       if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
     }
 
-    return { description: `${pawnName} > ${targetLabel}`, cost };
+    return { description: `${pawnName} > ${targetLabel}`, cost, intentId };
   }
 
   function updatePawnDragGhost(char, globalPos) {

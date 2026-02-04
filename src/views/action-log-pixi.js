@@ -183,6 +183,9 @@ export function createActionLogView({
   let nextGhostId = 1;
   let dragGhostId = null;
   let currentRowCount = 0;
+  const rowEntriesByIntent = new Map();
+  const hiddenRowIntentIds = new Set();
+  let pendingRowFlash = null;
 
   function applyGhostSpec(entry, spec) {
     if (!entry || !spec) return;
@@ -192,12 +195,31 @@ export function createActionLogView({
   }
 
   function layoutGhostRows() {
+    if (hiddenRowIntentIds.size) {
+      for (const intentId of hiddenRowIntentIds) {
+        const entry = rowEntriesByIntent.get(intentId);
+        if (entry?.row) entry.row.alpha = 1;
+      }
+      hiddenRowIntentIds.clear();
+    }
     let y = Math.max(0, currentRowCount) * (ROW_HEIGHT + ROW_GAP);
     for (const id of ghostOrder) {
       const entry = ghostEntries.get(id);
       if (!entry) continue;
-      entry.container.y = y;
-      y += ROW_HEIGHT + ROW_GAP;
+      let placed = false;
+      if (entry.isDrag && entry.spec?.intentId) {
+        const rowEntry = rowEntriesByIntent.get(entry.spec.intentId);
+        if (rowEntry?.row) {
+          entry.container.y = rowEntry.row.y;
+          rowEntry.row.alpha = 0;
+          hiddenRowIntentIds.add(entry.spec.intentId);
+          placed = true;
+        }
+      }
+      if (!placed) {
+        entry.container.y = y;
+        y += ROW_HEIGHT + ROW_GAP;
+      }
     }
   }
 
@@ -214,6 +236,9 @@ export function createActionLogView({
     ghostEntries.delete(id);
     ghostOrder = ghostOrder.filter((gid) => gid !== id);
     if (dragGhostId === id) dragGhostId = null;
+    if (pendingRowFlash?.ghostId === id) {
+      pendingRowFlash = null;
+    }
     layoutGhostRows();
   }
 
@@ -326,6 +351,17 @@ export function createActionLogView({
 
   function resolveDragGhost(status) {
     if (dragGhostId == null) return;
+    const entry = ghostEntries.get(dragGhostId);
+    const intentId = entry?.spec?.intentId ?? null;
+    if (status === "success" && intentId) {
+      pendingRowFlash = {
+        intentId,
+        status,
+        ghostId: dragGhostId,
+        deadline: Date.now() + GHOST_FLASH_MS + 120,
+      };
+      return;
+    }
     resolveGhost(dragGhostId, status);
   }
 
@@ -335,8 +371,33 @@ export function createActionLogView({
     resolveGhost(entry.id, status);
   }
 
+  function flashRow(row, status) {
+    if (!row) return;
+    const rowWidth = PANEL_WIDTH - PADDING * 2;
+    const overlay = new PIXI.Graphics();
+    if (status === "success") {
+      overlay
+        .beginFill(0x1f6a32, 0.3)
+        .lineStyle(2, 0x7dff9e, 1)
+        .drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 12)
+        .endFill();
+    } else {
+      overlay
+        .beginFill(0x8a1f2a, 0.3)
+        .lineStyle(2, 0xff4f5e, 1)
+        .drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 12)
+        .endFill();
+    }
+    overlay.visible = true;
+    row.addChild(overlay);
+    setTimeout(() => {
+      if (overlay.parent) overlay.parent.removeChild(overlay);
+    }, GHOST_FLASH_MS);
+  }
+
   function buildRows(rowSpecs, planner) {
     rows.removeChildren();
+    rowEntriesByIntent.clear();
     let y = 0;
 
     for (const spec of rowSpecs) {
@@ -399,9 +460,34 @@ export function createActionLogView({
 
       rows.addChild(row);
       y += ROW_HEIGHT + ROW_GAP;
+
+      if (Array.isArray(spec.intentIds)) {
+        for (const intentId of spec.intentIds) {
+          if (!intentId) continue;
+          rowEntriesByIntent.set(intentId, { row, spec });
+        }
+      }
     }
 
     currentRowCount = Array.isArray(rowSpecs) ? rowSpecs.length : 0;
+
+    if (pendingRowFlash) {
+      const entry = rowEntriesByIntent.get(pendingRowFlash.intentId);
+      if (entry?.row) {
+        const pending = pendingRowFlash;
+        pendingRowFlash = null;
+        if (pending.ghostId != null) {
+          removeGhost(pending.ghostId);
+        }
+        flashRow(entry.row, pending.status);
+      } else if (Date.now() >= pendingRowFlash.deadline) {
+        if (pendingRowFlash.ghostId != null) {
+          resolveGhost(pendingRowFlash.ghostId, pendingRowFlash.status);
+        }
+        pendingRowFlash = null;
+      }
+    }
+
     layoutGhostRows();
   }
 

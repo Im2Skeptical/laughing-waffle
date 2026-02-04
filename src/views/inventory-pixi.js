@@ -1680,6 +1680,8 @@ export function createInventoryView({
     const description = targetLabel
       ? `${itemLabel} > ${targetLabel}`
       : itemLabel;
+    const intentId =
+      dragItem?.item?.id != null ? `item:${dragItem.item.id}` : null;
 
     let cost = 0;
     if (
@@ -1697,7 +1699,7 @@ export function createInventoryView({
       if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
     }
 
-    return { description, cost };
+    return { description, cost, intentId };
   }
 
   function updateItemDragGhost(globalPos) {
