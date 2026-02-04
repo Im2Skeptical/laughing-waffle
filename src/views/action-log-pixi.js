@@ -182,6 +182,7 @@ export function createActionLogView({
   let ghostOrder = [];
   let nextGhostId = 1;
   let dragGhostId = null;
+  let currentRowCount = 0;
 
   function applyGhostSpec(entry, spec) {
     if (!entry || !spec) return;
@@ -191,7 +192,7 @@ export function createActionLogView({
   }
 
   function layoutGhostRows() {
-    let y = 0;
+    let y = Math.max(0, currentRowCount) * (ROW_HEIGHT + ROW_GAP);
     for (const id of ghostOrder) {
       const entry = ghostEntries.get(id);
       if (!entry) continue;
@@ -399,6 +400,9 @@ export function createActionLogView({
       rows.addChild(row);
       y += ROW_HEIGHT + ROW_GAP;
     }
+
+    currentRowCount = Array.isArray(rowSpecs) ? rowSpecs.length : 0;
+    layoutGhostRows();
   }
 
   function rebuildFromIntents() {
