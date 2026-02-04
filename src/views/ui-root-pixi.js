@@ -610,6 +610,14 @@ inventoryView = createInventoryView({
     const res = actionPlanner?.removeIntent?.(key);
     return res || { ok: false, reason: "noPlanner" };
   },
+  discardItemFromOwner: ({ ownerId, itemId }) =>
+    queueActionWhenPaused(() =>
+      runner.dispatchAction(
+        ActionKinds.INVENTORY_DISCARD,
+        { ownerId, itemId },
+        { apCost: 0 }
+      )
+    ),
   splitStackAndPlace: ({ ownerId, itemId, amount, targetGX, targetGY }) =>
     queueActionWhenPaused(() =>
       runner.dispatchAction(

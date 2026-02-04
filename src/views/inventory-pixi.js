@@ -72,6 +72,7 @@ export function createInventoryView({
   adjustFollowerCount,
   requestPauseForAction,
   setApDragWarning,
+  discardItemFromOwner,
 }) {
   const stage = layer.parent;
 
@@ -379,6 +380,32 @@ export function createInventoryView({
     pinText.cursor = "pointer";
     c.addChild(pinText);
 
+    // Bin (discard) drop target
+    const bin = new PIXI.Container();
+    bin.x = w - 62;
+    bin.y = 4;
+    bin.eventMode = "static";
+    bin.cursor = "default";
+    c.addChild(bin);
+
+    const binBg = new PIXI.Graphics();
+    binBg
+      .lineStyle(1, 0x4b4f66, 1)
+      .beginFill(0x1b1f2f, 0.9)
+      .drawRoundedRect(0, 0, 16, 16, 3)
+      .endFill();
+    bin.addChild(binBg);
+
+    const binIcon = new PIXI.Graphics();
+    binIcon
+      .lineStyle(1, 0xd6d6e0, 1)
+      .drawRoundedRect(5, 6, 6, 7, 1)
+      .moveTo(4, 6)
+      .lineTo(12, 6)
+      .moveTo(6, 4)
+      .lineTo(10, 4);
+    bin.addChild(binIcon);
+
     // Close button
     const closeText = new PIXI.Text("x", { fill: 0xffffff, fontSize: 12 });
     closeText.x = w - 20;
@@ -413,6 +440,10 @@ export function createInventoryView({
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
       leaderPanel: null,
+      bin: {
+        container: bin,
+        bg: binBg,
+      },
     };
 
     windows.set(ownerId, win);
@@ -1238,6 +1269,26 @@ export function createInventoryView({
       return;
     }
 
+    const binTarget = findBinAt(g);
+    if (binTarget) {
+      const discard =
+        typeof discardItemFromOwner === "function"
+          ? discardItemFromOwner
+          : null;
+      const result = discard
+        ? discard({ ownerId: sourceOwner, itemId: item.id })
+        : { ok: false, reason: "noDiscardHandler" };
+      if (!result.ok) {
+        console.warn("discardItem failed:", result.reason, result);
+        flashItemError(view, sourceOwner);
+        finish();
+        return;
+      }
+      rebuildWindow(sourceOwner);
+      finish();
+      return;
+    }
+
     const win = findWindowAt(g);
     if (!win) {
       flashItemError(view, sourceOwner);
@@ -1356,6 +1407,23 @@ export function createInventoryView({
         globalPos.x <= c.x + win.panelWidth &&
         globalPos.y >= c.y &&
         globalPos.y <= c.y + win.panelHeight
+      ) {
+        return win;
+      }
+    }
+    return null;
+  }
+
+  function findBinAt(globalPos) {
+    for (const win of windows.values()) {
+      const bin = win?.bin?.container;
+      if (!bin || !win.container?.visible) continue;
+      const bounds = bin.getBounds();
+      if (
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
       ) {
         return win;
       }

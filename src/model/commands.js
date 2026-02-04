@@ -23,6 +23,8 @@ import {
   processSecondChangeForItems,
 } from "./effects.js";
 
+import { Inventory } from "./inventory-model.js";
+import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { stepPawnSecond } from "./pawn-exec.js";
 import { stepEnvSecond } from "./env-exec.js";
 import { stepHubSecond } from "./hub-exec.js";
@@ -448,6 +450,25 @@ export function cmdStackItemsInOwner(
   );
 
   return ctx.out || { ok: false, reason: "effectFailed" };
+}
+
+export function cmdDiscardItemFromOwner(state, { ownerId, itemId } = {}) {
+  if (ownerId == null) return { ok: false, reason: "badOwner" };
+  if (itemId == null) return { ok: false, reason: "badItem" };
+
+  const inv = state?.ownerInventories?.[ownerId];
+  if (!inv) return { ok: false, reason: "noInventory" };
+
+  Inventory.rebuildDerived(inv);
+  const item =
+    inv.itemsById[itemId] || inv.items.find((it) => it.id === itemId);
+  if (!item) return { ok: false, reason: "noItem" };
+
+  Inventory.removeItem(inv, item.id);
+  Inventory.rebuildDerived(inv);
+  bumpInvVersion(inv);
+
+  return { ok: true, result: "discarded", ownerId, itemId };
 }
 
 // =============================================================================

@@ -7,6 +7,7 @@ import {
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
+  cmdDiscardItemFromOwner,
   cmdDebugSetCap,
   cmdSetTileTagOrder,
   cmdSetHubTagOrder,
@@ -20,6 +21,7 @@ export const ActionKinds = {
   INVENTORY_MOVE: "inventoryMove",
   INVENTORY_SPLIT: "inventorySplit",
   INVENTORY_STACK: "inventoryStack",
+  INVENTORY_DISCARD: "inventoryDiscard",
   BUILD_DESIGNATE: "buildDesignate",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
   SET_HUB_TAG_ORDER: "setHubTagOrder",
@@ -135,6 +137,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.INVENTORY_STACK:
       result = cmdStackItemsInOwner(state, payload);
+      break;
+
+    case ActionKinds.INVENTORY_DISCARD:
+      result = cmdDiscardItemFromOwner(state, payload);
       break;
 
     case ActionKinds.BUILD_DESIGNATE:
