@@ -365,6 +365,7 @@ export function createBoardView(opts) {
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
     view.holdHoverForOccupant = false;
+    view.isHovered = false;
     clearHoverContext();
     tooltipView?.hide?.();
     if (inventoryView && view.structureHasInventory?.()) {
@@ -473,20 +474,92 @@ export function createBoardView(opts) {
     );
   }
 
+  function applyHubStructureHover(view) {
+    if (!view?.container || !view?.structure) return;
+    const { title, lines } = getHubStructureUi(view.structure);
+    const def = hubStructureDefs[view.structure.defId];
+    const span =
+      Number.isFinite(view.structure?.span) && view.structure.span > 0
+        ? Math.floor(view.structure.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const width = HUB_STRUCTURE_WIDTH * span + HUB_COL_GAP * (span - 1);
+    const height = HUB_STRUCTURE_HEIGHT;
+    view.setHoverActive?.(true);
+    elevateForHover(view.container);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      width,
+      height,
+      GAMEPIECE_HOVER_SCALE
+    );
+    const anchorCol = Number.isFinite(view.structure?.col)
+      ? Math.floor(view.structure.col)
+      : Number.isFinite(view.col)
+      ? Math.floor(view.col)
+      : 0;
+    view.isHovered = true;
+    setHoverContext("hub", anchorCol, span, anchor);
+
+    tooltipView?.show?.(
+      { title, lines, scale: GAMEPIECE_HOVER_SCALE },
+      anchor
+    );
+
+    if (inventoryView && view.structureHasInventory?.()) {
+      inventoryView.showOnHover(view.structure.instanceId, {
+        x: anchor.x,
+        y: anchor.y,
+        width: anchor.width,
+        height: anchor.height,
+      });
+    }
+  }
+
   function restoreHoverAfterRebuild(pendingHover, pointerPos) {
     if (!pendingHover || !pointerPos) return;
     if (!interaction?.canShowHoverUI?.()) return;
-    if (pendingHover.kind !== "tile") return;
-    const view = tileViews[pendingHover.col];
-    if (!view) return;
-    if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
-    setActiveHover({
-      view,
-      kind: "tile",
-      col: pendingHover.col,
-      clear: () => clearTileHover(view),
-    });
-    applyTileHover(view);
+    if (pendingHover.kind === "tile") {
+      const view = tileViews[pendingHover.col];
+      if (!view) return;
+      if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
+      setActiveHover({
+        view,
+        kind: "tile",
+        col: pendingHover.col,
+        clear: () => clearTileHover(view),
+      });
+      applyTileHover(view);
+      return;
+    }
+    if (pendingHover.kind === "hub") {
+      const targetCol = Number.isFinite(pendingHover.col)
+        ? Math.floor(pendingHover.col)
+        : null;
+      if (targetCol == null) return;
+      let view = null;
+      for (const candidate of hubStructureViews.values()) {
+        const anchorCol = Number.isFinite(candidate?.structure?.col)
+          ? Math.floor(candidate.structure.col)
+          : Number.isFinite(candidate?.col)
+          ? Math.floor(candidate.col)
+          : null;
+        if (anchorCol === targetCol) {
+          view = candidate;
+          break;
+        }
+      }
+      if (!view) return;
+      if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
+      setActiveHover({
+        view,
+        kind: "hub",
+        col: targetCol,
+        clear: () => clearHubStructureHover(view),
+      });
+      applyHubStructureHover(view);
+    }
   }
 
   function removeFromParent(container) {
@@ -1380,6 +1453,7 @@ export function createBoardView(opts) {
       container: cont,
       structure: structureInst,
       col,
+      isHovered: false,
       pawnCount: 0,
       meterViews,
       tagContainer,
@@ -1411,29 +1485,8 @@ export function createBoardView(opts) {
         col,
         clear: () => clearHubStructureHover(view),
       });
-      setHoverActive(true);
-      elevateForHover(cont);
-      const anchor = getScaledAnchorRect(
-        cont,
-        width,
-        height,
-        GAMEPIECE_HOVER_SCALE
-      );
-      setHoverContext("hub", col, span, anchor);
-
-      tooltipView?.show?.(
-        { title, lines, scale: GAMEPIECE_HOVER_SCALE },
-        anchor
-      );
-
-      if (inventoryView && structureHasInventory()) {
-        inventoryView.showOnHover(structureInst.instanceId, {
-          x: anchor.x,
-          y: anchor.y,
-          width: anchor.width,
-          height: anchor.height,
-        });
-      }
+      if (view.isHovered) return;
+      applyHubStructureHover(view);
     });
 
     cont.on("pointerleave", () => {
