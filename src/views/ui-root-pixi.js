@@ -585,6 +585,10 @@ inventoryView = createInventoryView({
       ok: true,
       affordable: true,
     },
+  getDropTargetOwnerAt: (pos) =>
+    charactersView?.getInventoryOwnerAtGlobalPos?.(pos) ??
+    boardView?.getInventoryOwnerAtGlobalPos?.(pos) ??
+    null,
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),

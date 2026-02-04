@@ -64,6 +64,7 @@ export function createInventoryView({
   onGhostClick,
   hasItemTransferIntent,
   getItemTransferAffordability,
+  getDropTargetOwnerAt,
 
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
@@ -1291,6 +1292,61 @@ export function createInventoryView({
 
     const win = findWindowAt(g);
     if (!win) {
+      const targetOwner =
+        typeof getDropTargetOwnerAt === "function"
+          ? getDropTargetOwnerAt(g)
+          : null;
+      if (targetOwner != null) {
+        if (targetOwner === sourceOwner) {
+          revealWindow(targetOwner);
+          finish();
+          return;
+        }
+
+        const targetInv = getInventoryForOwner(targetOwner);
+        const preview =
+          typeof getInventoryPreview === "function"
+            ? getInventoryPreview(targetOwner)
+            : null;
+
+        const placement = findItemPlacement(targetInv, item, preview, null);
+        if (!placement) {
+          revealWindow(targetOwner);
+          flashWindowError(targetOwner);
+          finish();
+          return;
+        }
+
+        const handler =
+          typeof moveItemBetweenOwners === "function"
+            ? moveItemBetweenOwners
+            : null;
+
+        const result = handler
+          ? handler({
+              fromOwnerId: sourceOwner,
+              toOwnerId: targetOwner,
+              itemId: item.id,
+              targetGX: placement.gx,
+              targetGY: placement.gy,
+            })
+          : { ok: false, reason: "noMoveItemBetweenOwnersHandler" };
+
+        if (!result.ok) {
+          console.warn("inventoryMove failed:", result.reason, result);
+          revealWindow(targetOwner);
+          flashWindowError(targetOwner);
+          flashItemError(view, sourceOwner);
+          finish();
+          return;
+        }
+
+        rebuildWindow(sourceOwner);
+        rebuildWindow(targetOwner);
+        finish();
+        return;
+      }
+
       flashItemError(view, sourceOwner);
       finish();
       return;
@@ -1531,6 +1587,18 @@ export function createInventoryView({
     for (let gy = 0; gy <= inv.rows - item.height; gy++) {
       for (let gx = 0; gx <= inv.cols - item.width; gx++) {
         if (canPlaceItemPreview(inv, item, gx, gy, preview, null)) {
+          return { gx, gy };
+        }
+      }
+    }
+    return null;
+  }
+
+  function findItemPlacement(inv, item, preview, ignoreItemId) {
+    if (!inv || !item) return null;
+    for (let gy = 0; gy <= inv.rows - item.height; gy++) {
+      for (let gx = 0; gx <= inv.cols - item.width; gx++) {
+        if (canPlaceItemPreview(inv, item, gx, gy, preview, ignoreItemId)) {
           return { gx, gy };
         }
       }

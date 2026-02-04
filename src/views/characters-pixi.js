@@ -800,11 +800,37 @@ export function createCharactersView(opts) {
     updateFocus();
   }
 
+  function getInventoryOwnerAtGlobalPos(globalPos) {
+    if (!globalPos) return null;
+    const state = getStateSafe();
+    const inventories = state?.ownerInventories || null;
+    if (!inventories) return null;
+
+    for (const view of viewsById.values()) {
+      if (!view?.container?.visible) continue;
+      const ownerId = view?.char?.id ?? null;
+      if (ownerId == null) continue;
+      if (!inventories[ownerId]) continue;
+      const bounds = view.container.getBounds();
+      if (
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
+      ) {
+        return ownerId;
+      }
+    }
+
+    return null;
+  }
+
   return {
     init,
     rebuildAll,
     update,
     updatePositionsFromModel,
     getViewForId: (id) => viewsById.get(id) || null,
+    getInventoryOwnerAtGlobalPos,
   };
 }

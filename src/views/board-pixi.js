@@ -1840,7 +1840,25 @@ export function createBoardView(opts) {
     }
   }
 
-  return { init, rebuildAll, update };
+  function getInventoryOwnerAtGlobalPos(globalPos) {
+    if (!globalPos) return null;
+    for (const view of hubStructureViews.values()) {
+      if (!view?.container?.visible) continue;
+      if (!view.structureHasInventory?.()) continue;
+      const bounds = view.container.getBounds();
+      if (
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
+      ) {
+        return view.structure?.instanceId ?? null;
+      }
+    }
+    return null;
+  }
+
+  return { init, rebuildAll, update, getInventoryOwnerAtGlobalPos };
 }
 
 /**
