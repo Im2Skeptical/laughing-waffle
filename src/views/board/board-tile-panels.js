@@ -55,7 +55,12 @@ export function createTilePanels(opts) {
           cropId != null ? cropDefs?.[cropId]?.name || cropId : "None";
         const ghostSpec = {
           description: `Crop > ${tileName}: ${cropName}`,
-          cost: Math.max(0, Math.floor(INTENT_AP_COSTS?.tileCropSelect ?? 0)),
+          cost: Math.max(
+            0,
+            Math.floor(
+              INTENT_AP_COSTS?.tilePlan ?? INTENT_AP_COSTS?.tileCropSelect ?? 0
+            )
+          ),
         };
         const run = () => {
           if (actionPlanner?.setTileCropSelectionIntent) {
