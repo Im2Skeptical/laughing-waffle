@@ -384,7 +384,9 @@ export function createSimRunner({
       kind === "buildDesignate" ||
       kind === "setTileTagOrder" ||
       kind === "setTileCropSelection" ||
-      kind === "setHubTagOrder"
+      kind === "setHubTagOrder" ||
+      kind === "toggleTileTag" ||
+      kind === "toggleHubTag"
     ) {
       return true;
     }
@@ -421,6 +423,20 @@ export function createSimRunner({
     if (action.kind === "setHubTagOrder") {
       const hubCol = payload.hubCol ?? null;
       return Number.isFinite(hubCol) ? `hubTags:${Math.floor(hubCol)}` : null;
+    }
+    if (action.kind === "toggleTileTag") {
+      const envCol = payload.envCol ?? null;
+      const tagId = payload.tagId ?? null;
+      return Number.isFinite(envCol) && tagId
+        ? `tileTagToggle:${Math.floor(envCol)}:${tagId}`
+        : null;
+    }
+    if (action.kind === "toggleHubTag") {
+      const hubCol = payload.hubCol ?? null;
+      const tagId = payload.tagId ?? null;
+      return Number.isFinite(hubCol) && tagId
+        ? `hubTagToggle:${Math.floor(hubCol)}:${tagId}`
+        : null;
     }
     return null;
   }
