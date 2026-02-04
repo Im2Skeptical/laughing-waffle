@@ -554,14 +554,12 @@ export function createTagUi(opts) {
       view.ignoreNextTagTap = true;
       view.hasTagToggle = true;
       requestPauseForAction?.();
-      const disabled = isTagDisabled(view.tile, tagId);
       if (typeof toggleTag === "function") {
         toggleTag({
           envCol: Number.isFinite(view.tile?.col)
             ? Math.floor(view.tile.col)
             : view.col,
           tagId,
-          disabled: !disabled,
         });
       }
     });
@@ -891,8 +889,14 @@ export function createTagUi(opts) {
       view.expandedTagId = null;
     }
 
-    if (!view.hasTagToggle && view.expandedTagId == null && tags.length > 0) {
-      view.expandedTagId = tags[0];
+    if (!view.hasTagToggle) {
+      const pawnCount =
+        Number.isFinite(view?.pawnCount) && view.pawnCount > 0
+          ? Math.floor(view.pawnCount)
+          : 0;
+      const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
+      const activeTagId = pawnCount > 0 ? enabledTags[0] ?? null : null;
+      view.expandedTagId = activeTagId;
     }
 
     for (const tagId of tags) {

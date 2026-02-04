@@ -517,13 +517,30 @@ export function createBoardView(opts) {
 
   function dispatchTileTagToggle({ envCol, tagId, disabled } = {}) {
     const run = () => {
+      let nextDisabled = disabled;
+      if (typeof nextDisabled !== "boolean") {
+        if (actionPlanner?.getTileTagTogglePreview) {
+          const cur = actionPlanner.getTileTagTogglePreview({ envCol, tagId });
+          nextDisabled = cur == null ? true : !cur;
+        } else {
+          const state = getGameState?.();
+          const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+          const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
+          const cur = tile?.tagStates?.[tagId]?.disabled === true;
+          nextDisabled = !cur;
+        }
+      }
       if (actionPlanner?.setTileTagToggleIntent) {
-        return actionPlanner.setTileTagToggleIntent({ envCol, tagId, disabled });
+        return actionPlanner.setTileTagToggleIntent({
+          envCol,
+          tagId,
+          disabled: nextDisabled,
+        });
       }
       if (!dispatchAction) return { ok: false, reason: "noDispatch" };
       dispatchAction(
         ActionKinds.TOGGLE_TILE_TAG,
-        { envCol, tagId, disabled },
+        { envCol, tagId, disabled: nextDisabled },
         { apCost: 5 }
       );
       return { ok: true };
@@ -606,13 +623,33 @@ export function createBoardView(opts) {
 
   function dispatchHubTagToggle({ hubCol, tagId, disabled } = {}) {
     const run = () => {
+      let nextDisabled = disabled;
+      if (typeof nextDisabled !== "boolean") {
+        if (actionPlanner?.getHubTagTogglePreview) {
+          const cur = actionPlanner.getHubTagTogglePreview({ hubCol, tagId });
+          nextDisabled = cur == null ? true : !cur;
+        } else {
+          const state = getGameState?.();
+          const col = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
+          const structure =
+            col != null
+              ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure
+              : null;
+          const cur = structure?.tagStates?.[tagId]?.disabled === true;
+          nextDisabled = !cur;
+        }
+      }
       if (actionPlanner?.setHubTagToggleIntent) {
-        return actionPlanner.setHubTagToggleIntent({ hubCol, tagId, disabled });
+        return actionPlanner.setHubTagToggleIntent({
+          hubCol,
+          tagId,
+          disabled: nextDisabled,
+        });
       }
       if (!dispatchAction) return { ok: false, reason: "noDispatch" };
       dispatchAction(
         ActionKinds.TOGGLE_HUB_TAG,
-        { hubCol, tagId, disabled },
+        { hubCol, tagId, disabled: nextDisabled },
         { apCost: 5 }
       );
       return { ok: true };

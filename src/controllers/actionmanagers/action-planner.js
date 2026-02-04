@@ -1296,6 +1296,35 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
+  function getTileTagTogglePreview({ envCol, tagId } = {}) {
+    ensureActive();
+    if (!Number.isFinite(envCol) || !tagId) return null;
+    const col = Math.floor(envCol);
+    const subjectKey = `tileTagToggle:${col}:${tagId}`;
+    const intent = intents.get(subjectKey);
+    if (intent && intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
+      return intent.disabled === true;
+    }
+    const state = getStateSafe();
+    const tile = state?.board?.occ?.tile?.[col];
+    return tile?.tagStates?.[tagId]?.disabled === true;
+  }
+
+  function getHubTagTogglePreview({ hubCol, tagId } = {}) {
+    ensureActive();
+    if (!Number.isFinite(hubCol) || !tagId) return null;
+    const col = Math.floor(hubCol);
+    const subjectKey = `hubTagToggle:${col}:${tagId}`;
+    const intent = intents.get(subjectKey);
+    if (intent && intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
+      return intent.disabled === true;
+    }
+    const state = getStateSafe();
+    const structure =
+      state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure ?? null;
+    return structure?.tagStates?.[tagId]?.disabled === true;
+  }
+
   function setTileCropSelectionIntent({ envCol, cropId }) {
     ensureActive();
     const state = getStateSafe();
@@ -1597,6 +1626,8 @@ export function createActionPlanner({
     setHubTagOrderIntent,
     setTileTagToggleIntent,
     setHubTagToggleIntent,
+    getTileTagTogglePreview,
+    getHubTagTogglePreview,
     setTileCropSelectionIntent,
     removeIntent(intentId) {
       ensureActive();

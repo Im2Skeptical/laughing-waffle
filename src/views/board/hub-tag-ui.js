@@ -231,14 +231,12 @@ export function createHubTagUi(opts) {
       view.ignoreNextTagTap = true;
       view.hasTagToggle = true;
       requestPauseForAction?.();
-      const disabled = isTagDisabled(view.structure, tagId);
       if (typeof toggleTag === "function") {
         toggleTag({
           hubCol: Number.isFinite(view.structure?.col)
             ? Math.floor(view.structure.col)
             : view.col,
           tagId,
-          disabled: !disabled,
         });
       }
     });
@@ -348,8 +346,14 @@ export function createHubTagUi(opts) {
       view.expandedTagId = null;
     }
 
-    if (!view.hasTagToggle && view.expandedTagId == null && tags.length > 0) {
-      view.expandedTagId = tags[0];
+    if (!view.hasTagToggle) {
+      const pawnCount =
+        Number.isFinite(view?.pawnCount) && view.pawnCount > 0
+          ? Math.floor(view.pawnCount)
+          : 0;
+      const enabledTags = tags.filter((tagId) => !isTagDisabled(structure, tagId));
+      const activeTagId = pawnCount > 0 ? enabledTags[0] ?? null : null;
+      view.expandedTagId = activeTagId;
     }
 
     for (const tagId of tags) {
