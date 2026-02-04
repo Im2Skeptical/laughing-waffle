@@ -176,6 +176,7 @@ export function createBoardView(opts) {
     baseTextResolution: BASE_TEXT_RESOLUTION,
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
+    toggleTag: dispatchTileTagToggle,
   });
 
   const hubTagUi = createHubTagUi({
@@ -184,6 +185,8 @@ export function createBoardView(opts) {
     setTextResolution,
     baseTextResolution: BASE_TEXT_RESOLUTION,
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
+    requestPauseForAction,
+    toggleTag: dispatchHubTagToggle,
   });
 
   function attachHoverFx(
@@ -511,6 +514,28 @@ export function createBoardView(opts) {
     }
     return run();
   }
+
+  function dispatchTileTagToggle(envCol, tagId, disabled) {
+    const run = () => {
+      if (actionPlanner?.setTileTagToggleIntent) {
+        return actionPlanner.setTileTagToggleIntent({ envCol, tagId, disabled });
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      dispatchAction(
+        ActionKinds.TOGGLE_TILE_TAG,
+        { envCol, tagId, disabled },
+        { apCost: 5 }
+      );
+      return { ok: true };
+    };
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
+    }
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
+      return { ok: false, reason: "mustBePaused" };
+    }
+    return run();
+  }
   // Tag + system UI helpers live in board/board-tag-ui.js.
 
   function endTagDrag(view, commit, globalPos = null) {
@@ -567,6 +592,28 @@ export function createBoardView(opts) {
         ActionKinds.SET_HUB_TAG_ORDER,
         { hubCol, tagIds },
         { apCost: 10 }
+      );
+      return { ok: true };
+    };
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
+    }
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
+      return { ok: false, reason: "mustBePaused" };
+    }
+    return run();
+  }
+
+  function dispatchHubTagToggle(hubCol, tagId, disabled) {
+    const run = () => {
+      if (actionPlanner?.setHubTagToggleIntent) {
+        return actionPlanner.setHubTagToggleIntent({ hubCol, tagId, disabled });
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      dispatchAction(
+        ActionKinds.TOGGLE_HUB_TAG,
+        { hubCol, tagId, disabled },
+        { apCost: 5 }
       );
       return { ok: true };
     };

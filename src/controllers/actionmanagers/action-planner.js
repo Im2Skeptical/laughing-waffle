@@ -12,6 +12,8 @@ import {
   makeTileTagOrderIntent,
   makeTileCropSelectIntent,
   makeHubTagOrderIntent,
+  makeTileTagToggleIntent,
+  makeHubTagToggleIntent,
   getIntentSubjectKey,
 } from "./action-intents.js";
 import {
@@ -43,6 +45,12 @@ function cloneTagList(tags) {
 function normalizeTagList(tags) {
   if (!Array.isArray(tags)) return [];
   return tags.filter((tag) => typeof tag === "string");
+}
+
+function isTagDisabled(target, tagId) {
+  if (!target || !tagId) return false;
+  const entry = target.tagStates?.[tagId];
+  return entry?.disabled === true;
 }
 
 function tagListsEqual(a, b) {
@@ -389,6 +397,54 @@ export function createActionPlanner({
           hubCol: col,
           tagIds,
           baselineTags: tagIds,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
+      if (kind === ActionKinds.TOGGLE_TILE_TAG) {
+        const envCol = payload.envCol ?? null;
+        const tagId = payload.tagId ?? null;
+        if (!Number.isFinite(envCol) || !tagId) continue;
+        const col = Math.floor(envCol);
+        const subjectKey = `tileTagToggle:${col}:${tagId}`;
+        const disabled = payload.disabled === true;
+        const intent = makeTileTagToggleIntent({
+          id: subjectKey,
+          subjectKey,
+          envCol: col,
+          tagId,
+          disabled,
+          baselineDisabled: disabled,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
+      if (kind === ActionKinds.TOGGLE_HUB_TAG) {
+        const hubCol = payload.hubCol ?? null;
+        const tagId = payload.tagId ?? null;
+        if (!Number.isFinite(hubCol) || !tagId) continue;
+        const col = Math.floor(hubCol);
+        const subjectKey = `hubTagToggle:${col}:${tagId}`;
+        const disabled = payload.disabled === true;
+        const intent = makeHubTagToggleIntent({
+          id: subjectKey,
+          subjectKey,
+          hubCol: col,
+          tagId,
+          disabled,
+          baselineDisabled: disabled,
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
           source: "timeline",
         });
@@ -1156,6 +1212,90 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
+  function setTileTagToggleIntent({ envCol, tagId, disabled }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+    if (!tagId) return { ok: false, reason: "badTagId" };
+
+    const col = Math.floor(envCol);
+    const tile = state?.board?.occ?.tile?.[col];
+    if (!tile) return { ok: false, reason: "noTile" };
+    const tags = Array.isArray(tile.tags) ? tile.tags : [];
+    if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnTile" };
+
+    const subjectKey = `tileTagToggle:${col}:${tagId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const baselineDisabled =
+      existing?.baselineDisabled ?? isTagDisabled(tile, tagId);
+    const nextDisabled =
+      typeof disabled === "boolean" ? disabled : !baselineDisabled;
+
+    const intent = makeTileTagToggleIntent({
+      id: subjectKey,
+      subjectKey,
+      envCol: col,
+      tagId,
+      disabled: nextDisabled,
+      baselineDisabled,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
+  function setHubTagToggleIntent({ hubCol, tagId, disabled }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+    if (!tagId) return { ok: false, reason: "badTagId" };
+
+    const col = Math.floor(hubCol);
+    const structure = getHubStructureAtCol(state, col);
+    if (!structure) return { ok: false, reason: "noHubStructure" };
+    const tags = Array.isArray(structure.tags) ? structure.tags : [];
+    if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnHub" };
+
+    const subjectKey = `hubTagToggle:${col}:${tagId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const baselineDisabled =
+      existing?.baselineDisabled ?? isTagDisabled(structure, tagId);
+    const nextDisabled =
+      typeof disabled === "boolean" ? disabled : !baselineDisabled;
+
+    const intent = makeHubTagToggleIntent({
+      id: subjectKey,
+      subjectKey,
+      hubCol: col,
+      tagId,
+      disabled: nextDisabled,
+      baselineDisabled,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
   function setTileCropSelectionIntent({ envCol, cropId }) {
     ensureActive();
     const state = getStateSafe();
@@ -1306,6 +1446,36 @@ export function createActionPlanner({
           },
           apCost,
         });
+      } else if (intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
+        if (!Number.isFinite(intent.envCol) || !intent.tagId) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.TOGGLE_TILE_TAG,
+          payload: {
+            envCol: Math.floor(intent.envCol),
+            tagId: intent.tagId,
+            disabled: intent.disabled === true,
+          },
+          apCost,
+        });
+      } else if (intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
+        if (!Number.isFinite(intent.hubCol) || !intent.tagId) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.TOGGLE_HUB_TAG,
+          payload: {
+            hubCol: Math.floor(intent.hubCol),
+            tagId: intent.tagId,
+            disabled: intent.disabled === true,
+          },
+          apCost,
+        });
       } else if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
         if (!Number.isFinite(intent.envCol)) continue;
         const apCost =
@@ -1425,6 +1595,8 @@ export function createActionPlanner({
     setBuildDesignationIntent,
     setTileTagOrderIntent,
     setHubTagOrderIntent,
+    setTileTagToggleIntent,
+    setHubTagToggleIntent,
     setTileCropSelectionIntent,
     removeIntent(intentId) {
       ensureActive();

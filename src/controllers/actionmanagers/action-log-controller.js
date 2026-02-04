@@ -5,6 +5,8 @@ import { hubStructureDefs }  from "../../defs/gamepieces/hub-structure-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
+import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { IntentKinds } from "./action-intents.js";
 import {
@@ -20,6 +22,16 @@ function formatItemNameFromKind(kind) {
 function formatCropName(cropId) {
   if (!cropId) return "None";
   return cropDefs[cropId]?.name || cropDefs[cropId]?.cropId || cropId;
+}
+
+function formatEnvTagName(tagId) {
+  if (!tagId) return "Tag";
+  return envTagDefs[tagId]?.ui?.name || tagId;
+}
+
+function formatHubTagName(tagId) {
+  if (!tagId) return "Tag";
+  return hubTagDefs[tagId]?.ui?.name || tagId;
 }
 
 function formatOwnerName(ownerId, getOwnerLabel) {
@@ -106,6 +118,18 @@ function describeIntent(intent, state, getOwnerLabel) {
     case IntentKinds.HUB_TAG_ORDER: {
       const hubName = formatHubName(intent.hubCol, state);
       return `Tags > ${hubName}`;
+    }
+    case IntentKinds.TILE_TAG_TOGGLE: {
+      const tileName = formatTileName(intent.envCol, state);
+      const tagName = formatEnvTagName(intent.tagId);
+      const status = intent.disabled ? "Off" : "On";
+      return `Tag ${tagName} > ${tileName}: ${status}`;
+    }
+    case IntentKinds.HUB_TAG_TOGGLE: {
+      const hubName = formatHubName(intent.hubCol, state);
+      const tagName = formatHubTagName(intent.tagId);
+      const status = intent.disabled ? "Off" : "On";
+      return `Tag ${tagName} > ${hubName}: ${status}`;
     }
     case IntentKinds.TILE_CROP_SELECT: {
       const tileName = formatTileName(intent.envCol, state);
@@ -201,6 +225,8 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
     if (intent.kind === IntentKinds.ITEM_TRANSFER && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_TAG_ORDER && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.HUB_TAG_ORDER && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.TILE_TAG_TOGGLE && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.HUB_TAG_TOGGLE && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_CROP_SELECT && intentCost <= 0) continue;
     const rowId = intentId ?? `intent:${rowsOut.length}`;
     rowsOut.push({
@@ -303,6 +329,16 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     } else if (kind === ActionKinds.SET_HUB_TAG_ORDER) {
       const hubName = formatHubName(payload.hubCol, state);
       desc = `Tags > ${hubName}`;
+    } else if (kind === ActionKinds.TOGGLE_TILE_TAG) {
+      const tileName = formatTileName(payload.envCol, state);
+      const tagName = formatEnvTagName(payload.tagId);
+      const status = payload.disabled ? "Off" : "On";
+      desc = `Tag ${tagName} > ${tileName}: ${status}`;
+    } else if (kind === ActionKinds.TOGGLE_HUB_TAG) {
+      const hubName = formatHubName(payload.hubCol, state);
+      const tagName = formatHubTagName(payload.tagId);
+      const status = payload.disabled ? "Off" : "On";
+      desc = `Tag ${tagName} > ${hubName}: ${status}`;
     } else if (kind === ActionKinds.SET_TILE_CROP_SELECTION) {
       const tileName = formatTileName(payload.envCol, state);
       const cropName = formatCropName(payload.cropId);
@@ -312,6 +348,8 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_TAG_ORDER && apCost <= 0) continue;
     if (kind === ActionKinds.SET_HUB_TAG_ORDER && apCost <= 0) continue;
+    if (kind === ActionKinds.TOGGLE_TILE_TAG && apCost <= 0) continue;
+    if (kind === ActionKinds.TOGGLE_HUB_TAG && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_CROP_SELECTION && apCost <= 0) continue;
     rowsOut.push({
       id: `${kind}:${i}`,
@@ -337,6 +375,8 @@ function isLogAction(action) {
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
   if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;
   if (kind === ActionKinds.SET_HUB_TAG_ORDER) return true;
+  if (kind === ActionKinds.TOGGLE_TILE_TAG) return true;
+  if (kind === ActionKinds.TOGGLE_HUB_TAG) return true;
   if (kind === ActionKinds.SET_TILE_CROP_SELECTION) return true;
   return false;
 }

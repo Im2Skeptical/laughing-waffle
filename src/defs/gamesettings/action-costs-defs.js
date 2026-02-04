@@ -12,5 +12,7 @@ export const INTENT_AP_COSTS = {
   tileTagOrder: 5,
   tileCropSelect: 5,
   hubTagOrder: 5,
+  tileTagToggle: 5,
+  hubTagToggle: 5,
 };
 

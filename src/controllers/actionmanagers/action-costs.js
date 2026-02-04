@@ -82,6 +82,14 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
       if (tagsEqual(intent.tagIds, intent.baselineTags)) return 0;
       return INTENT_AP_COSTS.hubTagOrder ?? INTENT_AP_COSTS.tileTagOrder ?? 0;
     }
+    case "tileTagToggle": {
+      if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) return 0;
+      return INTENT_AP_COSTS.tileTagToggle ?? INTENT_AP_COSTS.tileTagOrder ?? 0;
+    }
+    case "hubTagToggle": {
+      if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) return 0;
+      return INTENT_AP_COSTS.hubTagToggle ?? INTENT_AP_COSTS.hubTagOrder ?? 0;
+    }
     case "tileCropSelect": {
       if ((intent.cropId ?? null) === (intent.baselineCropId ?? null)) return 0;
       return INTENT_AP_COSTS.tileCropSelect ?? 0;

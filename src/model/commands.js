@@ -278,6 +278,105 @@ export function cmdSetHubTagOrder(state, { hubCol, tagIds }) {
 }
 
 // =============================================================================
+// TAG TOGGLES
+// =============================================================================
+
+function setTagDisabled(target, tagId, disabled) {
+  if (!target || !tagId) return { changed: false, disabled: false };
+  const entry =
+    target.tagStates && typeof target.tagStates === "object"
+      ? target.tagStates[tagId]
+      : null;
+  const wasDisabled = entry?.disabled === true;
+  const nextDisabled = disabled === true;
+
+  if (nextDisabled) {
+    if (wasDisabled) return { changed: false, disabled: true };
+    if (!target.tagStates || typeof target.tagStates !== "object") {
+      target.tagStates = {};
+    }
+    if (entry && typeof entry === "object") {
+      entry.disabled = true;
+    } else {
+      target.tagStates[tagId] = { disabled: true };
+    }
+    return { changed: true, disabled: true };
+  }
+
+  if (!entry) return { changed: false, disabled: false };
+  if (entry && typeof entry === "object") {
+    if (entry.disabled) delete entry.disabled;
+    if (Object.keys(entry).length === 0) {
+      delete target.tagStates[tagId];
+    }
+  } else {
+    delete target.tagStates[tagId];
+  }
+  if (
+    target.tagStates &&
+    typeof target.tagStates === "object" &&
+    Object.keys(target.tagStates).length === 0
+  ) {
+    delete target.tagStates;
+  }
+  return { changed: wasDisabled, disabled: false };
+}
+
+export function cmdToggleTileTag(state, { envCol, tagId, disabled } = {}) {
+  if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+  if (typeof tagId !== "string" || !tagId.length) {
+    return { ok: false, reason: "badTagId" };
+  }
+
+  const col = Math.floor(envCol);
+  const tile = state.board?.occ?.tile?.[col];
+  if (!tile) return { ok: false, reason: "noTile" };
+  const tags = Array.isArray(tile.tags) ? tile.tags : [];
+  if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnTile" };
+
+  const currentDisabled = tile?.tagStates?.[tagId]?.disabled === true;
+  const nextDisabled =
+    typeof disabled === "boolean" ? disabled : !currentDisabled;
+  const result = setTagDisabled(tile, tagId, nextDisabled);
+
+  return {
+    ok: true,
+    result: result.changed ? "tagToggled" : "tagUnchanged",
+    envCol: col,
+    tagId,
+    disabled: result.disabled,
+  };
+}
+
+export function cmdToggleHubTag(state, { hubCol, tagId, disabled } = {}) {
+  if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+  if (typeof tagId !== "string" || !tagId.length) {
+    return { ok: false, reason: "badTagId" };
+  }
+
+  const col = Math.floor(hubCol);
+  const structure =
+    state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
+  if (!structure) return { ok: false, reason: "noHubStructure" };
+  const tags = Array.isArray(structure.tags) ? structure.tags : [];
+  if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnHub" };
+
+  const currentDisabled = structure?.tagStates?.[tagId]?.disabled === true;
+  const nextDisabled =
+    typeof disabled === "boolean" ? disabled : !currentDisabled;
+  const result = setTagDisabled(structure, tagId, nextDisabled);
+
+  const anchorCol = Number.isFinite(structure.col) ? structure.col : col;
+  return {
+    ok: true,
+    result: result.changed ? "hubTagToggled" : "hubTagUnchanged",
+    hubCol: anchorCol,
+    tagId,
+    disabled: result.disabled,
+  };
+}
+
+// =============================================================================
 // TILE CROP SELECTION
 // =============================================================================
 

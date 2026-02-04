@@ -12,11 +12,52 @@ const TAG_PILL_PAD_X = 8;
 const TAG_PILL_GAP = 6;
 const TAG_PILL_MAX_WIDTH = TILE_WIDTH - 16;
 const TAG_PILL_WIDTH = TAG_PILL_MAX_WIDTH;
+const TAG_TOGGLE_SIZE = 12;
+const TAG_TOGGLE_PAD = 4;
+const TAG_LABEL_X = TAG_PILL_PAD_X + TAG_TOGGLE_SIZE + TAG_TOGGLE_PAD;
+const TAG_ROW_SCALE_ACTIVE = 1.05;
 const TAG_PILL_BG_ACTIVE = 0x1f263d;
-const TAG_PILL_BG_INACTIVE = 0x2f4a6f;
+const TAG_PILL_BG_TOP = 0x2a3958;
+const TAG_PILL_BG_LOW = 0x273245;
+const TAG_PILL_BG_BYPASSED = 0x4b252c;
 const TAG_PILL_BORDER_ACTIVE = 0x1b2a42;
-const TAG_PILL_BORDER_INACTIVE = 0x101524;
+const TAG_PILL_BORDER_TOP = 0x1e2c44;
+const TAG_PILL_BORDER_LOW = 0x141c2b;
+const TAG_PILL_BORDER_BYPASSED = 0x7a2d36;
 const TAG_PILL_TEXT = 0xe6eef9;
+const TAG_PILL_TEXT_LOW = 0xb8c2d6;
+const TAG_PILL_TEXT_BYPASSED = 0xf2b0b0;
+
+const TAG_PILL_STYLES = {
+  active: {
+    bgColor: TAG_PILL_BG_ACTIVE,
+    borderColor: TAG_PILL_BORDER_ACTIVE,
+    textColor: TAG_PILL_TEXT,
+    alpha: 1,
+    rowScale: TAG_ROW_SCALE_ACTIVE,
+  },
+  topInactive: {
+    bgColor: TAG_PILL_BG_TOP,
+    borderColor: TAG_PILL_BORDER_TOP,
+    textColor: TAG_PILL_TEXT,
+    alpha: 0.95,
+    rowScale: 1,
+  },
+  low: {
+    bgColor: TAG_PILL_BG_LOW,
+    borderColor: TAG_PILL_BORDER_LOW,
+    textColor: TAG_PILL_TEXT_LOW,
+    alpha: 0.7,
+    rowScale: 1,
+  },
+  bypassed: {
+    bgColor: TAG_PILL_BG_BYPASSED,
+    borderColor: TAG_PILL_BORDER_BYPASSED,
+    textColor: TAG_PILL_TEXT_BYPASSED,
+    alpha: 0.9,
+    rowScale: 1,
+  },
+};
 
 const SYSTEM_ROW_HEIGHT = 18;
 const SYSTEM_ROW_GAP = 4;
@@ -64,6 +105,7 @@ export function createTagUi(opts) {
     baseTextResolution,
     hoverTextResolution,
     requestPauseForAction,
+    toggleTag,
   } = opts;
 
   function clamp01(value) {
@@ -330,7 +372,7 @@ export function createTagUi(opts) {
     icon.cursor = "help";
 
     const iconBg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER_INACTIVE, 0.8)
+      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
       .beginFill(ui.color, 1)
       .drawCircle(
         SYSTEM_ICON_SIZE / 2,
@@ -426,11 +468,24 @@ export function createTagUi(opts) {
     container.addChild(row);
 
     const bg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER_INACTIVE, 0.9)
-      .beginFill(TAG_PILL_BG_INACTIVE, 0.95)
+      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.9)
+      .beginFill(TAG_PILL_BG_LOW, 0.95)
       .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
       .endFill();
     row.addChild(bg);
+
+    const toggle = new PIXI.Container();
+    toggle.x = TAG_PILL_PAD_X - 2;
+    toggle.y = Math.round((TAG_PILL_HEIGHT - TAG_TOGGLE_SIZE) / 2);
+    toggle.eventMode = "static";
+    toggle.cursor = "pointer";
+    row.addChild(toggle);
+
+    const toggleBg = new PIXI.Graphics();
+    toggle.addChild(toggleBg);
+
+    const toggleIcon = new PIXI.Graphics();
+    toggle.addChild(toggleIcon);
 
     const label = getTagLabel(tagId);
     const labelText = new PIXI.Text(label, {
@@ -438,7 +493,7 @@ export function createTagUi(opts) {
       fontSize: 10,
       wordWrap: false,
     });
-    labelText.x = TAG_PILL_PAD_X;
+    labelText.x = TAG_LABEL_X;
     labelText.y = Math.round((TAG_PILL_HEIGHT - labelText.height) / 2);
     row.addChild(labelText);
 
@@ -470,10 +525,14 @@ export function createTagUi(opts) {
       container,
       row,
       bg,
-      bgColor: TAG_PILL_BG_INACTIVE,
-      borderColor: TAG_PILL_BORDER_INACTIVE,
+      bgColor: TAG_PILL_BG_LOW,
+      borderColor: TAG_PILL_BORDER_LOW,
       labelText,
       expandText,
+      toggle,
+      toggleBg,
+      toggleIcon,
+      rowScale: 1,
       systemContainer,
       systemRows,
       expanded: false,
@@ -485,6 +544,27 @@ export function createTagUi(opts) {
       entry.expanded = !!expanded;
       entry.expandText.text = entry.expanded ? "v" : ">";
     };
+
+    toggle.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+      view.ignoreNextTagTap = true;
+    });
+    toggle.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      view.ignoreNextTagTap = true;
+      view.hasTagToggle = true;
+      requestPauseForAction?.();
+      const disabled = isTagDisabled(view.tile, tagId);
+      if (typeof toggleTag === "function") {
+        toggleTag({
+          envCol: Number.isFinite(view.tile?.col)
+            ? Math.floor(view.tile.col)
+            : view.col,
+          tagId,
+          disabled: !disabled,
+        });
+      }
+    });
 
     row.on("pointerover", () => {
       showTooltipForTag(view.tile, tagId, row.getBounds());
@@ -514,21 +594,70 @@ export function createTagUi(opts) {
     return entry;
   }
 
-  function setTagPillStyle(entry, isActive) {
-    const bgColor = isActive ? TAG_PILL_BG_ACTIVE : TAG_PILL_BG_INACTIVE;
-    const borderColor = isActive
-      ? TAG_PILL_BORDER_ACTIVE
-      : TAG_PILL_BORDER_INACTIVE;
-    if (entry.bgColor === bgColor && entry.borderColor === borderColor) return;
+  function updateToggleVisual(entry, isDisabled) {
+    if (!entry?.toggleBg || !entry?.toggleIcon) return;
+    const fill = isDisabled ? 0x5a2a31 : 0x2e5c3f;
+    const stroke = isDisabled ? 0xf2b0b0 : 0xcff5d6;
 
-    entry.bg.clear();
-    entry.bg
-      .lineStyle(1, borderColor, 0.9)
-      .beginFill(bgColor, 0.95)
-      .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
+    entry.toggleBg.clear();
+    entry.toggleBg
+      .lineStyle(1, stroke, 0.9)
+      .beginFill(fill, 0.95)
+      .drawRoundedRect(0, 0, TAG_TOGGLE_SIZE, TAG_TOGGLE_SIZE, 3)
       .endFill();
-    entry.bgColor = bgColor;
-    entry.borderColor = borderColor;
+
+    entry.toggleIcon.clear();
+    if (isDisabled) {
+      entry.toggleIcon
+        .lineStyle(2, stroke, 1)
+        .moveTo(3, 3)
+        .lineTo(TAG_TOGGLE_SIZE - 3, TAG_TOGGLE_SIZE - 3)
+        .moveTo(TAG_TOGGLE_SIZE - 3, 3)
+        .lineTo(3, TAG_TOGGLE_SIZE - 3);
+    } else {
+      entry.toggleIcon.beginFill(0xd7ffe0, 1);
+      entry.toggleIcon.drawCircle(TAG_TOGGLE_SIZE / 2, TAG_TOGGLE_SIZE / 2, 3);
+      entry.toggleIcon.endFill();
+    }
+  }
+
+  function setTagPillStyle(entry, style) {
+    if (!entry || !style) return;
+    const bgColor = style.bgColor ?? TAG_PILL_BG_LOW;
+    const borderColor = style.borderColor ?? TAG_PILL_BORDER_LOW;
+    const textColor = style.textColor ?? TAG_PILL_TEXT;
+    const alpha = style.alpha ?? 1;
+    const rowScale = style.rowScale ?? 1;
+
+    if (entry.bgColor !== bgColor || entry.borderColor !== borderColor) {
+      entry.bg.clear();
+      entry.bg
+        .lineStyle(1, borderColor, 0.9)
+        .beginFill(bgColor, 0.95)
+        .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
+        .endFill();
+      entry.bgColor = bgColor;
+      entry.borderColor = borderColor;
+    }
+
+    if (entry.labelText?.style?.fill !== textColor) {
+      entry.labelText.style.fill = textColor;
+      entry.labelText.dirty = true;
+    }
+    if (entry.expandText?.style?.fill !== textColor) {
+      entry.expandText.style.fill = textColor;
+      entry.expandText.dirty = true;
+    }
+
+    entry.container.alpha = alpha;
+
+    if (entry.rowScale !== rowScale) {
+      entry.rowScale = rowScale;
+      entry.row.scale.set(rowScale);
+      if (entry.systemContainer) {
+        entry.systemContainer.y = TAG_PILL_HEIGHT * rowScale + 4;
+      }
+    }
   }
 
   function layoutTagEntries(view) {
@@ -540,8 +669,10 @@ export function createTagUi(opts) {
     let y = 0;
     for (const entry of entries) {
       if (!entry) continue;
+      const rowScale = entry.rowScale ?? 1;
+      const rowHeight = TAG_PILL_HEIGHT * rowScale;
       const spaceRemaining = maxHeight - y;
-      if (spaceRemaining < TAG_PILL_HEIGHT) {
+      if (spaceRemaining < rowHeight) {
         entry.container.visible = false;
         continue;
       }
@@ -549,9 +680,9 @@ export function createTagUi(opts) {
       entry.container.x = 0;
       entry.container.y = y;
 
-      let entryHeight = TAG_PILL_HEIGHT;
+      let entryHeight = rowHeight;
       if (entry.expanded && entry.systemRows.length > 0) {
-        const maxSystemHeight = spaceRemaining - TAG_PILL_HEIGHT - 4;
+        const maxSystemHeight = spaceRemaining - rowHeight - 4;
         if (maxSystemHeight > 0) {
           let sysY = 0;
           for (const row of entry.systemRows) {
@@ -565,7 +696,7 @@ export function createTagUi(opts) {
           }
           if (sysY > 0) sysY -= SYSTEM_ROW_GAP;
           entry.systemContainer.visible = sysY > 0;
-          entryHeight = TAG_PILL_HEIGHT + (sysY > 0 ? sysY + 4 : 0);
+          entryHeight = rowHeight + (sysY > 0 ? sysY + 4 : 0);
         } else {
           entry.systemContainer.visible = false;
           for (const row of entry.systemRows) {
@@ -691,13 +822,33 @@ export function createTagUi(opts) {
     drawSystemBar(row, getTierRatio(tier), row.uiColor);
   }
 
-  function updateTagEntry(view, entry, tileInst, topTagId, hasPawn) {
+  function updateTagEntry(view, entry, tileInst, topTagId, hasPawn, activeTagIds) {
     if (!entry) return;
     entry.row.cursor = "grab";
     const isDisabled = isTagDisabled(tileInst, entry.tagId);
-    const isActive = hasPawn && entry.tagId === topTagId && !isDisabled;
-    setTagPillStyle(entry, isActive);
-    entry.container.alpha = isDisabled ? 0.55 : 1;
+    const isActive =
+      hasPawn &&
+      !isDisabled &&
+      (activeTagIds instanceof Set
+        ? activeTagIds.has(entry.tagId)
+        : entry.tagId === topTagId);
+    const isTopInactive =
+      !hasPawn && entry.tagId === topTagId && !isDisabled;
+    const isLowerPriority = !isDisabled && entry.tagId !== topTagId;
+
+    let style = TAG_PILL_STYLES.low;
+    if (isDisabled) {
+      style = TAG_PILL_STYLES.bypassed;
+    } else if (isActive) {
+      style = TAG_PILL_STYLES.active;
+    } else if (isTopInactive) {
+      style = TAG_PILL_STYLES.topInactive;
+    } else if (isLowerPriority) {
+      style = TAG_PILL_STYLES.low;
+    }
+
+    setTagPillStyle(entry, style);
+    updateToggleVisual(entry, isDisabled);
 
     for (const row of entry.systemRows || []) {
       updateSystemRow(view, row, tileInst);
@@ -706,12 +857,25 @@ export function createTagUi(opts) {
 
   function updateTagEntries(view, tileInst) {
     const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
-    const topTagId =
-      tags.find((tagId) => !isTagDisabled(tileInst, tagId)) || null;
-    const hasPawn =
-      Number.isFinite(view?.pawnCount) && view.pawnCount > 0;
+    const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
+    const topTagId = enabledTags[0] ?? null;
+    const pawnCount =
+      Number.isFinite(view?.pawnCount) && view.pawnCount > 0
+        ? Math.floor(view.pawnCount)
+        : 0;
+    const hasPawn = pawnCount > 0;
+    const activeTagIds = new Set(
+      hasPawn ? enabledTags.slice(0, pawnCount) : []
+    );
     for (const entry of view.tagEntries || []) {
-      updateTagEntry(view, entry, tileInst, topTagId, hasPawn);
+      updateTagEntry(
+        view,
+        entry,
+        tileInst,
+        topTagId,
+        hasPawn,
+        activeTagIds
+      );
     }
   }
 
