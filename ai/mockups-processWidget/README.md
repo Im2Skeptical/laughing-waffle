@@ -1,6 +1,6 @@
 Mockups are layout guidance, while the locked spec located at `process_framework_locked_feature_goals.md` is the source of truth for behavior.
 
-The overall intended design shown in theses mockups is a widget that enables to the player to change routing behaviour by interacting with the expandable toggles; a manual drop socket
+The overall intended design shown in theses mockups is a widget that enables to the player to change routing behaviour by interacting with the expandable toggles; a manual drop socket that always has priority if full, and a information panel showing the current operation and details regarding the process.
 
 ProcessWidget_01.png
 - this shows the overall intent - player can open many widgets for all kinds of transformations.

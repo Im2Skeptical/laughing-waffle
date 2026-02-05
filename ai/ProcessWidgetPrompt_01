@@ -1,0 +1,210 @@
+Below is a **ready-to-use Codex / implementation-agent prompt**, designed to be pasted verbatim when instantiating the agent.
+It explicitly references the locked document as the source of truth and sets clear success criteria without over-constraining implementation.
+
+---
+
+# CODEX AGENT PROMPT — Process Framework First-Class Upgrade
+
+You are assisting on an existing JavaScript single-player deterministic simulation game using PixiJS for rendering and a pure-JS authoritative model with full replay and time-travel.
+
+You have **full source code access**.
+
+Your task is to implement a **first-class Process Framework** according to the locked reference document located at `ai/process_framework_locked_feature_goals.md`.
+
+This document is authoritative.
+If anything in the codebase conflicts with it, the document wins.
+
+---
+
+## 1. Primary Objective
+
+Promote the existing generic `process` / `work` system into a **first-class, player-visible, deterministic framework** that:
+
+* clearly exposes underlying transforms (inputs → time/work → outputs)
+* makes input/output routing explicit, configurable, and serialized
+* supports distributors, prestige, construction, crafting, etc. without special-case logic
+* preserves all determinism, replay, and time-travel invariants
+
+You are **not** redesigning the game.
+You are formalizing and extending an existing abstraction.
+
+---
+
+## 2. Locked Specification (Must Follow)
+
+You must implement the system **exactly** as described in:
+
+📄 **Process Framework – Locked Feature Goals**
+
+Key locked areas include (non-exhaustive):
+
+* transform vs routing split
+* endpoint ID model
+* routing slots and routing state
+* deterministic candidate discovery
+* distributor semantics
+* prestige as a process output
+* manual input buffer (dropslot)
+* selection algorithm
+* paused-only routing edits
+* replay and branching behavior
+
+Do not introduce alternative interpretations.
+
+---
+
+## 3. Manual Input Buffer (Dropslot)
+
+Some processes support a **manual dropslot** where players drag items directly into the process.
+
+You must implement this exactly as specified:
+
+* real authoritative buffer (not a ghost)
+* endpoint ID: `inv:process:<processId>`
+* always first in input priority
+* items moved via explicit actions at `tSec`
+* no reservation system
+* no auto-return on cancellation (v1)
+
+---
+
+## 4. Distributor Feature
+
+Buildings tagged as `distributor` expose their inventory or system store as **candidate input endpoints** to nearby processes.
+
+Rules:
+
+* adjacency-based discovery (`range = 1` by default)
+* range upgrades extend discovery only
+* consumers pull via routing priority
+* deterministic ordering only
+
+No push logic. No special cases.
+
+---
+
+## 5. UI Scope (Important)
+
+UI implementation is **required**, but scope is intentionally minimal.
+
+### Required
+
+* A Process Widget / Inspector panel that allows:
+
+  * viewing the transform (read-only)
+  * editing routing for selectable slots
+* Expand arrows only for selectable slots
+* Drag-reorder pills to set priority
+* Click to enable/disable endpoints
+
+### Explicitly Defer
+
+* exact entry points (hotkeys, context menus)
+* modal vs docked vs floating behavior
+* multiple concurrent widgets
+* visual polish and animation
+
+### Interaction Reuse (Locked Guidance)
+
+* You **must reuse or extract** existing pill/tag drag-reorder and toggle interaction logic.
+* Do **not** re-implement bespoke drag behavior if shared logic already exists.
+* If pill behavior is not centralized, extract it into a reusable module.
+
+UI state must never directly affect simulation outcomes.
+
+---
+
+## 6. Mockups
+
+Reference mockup images are available in the repository under:
+
+```
+ai/mockups-processWidget/
+```
+
+These images:
+
+* are **layout and interaction guidance**
+* are not pixel-perfect requirements
+* illustrate slot expansion, pills, dropslot, and variations
+
+Behavioral correctness is defined by the locked document, not the visuals.
+
+---
+
+## 7. Required New Actions / Commands
+
+At minimum, implement paused-only actions for:
+
+* setting routing state
+* reordering endpoints within a slot
+* toggling endpoints enabled/disabled
+* moving items into / out of the process buffer (dropslot)
+
+All routing and dropslot changes must be serialized actions at a specific `tSec`.
+
+---
+
+## 8. Determinism & Replay (Critical)
+
+You must preserve:
+
+* deterministic candidate enumeration
+* deterministic endpoint selection
+* byte-stable replay and rebuild
+* correct timeline truncation on past edits
+* projection equivalence
+
+If a design choice risks determinism, choose the deterministic option even if less convenient.
+
+---
+
+## 9. Implementation Freedom
+
+You may:
+
+* refactor for clarity
+* introduce helper abstractions
+* extract reusable UI components
+* improve data normalization
+
+You may **not**:
+
+* bypass the process system with special cases
+* introduce UI-only state that affects outcomes
+* change time semantics or replay guarantees
+* weaken locked constraints
+
+---
+
+## 10. Acceptance Criteria
+
+Your work is complete when:
+
+1. Processes expose inspectable transforms and editable routing.
+2. Routing decisions are serialized, replay-safe, and deterministic.
+3. Distributor buildings function purely via candidate discovery.
+4. Manual dropslots work as real priority buffers.
+5. Prestige, construction, crafting, etc. all fit the same framework.
+6. Existing behavior is preserved or clarified, not broken.
+7. UI demonstrates correct interaction, even if visually minimal.
+
+---
+
+## 11. Deliverables
+
+* Code changes implementing the framework
+* Any new view modules required
+* Brief summary of:
+
+  * what was changed
+  * why it matches the locked spec
+  * how to smoke-test determinism and routing
+
+---
+
+**Begin by re-reading the locked document and mapping it to the existing codebase before writing code.**
+
+If any ambiguity remains, resolve it in favor of the document.
+
+---

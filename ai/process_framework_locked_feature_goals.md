@@ -8,14 +8,16 @@ Nothing in this document is optional unless explicitly marked as extensible.
 
 ## 1. Core Intent
 
-- A **process** represents a deterministic transformation: inputs → time/work → outputs.
-- Processes already exist and are authoritative, replayable, and data‑driven.
-- The goal is **not** to replace the system, but to:
-  - make transforms inspectable by the player
-  - make input/output routing explicit, configurable, and serialized
-  - unify farming, cooking, crafting, building, prestige, etc. under one mental model
+* A **process** represents a deterministic transformation: inputs → time/work → outputs.
+* Processes already exist and are authoritative, replayable, and data‑driven.
+* The goal is **not** to replace the system, but to:
+
+  * make transforms inspectable by the player
+  * make input/output routing explicit, configurable, and serialized
+  * unify farming, cooking, crafting, building, prestige, etc. under one mental model
 
 Key principle:
+
 > **Transform logic is fixed and data‑defined. Routing is player‑defined and first‑class.**
 
 ---
@@ -39,25 +41,27 @@ These are non‑negotiable invariants.
 
 A transform defines *what* happens.
 
-- requirements (items / tags / resources / systems)
-- progress model (time or work, duration)
-- outputs (items / resources / system deltas)
-- optional completion policy
+* requirements (items / tags / resources / systems)
+* progress model (time or work, duration)
+* outputs (items / resources / system deltas)
+* optional completion policy
 
 Transforms are:
-- data‑defined
-- inspectable in UI
-- not directly modifiable by the player (except via recipe selection if supported)
+
+* data‑defined
+* inspectable in UI
+* not directly modifiable by the player (except via recipe selection if supported)
 
 ### 3.2 Routing (Player‑Defined)
 
 Routing defines *where* inputs come from and *where* outputs go.
 
 Routing is:
-- explicit
-- serialized
-- editable only while paused
-- deterministic
+
+* explicit
+* serialized
+* editable only while paused
+* deterministic
 
 ---
 
@@ -78,9 +82,10 @@ spawn:tileOccupants
 ```
 
 Rules:
-- IDs must be derived only from authoritative state IDs.
-- `inv:*`, `res:*`, and `sys:*` are distinct namespaces even if backed by similar data.
-- Endpoint IDs are stable across replay and rebuild.
+
+* IDs must be derived only from authoritative state IDs.
+* `inv:*`, `res:*`, and `sys:*` are distinct namespaces even if backed by similar data.
+* Endpoint IDs are stable across replay and rebuild.
 
 ---
 
@@ -107,16 +112,19 @@ type RoutingSlot = {
 
 ### 5.2 Locked vs Selectable
 
-- **Locked slots**
-  - exactly one valid endpoint
-  - no UI expansion
-  - examples:
-    - construction output → finished building
-    - prestige award → associated leader
+* **Locked slots**
 
-- **Selectable slots**
-  - multiple candidate endpoints
-  - player may reorder and enable/disable
+  * exactly one valid endpoint
+  * no UI expansion
+  * examples:
+
+    * construction output → finished building
+    * prestige award → associated leader
+
+* **Selectable slots**
+
+  * multiple candidate endpoints
+  * player may reorder and enable/disable
 
 Locked slots still use routing state but cannot be edited.
 
@@ -205,9 +213,10 @@ type SlotRoutingState = {
 ```
 
 Notes:
-- Routing state stores **player intent only**.
-- Candidate validity is checked at runtime.
-- Invalid endpoints are skipped but not silently removed.
+
+* Routing state stores **player intent only**.
+* Candidate validity is checked at runtime.
+* Invalid endpoints are skipped but not silently removed.
 
 ---
 
@@ -227,12 +236,51 @@ Outputs follow the same logic (first enabled endpoint).
 
 ---
 
+## 9.1 Manual Input Buffer (Dropslot) – Locked
+
+Some processes may expose a **manual dropslot** allowing the player to directly drag items into the process.
+
+### Semantics
+
+* The dropslot is a **real, authoritative buffer**, not a visual ghost.
+* It is represented as a locked input endpoint with highest priority.
+* Canonical endpoint ID:
+
+```
+inv:process:<processId>
+```
+
+### Behavior Rules
+
+* Items dragged into the dropslot are moved immediately via an action into this buffer endpoint.
+* The buffer endpoint is always evaluated **before all other input endpoints**.
+* Items in the buffer satisfy normal item/tag requirements with no special casing.
+* The buffer is always enabled and cannot be reordered or disabled.
+
+### Temporal Rules
+
+* Dropslot interactions are paused-only actions.
+* The move action is recorded at the current `tSec`.
+* On rebuild/replay, the item resides in the buffer at the start of that second.
+* No reservation or ghost system is used.
+
+### Cancellation / Removal
+
+* If a process is canceled or removed, items in the buffer remain until explicitly moved out by the player (no automatic return in v1).
+
+### Scope
+
+* Dropslots are item-only in v1 (no direct resource or system dragging).
+* Capacity is unbounded unless explicitly restricted by future rules.
+
+---
+
 ## 10. Distributor Feature (Locked Semantics)
 
-- A building with tag `distributor` exposes its store (inventory or system) as a **candidate endpoint** to nearby processes.
-- Range defaults to adjacency (`range = 1`).
-- Range upgrades extend discovery distance only.
-- Distributors do not push; consumers pull via routing priority.
+* A building with tag `distributor` exposes its store (inventory or system) as a **candidate endpoint** to nearby processes.
+* Range defaults to adjacency (`range = 1`).
+* Range upgrades extend discovery distance only.
+* Distributors do not push; consumers pull via routing priority.
 
 Distributors are not special‑case logic; they are just candidate rules.
 
@@ -240,10 +288,10 @@ Distributors are not special‑case logic; they are just candidate rules.
 
 ## 11. Prestige as a Process (Locked)
 
-- Prestige awards are outputs of a process.
-- Output slot is locked.
-- Endpoint is `sys:pawn:<leaderId>`.
-- Implemented via existing `system` cost/output machinery.
+* Prestige awards are outputs of a process.
+* Output slot is locked.
+* Endpoint is `sys:pawn:<leaderId>`.
+* Implemented via existing `system` cost/output machinery.
 
 No bespoke prestige pipeline.
 
@@ -251,17 +299,30 @@ No bespoke prestige pipeline.
 
 ## 12. UI Expectations (Non‑Authoritative)
 
-- A single Process Widget view module renders:
-  - collapsed summary
-  - expanded tabs:
-    - Transform (read‑only)
-    - Inputs (routing editor)
-    - Outputs (routing editor)
-- Expand arrow shown only for selectable slots.
-- Drag‑reorder pills determine priority.
-- Click toggles enable/disable.
+* A single Process Widget view module renders:
+
+  * collapsed summary
+  * expanded tabs:
+
+    * Transform (read‑only)
+    * Inputs (routing editor)
+    * Outputs (routing editor)
+* Expand arrow shown only for selectable slots.
+* Drag‑reorder pills determine priority.
+* Click toggles enable/disable.
+
+#### **UI Interaction Reuse (Locked Guidance)**
+
+* Routing pills (priority + enable/disable) must use the **same interaction model** as the existing tag pill system:
+
+  * drag to reorder
+  * click to toggle enabled/disabled
+* The implementation should **reuse or extract** existing pill/drag logic rather than duplicating bespoke drag code per widget.
+* If pill behavior is not already centralized, extracting a shared component/module is encouraged.
 
 UI state never mutates outcomes directly.
+
+
 
 ---
 
@@ -269,9 +330,9 @@ UI state never mutates outcomes directly.
 
 At minimum:
 
-- `setProcessRouting(processId, routingPatch)`
-- `reorderProcessRoutingEndpoint(processId, slotKind, slotId, fromIndex, toIndex)`
-- `toggleProcessRoutingEndpoint(processId, slotKind, slotId, endpointId, enabled)`
+* `setProcessRouting(processId, routingPatch)`
+* `reorderProcessRoutingEndpoint(processId, slotKind, slotId, fromIndex, toIndex)`
+* `toggleProcessRoutingEndpoint(processId, slotKind, slotId, endpointId, enabled)`
 
 All are paused‑only player actions.
 
@@ -279,10 +340,10 @@ All are paused‑only player actions.
 
 ## 14. Explicit Non‑Goals (for v1)
 
-- No output splitting across multiple endpoints.
-- No stochastic routing.
-- No automatic re‑balancing.
-- No implicit global inventory access.
+* No output splitting across multiple endpoints.
+* No stochastic routing.
+* No automatic re‑balancing.
+* No implicit global inventory access.
 
 ---
 
@@ -299,4 +360,3 @@ An implementation is valid if:
 ---
 
 **End of locked reference document.**
-
