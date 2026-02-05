@@ -6,8 +6,6 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
-import { itemDefs } from "../defs/gamepieces/item-defs.js";
-import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
@@ -1137,11 +1135,25 @@ export function createBoardView(opts) {
     return { def, title, desc, color };
   }
 
+  function getBuildProcess(structureInst) {
+    const processes = Array.isArray(structureInst?.systemState?.build?.processes)
+      ? structureInst.systemState.build.processes
+      : [];
+    return processes.find((proc) => proc?.type === "build") ?? null;
+  }
+
   function getHubStructureUi(structureInst) {
     const def = hubStructureDefs[structureInst.defId];
-    const build = structureInst?.build;
-    if (build && build.status === "underConstruction") {
-      return getConstructionUi(structureInst, def);
+    const buildProcess = getBuildProcess(structureInst);
+    if (buildProcess) {
+      const name = def?.name || structureInst.defId || "Structure";
+      return {
+        def,
+        title: `${name} (Construction)`,
+        lines: ["Build in progress."],
+        color: 0x6f6f6f,
+        meters: [],
+      };
     }
     const ui = def?.ui || {};
     const title =
@@ -1157,50 +1169,6 @@ export function createBoardView(opts) {
       .filter(Boolean);
     const meters = Array.isArray(ui.meters) ? ui.meters : [];
     return { def, title, lines, color: def?.color ?? 0x336699, meters };
-  }
-
-  function formatBuildRequirementLabel(req) {
-    if (!req || typeof req !== "object") return "Resource";
-    if (req.kind === "item") {
-      const def = itemDefs?.[req.itemId];
-      return def?.name || req.itemId || "Item";
-    }
-    if (req.kind === "tag") {
-      const def = itemTagDefs?.[req.tag];
-      return def?.ui?.name || req.tag || "Tag";
-    }
-    if (req.kind === "resource") {
-      return req.resource || "Resource";
-    }
-    return "Resource";
-  }
-
-  function getConstructionUi(structureInst, def) {
-    const build = structureInst?.build || {};
-    const title = `${def?.name || structureInst.defId} (Construction)`;
-    const lines = [];
-    const requirements = Array.isArray(build.requirements)
-      ? build.requirements
-      : [];
-
-    if (requirements.length > 0) {
-      lines.push("Resources:");
-      for (const req of requirements) {
-        const label = formatBuildRequirementLabel(req);
-        const required = Math.max(0, Math.floor(req?.amount ?? 0));
-        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
-        lines.push(`${label}: ${progress}/${required}`);
-      }
-    } else {
-      lines.push("Resources: none");
-    }
-
-    const laborRequired = Math.max(0, Math.floor(build.laborRequiredSec ?? 0));
-    const laborProgress = Math.max(0, Math.floor(build.laborProgress ?? 0));
-    const laborRemaining = Math.max(0, laborRequired - laborProgress);
-    lines.push(`Labor: ${laborRemaining}s remaining`);
-
-    return { def, title, lines, color: 0x6f6f6f, meters: [] };
   }
 
   // --------------------------------------------------------
@@ -1278,11 +1246,11 @@ export function createBoardView(opts) {
   function updateHubStructureViewUi(view, structureInst) {
     if (!view || !structureInst) return false;
     const ui = getHubStructureUi(structureInst);
+    const buildActive = !!getBuildProcess(structureInst);
     const signature = `${ui.title}|${ui.lines.join("|")}|${ui.color}`;
     if (signature === view.uiSignature) {
       if (view.cancelButton) {
-        view.cancelButton.visible =
-          structureInst?.build?.status === "underConstruction";
+        view.cancelButton.visible = buildActive;
       }
       return false;
     }
@@ -1356,8 +1324,7 @@ export function createBoardView(opts) {
     hubTagUi?.layoutTagEntries?.(view);
 
     if (view.cancelButton) {
-      view.cancelButton.visible =
-        structureInst?.build?.status === "underConstruction";
+      view.cancelButton.visible = buildActive;
     }
 
     return true;
@@ -1774,7 +1741,7 @@ export function createBoardView(opts) {
     cancelButton.cursor = "pointer";
     cancelButton.x = Math.max(6, width - 58);
     cancelButton.y = 6;
-    cancelButton.visible = structureInst?.build?.status === "underConstruction";
+    cancelButton.visible = !!getBuildProcess(structureInst);
 
     const cancelBg = new PIXI.Graphics()
       .beginFill(0x8a1f2a, 0.9)
@@ -1802,8 +1769,9 @@ export function createBoardView(opts) {
       queueActionWhenPaused(() => {
         const state = getGameState?.();
         const nowSec = Math.floor(state?.tSec ?? 0);
-        const startedSec = Number.isFinite(structureInst?.build?.startedSec)
-          ? Math.floor(structureInst.build.startedSec)
+        const buildProcess = getBuildProcess(structureInst);
+        const startedSec = Number.isFinite(buildProcess?.startSec)
+          ? Math.floor(buildProcess.startSec)
           : null;
         const isSameSec = startedSec != null && startedSec === nowSec;
         const buildKey = `hub:${anchorCol}`;
@@ -2171,12 +2139,9 @@ export function createBoardView(opts) {
       if (view.meterViews.length > 0) {
         updateMeters(view.meterViews, view.structure);
       }
-      const tags =
-        view.structure?.build?.status === "underConstruction"
-          ? []
-          : Array.isArray(view.structure?.tags)
-          ? view.structure.tags
-          : [];
+      const tags = Array.isArray(view.structure?.tags)
+        ? view.structure.tags
+        : [];
       const signature = tags.join("|");
       if (signature !== view.tagSignature) {
         hubTagUi?.rebuildStructureTags?.(view, view.structure);

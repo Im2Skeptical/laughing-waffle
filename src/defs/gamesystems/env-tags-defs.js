@@ -2,6 +2,27 @@
 // Env tag registry (data only).
 
 export const envTagDefs = {
+  build: {
+    id: "build",
+    kind: "envTag",
+    ui: { name: "Build", description: "Construct improvements here." },
+    systems: ["build"],
+    intents: [],
+    passives: [
+      {
+        id: "buildAdvance",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "AdvanceWorkProcess",
+          system: "build",
+          queueKey: "processes",
+          processType: "build",
+          mode: "work",
+          workersFrom: "envCol",
+        },
+      },
+    ],
+  },
   farmable: {
     id: "farmable",
     kind: "envTag",

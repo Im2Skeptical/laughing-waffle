@@ -8,7 +8,11 @@ import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
-import { validateHubConstructionPlacement } from "./build-helpers.js";
+import {
+  buildRequirementProgress,
+  isStructureUnderConstruction,
+  validateHubConstructionPlacement,
+} from "./build-helpers.js";
 import {
   SEASON_DURATION_SEC,
   AP_INCOME_PER_SEC,
@@ -132,71 +136,6 @@ function maybeAdvanceSeasonBySimTime(state, dt) {
 // HUB CONSTRUCTION
 // =============================================================================
 
-function normalizeBuildRequirements(def) {
-  const raw = Array.isArray(def?.build?.requirements) ? def.build.requirements : [];
-  const out = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const amountRaw = entry.amount;
-    const amount = Number.isFinite(amountRaw) ? Math.max(0, Math.floor(amountRaw)) : 0;
-    if (amount <= 0) continue;
-
-    const kind =
-      typeof entry.kind === "string" && entry.kind.length
-        ? entry.kind
-        : null;
-    const itemId =
-      typeof entry.itemId === "string" && entry.itemId.length
-        ? entry.itemId
-        : null;
-    const tag =
-      typeof entry.tag === "string" && entry.tag.length
-        ? entry.tag
-        : typeof entry.itemTag === "string" && entry.itemTag.length
-        ? entry.itemTag
-        : null;
-    const resource =
-      typeof entry.resource === "string" && entry.resource.length
-        ? entry.resource
-        : null;
-
-    if (kind === "item" || (!kind && itemId)) {
-      if (!itemId) continue;
-      out.push({ kind: "item", itemId, amount });
-      continue;
-    }
-    if (kind === "tag" || (!kind && tag)) {
-      if (!tag) continue;
-      out.push({ kind: "tag", tag, amount });
-      continue;
-    }
-    if (kind === "resource" || (!kind && resource)) {
-      if (!resource) continue;
-      out.push({ kind: "resource", resource, amount });
-      continue;
-    }
-  }
-  return out;
-}
-
-function createConstructionState(def, tSec) {
-  const laborRaw = def?.build?.laborSec ?? def?.build?.labor ?? 0;
-  const laborRequiredSec = Number.isFinite(laborRaw)
-    ? Math.max(0, Math.floor(laborRaw))
-    : 0;
-  const requirements = normalizeBuildRequirements(def).map((req) => ({
-    ...req,
-    progress: 0,
-  }));
-  return {
-    status: "underConstruction",
-    startedSec: Number.isFinite(tSec) ? Math.floor(tSec) : 0,
-    laborRequiredSec,
-    laborProgress: 0,
-    requirements,
-  };
-}
-
 export function cmdBuildDesignate(state, payload = {}) {
   const defId = payload.defId ?? null;
   const target = payload.target ?? {};
@@ -212,7 +151,39 @@ export function cmdBuildDesignate(state, payload = {}) {
   const def = validity.def;
   const col = validity.hubCol;
   const structure = makeHubStructureInstance(defId, state);
-  structure.build = createConstructionState(def, state?.tSec ?? 0);
+  structure.tags = ["build"];
+  if (structure.tagStates) delete structure.tagStates;
+
+  const laborRaw = def?.build?.laborSec ?? def?.build?.labor ?? 0;
+  const laborSec = Number.isFinite(laborRaw)
+    ? Math.max(0, Math.floor(laborRaw))
+    : 0;
+  const durationSec = Math.max(1, laborSec);
+  const requirements = buildRequirementProgress(def);
+
+  runEffect(
+    state,
+    {
+      op: "CreateWorkProcess",
+      system: "build",
+      queueKey: "processes",
+      processType: "build",
+      mode: "work",
+      durationSec,
+      uniqueType: true,
+      completionPolicy: "build",
+      requirements,
+      processMeta: { buildKind: "hubStructure", buildDefId: defId },
+    },
+    {
+      kind: "build",
+      state,
+      source: structure,
+      tSec: state?.tSec ?? 0,
+      ownerId: structure.instanceId,
+      owner: structure,
+    }
+  );
 
   const slot = state.hub.slots[col];
   if (slot && typeof slot === "object") {
@@ -249,7 +220,7 @@ export function cmdCancelBuild(state, payload = {}) {
   const structure =
     state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
   if (!structure) return { ok: false, reason: "noHubStructure" };
-  if (structure?.build?.status !== "underConstruction") {
+  if (!isStructureUnderConstruction(structure)) {
     return { ok: false, reason: "notUnderConstruction" };
   }
 
@@ -1062,7 +1033,7 @@ export function canOwnerAcceptItem(state, ownerId, item) {
   }
 
   if (kind === "hubStructure" && def) {
-    if (structure?.build?.status === "underConstruction") return true;
+    if (isStructureUnderConstruction(structure)) return true;
     const rules = def.inventoryRules;
     if (!rules) return true;
     if (rules.allowedAll) return true;

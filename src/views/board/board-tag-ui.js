@@ -78,6 +78,7 @@ const GROWTH_BAR_COLORS = {
 };
 
 const SYSTEM_UI_MAP = {
+  build: { label: "Build", icon: "B", color: 0x8f8f8f },
   hydration: { label: "Hydration", icon: "H", color: 0x5aa2ff },
   fertility: { label: "Fertility", icon: "F", color: 0xb07a4f },
   growth: { label: "Growth", icon: "G", color: 0x7ccf6b },
@@ -172,6 +173,26 @@ export function createTagUi(opts) {
     const num = Number.isFinite(value) ? value : 0;
     if (num >= 1000) return `${Math.floor(num / 100) / 10}k`;
     return String(Math.floor(num));
+  }
+
+  function getBuildProcess(tileInst) {
+    const processes = Array.isArray(tileInst?.systemState?.build?.processes)
+      ? tileInst.systemState.build.processes
+      : [];
+    return processes.find((proc) => proc?.type === "build") ?? null;
+  }
+
+  function getRequirementTotals(process) {
+    const reqs = Array.isArray(process?.requirements) ? process.requirements : [];
+    let total = 0;
+    let done = 0;
+    for (const req of reqs) {
+      const required = Math.max(0, Math.floor(req?.amount ?? 0));
+      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+      total += required;
+      done += Math.min(required, progress);
+    }
+    return { total, done };
   }
 
   function buildTagTooltipLines(tileInst, tagId) {
@@ -312,6 +333,22 @@ export function createTagUi(opts) {
           pool.silver ?? 0
         } B${pool.bronze ?? 0})`
       );
+      return lines;
+    }
+
+    if (systemId === "build") {
+      const process = getBuildProcess(tileInst);
+      if (!process) {
+        lines.push("Progress: idle");
+        return lines;
+      }
+      const { total, done } = getRequirementTotals(process);
+      if (total > 0 && done < total) {
+        lines.push(`Materials: ${done}/${total}`);
+      }
+      const progress = Math.max(0, Math.floor(process.progress ?? 0));
+      const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
+      lines.push(`Labor: ${progress}/${duration}`);
       return lines;
     }
 
@@ -730,6 +767,27 @@ export function createTagUi(opts) {
 
   function updateSystemRow(view, row, tileInst) {
     const systemId = row.systemId;
+    if (systemId === "build") {
+      const process = getBuildProcess(tileInst);
+      if (!process) {
+        row.labelText.text = "Build";
+        drawSystemBar(row, 0, row.uiColor);
+        return;
+      }
+      const { total, done } = getRequirementTotals(process);
+      if (total > 0 && done < total) {
+        const ratio = total > 0 ? done / total : 0;
+        row.labelText.text = `Materials ${done}/${total}`;
+        drawSystemBar(row, ratio, row.uiColor);
+        return;
+      }
+      const progress = Math.max(0, Math.floor(process.progress ?? 0));
+      const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
+      const ratio = duration > 0 ? progress / duration : 0;
+      row.labelText.text = `Build ${progress}/${duration}`;
+      drawSystemBar(row, ratio, row.uiColor);
+      return;
+    }
     if (systemId === "hydration") {
       const hyd = tileInst?.systemState?.hydration;
       const cur = Number.isFinite(hyd?.cur) ? Math.floor(hyd.cur) : 0;

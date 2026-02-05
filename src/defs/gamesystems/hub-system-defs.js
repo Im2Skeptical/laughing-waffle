@@ -2,6 +2,15 @@
 // Hub system registry (data only).
 
 export const hubSystemDefs = {
+  build: {
+    id: "build",
+    kind: "hubSystem",
+    ui: { name: "Build", description: "Construction progress." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      processes: [],
+    },
+  },
   granaryStore: {
     id: "granaryStore",
     kind: "hubSystem",

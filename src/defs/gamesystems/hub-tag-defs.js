@@ -2,6 +2,28 @@
 // Hub tag registry (data only).
 
 export const hubTagDefs = {
+  build: {
+    id: "build",
+    kind: "hubTag",
+    ui: { name: "Build", description: "Construct this building." },
+    systems: ["build"],
+    passives: [
+      {
+        id: "buildAdvance",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "AdvanceWorkProcess",
+          system: "build",
+          queueKey: "processes",
+          processType: "build",
+          mode: "work",
+          workersFrom: "hubAnchor",
+          workerCost: { system: "stamina", key: "cur", amount: 1, clampMin: 0 },
+        },
+      },
+    ],
+    intents: [],
+  },
   canRest: {
     id: "canRest",
     kind: "hubTag",
