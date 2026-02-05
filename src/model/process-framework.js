@@ -2,6 +2,7 @@
 // Deterministic process defs + routing helpers (model-only).
 
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
+import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 import {
@@ -17,6 +18,7 @@ const DEFAULT_PROCESS_INPUT_SLOT = "materials";
 const DEFAULT_PROCESS_OUTPUT_SLOT = "output";
 
 const DROP_ENDPOINT_PREFIX = "inv:process:";
+const POOL_ENDPOINT_PREFIX = "sys:pool:";
 
 function normalizeString(value) {
   return typeof value === "string" && value.length ? value : null;
@@ -61,6 +63,15 @@ function normalizeOutputEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   const kind = normalizeString(entry.kind);
   const slotId = normalizeString(entry.slotId);
+  if (kind === "pool") {
+    const system = normalizeString(entry.system);
+    const poolKey = normalizeString(entry.poolKey);
+    const itemId = normalizeString(entry.itemId);
+    const qty = Math.max(0, safeFloor(entry.qty ?? entry.amount, 0));
+    const tier = normalizeString(entry.tier);
+    if (!system || !poolKey || !itemId || qty <= 0) return null;
+    return { kind: "pool", system, poolKey, itemId, qty, tier, slotId };
+  }
   if (kind === "resource") {
     const resource = normalizeString(entry.resource);
     const qty = Math.max(0, safeFloor(entry.qty ?? entry.amount, 0));
@@ -147,12 +158,27 @@ function getProcessDisplayName(process, recipeDef) {
 function buildInputSlotsForProcess(kind, opts = {}) {
   const base = [];
   if (kind === "build") {
+    const buildRule =
+      opts.inputRule || { kind: "adjacentStructures", range: 1, store: "inv" };
     base.push({
       slotId: DEFAULT_PROCESS_INPUT_SLOT,
       label: "Materials",
       locked: false,
       mode: "consume",
-      candidateRule: { kind: "adjacentStructures", range: 1, store: "inv" },
+      candidateRule: buildRule,
+      default: { ordered: [] },
+    });
+    return base;
+  }
+  if (kind === "cropGrowth") {
+    const seedRule =
+      opts.inputRule || { kind: "adjacentDistributors", range: 1, store: "inv" };
+    base.push({
+      slotId: DEFAULT_PROCESS_INPUT_SLOT,
+      label: "Seeds",
+      locked: false,
+      mode: "consume",
+      candidateRule: seedRule,
       default: { ordered: [] },
     });
     return base;
@@ -205,6 +231,17 @@ function buildOutputSlotsForProcess(kind, opts = {}) {
     });
     return base;
   }
+  if (kind === "cropGrowth") {
+    base.push({
+      slotId: "maturedPool",
+      label: "Matured Pool",
+      locked: true,
+      mode: "deposit",
+      candidateRule: { kind: "fixed", endpointId: null },
+      default: { ordered: [] },
+    });
+    return base;
+  }
   const outputRule =
     opts.outputRule || { kind: "adjacentDistributors", range: 1, tag: "distributor", store: "inv" };
   base.push({
@@ -224,6 +261,10 @@ export function getProcessDefForInstance(process, target, context) {
 
   const recipeDef = recipeDefs?.[kind] || null;
   const isRecipe = !!recipeDef;
+  const cropDef =
+    kind === "cropGrowth"
+      ? cropDefs?.[process?.defId] || cropDefs?.[process?.cropId] || null
+      : null;
 
   const transform = {
     mode: process.mode === "work" ? "work" : "time",
@@ -261,21 +302,83 @@ export function getProcessDefForInstance(process, target, context) {
       ];
     }
   }
+  if (kind === "cropGrowth" && cropDef) {
+    const seedItem = normalizeString(cropDef.cropId || process?.defId);
+    const seedAmount = Math.max(0, safeFloor(process?.inputAmount ?? 0, 0));
+    if (seedItem && seedAmount > 0 && transform.requirements.length === 0) {
+      transform.requirements = [
+        {
+          kind: "item",
+          itemId: seedItem,
+          amount: seedAmount,
+          progress: 0,
+          consume: true,
+          slotId: DEFAULT_PROCESS_INPUT_SLOT,
+        },
+      ];
+    }
+  }
 
   let inputRule = null;
   let outputRule = null;
+
+  if (kind === "build") {
+    inputRule = {
+      kind: "adjacentStructures",
+      range: 1,
+      store: "inv",
+      includeSelfInv: true,
+      includeOccupants: true,
+    };
+  } else if (recipeDef?.kind === "cook" || recipeDef?.kind === "craft") {
+    inputRule = {
+      kind: "adjacentDistributors",
+      range: 1,
+      tag: "distributor",
+      store: "inv",
+      includeSelfInv: true,
+      includeOccupants: true,
+      includePool: { systemId: "granaryStore", poolKey: "byKindTier" },
+    };
+  } else if (kind === "cropGrowth") {
+    inputRule = {
+      kind: "adjacentDistributors",
+      range: 1,
+      tag: "distributor",
+      store: "inv",
+      includeOccupants: true,
+    };
+  }
+
+  let displayName = getProcessDisplayName(process, recipeDef);
+  if (kind === "cropGrowth" && cropDef?.name) {
+    displayName = `${cropDef.name} - Growing`;
+  }
 
   const routingSlots = {
     inputs: buildInputSlotsForProcess(kind, { inputRule }),
     outputs: buildOutputSlotsForProcess(kind, { outputRule }),
   };
 
+  if (kind === "cropGrowth") {
+    const targetId = resolveTargetOwnerId(target);
+    const poolEndpoint =
+      targetId != null
+        ? buildPoolEndpointId("env", targetId, "growth", "maturedPool")
+        : null;
+    if (poolEndpoint && routingSlots.outputs.length > 0) {
+      const slot = routingSlots.outputs[0];
+      slot.candidateRule = { kind: "fixed", endpointId: poolEndpoint };
+      slot.default = { ordered: [poolEndpoint] };
+    }
+  }
+
   const supportsDropslot =
     kind === "build" || isRecipe;
 
   return {
     processKind: kind,
-    displayName: getProcessDisplayName(process, recipeDef),
+    displayName,
     transform,
     routingSlots,
     supportsDropslot,
@@ -354,6 +457,13 @@ function resolveOwnerKind(state, ownerId) {
     if (!anchor) continue;
     if (String(anchor.instanceId) === String(ownerId)) return "hub";
   }
+  const tileAnchors = Array.isArray(state?.board?.layers?.tile?.anchors)
+    ? state.board.layers.tile.anchors
+    : [];
+  for (const anchor of tileAnchors) {
+    if (!anchor) continue;
+    if (String(anchor.instanceId) === String(ownerId)) return "env";
+  }
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   for (const ch of chars) {
     if (!ch) continue;
@@ -367,6 +477,7 @@ function resolveOwnerInvEndpoint(state, ownerId) {
   const kind = resolveOwnerKind(state, ownerId);
   if (kind === "hub") return `inv:hub:${ownerId}`;
   if (kind === "pawn") return `inv:pawn:${ownerId}`;
+  if (kind === "env") return null;
   return `inv:${ownerId}`;
 }
 
@@ -375,6 +486,14 @@ function resolveOwnerSysEndpoint(state, ownerId) {
   const kind = resolveOwnerKind(state, ownerId);
   if (kind === "hub") return `sys:hub:${ownerId}`;
   if (kind === "pawn") return `sys:pawn:${ownerId}`;
+  if (kind === "env") return null;
+  return null;
+}
+
+function resolveTargetOwnerId(target) {
+  if (!target) return null;
+  if (target.instanceId != null) return target.instanceId;
+  if (target.id != null) return target.id;
   return null;
 }
 
@@ -432,14 +551,67 @@ function getAnchorsForKind(state, kind) {
     : [];
 }
 
-function buildEndpointIdForStore(kind, store, target) {
+function buildPoolEndpointId(ownerKind, ownerId, systemId, poolKey) {
+  if (!ownerKind || ownerId == null || !systemId || !poolKey) return null;
+  return `${POOL_ENDPOINT_PREFIX}${ownerKind}:${ownerId}:${systemId}:${poolKey}`;
+}
+
+function buildEndpointIdForStore(kind, store, target, systemId, poolKey) {
   const instanceId = target?.instanceId;
   if (instanceId == null) return null;
   if (store === "sys") {
     if (kind === "hub") return `sys:hub:${instanceId}`;
     return null;
   }
+  if (store === "pool") {
+    if (kind === "hub" || kind === "env") {
+      return buildPoolEndpointId(kind, instanceId, systemId, poolKey);
+    }
+    return null;
+  }
   return kind === "hub" ? `inv:hub:${instanceId}` : `inv:${instanceId}`;
+}
+
+function listOccupyingPawnEndpoints(state, anchorInfo) {
+  if (!state || !anchorInfo) return [];
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const start = anchorInfo.col;
+  const end = anchorInfo.col + Math.max(1, anchorInfo.span) - 1;
+  const occupants = [];
+
+  for (const ch of chars) {
+    if (!ch || ch.id == null) continue;
+    if (anchorInfo.kind === "hub") {
+      if (Number.isFinite(ch.envCol)) continue;
+      const c = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
+      if (c == null || c < start || c > end) continue;
+    } else {
+      if (!Number.isFinite(ch.envCol)) continue;
+      const c = Math.floor(ch.envCol);
+      if (c < start || c > end) continue;
+    }
+    occupants.push(ch.id);
+  }
+
+  occupants.sort((a, b) => {
+    const aNum = Number.isFinite(a) ? a : Number(a);
+    const bNum = Number.isFinite(b) ? b : Number(b);
+    if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+      return aNum - bNum;
+    }
+    return String(a).localeCompare(String(b));
+  });
+
+  return occupants.map((id) => `inv:pawn:${id}`);
+}
+
+function appendUnique(list, additions) {
+  const out = list.slice();
+  for (const id of additions || []) {
+    if (!id || out.includes(id)) continue;
+    out.push(id);
+  }
+  return out;
 }
 
 export function listCandidateEndpoints(state, process, slotDef, target, context) {
@@ -459,19 +631,35 @@ export function listCandidateEndpoints(state, process, slotDef, target, context)
   }
 
   if (rule.kind === "selfInv") {
-    const ownerId = process?.ownerId ?? target?.instanceId ?? null;
+    const ownerId =
+      resolveTargetOwnerId(target) ?? process?.ownerId ?? null;
     const endpointId = resolveOwnerInvEndpoint(state, ownerId);
     return endpointId ? [endpointId] : [];
   }
 
   if (rule.kind === "selfSys") {
-    const ownerId = process?.ownerId ?? target?.instanceId ?? null;
+    const ownerId =
+      resolveTargetOwnerId(target) ?? process?.ownerId ?? null;
     const endpointId = resolveOwnerSysEndpoint(state, ownerId);
     return endpointId ? [endpointId] : [];
   }
 
+  if (rule.kind === "selfPool") {
+    const ownerId =
+      resolveTargetOwnerId(target) ?? process?.ownerId ?? null;
+    const ownerKind = resolveOwnerKind(state, ownerId);
+    const systemId = normalizeString(rule.systemId || rule.system);
+    const poolKey = normalizeString(rule.poolKey);
+    const endpointId =
+      ownerKind && ownerId != null
+        ? buildPoolEndpointId(ownerKind, ownerId, systemId, poolKey)
+        : null;
+    return endpointId ? [endpointId] : [];
+  }
+
   if (rule.kind === "ownerInv") {
-    const ownerId = process?.ownerId ?? target?.instanceId ?? null;
+    const ownerId =
+      process?.ownerId ?? resolveTargetOwnerId(target) ?? null;
     const endpointId = resolveOwnerInvEndpoint(state, ownerId);
     return endpointId ? [endpointId] : [];
   }
@@ -480,40 +668,94 @@ export function listCandidateEndpoints(state, process, slotDef, target, context)
     return ["spawn:tileOccupants"];
   }
 
+  const includeSelfInv = rule.includeSelfInv === true;
+  const includeOccupants = rule.includeOccupants === true;
+  const ownerId =
+    resolveTargetOwnerId(target) ?? process?.ownerId ?? null;
+  const selfEndpoint = includeSelfInv
+    ? resolveOwnerInvEndpoint(state, ownerId)
+    : null;
+
   const anchorInfo = getAnchorInfo(state, target);
-  if (!anchorInfo) return [];
+  const occupantEndpoints =
+    includeOccupants && anchorInfo ? listOccupyingPawnEndpoints(state, anchorInfo) : [];
 
-  const range = Math.max(0, safeFloor(rule.range, 0));
-  if (range <= 0) return [];
-
-  const anchors = getAnchorsForKind(state, anchorInfo.kind);
-  const candidates = [];
-  for (let i = 0; i < anchors.length; i++) {
-    const anchor = anchors[i];
-    if (!anchor) continue;
-    const tags = Array.isArray(anchor.tags) ? anchor.tags : [];
-    if (rule.kind === "adjacentDistributors") {
-      if (!tags.includes(rule.tag || "distributor")) continue;
-    } else if (rule.kind === "adjacentStructures") {
-      if (rule.tag && !tags.includes(rule.tag)) continue;
-    } else {
-      continue;
-    }
-    const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
-    const span = Number.isFinite(anchor.span) ? Math.floor(anchor.span) : 1;
-    const dist = spanDistance(anchorInfo.col, anchorInfo.span, col, span);
-    if (dist > range) continue;
-    const endpointId = buildEndpointIdForStore(anchorInfo.kind, rule.store, anchor);
-    if (!endpointId) continue;
-    candidates.push({
-      endpointId,
-      dist,
-      anchorIndex: i,
-      instanceId: anchor.instanceId ?? 0,
-    });
+  if (rule.kind !== "adjacentDistributors" && rule.kind !== "adjacentStructures") {
+    const base = [];
+    if (selfEndpoint) base.push(selfEndpoint);
+    return appendUnique(base, occupantEndpoints);
   }
 
-  return sortCandidatesByDistance(candidates).map((c) => c.endpointId);
+  const range = Math.max(0, safeFloor(rule.range, 0));
+  const candidates = [];
+  const poolCandidates = [];
+  const poolSpec =
+    rule.includePool && typeof rule.includePool === "object"
+      ? rule.includePool
+      : null;
+  const poolSystemId = normalizeString(poolSpec?.systemId || poolSpec?.system);
+  const poolKey = normalizeString(poolSpec?.poolKey);
+  if (anchorInfo && range > 0) {
+    const anchors = getAnchorsForKind(state, anchorInfo.kind);
+    for (let i = 0; i < anchors.length; i++) {
+      const anchor = anchors[i];
+      if (!anchor) continue;
+      const tags = Array.isArray(anchor.tags) ? anchor.tags : [];
+      if (rule.kind === "adjacentDistributors") {
+        if (!tags.includes(rule.tag || "distributor")) continue;
+      } else if (rule.kind === "adjacentStructures") {
+        if (rule.tag && !tags.includes(rule.tag)) continue;
+      } else {
+        continue;
+      }
+      const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
+      const span = Number.isFinite(anchor.span) ? Math.floor(anchor.span) : 1;
+      const dist = spanDistance(anchorInfo.col, anchorInfo.span, col, span);
+      if (dist > range) continue;
+      if (poolSystemId && poolKey) {
+        const poolState = anchor?.systemState?.[poolSystemId]?.[poolKey];
+        if (poolState && typeof poolState === "object") {
+          const poolEndpointId = buildPoolEndpointId(
+            anchorInfo.kind,
+            anchor.instanceId,
+            poolSystemId,
+            poolKey
+          );
+          if (poolEndpointId) {
+            poolCandidates.push({
+              endpointId: poolEndpointId,
+              dist,
+              anchorIndex: i,
+              instanceId: anchor.instanceId ?? 0,
+            });
+          }
+        }
+      }
+      const endpointId = buildEndpointIdForStore(
+        anchorInfo.kind,
+        rule.store,
+        anchor,
+        normalizeString(rule.systemId || rule.system),
+        normalizeString(rule.poolKey)
+      );
+      if (!endpointId) continue;
+      candidates.push({
+        endpointId,
+        dist,
+        anchorIndex: i,
+        instanceId: anchor.instanceId ?? 0,
+      });
+    }
+  }
+
+  let orderedPools = sortCandidatesByDistance(poolCandidates).map((c) => c.endpointId);
+  let ordered = sortCandidatesByDistance(candidates).map((c) => c.endpointId);
+  let result = [];
+  result = appendUnique(result, orderedPools);
+  if (selfEndpoint) result = appendUnique(result, [selfEndpoint]);
+  result = appendUnique(result, occupantEndpoints);
+  result = appendUnique(result, ordered);
+  return result;
 }
 
 export function resolveFixedEndpointId(endpointId, process, context) {
@@ -527,6 +769,54 @@ export function resolveFixedEndpointId(endpointId, process, context) {
     return process?.id ? `${DROP_ENDPOINT_PREFIX}${process.id}` : null;
   }
   return endpointId;
+}
+
+function parsePoolEndpointId(endpointId) {
+  if (!endpointId || typeof endpointId !== "string") return null;
+  if (!endpointId.startsWith(POOL_ENDPOINT_PREFIX)) return null;
+  const raw = endpointId.slice(POOL_ENDPOINT_PREFIX.length);
+  const parts = raw.split(":");
+  if (parts.length < 4) return null;
+  const [ownerKind, ownerId, systemId, poolKey] = parts;
+  if (!ownerKind || !ownerId || !systemId || !poolKey) return null;
+  return { ownerKind, ownerId, systemId, poolKey };
+}
+
+function resolvePoolOwner(state, ownerKind, ownerId) {
+  if (!state || ownerId == null || !ownerKind) return null;
+  if (ownerKind === "hub") {
+    const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+    for (const anchor of anchors) {
+      if (!anchor) continue;
+      if (String(anchor.instanceId) === String(ownerId)) return anchor;
+    }
+  }
+  if (ownerKind === "env") {
+    const anchors = Array.isArray(state?.board?.layers?.tile?.anchors)
+      ? state.board.layers.tile.anchors
+      : [];
+    for (const anchor of anchors) {
+      if (!anchor) continue;
+      if (String(anchor.instanceId) === String(ownerId)) return anchor;
+    }
+  }
+  if (ownerKind === "pawn") {
+    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    for (const ch of chars) {
+      if (!ch) continue;
+      if (String(ch.id) === String(ownerId)) return ch;
+    }
+  }
+  return null;
+}
+
+function resolvePoolState(owner, systemId, poolKey) {
+  if (!owner || !systemId || !poolKey) return null;
+  const systemState = owner.systemState?.[systemId];
+  if (!systemState || typeof systemState !== "object") return null;
+  const pool = systemState[poolKey];
+  if (!pool || typeof pool !== "object") return null;
+  return pool;
 }
 
 export function resolveEndpointTarget(state, endpointId) {
@@ -575,6 +865,31 @@ export function resolveEndpointTarget(state, endpointId) {
       }
     }
     return null;
+  }
+  if (endpointId.startsWith(POOL_ENDPOINT_PREFIX)) {
+    const parsed = parsePoolEndpointId(endpointId);
+    if (!parsed) return null;
+    const owner = resolvePoolOwner(state, parsed.ownerKind, parsed.ownerId);
+    if (!owner) return null;
+    const pool = resolvePoolState(owner, parsed.systemId, parsed.poolKey);
+    if (!pool) return null;
+    let itemId = null;
+    if (parsed.systemId === "growth" && parsed.poolKey === "maturedPool") {
+      const cropId = owner?.systemState?.growth?.selectedCropId;
+      if (typeof cropId === "string" && cropId.length > 0) {
+        itemId = cropId;
+      }
+    }
+    return {
+      kind: "pool",
+      target: pool,
+      owner,
+      ownerKind: parsed.ownerKind,
+      ownerId: parsed.ownerId,
+      systemId: parsed.systemId,
+      poolKey: parsed.poolKey,
+      itemId,
+    };
   }
   return null;
 }

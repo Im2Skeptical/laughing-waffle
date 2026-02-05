@@ -10,6 +10,7 @@ import { clamp } from "../core/clamp.js";
 import { cloneSerializable } from "../core/clone.js";
 import { resolveEffectDef } from "../core/registry.js";
 import { ensureSystemState, getTierValueForSystem } from "../core/system-state.js";
+import { TIER_ASC } from "../core/tiers.js";
 import { resolveBoardTargets } from "../core/targets-board.js";
 import { handleSpawnItem } from "./game-ops.js";
 import { initializeInstanceFromDef } from "../../state.js";
@@ -449,6 +450,113 @@ function consumeResourceUnit(resources, requirement) {
   return true;
 }
 
+function isTierBucket(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  for (const tier of TIER_ASC) {
+    if (Object.prototype.hasOwnProperty.call(pool, tier)) return true;
+  }
+  return false;
+}
+
+function ensureTierBucket(container, itemId = null) {
+  const bucket = itemId ? container[itemId] : container;
+  if (!bucket || typeof bucket !== "object") {
+    const next = {};
+    for (const tier of TIER_ASC) next[tier] = 0;
+    if (itemId) {
+      container[itemId] = next;
+      return next;
+    }
+    return next;
+  }
+  for (const tier of TIER_ASC) {
+    if (!Number.isFinite(bucket[tier])) bucket[tier] = 0;
+  }
+  return bucket;
+}
+
+function getPoolCandidateItemId(endpoint, requirement) {
+  if (!endpoint || !requirement) return null;
+  if (requirement.kind === "item" && requirement.itemId) {
+    if (isTierBucket(endpoint.target) && endpoint.itemId) {
+      return endpoint.itemId === requirement.itemId ? requirement.itemId : null;
+    }
+    return requirement.itemId;
+  }
+  if (requirement.kind !== "tag" || !requirement.tag) return null;
+
+  const pool = endpoint.target;
+  if (!pool || typeof pool !== "object") return null;
+
+  if (isTierBucket(pool)) {
+    const itemId = endpoint.itemId;
+    if (!itemId) return null;
+    const def = itemDefs?.[itemId];
+    const tags = Array.isArray(def?.baseTags) ? def.baseTags : [];
+    return tags.includes(requirement.tag) ? itemId : null;
+  }
+
+  const kinds = Object.keys(pool).sort((a, b) => a.localeCompare(b));
+  for (const kind of kinds) {
+    const def = itemDefs?.[kind];
+    const tags = Array.isArray(def?.baseTags) ? def.baseTags : [];
+    if (!tags.includes(requirement.tag)) continue;
+    const bucket = pool[kind];
+    if (!bucket || typeof bucket !== "object") continue;
+    for (const tier of TIER_ASC) {
+      const available = Math.max(0, Math.floor(bucket[tier] ?? 0));
+      if (available > 0) return kind;
+    }
+  }
+  return null;
+}
+
+function canConsumePoolUnit(endpoint, requirement) {
+  const pool = endpoint?.target;
+  if (!pool || typeof pool !== "object") return false;
+  const itemId = getPoolCandidateItemId(endpoint, requirement);
+  if (!itemId) return false;
+  if (isTierBucket(pool)) {
+    for (const tier of TIER_ASC) {
+      const available = Math.max(0, Math.floor(pool[tier] ?? 0));
+      if (available > 0) return { itemId, tier };
+    }
+    return false;
+  }
+  const bucket = pool[itemId];
+  if (!bucket || typeof bucket !== "object") return false;
+  for (const tier of TIER_ASC) {
+    const available = Math.max(0, Math.floor(bucket[tier] ?? 0));
+    if (available > 0) return { itemId, tier };
+  }
+  return false;
+}
+
+function consumePoolUnit(endpoint, requirement) {
+  const pool = endpoint?.target;
+  if (!pool || typeof pool !== "object") return null;
+  const itemId = getPoolCandidateItemId(endpoint, requirement);
+  if (!itemId) return null;
+  if (isTierBucket(pool)) {
+    for (const tier of TIER_ASC) {
+      const available = Math.max(0, Math.floor(pool[tier] ?? 0));
+      if (available <= 0) continue;
+      pool[tier] = available - 1;
+      return { kind: itemId, tier };
+    }
+    return null;
+  }
+  const bucket = pool[itemId];
+  if (!bucket || typeof bucket !== "object") return null;
+  for (const tier of TIER_ASC) {
+    const available = Math.max(0, Math.floor(bucket[tier] ?? 0));
+    if (available <= 0) continue;
+    bucket[tier] = available - 1;
+    return { kind: itemId, tier };
+  }
+  return null;
+}
+
 function recordProcessConsumption(process, consumed) {
   if (!process || !consumed || !consumed.kind) return;
   const tier = consumed.tier || "bronze";
@@ -487,14 +595,15 @@ function seedRoutingWithCandidates(state, target, process, processDef, context) 
       const slotState = resolveSlotState(process, group.kind, slotDef);
       if (!slotState) continue;
 
+      const candidates = listCandidateEndpoints(
+        state,
+        process,
+        slotDef,
+        target,
+        context
+      );
+
       if (slotState.ordered.length === 0) {
-        const candidates = listCandidateEndpoints(
-          state,
-          process,
-          slotDef,
-          target,
-          context
-        );
         if (candidates.length) {
           slotState.ordered = candidates.slice();
           for (const endpointId of candidates) {
@@ -503,6 +612,26 @@ function seedRoutingWithCandidates(state, target, process, processDef, context) 
             }
           }
           changed = true;
+        }
+      } else if (!slotDef.locked) {
+        const hasNonDrop = slotState.ordered.some(
+          (endpointId) =>
+            !(
+              processDef.supportsDropslot &&
+              isDropEndpoint(endpointId)
+            )
+        );
+        if (hasNonDrop) {
+          let appended = false;
+          for (const endpointId of candidates) {
+            if (slotState.ordered.includes(endpointId)) continue;
+            slotState.ordered.push(endpointId);
+            if (slotState.enabled[endpointId] === undefined) {
+              slotState.enabled[endpointId] = false;
+            }
+            appended = true;
+          }
+          if (appended) changed = true;
         }
       }
 
@@ -522,6 +651,28 @@ function seedRoutingWithCandidates(state, target, process, processDef, context) 
           slotState.enabled[dropEndpoint] = true;
         }
       }
+
+      if (group.kind === "inputs" && candidates.length > 0) {
+        const nonDrop = slotState.ordered.filter(
+          (endpointId) =>
+            !(
+              processDef.supportsDropslot &&
+              isDropEndpoint(endpointId)
+            )
+        );
+        if (nonDrop.length === 0) {
+          let inserted = false;
+          for (const endpointId of candidates) {
+            if (slotState.ordered.includes(endpointId)) continue;
+            slotState.ordered.push(endpointId);
+            if (slotState.enabled[endpointId] === undefined) {
+              slotState.enabled[endpointId] = true;
+            }
+            inserted = true;
+          }
+          if (inserted) changed = true;
+        }
+      }
     }
   }
 
@@ -532,15 +683,26 @@ function trySpendRequirementUnit(state, endpointId, endpoint, requirement) {
   if (!endpoint || !requirement) return null;
 
   if (requirement.kind === "item" || requirement.kind === "tag") {
-    if (endpoint.kind !== "inventory") return null;
-    const inv = endpoint.target;
-    if (requirement.consume === false) {
-      if (!canConsumeRequirementUnit(inv, requirement)) return null;
-      return { ok: true, consumed: null };
+    if (endpoint.kind === "inventory") {
+      const inv = endpoint.target;
+      if (requirement.consume === false) {
+        if (!canConsumeRequirementUnit(inv, requirement)) return null;
+        return { ok: true, consumed: null };
+      }
+      const consumed = consumeRequirementUnit(inv, requirement);
+      if (!consumed) return null;
+      return { ok: true, consumed };
     }
-    const consumed = consumeRequirementUnit(inv, requirement);
-    if (!consumed) return null;
-    return { ok: true, consumed };
+    if (endpoint.kind === "pool") {
+      if (requirement.consume === false) {
+        const can = canConsumePoolUnit(endpoint, requirement);
+        return can ? { ok: true, consumed: null } : null;
+      }
+      const consumed = consumePoolUnit(endpoint, requirement);
+      if (!consumed) return null;
+      return { ok: true, consumed };
+    }
+    return null;
   }
 
   if (requirement.kind === "resource") {
@@ -637,6 +799,23 @@ function parseLeaderIdFromEndpoint(endpointId) {
 
 function tryApplyOutputUnit(state, target, process, output, endpoint, context) {
   if (!output || !endpoint) return false;
+  if (output.kind === "pool") {
+    if (endpoint.kind !== "pool") return false;
+    const itemId = output.itemId;
+    if (!itemId) return false;
+    const tier = output.tier || "bronze";
+    const pool = endpoint.target;
+    if (!pool || typeof pool !== "object") return false;
+    if (isTierBucket(pool)) {
+      if (endpoint.itemId && endpoint.itemId !== itemId) return false;
+      const bucket = ensureTierBucket(pool);
+      bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + 1;
+      return true;
+    }
+    const bucket = ensureTierBucket(pool, itemId);
+    bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + 1;
+    return true;
+  }
   if (output.kind === "item") {
     if (endpoint.kind === "inventory") {
       const dummy = buildDummyItemForAcceptance(output.itemId, output.tier);

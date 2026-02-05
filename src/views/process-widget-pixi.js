@@ -6,6 +6,7 @@ import {
   getProcessDefForInstance,
   isDropEndpoint,
   listCandidateEndpoints,
+  resolveEndpointTarget,
   resolveFixedEndpointId,
 } from "../model/process-framework.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
@@ -78,7 +79,6 @@ export function createProcessWidgetView({
   let activeTab = "inputs";
   let lastSignature = null;
   let activeTargetKey = null;
-  let selectedProcessId = null;
   const expandedSlots = new Set();
 
   const routingDragController = createPillDragController({
@@ -213,6 +213,11 @@ export function createProcessWidgetView({
       const def = itemDefs?.[out.itemId];
       return def?.name || out.itemId || "Item";
     }
+    if (out.kind === "pool") {
+      const def = itemDefs?.[out.itemId];
+      const itemLabel = def?.name || out.itemId || "Item";
+      return `${itemLabel} Pool`;
+    }
     if (out.kind === "prestige") return "Prestige";
     if (out.kind === "resource") {
       const raw = String(out.resource || "Resource");
@@ -229,6 +234,13 @@ export function createProcessWidgetView({
     if (endpointId.startsWith("inv:process:")) return "Buffer";
     if (endpointId.startsWith("res:state")) return "Stockpile";
     if (endpointId.startsWith("spawn:tileOccupants")) return "Spawn";
+    if (endpointId.startsWith("sys:pool:")) {
+      const parsed = parsePoolEndpointId(endpointId);
+      if (!parsed) return "Pool";
+      const ownerLabel = getOwnerLabel(state, parsed.ownerKind, parsed.ownerId);
+      const poolLabel = `${parsed.systemId}.${parsed.poolKey}`;
+      return ownerLabel ? `${ownerLabel} ${poolLabel}` : `Pool ${poolLabel}`;
+    }
     if (endpointId.startsWith("inv:hub:")) {
       const id = endpointId.slice("inv:hub:".length);
       const structure = findStructureById(state, id);
@@ -272,6 +284,36 @@ export function createProcessWidgetView({
     return endpointId;
   }
 
+  function parsePoolEndpointId(endpointId) {
+    if (!endpointId || typeof endpointId !== "string") return null;
+    if (!endpointId.startsWith("sys:pool:")) return null;
+    const raw = endpointId.slice("sys:pool:".length);
+    const parts = raw.split(":");
+    if (parts.length < 4) return null;
+    const [ownerKind, ownerId, systemId, poolKey] = parts;
+    if (!ownerKind || !ownerId || !systemId || !poolKey) return null;
+    return { ownerKind, ownerId, systemId, poolKey };
+  }
+
+  function getOwnerLabel(state, ownerKind, ownerId) {
+    if (!state || !ownerKind || ownerId == null) return null;
+    if (ownerKind === "hub") {
+      const structure = findStructureById(state, ownerId);
+      const def = structure ? hubStructureDefs[structure.defId] : null;
+      return def?.name || structure?.defId || `Hub ${ownerId}`;
+    }
+    if (ownerKind === "env") {
+      const tile = findTileById(state, ownerId);
+      const def = tile ? envTileDefs[tile.defId] : null;
+      return def?.name || tile?.defId || `Tile ${ownerId}`;
+    }
+    if (ownerKind === "pawn") {
+      const pawn = findPawnById(state, ownerId);
+      return pawn?.name || `Pawn ${ownerId}`;
+    }
+    return null;
+  }
+
   function findStructureById(state, id) {
     const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
     for (const anchor of anchors) {
@@ -290,21 +332,48 @@ export function createProcessWidgetView({
     return null;
   }
 
-  function buildProcessSignature(targetKey, process, processDef) {
-    if (!process || !processDef) return null;
-    const routingSig = process.routing ? JSON.stringify(process.routing) : "";
-    const reqSig = Array.isArray(process.requirements)
-      ? process.requirements
-          .map((r) => `${r.kind}:${r.itemId || r.tag || r.resource}:${r.progress ?? 0}:${r.amount ?? 0}`)
-          .join("|")
-      : "";
-    const outSig = Array.isArray(process.outputs)
-      ? process.outputs
-          .map((o) => `${o.kind}:${o.itemId || o.resource || o.system || ""}:${o.qty ?? o.amount ?? 0}`)
-          .join("|")
-      : "";
-    const progress = Number.isFinite(process.progress) ? Math.floor(process.progress) : 0;
-    return `${targetKey}|${process.id}|${activeTab}|${progress}|${routingSig}|${reqSig}|${outSig}`;
+  function findTileById(state, id) {
+    const anchors = Array.isArray(state?.board?.layers?.tile?.anchors)
+      ? state.board.layers.tile.anchors
+      : [];
+    for (const anchor of anchors) {
+      if (!anchor) continue;
+      if (String(anchor.instanceId) === String(id)) return anchor;
+    }
+    return null;
+  }
+
+  function buildProcessSignature(targetKey, entries) {
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+    const parts = [];
+    for (const entry of entries) {
+      const process = entry?.process;
+      if (!process) continue;
+      const routingSig = process.routing ? JSON.stringify(process.routing) : "";
+      const reqSig = Array.isArray(process.requirements)
+        ? process.requirements
+            .map(
+              (r) =>
+                `${r.kind}:${r.itemId || r.tag || r.resource}:${r.progress ?? 0}:${r.amount ?? 0}`
+            )
+            .join("|")
+        : "";
+      const outSig = Array.isArray(process.outputs)
+        ? process.outputs
+            .map(
+              (o) =>
+                `${o.kind}:${o.itemId || o.resource || o.system || ""}:${o.qty ?? o.amount ?? 0}`
+            )
+            .join("|")
+        : "";
+      const progress = Number.isFinite(process.progress)
+        ? Math.floor(process.progress)
+        : 0;
+      parts.push(
+        `${process.id}|${progress}|${routingSig}|${reqSig}|${outSig}`
+      );
+    }
+    return `${targetKey}|${activeTab}|${parts.join("||")}`;
   }
 
   function clearContent() {
@@ -320,13 +389,13 @@ export function createProcessWidgetView({
     bg.endFill();
   }
 
-  function addHeader(targetLabel, processName, processIndex, processCount) {
+  function addHeader(targetLabel) {
     const header = new PIXI.Container();
     header.x = PADDING;
     header.y = PADDING;
     content.addChild(header);
 
-    const title = new PIXI.Text(`${targetLabel} - ${processName}`, {
+    const title = new PIXI.Text(targetLabel, {
       fill: COLORS.headerText,
       fontSize: 14,
       fontWeight: "bold",
@@ -334,40 +403,6 @@ export function createProcessWidgetView({
     title.x = 0;
     title.y = 0;
     header.addChild(title);
-
-    if (processCount > 1) {
-      const navText = new PIXI.Text(`${processIndex + 1}/${processCount}`, {
-        fill: COLORS.subText,
-        fontSize: 10,
-      });
-      navText.x = PANEL_WIDTH - PADDING * 2 - 38;
-      navText.y = 4;
-      header.addChild(navText);
-
-      const prevBtn = new PIXI.Text("<", {
-        fill: COLORS.subText,
-        fontSize: 12,
-        fontWeight: "bold",
-      });
-      prevBtn.x = PANEL_WIDTH - PADDING * 2 - 70;
-      prevBtn.y = 3;
-      prevBtn.eventMode = "static";
-      prevBtn.cursor = "pointer";
-      prevBtn.on("pointertap", () => cycleProcess(-1));
-      header.addChild(prevBtn);
-
-      const nextBtn = new PIXI.Text(">", {
-        fill: COLORS.subText,
-        fontSize: 12,
-        fontWeight: "bold",
-      });
-      nextBtn.x = PANEL_WIDTH - PADDING * 2 - 18;
-      nextBtn.y = 3;
-      nextBtn.eventMode = "static";
-      nextBtn.cursor = "pointer";
-      nextBtn.on("pointertap", () => cycleProcess(1));
-      header.addChild(nextBtn);
-    }
 
     return HEADER_HEIGHT;
   }
@@ -554,7 +589,11 @@ export function createProcessWidgetView({
     for (const entry of entries) {
       entry.container.x = 0;
       entry.container.y = y;
-      y += PILL_HEIGHT + PILL_GAP;
+      const rowHeight =
+        entry.container?.height && entry.container.height > PILL_HEIGHT
+          ? entry.container.height
+          : PILL_HEIGHT;
+      y += rowHeight + PILL_GAP;
     }
     if (entries.length > 0) y -= PILL_GAP;
     slotView.pillHeight = y;
@@ -675,6 +714,35 @@ export function createProcessWidgetView({
     return entry;
   }
 
+  function formatPoolSummary(poolTarget) {
+    if (!poolTarget || poolTarget.kind !== "pool") return null;
+    const pool = poolTarget.target;
+    if (!pool || typeof pool !== "object") return null;
+    const totals = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
+    if (
+      pool.bronze != null ||
+      pool.silver != null ||
+      pool.gold != null ||
+      pool.diamond != null
+    ) {
+      totals.bronze = Math.max(0, Math.floor(pool.bronze ?? 0));
+      totals.silver = Math.max(0, Math.floor(pool.silver ?? 0));
+      totals.gold = Math.max(0, Math.floor(pool.gold ?? 0));
+      totals.diamond = Math.max(0, Math.floor(pool.diamond ?? 0));
+    } else {
+      const keys = Object.keys(pool);
+      for (const key of keys) {
+        const bucket = pool[key];
+        if (!bucket || typeof bucket !== "object") continue;
+        totals.bronze += Math.max(0, Math.floor(bucket.bronze ?? 0));
+        totals.silver += Math.max(0, Math.floor(bucket.silver ?? 0));
+        totals.gold += Math.max(0, Math.floor(bucket.gold ?? 0));
+        totals.diamond += Math.max(0, Math.floor(bucket.diamond ?? 0));
+      }
+    }
+    return `Pool: B ${totals.bronze}  S ${totals.silver}  G ${totals.gold}  D ${totals.diamond}`;
+  }
+
   function addRoutingSlots(yStart, slotKind, state, target, process, processDef) {
     let y = yStart;
     const slots = processDef?.routingSlots?.[slotKind] || [];
@@ -682,7 +750,7 @@ export function createProcessWidgetView({
 
     for (const slotDef of slots) {
       if (!slotDef) continue;
-      const slotKey = `${slotKind}:${slotDef.slotId}`;
+      const slotKey = `${process.id}:${slotKind}:${slotDef.slotId}`;
       const locked = slotDef.locked === true;
       const expanded = ensureSlotExpanded(slotKey, locked);
 
@@ -777,6 +845,21 @@ export function createProcessWidgetView({
             getBounds: () => entry.container.getBounds(),
           });
         }
+
+        if (resolvedId && resolvedId.startsWith("sys:pool:")) {
+          const poolTarget = resolveEndpointTarget(state, resolvedId);
+          const poolText = formatPoolSummary(poolTarget);
+          if (poolText) {
+            const poolLabel = new PIXI.Text(poolText, {
+              fill: COLORS.subText,
+              fontSize: 9,
+            });
+            poolLabel.x = PILL_PAD_X + TOGGLE_SIZE + TOGGLE_PAD;
+            poolLabel.y = PILL_HEIGHT + 2;
+            entry.container.addChild(poolLabel);
+            entry.container.height = PILL_HEIGHT + 12;
+          }
+        }
       }
 
       layoutPillEntries(slotView);
@@ -786,36 +869,50 @@ export function createProcessWidgetView({
     return y;
   }
 
-  function cycleProcess(delta) {
-    const state = getStateSafe();
-    const target = getHoverTarget(state);
-    if (!target) return;
-    const list = collectProcesses(target);
-    if (list.length <= 1) return;
-    const idx = list.findIndex((entry) => entry.process.id === selectedProcessId);
-    const current = idx >= 0 ? idx : 0;
-    const next = (current + delta + list.length) % list.length;
-    selectedProcessId = list[next].process.id;
-    lastSignature = null;
+  function addProcessSection(yStart, state, target, processEntry, processDef, index, count) {
+    let y = yStart;
+    const name = processDef?.displayName || processEntry?.process?.type || "Process";
+    const header = new PIXI.Text(
+      count > 1 ? `${name} (${index + 1}/${count})` : name,
+      {
+        fill: COLORS.slotText,
+        fontSize: 12,
+        fontWeight: "bold",
+      }
+    );
+    header.x = PADDING;
+    header.y = y;
+    content.addChild(header);
+    y += 16;
+
+    if (activeTab === "transform") {
+      y = addTransformTab(y, processDef, processEntry.process);
+    } else if (activeTab === "inputs") {
+      y = addRoutingSlots(y, "inputs", state, target, processEntry.process, processDef);
+    } else {
+      y = addRoutingSlots(y, "outputs", state, target, processEntry.process, processDef);
+    }
+
+    y += SECTION_GAP;
+    return y;
   }
 
-  function rebuildWidget(state, target, processEntry, processDef, processIndex, processCount) {
+  function rebuildWidget(state, target, entries) {
     clearContent();
 
     const targetLabel = getTargetLabel(target);
-    const processName = processDef?.displayName || processEntry?.process?.type || "Process";
 
     let y = 0;
-    y += addHeader(targetLabel, processName, processIndex, processCount);
+    y += addHeader(targetLabel);
     y += addTabs(y + 4);
 
     const bodyStart = y + PADDING / 2;
-    if (activeTab === "transform") {
-      y = addTransformTab(bodyStart, processDef, processEntry.process);
-    } else if (activeTab === "inputs") {
-      y = addRoutingSlots(bodyStart, "inputs", state, target, processEntry.process, processDef);
-    } else {
-      y = addRoutingSlots(bodyStart, "outputs", state, target, processEntry.process, processDef);
+    y = bodyStart;
+    const count = entries.length;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry?.process || !entry?.processDef) continue;
+      y = addProcessSection(y, state, target, entry, entry.processDef, i, count);
     }
 
     const totalHeight = Math.max(HEADER_HEIGHT + TAB_HEIGHT + PADDING * 2, y + PADDING);
@@ -843,36 +940,28 @@ export function createProcessWidgetView({
 
     if (activeTargetKey !== targetKey) {
       activeTargetKey = targetKey;
-      selectedProcessId = processes[0]?.process?.id ?? null;
       lastSignature = null;
     }
 
-    const foundIndex = processes.findIndex(
-      (entry) => entry.process.id === selectedProcessId
-    );
-    const processIndex = foundIndex >= 0 ? foundIndex : 0;
-    const processEntry = processes[processIndex] || processes[0];
-    if (!processEntry) {
+    const entries = processes
+      .map((entry) => {
+        const processDef = getProcessDefForInstance(
+          entry.process,
+          target,
+          { leaderId: entry.process?.leaderId ?? null }
+        );
+        return { ...entry, processDef };
+      })
+      .filter((entry) => entry.processDef);
+    if (entries.length === 0) {
       container.visible = false;
       return;
     }
 
-    selectedProcessId = processEntry.process.id;
-
-    const processDef = getProcessDefForInstance(
-      processEntry.process,
-      target,
-      { leaderId: processEntry.process?.leaderId ?? null }
-    );
-    if (!processDef) {
-      container.visible = false;
-      return;
-    }
-
-    const signature = buildProcessSignature(targetKey, processEntry.process, processDef);
+    const signature = buildProcessSignature(targetKey, entries);
     if (signature !== lastSignature) {
       lastSignature = signature;
-      rebuildWidget(state, target, processEntry, processDef, processIndex, processes.length);
+      rebuildWidget(state, target, entries);
     }
 
     container.visible = true;
