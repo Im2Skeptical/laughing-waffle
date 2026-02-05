@@ -4,6 +4,8 @@
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { itemDefs } from "../../defs/gamepieces/item-defs.js";
+import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
 
 const TAG_PILL_HEIGHT = 20;
@@ -182,17 +184,54 @@ export function createTagUi(opts) {
     return processes.find((proc) => proc?.type === "build") ?? null;
   }
 
-  function getRequirementTotals(process) {
-    const reqs = Array.isArray(process?.requirements) ? process.requirements : [];
-    let total = 0;
-    let done = 0;
-    for (const req of reqs) {
-      const required = Math.max(0, Math.floor(req?.amount ?? 0));
-      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
-      total += required;
-      done += Math.min(required, progress);
+  function formatBuildRequirementLabel(req) {
+    if (!req || typeof req !== "object") return "Material";
+    if (req.kind === "item") {
+      const def = itemDefs?.[req.itemId];
+      return def?.name || req.itemId || "Item";
     }
-    return { total, done };
+    if (req.kind === "tag") {
+      const def = itemTagDefs?.[req.tag];
+      return def?.ui?.name || req.tag || "Tag";
+    }
+    if (req.kind === "resource") {
+      const raw = String(req.resource || "Resource");
+      return raw.length ? raw[0].toUpperCase() + raw.slice(1) : "Resource";
+    }
+    return "Material";
+  }
+
+  function buildRowsForBuildProcess(tileInst) {
+    const process = getBuildProcess(tileInst);
+    if (!process) return [{ kind: "labor" }];
+    const reqs = Array.isArray(process.requirements)
+      ? process.requirements.filter(
+          (req) => Math.max(0, Math.floor(req?.amount ?? 0)) > 0
+        )
+      : [];
+    if (reqs.length > 0) {
+      let hasRemaining = false;
+      for (const req of reqs) {
+        const required = Math.max(0, Math.floor(req?.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+        if (progress < required) {
+          hasRemaining = true;
+          break;
+        }
+      }
+      if (hasRemaining) {
+        return reqs.map((req, index) => ({
+          kind: "requirement",
+          index,
+          label: formatBuildRequirementLabel(req),
+        }));
+      }
+    }
+    return [{ kind: "labor" }];
+  }
+
+  function getBuildRowSignature(rows) {
+    return rows.map((row) => `${row.kind}:${row.index ?? ""}`).join("|");
   }
 
   function buildTagTooltipLines(tileInst, tagId) {
@@ -342,9 +381,17 @@ export function createTagUi(opts) {
         lines.push("Progress: idle");
         return lines;
       }
-      const { total, done } = getRequirementTotals(process);
-      if (total > 0 && done < total) {
-        lines.push(`Materials: ${done}/${total}`);
+      const reqs = Array.isArray(process.requirements)
+        ? process.requirements
+        : [];
+      if (reqs.length > 0) {
+        lines.push("Materials:");
+        for (const req of reqs) {
+          const required = Math.max(0, Math.floor(req?.amount ?? 0));
+          const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+          const label = formatBuildRequirementLabel(req);
+          lines.push(`${label}: ${progress}/${required}`);
+        }
       }
       const progress = Math.max(0, Math.floor(process.progress ?? 0));
       const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
@@ -391,7 +438,7 @@ export function createTagUi(opts) {
     }, 160);
   }
 
-  function buildSystemRow(view, systemId) {
+  function buildSystemRow(view, systemId, opts = null) {
     const ui = getSystemUi(systemId);
     const container = new PIXI.Container();
     container.eventMode = "static";
@@ -480,6 +527,9 @@ export function createTagUi(opts) {
       lastMaturedMax: 0,
       flashOverlay,
       flashTimeout: null,
+      buildKind: opts?.kind ?? null,
+      buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
+      buildLabel: opts?.label ?? null,
     };
 
     if (systemId === "growth") {
@@ -494,7 +544,7 @@ export function createTagUi(opts) {
     return row;
   }
 
-  function buildTagEntry(view, tagId) {
+  function buildTagEntry(view, tagId, tileInst) {
     const tagDef = envTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
 
@@ -548,12 +598,25 @@ export function createTagUi(opts) {
 
     const systemRows = [];
     let sysY = 0;
-    for (const systemId of systems) {
-      const rowEntry = buildSystemRow(view, systemId);
-      rowEntry.container.y = sysY;
-      systemContainer.addChild(rowEntry.container);
-      systemRows.push(rowEntry);
-      sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+    let buildRowSignature = null;
+    if (tagId === "build" && tileInst) {
+      const rows = buildRowsForBuildProcess(tileInst);
+      buildRowSignature = getBuildRowSignature(rows);
+      for (const rowSpec of rows) {
+        const rowEntry = buildSystemRow(view, "build", rowSpec);
+        rowEntry.container.y = sysY;
+        systemContainer.addChild(rowEntry.container);
+        systemRows.push(rowEntry);
+        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      }
+    } else {
+      for (const systemId of systems) {
+        const rowEntry = buildSystemRow(view, systemId);
+        rowEntry.container.y = sysY;
+        systemContainer.addChild(rowEntry.container);
+        systemRows.push(rowEntry);
+        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      }
     }
 
     const entry = {
@@ -575,6 +638,7 @@ export function createTagUi(opts) {
       expanded: false,
       systemHeight: sysY > 0 ? sysY - SYSTEM_ROW_GAP : 0,
       height: TAG_PILL_HEIGHT,
+      buildRowSignature,
     };
 
     entry.setExpanded = (expanded) => {
@@ -774,10 +838,20 @@ export function createTagUi(opts) {
         drawSystemBar(row, 0, row.uiColor);
         return;
       }
-      const { total, done } = getRequirementTotals(process);
-      if (total > 0 && done < total) {
-        const ratio = total > 0 ? done / total : 0;
-        row.labelText.text = `Materials ${done}/${total}`;
+      if (row.buildKind === "requirement") {
+        const req = Array.isArray(process.requirements)
+          ? process.requirements[row.buildReqIndex]
+          : null;
+        if (!req) {
+          row.labelText.text = row.buildLabel || "Material";
+          drawSystemBar(row, 0, row.uiColor);
+          return;
+        }
+        const required = Math.max(0, Math.floor(req.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req.progress ?? 0));
+        const ratio = required > 0 ? progress / required : 0;
+        const label = row.buildLabel || formatBuildRequirementLabel(req);
+        row.labelText.text = `${label} ${progress}/${required}`;
         drawSystemBar(row, ratio, row.uiColor);
         return;
       }
@@ -923,6 +997,18 @@ export function createTagUi(opts) {
     const activeTagIds = new Set(
       hasPawn ? enabledTags.slice(0, pawnCount) : []
     );
+    const buildEntry = (view.tagEntries || []).find(
+      (entry) => entry?.tagId === "build"
+    );
+    if (buildEntry) {
+      const desired = buildRowsForBuildProcess(tileInst);
+      const signature = getBuildRowSignature(desired);
+      if (signature !== buildEntry.buildRowSignature) {
+        rebuildTileTags(view, tileInst);
+        return;
+      }
+    }
+
     for (const entry of view.tagEntries || []) {
       updateTagEntry(
         view,
@@ -958,7 +1044,7 @@ export function createTagUi(opts) {
     }
 
     for (const tagId of tags) {
-      const entry = buildTagEntry(view, tagId);
+      const entry = buildTagEntry(view, tagId, tileInst);
       entry.setExpanded(view.expandedTagId === tagId);
       view.tagContainer.addChild(entry.container);
       view.tagEntries.push(entry);

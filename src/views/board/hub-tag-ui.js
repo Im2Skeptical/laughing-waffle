@@ -4,6 +4,8 @@
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
 import { hubSystemDefs } from "../../defs/gamesystems/hub-system-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
+import { itemDefs } from "../../defs/gamepieces/item-defs.js";
+import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -140,17 +142,56 @@ export function createHubTagUi(opts) {
     return processes.find((proc) => proc?.type === "build") ?? null;
   }
 
-  function getRequirementTotals(process) {
-    const reqs = Array.isArray(process?.requirements) ? process.requirements : [];
-    let total = 0;
-    let done = 0;
-    for (const req of reqs) {
-      const required = Math.max(0, Math.floor(req?.amount ?? 0));
-      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
-      total += required;
-      done += Math.min(required, progress);
+  function formatBuildRequirementLabel(req) {
+    if (!req || typeof req !== "object") return "Material";
+    if (req.kind === "item") {
+      const def = itemDefs?.[req.itemId];
+      return def?.name || req.itemId || "Item";
     }
-    return { total, done };
+    if (req.kind === "tag") {
+      const def = itemTagDefs?.[req.tag];
+      return def?.ui?.name || req.tag || "Tag";
+    }
+    if (req.kind === "resource") {
+      const raw = String(req.resource || "Resource");
+      return raw.length ? raw[0].toUpperCase() + raw.slice(1) : "Resource";
+    }
+    return "Material";
+  }
+
+  function buildRowsForBuildProcess(structure) {
+    const process = getBuildProcess(structure);
+    if (!process) return [{ kind: "labor" }];
+    const reqs = Array.isArray(process.requirements)
+      ? process.requirements.filter(
+          (req) => Math.max(0, Math.floor(req?.amount ?? 0)) > 0
+        )
+      : [];
+    if (reqs.length > 0) {
+      let hasRemaining = false;
+      for (const req of reqs) {
+        const required = Math.max(0, Math.floor(req?.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+        if (progress < required) {
+          hasRemaining = true;
+          break;
+        }
+      }
+      if (hasRemaining) {
+        return reqs.map((req, index) => ({
+          kind: "requirement",
+          index,
+          label: formatBuildRequirementLabel(req),
+        }));
+      }
+    }
+    return [{ kind: "labor" }];
+  }
+
+  function getBuildRowSignature(rows) {
+    return rows
+      .map((row) => `${row.kind}:${row.index ?? ""}`)
+      .join("|");
   }
 
   function updateToggleVisual(entry, isDisabled) {
@@ -234,7 +275,7 @@ export function createHubTagUi(opts) {
     row.barFill.endFill();
   }
 
-  function buildSystemRow(view, systemId) {
+  function buildSystemRow(view, systemId, opts = null) {
     const ui = getSystemUi(systemId);
     const container = new PIXI.Container();
     container.eventMode = "static";
@@ -318,10 +359,13 @@ export function createHubTagUi(opts) {
       barY,
       labelText,
       uiColor: ui.color,
+      buildKind: opts?.kind ?? null,
+      buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
+      buildLabel: opts?.label ?? null,
     };
   }
 
-  function buildTagEntry(view, tagId) {
+  function buildTagEntry(view, tagId, structure) {
     const tagDef = hubTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
 
@@ -375,12 +419,25 @@ export function createHubTagUi(opts) {
 
     const systemRows = [];
     let sysY = 0;
-    for (const systemId of systems) {
-      const rowEntry = buildSystemRow(view, systemId);
-      rowEntry.container.y = sysY;
-      systemContainer.addChild(rowEntry.container);
-      systemRows.push(rowEntry);
-      sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+    let buildRowSignature = null;
+    if (tagId === "build" && structure) {
+      const rows = buildRowsForBuildProcess(structure);
+      buildRowSignature = getBuildRowSignature(rows);
+      for (const rowSpec of rows) {
+        const rowEntry = buildSystemRow(view, "build", rowSpec);
+        rowEntry.container.y = sysY;
+        systemContainer.addChild(rowEntry.container);
+        systemRows.push(rowEntry);
+        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      }
+    } else {
+      for (const systemId of systems) {
+        const rowEntry = buildSystemRow(view, systemId);
+        rowEntry.container.y = sysY;
+        systemContainer.addChild(rowEntry.container);
+        systemRows.push(rowEntry);
+        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      }
     }
 
     const entry = {
@@ -401,6 +458,7 @@ export function createHubTagUi(opts) {
       expanded: false,
       systemHeight: sysY > 0 ? sysY - SYSTEM_ROW_GAP : 0,
       height: TAG_PILL_HEIGHT,
+      buildRowSignature,
     };
 
     entry.setExpanded = (expanded) => {
@@ -525,10 +583,20 @@ export function createHubTagUi(opts) {
         drawSystemBar(row, 0, row.uiColor);
         return;
       }
-      const { total, done } = getRequirementTotals(process);
-      if (total > 0 && done < total) {
-        const ratio = total > 0 ? done / total : 0;
-        row.labelText.text = `Materials ${done}/${total}`;
+      if (row.buildKind === "requirement") {
+        const req = Array.isArray(process.requirements)
+          ? process.requirements[row.buildReqIndex]
+          : null;
+        if (!req) {
+          row.labelText.text = row.buildLabel || "Material";
+          drawSystemBar(row, 0, row.uiColor);
+          return;
+        }
+        const required = Math.max(0, Math.floor(req.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req.progress ?? 0));
+        const ratio = required > 0 ? progress / required : 0;
+        const label = row.buildLabel || formatBuildRequirementLabel(req);
+        row.labelText.text = `${label} ${progress}/${required}`;
         drawSystemBar(row, ratio, row.uiColor);
         return;
       }
@@ -564,6 +632,18 @@ export function createHubTagUi(opts) {
     const activeTagIds = new Set(
       hasPawn ? enabledTags.slice(0, pawnCount) : []
     );
+    const buildEntry = (view.tagEntries || []).find(
+      (entry) => entry?.tagId === "build"
+    );
+    if (buildEntry) {
+      const desired = buildRowsForBuildProcess(structure);
+      const signature = getBuildRowSignature(desired);
+      if (signature !== buildEntry.buildRowSignature) {
+        rebuildStructureTags(view, structure);
+        return;
+      }
+    }
+
     for (const entry of view.tagEntries || []) {
       const isDisabled = isTagDisabled(structure, entry.tagId);
       const isActive =
@@ -617,7 +697,7 @@ export function createHubTagUi(opts) {
     }
 
     for (const tagId of tags) {
-      const entry = buildTagEntry(view, tagId);
+      const entry = buildTagEntry(view, tagId, structure);
       entry.setExpanded(view.expandedTagId === tagId);
       view.tagContainer.addChild(entry.container);
       view.tagEntries.push(entry);
