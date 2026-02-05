@@ -75,26 +75,6 @@ export const envTagDefs = {
               amount: { const: 1 },
               clampMin: 0,
             },
-            {
-              kind: "item",
-              target: { ref: "pawnInv" },
-              itemId: {
-                var: "selectedCropId",
-                map: {
-                  barley: "barley",
-                  wheat: "wheat",
-                },
-                default: null,
-              },
-              amount: {
-                var: "selectedCropId",
-                map: {
-                  barley: 1,
-                  wheat: 1, 
-                },
-                default: null,
-              },
-            },
           ],
         },
         effect: {

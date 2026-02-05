@@ -9,7 +9,7 @@ export const hubStructureDefs = {
     color: 0xd9793a,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: ["canCook", "canCraft"],
+    tags: ["canCook", "canCraft", "distributor"],
     systems: {},
     inventory: { cols: 5, rows: 10 },
     ui: {
@@ -41,7 +41,7 @@ export const hubStructureDefs = {
     color: 0xc2a16a,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: ["canDeposit"],
+    tags: ["canDeposit", "distributor"],
     systems: {},
     inventory: { cols: 5, rows: 6 },
     inventoryRules: { allowedItemTags: ["grain"] },
@@ -66,7 +66,7 @@ export const hubStructureDefs = {
     color: 0x8a6a4f,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: [],
+    tags: ["distributor"],
     systems: {},
     inventory: { cols: 6, rows: 8 },
     build: {

@@ -40,6 +40,12 @@ import { stepEnvSecond } from "./env-exec.js";
 import { stepHubSecond } from "./hub-exec.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
 import { adjustFollowerCount, enforcePrestigeFollowerCap } from "./prestige-system.js";
+import {
+  getProcessDefForInstance,
+  ensureProcessRoutingState,
+  getDropEndpointId,
+  isDropEndpoint,
+} from "./process-framework.js";
 
 const TICKS_PER_SEC = 60;
 
@@ -660,6 +666,224 @@ export function cmdSetHubRecipeSelection(
 }
 
 // =============================================================================
+// PROCESS ROUTING COMMANDS
+// =============================================================================
+
+function normalizeSlotKind(value) {
+  return value === "outputs" ? "outputs" : "inputs";
+}
+
+function findProcessInTarget(target, processId) {
+  if (!target?.systemState || !processId) return null;
+  const systems = target.systemState;
+  for (const [systemId, sysState] of Object.entries(systems)) {
+    const list = Array.isArray(sysState?.processes) ? sysState.processes : [];
+    if (!list.length) continue;
+    for (const proc of list) {
+      if (proc?.id === processId) {
+        return { process: proc, systemId, processList: list };
+      }
+    }
+  }
+  return null;
+}
+
+function findProcessById(state, processId) {
+  if (!state || !processId) return null;
+  const hubAnchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+  for (const anchor of hubAnchors) {
+    if (!anchor) continue;
+    const res = findProcessInTarget(anchor, processId);
+    if (res) return { ...res, target: anchor, targetKind: "hub" };
+  }
+  const hubSlots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (const slot of hubSlots) {
+    const structure = slot?.structure;
+    if (!structure) continue;
+    const res = findProcessInTarget(structure, processId);
+    if (res) return { ...res, target: structure, targetKind: "hub" };
+  }
+  const tileAnchors = Array.isArray(state?.board?.layers?.tile?.anchors)
+    ? state.board.layers.tile.anchors
+    : [];
+  for (const anchor of tileAnchors) {
+    if (!anchor) continue;
+    const res = findProcessInTarget(anchor, processId);
+    if (res) return { ...res, target: anchor, targetKind: "env" };
+  }
+  return null;
+}
+
+function applyRoutingPatchToSlot(slotState, patch) {
+  if (!slotState || typeof slotState !== "object" || !patch) return false;
+  let changed = false;
+  if (Array.isArray(patch.ordered)) {
+    slotState.ordered = patch.ordered.filter(
+      (entry) => typeof entry === "string" && entry.length
+    );
+    changed = true;
+  }
+  if (patch.enabled && typeof patch.enabled === "object") {
+    for (const [endpointId, enabled] of Object.entries(patch.enabled)) {
+      slotState.enabled[endpointId] = enabled === true;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function enforceDropslotPriority(process, processDef) {
+  if (!processDef?.supportsDropslot) return false;
+  const dropId = getDropEndpointId(process?.id);
+  if (!dropId) return false;
+  let changed = false;
+  const inputSlots = process?.routing?.inputs || {};
+  for (const slotState of Object.values(inputSlots)) {
+    if (!slotState || !Array.isArray(slotState.ordered)) continue;
+    const idx = slotState.ordered.indexOf(dropId);
+    if (idx === 0) {
+      slotState.enabled[dropId] = true;
+      continue;
+    }
+    if (idx > 0) {
+      slotState.ordered.splice(idx, 1);
+      slotState.ordered.unshift(dropId);
+      slotState.enabled[dropId] = true;
+      changed = true;
+      continue;
+    }
+    slotState.ordered.unshift(dropId);
+    slotState.enabled[dropId] = true;
+    changed = true;
+  }
+  return changed;
+}
+
+export function cmdSetProcessRouting(state, { processId, routingPatch } = {}) {
+  if (!processId || typeof processId !== "string") {
+    return { ok: false, reason: "badProcessId" };
+  }
+  const found = findProcessById(state, processId);
+  if (!found?.process) return { ok: false, reason: "noProcess" };
+  const processDef = getProcessDefForInstance(found.process, found.target, null);
+  if (!processDef) return { ok: false, reason: "noProcessDef" };
+  ensureProcessRoutingState(found.process, processDef, null);
+
+  const patch = routingPatch && typeof routingPatch === "object" ? routingPatch : {};
+  let changed = false;
+
+  for (const kind of ["inputs", "outputs"]) {
+    const groupPatch = patch[kind];
+    if (!groupPatch || typeof groupPatch !== "object") continue;
+    const slots = found.process.routing?.[kind] || {};
+    for (const [slotId, slotPatch] of Object.entries(groupPatch)) {
+      if (!slots[slotId]) slots[slotId] = { ordered: [], enabled: {} };
+      if (applyRoutingPatchToSlot(slots[slotId], slotPatch)) changed = true;
+    }
+  }
+
+  if (enforceDropslotPriority(found.process, processDef)) changed = true;
+
+  return { ok: true, changed };
+}
+
+export function cmdReorderProcessRoutingEndpoint(
+  state,
+  { processId, slotKind, slotId, fromIndex, toIndex } = {}
+) {
+  if (!processId || typeof processId !== "string") {
+    return { ok: false, reason: "badProcessId" };
+  }
+  const found = findProcessById(state, processId);
+  if (!found?.process) return { ok: false, reason: "noProcess" };
+  const processDef = getProcessDefForInstance(found.process, found.target, null);
+  if (!processDef) return { ok: false, reason: "noProcessDef" };
+  ensureProcessRoutingState(found.process, processDef, null);
+
+  const kind = normalizeSlotKind(slotKind);
+  const slotState = found.process.routing?.[kind]?.[slotId];
+  if (!slotState || !Array.isArray(slotState.ordered)) {
+    return { ok: false, reason: "noSlot" };
+  }
+
+  const max = slotState.ordered.length - 1;
+  const from = Number.isFinite(fromIndex) ? Math.floor(fromIndex) : -1;
+  const to = Number.isFinite(toIndex) ? Math.floor(toIndex) : -1;
+  if (from < 0 || from > max || to < 0 || to > max) {
+    return { ok: false, reason: "badIndex" };
+  }
+
+  const dropId = processDef.supportsDropslot ? getDropEndpointId(processId) : null;
+  const moving = slotState.ordered[from];
+  if (dropId && moving === dropId) {
+    return { ok: false, reason: "dropLocked" };
+  }
+  if (dropId && to === 0 && slotState.ordered[0] === dropId) {
+    return { ok: false, reason: "dropLocked" };
+  }
+
+  const [moved] = slotState.ordered.splice(from, 1);
+  slotState.ordered.splice(to, 0, moved);
+
+  enforceDropslotPriority(found.process, processDef);
+
+  return { ok: true, result: "reordered" };
+}
+
+export function cmdToggleProcessRoutingEndpoint(
+  state,
+  { processId, slotKind, slotId, endpointId, enabled } = {}
+) {
+  if (!processId || typeof processId !== "string") {
+    return { ok: false, reason: "badProcessId" };
+  }
+  if (!endpointId || typeof endpointId !== "string") {
+    return { ok: false, reason: "badEndpoint" };
+  }
+  const found = findProcessById(state, processId);
+  if (!found?.process) return { ok: false, reason: "noProcess" };
+  const processDef = getProcessDefForInstance(found.process, found.target, null);
+  if (!processDef) return { ok: false, reason: "noProcessDef" };
+  ensureProcessRoutingState(found.process, processDef, null);
+
+  if (processDef.supportsDropslot && isDropEndpoint(endpointId)) {
+    return { ok: false, reason: "dropLocked" };
+  }
+
+  const kind = normalizeSlotKind(slotKind);
+  const slotState = found.process.routing?.[kind]?.[slotId];
+  if (!slotState || typeof slotState !== "object") {
+    return { ok: false, reason: "noSlot" };
+  }
+  if (!slotState.enabled || typeof slotState.enabled !== "object") {
+    slotState.enabled = {};
+  }
+  slotState.enabled[endpointId] = enabled === true;
+  return { ok: true, result: "toggled" };
+}
+
+export function cmdMoveProcessBufferItem(
+  state,
+  { fromOwnerId, toOwnerId, itemId, targetGX, targetGY } = {}
+) {
+  if (fromOwnerId == null || toOwnerId == null) {
+    return { ok: false, reason: "badOwner" };
+  }
+  const isProcessOwner = (ownerId) =>
+    typeof ownerId === "string" && ownerId.startsWith("inv:process:");
+  if (!isProcessOwner(fromOwnerId) && !isProcessOwner(toOwnerId)) {
+    return { ok: false, reason: "notProcessBuffer" };
+  }
+  return cmdMoveItemBetweenOwners(state, {
+    fromOwnerId,
+    toOwnerId,
+    itemId,
+    targetGX,
+    targetGY,
+  });
+}
+
+// =============================================================================
 // INVENTORY COMMANDS
 // =============================================================================
 
@@ -1003,15 +1227,24 @@ export function cmdDebugQueueEnvEvent(state, { defId } = {}) {
 // =============================================================================
 
 function getOwnerKindAndDef(state, ownerId) {
+  const normalizedOwnerId =
+    typeof ownerId === "string" && !ownerId.startsWith("inv:process:")
+      ? Number.isFinite(Number(ownerId))
+        ? Number(ownerId)
+        : ownerId
+      : ownerId;
+  if (typeof ownerId === "string" && ownerId.startsWith("inv:process:")) {
+    return { kind: "processBuffer", def: null };
+  }
   const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
   for (const slot of slots) {
-    if (slot.structure && slot.structure.instanceId === ownerId) {
+    if (slot.structure && slot.structure.instanceId === normalizedOwnerId) {
       const def = hubStructureDefs[slot.structure.defId];
       return { kind: "hubStructure", def, structure: slot.structure };
     }
   }
 
-  const ch = state.characters.find((c) => c.id === ownerId);
+  const ch = state.characters.find((c) => c.id === normalizedOwnerId);
   if (ch) return { kind: "character", def: null };
 
   return { kind: null, def: null };
@@ -1029,6 +1262,10 @@ export function canOwnerAcceptItem(state, ownerId, item) {
   if (kind === "character") {
     const tags = Array.isArray(item?.tags) ? item.tags : [];
     if (tags.includes("waste")) return false;
+    return true;
+  }
+
+  if (kind === "processBuffer") {
     return true;
   }
 

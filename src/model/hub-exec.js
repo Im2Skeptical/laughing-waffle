@@ -5,7 +5,7 @@ import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
-import { applyGranaryDepositsForStructure } from "./prestige-system.js";
+import { PAWN_ROLE_LEADER, getLeaderById } from "./prestige-system.js";
 
 function hasProcess(structure, systemId, type) {
   const sys = structure?.systemState?.[systemId];
@@ -156,6 +156,109 @@ function getContributingPawns(state, structure) {
   return contributors;
 }
 
+function countGrainUnitsInInventory(inv) {
+  if (!inv || !Array.isArray(inv.items)) return 0;
+  let total = 0;
+  for (const item of inv.items) {
+    if (!item || !Array.isArray(item.tags)) continue;
+    if (!item.tags.includes("grain")) continue;
+    total += Math.max(0, Math.floor(item.quantity ?? 0));
+  }
+  return total;
+}
+
+function ensureGranaryProcessQueue(structure) {
+  if (!structure || typeof structure !== "object") return [];
+  if (!structure.systemState || typeof structure.systemState !== "object") {
+    structure.systemState = {};
+  }
+  const store = structure.systemState.granaryStore;
+  if (!store || typeof store !== "object") {
+    structure.systemState.granaryStore = {
+      byKindTier: {},
+      totalByTier: {},
+      processes: [],
+    };
+  }
+  if (!Array.isArray(structure.systemState.granaryStore.processes)) {
+    structure.systemState.granaryStore.processes = [];
+  }
+  return structure.systemState.granaryStore.processes;
+}
+
+function ensureDepositProcesses(state, structure, pawns, tSec) {
+  if (!state || !structure || !Array.isArray(pawns) || pawns.length === 0) {
+    return false;
+  }
+  const processes = ensureGranaryProcessQueue(structure);
+  let changed = false;
+
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    const leader =
+      pawn.role === PAWN_ROLE_LEADER
+        ? pawn
+        : pawn.leaderId != null
+        ? getLeaderById(state, pawn.leaderId)
+        : null;
+    if (!leader || leader.role !== PAWN_ROLE_LEADER) continue;
+
+    const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
+    if (!pawnInv) continue;
+    const grainUnits = countGrainUnitsInInventory(pawnInv);
+    if (grainUnits <= 0) continue;
+
+    const hasExisting = processes.some(
+      (proc) => proc?.type === "depositGrain" && proc?.ownerId === pawn.id
+    );
+    if (hasExisting) continue;
+
+    runEffect(
+      state,
+      {
+        op: "CreateWorkProcess",
+        system: "granaryStore",
+        queueKey: "processes",
+        processType: "depositGrain",
+        mode: "time",
+        durationSec: 1,
+        requirements: [
+          {
+            kind: "tag",
+            tag: "grain",
+            amount: grainUnits,
+            progress: 0,
+            consume: true,
+            slotId: "grain",
+          },
+        ],
+        outputs: [
+          {
+            kind: "prestige",
+            qty: grainUnits,
+            slotId: "prestige",
+          },
+        ],
+        processMeta: {
+          ownerId: pawn.id,
+          leaderId: leader.id,
+        },
+      },
+      {
+        kind: "game",
+        state,
+        source: structure,
+        tSec,
+        ownerId: structure.instanceId,
+      }
+    );
+
+    changed = true;
+  }
+
+  return changed;
+}
+
 export function stepHubSecond(state, tSec) {
   if (!state || !state.hub) return;
 
@@ -178,7 +281,7 @@ export function stepHubSecond(state, tSec) {
     const hasPawn = pawns.length > 0;
 
     if (hasPawn && tags.includes("deposit") && !isTagDisabled(structure, "deposit")) {
-      applyGranaryDepositsForStructure(state, structure, pawns);
+      ensureDepositProcesses(state, structure, pawns, tSec);
     }
 
     const baseContext = {

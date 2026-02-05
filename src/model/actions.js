@@ -8,6 +8,7 @@ import {
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
   cmdDiscardItemFromOwner,
+  cmdMoveProcessBufferItem,
   cmdDebugSetCap,
   cmdSetTileTagOrder,
   cmdSetHubTagOrder,
@@ -15,6 +16,9 @@ import {
   cmdToggleHubTag,
   cmdSetTileCropSelection,
   cmdSetHubRecipeSelection,
+  cmdSetProcessRouting,
+  cmdReorderProcessRoutingEndpoint,
+  cmdToggleProcessRoutingEndpoint,
   cmdDebugQueueEnvEvent,
   cmdAdjustFollowerCount,
   cmdBuildDesignate,
@@ -27,6 +31,7 @@ export const ActionKinds = {
   INVENTORY_SPLIT: "inventorySplit",
   INVENTORY_STACK: "inventoryStack",
   INVENTORY_DISCARD: "inventoryDiscard",
+  PROCESS_BUFFER_MOVE: "processBufferMove",
   BUILD_DESIGNATE: "buildDesignate",
   BUILD_CANCEL: "buildCancel",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
@@ -35,6 +40,9 @@ export const ActionKinds = {
   TOGGLE_HUB_TAG: "toggleHubTag",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
   SET_HUB_RECIPE_SELECTION: "setHubRecipeSelection",
+  SET_PROCESS_ROUTING: "setProcessRouting",
+  REORDER_PROCESS_ROUTING_ENDPOINT: "reorderProcessRoutingEndpoint",
+  TOGGLE_PROCESS_ROUTING_ENDPOINT: "toggleProcessRoutingEndpoint",
   ADJUST_FOLLOWER_COUNT: "adjustFollowerCount",
   DEBUG_SET_CAP: "debugSetCap",
   DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
@@ -137,6 +145,10 @@ export function applyAction(state, action, context = {}) {
       result = cmdMoveItemBetweenOwners(state, payload);
       break;
 
+    case ActionKinds.PROCESS_BUFFER_MOVE:
+      result = cmdMoveProcessBufferItem(state, payload);
+      break;
+
     case ActionKinds.INVENTORY_SPLIT:
       result = cmdSplitStackAndPlace(
         state,
@@ -186,6 +198,18 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.SET_HUB_RECIPE_SELECTION:
       result = cmdSetHubRecipeSelection(state, payload);
+      break;
+
+    case ActionKinds.SET_PROCESS_ROUTING:
+      result = cmdSetProcessRouting(state, payload);
+      break;
+
+    case ActionKinds.REORDER_PROCESS_ROUTING_ENDPOINT:
+      result = cmdReorderProcessRoutingEndpoint(state, payload);
+      break;
+
+    case ActionKinds.TOGGLE_PROCESS_ROUTING_ENDPOINT:
+      result = cmdToggleProcessRoutingEndpoint(state, payload);
       break;
 
     case ActionKinds.ADJUST_FOLLOWER_COUNT:

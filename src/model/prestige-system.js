@@ -274,6 +274,44 @@ export function applyGranaryDepositsForStructure(state, structure, pawns) {
   return { ok: depositedTotal > 0, deposited: depositedTotal };
 }
 
+export function applyPrestigeDeposit(state, leaderId, structure, kindTierTotals) {
+  if (!state || leaderId == null || !kindTierTotals) return false;
+  const parsedLeaderId = Number.isFinite(Number(leaderId))
+    ? Number(leaderId)
+    : leaderId;
+  const leader = getLeaderById(state, parsedLeaderId);
+  if (!leader || leader.role !== PAWN_ROLE_LEADER) return false;
+
+  ensureLeaderPrestigeFields(leader);
+
+  const hasStore =
+    structure?.systemState &&
+    Object.prototype.hasOwnProperty.call(structure.systemState, "granaryStore");
+  const store = hasStore ? ensureGranaryStore(structure) : null;
+
+  let depositedTotal = 0;
+  const kinds = Object.keys(kindTierTotals || {});
+  for (const kind of kinds) {
+    const tiers = kindTierTotals?.[kind];
+    if (!tiers || typeof tiers !== "object") continue;
+    for (const [tierRaw, amountRaw] of Object.entries(tiers)) {
+      const amount = Math.max(0, Math.floor(amountRaw ?? 0));
+      if (amount <= 0) continue;
+      const tier = typeof tierRaw === "string" && tierRaw.length ? tierRaw : "bronze";
+      if (store) addToGranaryStore(store, kind, tier, amount);
+      addToLeaderTotals(leader, tier, amount);
+      depositedTotal += amount;
+    }
+  }
+
+  if (depositedTotal > 0) {
+    recomputeLeaderPrestigeBase(leader);
+    return true;
+  }
+
+  return false;
+}
+
 function findPlacementForItem(inv, item) {
   if (!inv || !item) return null;
   for (let gy = 0; gy <= inv.rows - item.height; gy++) {

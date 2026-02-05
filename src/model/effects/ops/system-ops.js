@@ -5,7 +5,6 @@ import { pawnSystemDefs } from "../../../defs/gamesystems/pawn-systems-defs.js";
 import { hubSystemDefs } from "../../../defs/gamesystems/hub-system-defs.js";
 import { hubStructureDefs } from "../../../defs/gamepieces/hub-structure-defs.js";
 import { itemSystemDefs } from "../../../defs/gamesystems/item-system-defs.js";
-import { resolveCosts, canAffordCosts, applyCosts } from "../../costs.js";
 import { resolveAmount } from "../core/amount.js";
 import { clamp } from "../core/clamp.js";
 import { cloneSerializable } from "../core/clone.js";
@@ -14,6 +13,22 @@ import { ensureSystemState, getTierValueForSystem } from "../core/system-state.j
 import { resolveBoardTargets } from "../core/targets-board.js";
 import { handleSpawnItem } from "./game-ops.js";
 import { initializeInstanceFromDef } from "../../state.js";
+import { itemDefs } from "../../../defs/gamepieces/item-defs.js";
+import {
+  getProcessDefForInstance,
+  ensureProcessRoutingState,
+  listCandidateEndpoints,
+  resolveEndpointTarget,
+  resolveFixedEndpointId,
+  canConsumeRequirementUnit,
+  consumeRequirementUnit,
+  addItemToInventory,
+  isDropEndpoint,
+  getDropEndpointId,
+} from "../../process-framework.js";
+import { Inventory } from "../../inventory-model.js";
+import { canOwnerAcceptItem } from "../../commands.js";
+import { applyPrestigeDeposit } from "../../prestige-system.js";
 
 // Process refactor:
 // - CreateWorkProcess: enqueue a process with progress tracking (time or work)
@@ -244,6 +259,10 @@ function normalizeProcessRequirements(requirements) {
   const out = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;
+    const consume =
+      typeof entry.consume === "boolean" ? entry.consume : entry.consume !== false;
+    const slotId =
+      typeof entry.slotId === "string" && entry.slotId.length ? entry.slotId : null;
     const kind =
       typeof entry.kind === "string" && entry.kind.length
         ? entry.kind
@@ -272,6 +291,8 @@ function normalizeProcessRequirements(requirements) {
           itemId,
           amount: Math.max(0, Math.floor(entry.amount ?? 0)),
           progress: Math.max(0, Math.floor(entry.progress ?? 0)),
+          consume,
+          slotId,
         });
       } else if (tag) {
         out.push({
@@ -279,6 +300,8 @@ function normalizeProcessRequirements(requirements) {
           tag,
           amount: Math.max(0, Math.floor(entry.amount ?? 0)),
           progress: Math.max(0, Math.floor(entry.progress ?? 0)),
+          consume,
+          slotId,
         });
       } else if (resource) {
         out.push({
@@ -286,6 +309,8 @@ function normalizeProcessRequirements(requirements) {
           resource,
           amount: Math.max(0, Math.floor(entry.amount ?? 0)),
           progress: Math.max(0, Math.floor(entry.progress ?? 0)),
+          consume,
+          slotId,
         });
       }
       continue;
@@ -297,52 +322,11 @@ function normalizeProcessRequirements(requirements) {
       resource,
       amount: Math.max(0, Math.floor(entry.amount ?? 0)),
       progress: Math.max(0, Math.floor(entry.progress ?? 0)),
+      consume,
+      slotId,
     });
   }
   return out;
-}
-
-function buildRequirementCostSpec(requirement, amount) {
-  if (!requirement || typeof requirement !== "object") return null;
-  const amt = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
-  if (amt <= 0) return null;
-  if (requirement.kind === "item" && requirement.itemId) {
-    return {
-      charges: [
-        {
-          kind: "item",
-          target: { ref: "ownerInv" },
-          itemId: requirement.itemId,
-          amount: { const: amt },
-        },
-      ],
-    };
-  }
-  if (requirement.kind === "tag" && requirement.tag) {
-    return {
-      charges: [
-        {
-          kind: "tag",
-          target: { ref: "ownerInv" },
-          tag: requirement.tag,
-          amount: { const: amt },
-        },
-      ],
-    };
-  }
-  if (requirement.kind === "resource" && requirement.resource) {
-    return {
-      charges: [
-        {
-          kind: "resource",
-          target: { ref: "stateResources" },
-          resource: requirement.resource,
-          amount: { const: amt },
-        },
-      ],
-    };
-  }
-  return null;
 }
 
 function areRequirementsComplete(process) {
@@ -357,28 +341,232 @@ function areRequirementsComplete(process) {
   return true;
 }
 
-function advanceProcessRequirements(state, target, process, budget, context) {
-  const reqs = Array.isArray(process?.requirements) ? process.requirements : [];
-  if (!reqs.length) return { changed: false, done: true };
+const DEFAULT_INPUT_SLOT_ID = "materials";
+const DEFAULT_OUTPUT_SLOT_ID = "output";
+
+function ensureProcessRequirements(process, processDef) {
+  let reqs = Array.isArray(process?.requirements) ? process.requirements : [];
+  let changed = false;
+  if (!Array.isArray(process?.requirements)) {
+    process.requirements = [];
+    reqs = process.requirements;
+    changed = true;
+  }
+
+  if (
+    reqs.length === 0 &&
+    Array.isArray(processDef?.transform?.requirements) &&
+    processDef.transform.requirements.length > 0
+  ) {
+    process.requirements = processDef.transform.requirements.map((req) => ({
+      ...req,
+      amount: Math.max(0, Math.floor(req.amount ?? 0)),
+      progress: Math.max(0, Math.floor(req.progress ?? 0)),
+      consume: req.consume !== false,
+    }));
+    return { reqs: process.requirements, changed: true };
+  }
+
+  for (const req of reqs) {
+    if (!req || typeof req !== "object") continue;
+    const amt = Math.max(0, Math.floor(req.amount ?? 0));
+    if (req.amount !== amt) {
+      req.amount = amt;
+      changed = true;
+    }
+    if (!Number.isFinite(req.progress)) {
+      req.progress = 0;
+      changed = true;
+    } else {
+      const prog = Math.max(0, Math.floor(req.progress));
+      if (req.progress !== prog) {
+        req.progress = prog;
+        changed = true;
+      }
+    }
+    if (req.consume == null) {
+      req.consume = req.consume !== false;
+      changed = true;
+    }
+  }
+
+  return { reqs, changed };
+}
+
+function resolveSlotDef(processDef, slotKind, slotId) {
+  const kind = slotKind === "outputs" ? "outputs" : "inputs";
+  const slots = processDef?.routingSlots?.[kind] ?? [];
+  if (!Array.isArray(slots) || slots.length === 0) return null;
+  if (slotId) {
+    const match = slots.find((slot) => slot?.slotId === slotId);
+    if (match) return match;
+  }
+  const fallbackId = kind === "outputs" ? DEFAULT_OUTPUT_SLOT_ID : DEFAULT_INPUT_SLOT_ID;
+  const fallback = slots.find((slot) => slot?.slotId === fallbackId);
+  return fallback || slots[0] || null;
+}
+
+function resolveSlotState(process, slotKind, slotDef) {
+  if (!process?.routing || !slotDef) return null;
+  const kind = slotKind === "outputs" ? "outputs" : "inputs";
+  const container = process.routing[kind];
+  if (!container || typeof container !== "object") return null;
+  const state = container[slotDef.slotId];
+  if (!state || typeof state !== "object") return null;
+  if (!Array.isArray(state.ordered)) state.ordered = [];
+  if (!state.enabled || typeof state.enabled !== "object") state.enabled = {};
+  return state;
+}
+
+function resolveEndpointIdForRouting(endpointId, process, context) {
+  if (!endpointId || typeof endpointId !== "string") return null;
+  const resolved = resolveFixedEndpointId(endpointId, process, context);
+  return resolved || endpointId;
+}
+
+function isEndpointValidForSlot(endpointId, candidates, processDef) {
+  if (!endpointId) return false;
+  if (isDropEndpoint(endpointId) && processDef?.supportsDropslot) return true;
+  if (!Array.isArray(candidates) || candidates.length === 0) return false;
+  return candidates.includes(endpointId);
+}
+
+function canConsumeResourceUnit(resources, requirement) {
+  if (!resources || !requirement?.resource) return false;
+  const available = Number.isFinite(resources[requirement.resource])
+    ? Math.max(0, Math.floor(resources[requirement.resource]))
+    : 0;
+  return available > 0;
+}
+
+function consumeResourceUnit(resources, requirement) {
+  if (!resources || !requirement?.resource) return false;
+  const available = Number.isFinite(resources[requirement.resource])
+    ? Math.max(0, Math.floor(resources[requirement.resource]))
+    : 0;
+  if (available <= 0) return false;
+  resources[requirement.resource] = available - 1;
+  return true;
+}
+
+function recordProcessConsumption(process, consumed) {
+  if (!process || !consumed || !consumed.kind) return;
+  const tier = consumed.tier || "bronze";
+  if (!process.consumedByKindTier || typeof process.consumedByKindTier !== "object") {
+    process.consumedByKindTier = {};
+  }
+  if (!process.consumedByKindTier[consumed.kind]) {
+    process.consumedByKindTier[consumed.kind] = {};
+  }
+  const bucket = process.consumedByKindTier[consumed.kind];
+  bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + 1;
+}
+
+function ensureProcessBufferInventory(state, process, processDef) {
+  if (!state || !process || !processDef?.supportsDropslot) return false;
+  const ownerId = getDropEndpointId(process.id);
+  if (!ownerId) return false;
+  if (!state.ownerInventories) state.ownerInventories = {};
+  if (state.ownerInventories[ownerId]) return false;
+  const inv = Inventory.create(8, 8);
+  Inventory.init(inv);
+  inv.version = 0;
+  state.ownerInventories[ownerId] = inv;
+  return true;
+}
+
+function seedRoutingWithCandidates(state, target, process, processDef, context) {
+  let changed = false;
+  const slotGroups = [
+    { kind: "inputs", slots: processDef?.routingSlots?.inputs ?? [] },
+    { kind: "outputs", slots: processDef?.routingSlots?.outputs ?? [] },
+  ];
+
+  for (const group of slotGroups) {
+    for (const slotDef of group.slots || []) {
+      const slotState = resolveSlotState(process, group.kind, slotDef);
+      if (!slotState) continue;
+
+      if (slotState.ordered.length === 0) {
+        const candidates = listCandidateEndpoints(
+          state,
+          process,
+          slotDef,
+          target,
+          context
+        );
+        if (candidates.length) {
+          slotState.ordered = candidates.slice();
+          for (const endpointId of candidates) {
+            if (slotState.enabled[endpointId] === undefined) {
+              slotState.enabled[endpointId] = true;
+            }
+          }
+          changed = true;
+        }
+      }
+
+      for (const endpointId of slotState.ordered) {
+        if (slotState.enabled[endpointId] === undefined) {
+          slotState.enabled[endpointId] = true;
+        }
+      }
+
+      if (group.kind === "inputs" && processDef.supportsDropslot) {
+        const dropEndpoint = getDropEndpointId(process.id);
+        if (dropEndpoint) {
+          if (!slotState.ordered.includes(dropEndpoint)) {
+            slotState.ordered.unshift(dropEndpoint);
+            changed = true;
+          }
+          slotState.enabled[dropEndpoint] = true;
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
+function trySpendRequirementUnit(state, endpointId, endpoint, requirement) {
+  if (!endpoint || !requirement) return null;
+
+  if (requirement.kind === "item" || requirement.kind === "tag") {
+    if (endpoint.kind !== "inventory") return null;
+    const inv = endpoint.target;
+    if (requirement.consume === false) {
+      if (!canConsumeRequirementUnit(inv, requirement)) return null;
+      return { ok: true, consumed: null };
+    }
+    const consumed = consumeRequirementUnit(inv, requirement);
+    if (!consumed) return null;
+    return { ok: true, consumed };
+  }
+
+  if (requirement.kind === "resource") {
+    if (endpoint.kind !== "resource") return null;
+    if (requirement.consume === false) {
+      if (!canConsumeResourceUnit(endpoint.target, requirement)) return null;
+      return { ok: true, consumed: null };
+    }
+    if (!consumeResourceUnit(endpoint.target, requirement)) return null;
+    return { ok: true, consumed: null };
+  }
+
+  return null;
+}
+
+function advanceProcessRequirements(state, target, process, processDef, budget, context) {
+  const ensured = ensureProcessRequirements(process, processDef);
+  const reqs = ensured.reqs || [];
+  if (!reqs.length) return { changed: ensured.changed, done: true };
 
   let remainingBudget = Number.isFinite(budget) ? Math.floor(budget) : 0;
   if (remainingBudget <= 0) {
-    return { changed: false, done: areRequirementsComplete(process) };
+    return { changed: ensured.changed, done: areRequirementsComplete(process) };
   }
 
-  const ownerId =
-    context?.ownerId ?? (Number.isFinite(target?.instanceId) ? target.instanceId : null);
-  const ownerInv =
-    context?.ownerInv ??
-    (ownerId != null ? state?.ownerInventories?.[ownerId] ?? null : null);
-  const costContext = {
-    state,
-    ownerId,
-    owner: target,
-    ownerInv,
-  };
-
-  let changed = false;
+  let changed = ensured.changed;
   for (const req of reqs) {
     if (remainingBudget <= 0) break;
     if (!req || typeof req !== "object") continue;
@@ -387,27 +575,199 @@ function advanceProcessRequirements(state, target, process, budget, context) {
     const remaining = required - progress;
     if (remaining <= 0) continue;
 
-    const unitSpec = buildRequirementCostSpec(req, 1);
-    if (!unitSpec) continue;
-    const resolvedUnit = resolveCosts(unitSpec, costContext);
-    if (!resolvedUnit) continue;
+    const slotDef = resolveSlotDef(processDef, "inputs", req.slotId);
+    if (!slotDef) continue;
+    const slotState = resolveSlotState(process, "inputs", slotDef);
+    if (!slotState) continue;
+
+    const candidates = listCandidateEndpoints(state, process, slotDef, target, context);
 
     const toTry = Math.min(remaining, remainingBudget);
-    let consumed = 0;
+    let consumedCount = 0;
+
     for (let i = 0; i < toTry; i++) {
-      if (!canAffordCosts(resolvedUnit, costContext)) break;
-      applyCosts(resolvedUnit, costContext);
-      consumed += 1;
+      let spent = false;
+      for (const endpointRaw of slotState.ordered || []) {
+        const enabled = slotState.enabled?.[endpointRaw];
+        if (enabled === false && !isDropEndpoint(endpointRaw)) continue;
+        const endpointId = resolveEndpointIdForRouting(endpointRaw, process, context);
+        if (!endpointId) continue;
+        if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+        const endpoint = resolveEndpointTarget(state, endpointId);
+        if (!endpoint) continue;
+        const spentRes = trySpendRequirementUnit(state, endpointId, endpoint, req);
+        if (!spentRes?.ok) continue;
+        if (spentRes.consumed) {
+          recordProcessConsumption(process, spentRes.consumed);
+        }
+        consumedCount += 1;
+        remainingBudget -= 1;
+        spent = true;
+        break;
+      }
+      if (!spent) break;
+      if (remainingBudget <= 0) break;
     }
 
-    if (consumed > 0) {
-      req.progress = progress + consumed;
-      remainingBudget -= consumed;
+    if (consumedCount > 0) {
+      req.progress = progress + consumedCount;
       changed = true;
     }
   }
 
   return { changed, done: areRequirementsComplete(process) };
+}
+
+function buildDummyItemForAcceptance(itemId, tier) {
+  const def = itemDefs?.[itemId] || null;
+  const tags = Array.isArray(def?.baseTags) ? def.baseTags.slice() : [];
+  return {
+    kind: itemId,
+    tier: tier ?? def?.defaultTier ?? "bronze",
+    tags,
+  };
+}
+
+function parseLeaderIdFromEndpoint(endpointId) {
+  if (!endpointId || typeof endpointId !== "string") return null;
+  if (!endpointId.startsWith("sys:pawn:")) return null;
+  const raw = endpointId.slice("sys:pawn:".length);
+  return raw.length ? raw : null;
+}
+
+function tryApplyOutputUnit(state, target, process, output, endpoint, context) {
+  if (!output || !endpoint) return false;
+  if (output.kind === "item") {
+    if (endpoint.kind === "inventory") {
+      const dummy = buildDummyItemForAcceptance(output.itemId, output.tier);
+      if (!canOwnerAcceptItem(state, endpoint.ownerId, dummy)) return false;
+      const added = addItemToInventory(
+        state,
+        endpoint.target,
+        output.itemId,
+        1,
+        output.tier
+      );
+      return added > 0;
+    }
+    if (endpoint.kind === "spawn") {
+      handleSpawnItem(
+        state,
+        {
+          op: "SpawnItem",
+          itemKind: output.itemId,
+          amount: 1,
+          perOwner: false,
+          target: { kind: "tileOccupants" },
+        },
+        context
+      );
+      return true;
+    }
+    return false;
+  }
+
+  if (output.kind === "resource") {
+    if (endpoint.kind !== "resource") return false;
+    const key = output.resource;
+    if (!key) return false;
+    endpoint.target[key] = (endpoint.target[key] ?? 0) + 1;
+    return true;
+  }
+
+  if (output.kind === "system") {
+    if (endpoint.kind !== "system") return false;
+    const systemId = output.system;
+    const key = output.key;
+    if (!systemId || !key) return false;
+    const sysState = ensureSystemState(endpoint.target, systemId);
+    const current = Number.isFinite(sysState[key]) ? sysState[key] : 0;
+    sysState[key] = current + 1;
+    return true;
+  }
+
+  return false;
+}
+
+function applyPrestigeOutput(state, target, process, output, endpointId) {
+  const leaderId = parseLeaderIdFromEndpoint(endpointId);
+  if (!leaderId) return false;
+  const ledger =
+    process?.consumedByKindTier && typeof process.consumedByKindTier === "object"
+      ? process.consumedByKindTier
+      : null;
+  if (ledger && Object.keys(ledger).length > 0) {
+    return applyPrestigeDeposit(state, leaderId, target, ledger);
+  }
+  const qty = Math.max(0, Math.floor(output?.qty ?? 0));
+  if (qty <= 0) return false;
+  const fallback = { prestige: { bronze: qty } };
+  return applyPrestigeDeposit(state, leaderId, target, fallback);
+}
+
+function applyProcessOutputs(state, target, process, processDef, context) {
+  const outputs = Array.isArray(processDef?.transform?.outputs)
+    ? processDef.transform.outputs
+    : [];
+  if (!outputs.length) return false;
+
+  let changed = false;
+
+  for (const output of outputs) {
+    if (!output || typeof output !== "object") continue;
+    if (output.kind === "prestige") {
+      const slotDef = resolveSlotDef(processDef, "outputs", output.slotId);
+      if (!slotDef) continue;
+      const slotState = resolveSlotState(process, "outputs", slotDef);
+      if (!slotState) continue;
+      const candidates = listCandidateEndpoints(state, process, slotDef, target, context);
+      let applied = false;
+      for (const endpointRaw of slotState.ordered || []) {
+        const enabled = slotState.enabled?.[endpointRaw];
+        if (enabled === false) continue;
+        const endpointId = resolveEndpointIdForRouting(endpointRaw, process, context);
+        if (!endpointId) continue;
+        if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+        if (applyPrestigeOutput(state, target, process, output, endpointId)) {
+          applied = true;
+          changed = true;
+          break;
+        }
+      }
+      if (!applied) continue;
+      continue;
+    }
+
+    const qty = Math.max(0, Math.floor(output.qty ?? 0));
+    if (qty <= 0) continue;
+    const slotDef = resolveSlotDef(processDef, "outputs", output.slotId);
+    if (!slotDef) continue;
+    const slotState = resolveSlotState(process, "outputs", slotDef);
+    if (!slotState) continue;
+    const candidates = listCandidateEndpoints(state, process, slotDef, target, context);
+
+    for (let i = 0; i < qty; i++) {
+      let deposited = false;
+      for (const endpointRaw of slotState.ordered || []) {
+        const enabled = slotState.enabled?.[endpointRaw];
+        if (enabled === false) continue;
+        const endpointId = resolveEndpointIdForRouting(endpointRaw, process, context);
+        if (!endpointId) continue;
+        if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+        const endpoint = resolveEndpointTarget(state, endpointId);
+        if (!endpoint) continue;
+        if (!tryApplyOutputUnit(state, target, process, output, endpoint, context)) {
+          continue;
+        }
+        deposited = true;
+        changed = true;
+        break;
+      }
+      if (!deposited) break;
+    }
+  }
+
+  return changed;
 }
 
 function listHubWorkers(state, structure) {
@@ -640,6 +1000,23 @@ export function handleCreateWorkProcess(state, effect, context) {
       }
     }
 
+    if (process.ownerId == null) {
+      process.ownerId =
+        context?.ownerId ??
+        (Number.isFinite(target?.instanceId) ? target.instanceId : null);
+    }
+    if (process.leaderId == null && Number.isFinite(context?.leaderId)) {
+      process.leaderId = Math.floor(context.leaderId);
+    }
+
+    const processDef = getProcessDefForInstance(process, target, context);
+    if (processDef) {
+      ensureProcessRoutingState(process, processDef, context);
+      seedRoutingWithCandidates(state, target, process, processDef, context);
+      ensureProcessRequirements(process, processDef);
+      ensureProcessBufferInventory(state, process, processDef);
+    }
+
     systemState[queueKey].push(process);
     changed = true;
   }
@@ -711,6 +1088,14 @@ export function handleAdvanceWorkProcess(state, effect, context) {
         continue;
       }
 
+      const processDef = getProcessDefForInstance(process, target, context);
+      if (processDef) {
+        ensureProcessRoutingState(process, processDef, context);
+        seedRoutingWithCandidates(state, target, process, processDef, context);
+        ensureProcessRequirements(process, processDef);
+        ensureProcessBufferInventory(state, process, processDef);
+      }
+
       const durationSec = Math.max(1, Math.floor(process.durationSec ?? 0));
       const mode = process.mode === "work" ? "work" : "time";
 
@@ -737,8 +1122,19 @@ export function handleAdvanceWorkProcess(state, effect, context) {
         }
       }
 
-      if (!areRequirementsComplete(process)) {
-        const reqRes = advanceProcessRequirements(state, target, process, inc, context);
+      if (!processDef && !areRequirementsComplete(process)) {
+        nextQueue.push(process);
+        continue;
+      }
+      if (processDef && !areRequirementsComplete(process)) {
+        const reqRes = advanceProcessRequirements(
+          state,
+          target,
+          process,
+          processDef,
+          inc,
+          context
+        );
         if (reqRes.changed) changed = true;
         if (!reqRes.done) {
           nextQueue.push(process);
@@ -817,8 +1213,12 @@ export function handleAdvanceWorkProcess(state, effect, context) {
           changed = true;
         }
       } else {
-        // policy === "none": just drop the process
-        if (Array.isArray(process.outputs)) {
+        // policy === "none": apply outputs via routing
+        if (processDef) {
+          if (applyProcessOutputs(state, target, process, processDef, context)) {
+            changed = true;
+          }
+        } else if (Array.isArray(process.outputs)) {
           for (const out of process.outputs) {
             if (!out?.kind) continue;
             handleSpawnItem(
@@ -833,8 +1233,8 @@ export function handleAdvanceWorkProcess(state, effect, context) {
               context
             );
           }
+          changed = true;
         }
-        changed = true;
       }
     }
 

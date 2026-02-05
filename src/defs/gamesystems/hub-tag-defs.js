@@ -64,9 +64,12 @@ export const hubTagDefs = {
     passives: [],
     intents: [
       {
-        id: "roastBarley",
+        id: "roastBarley_work",
         verb: "Roast Barley",
-        requires: {},
+        requires: {
+          processSystem: "fireplace",
+          hasProcessType: "roastBarley",
+        },
         cost: {
           charges: [
             {
@@ -77,28 +80,43 @@ export const hubTagDefs = {
               amount: { const: 1 },
               clampMin: 0,
             },
-            // Consume 1 barley
+          ],
+        },
+        effect: {
+          op: "AdvanceWorkProcess",
+          system: "fireplace",
+          queueKey: "processes",
+          processType: "roastBarley",
+          amount: 1,
+        },
+      },
+      {
+        id: "roastBarley_start",
+        verb: "Start Roast Barley",
+        requires: {
+          processSystem: "fireplace",
+          noProcessType: "roastBarley",
+        },
+        cost: {
+          charges: [
             {
-              kind: "item",
-              target: { ref: "pawnInv" },
-              itemId: "barley",
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
               amount: { const: 1 },
-            },
-            // Require 1 stone (NOT consumed)
-            {
-              kind: "requireItem",
-              target: { ref: "pawnInv" },
-              itemId: "stone",
-              amount: { const: 1 },
+              clampMin: 0,
             },
           ],
         },
         effect: {
-          op: "SpawnItem",
-          itemKind: "roastedBarley",
-          amount: 1,
-          perOwner: true,
-          target: { kind: "tileOccupants" },
+          op: "CreateWorkProcess",
+          system: "fireplace",
+          queueKey: "processes",
+          processType: "roastBarley",
+          mode: "work",
+          durationSec: 1,
+          uniqueType: true,
         },
       },
     ],
@@ -159,13 +177,6 @@ export const hubTagDefs = {
               amount: { const: 1 },
               clampMin: 0,
             },
-            // Consume reeds up front
-            {
-              kind: "item",
-              target: { ref: "pawnInv" },
-              itemId: "reeds",
-              amount: { const: 3 },
-            },
           ],
         },
         effect: {
@@ -176,7 +187,6 @@ export const hubTagDefs = {
           mode: "work",
           durationSec: 5,
           uniqueType: true,
-          outputs: [{ kind: "basket", qty: 1 }],
         },
       },
     ],
@@ -187,7 +197,21 @@ export const hubTagDefs = {
     kind: "hubTag",
     ui: { name: "Deposit", description: "Deposit grain into the granary." },
     systems: ["granaryStore"],
-    passives: [],
+    passives: [
+      {
+        id: "depositAdvance",
+        timing: { cadenceSec: 1 },
+        requires: { hasPawn: true },
+        effect: {
+          op: "AdvanceWorkProcess",
+          system: "granaryStore",
+          queueKey: "processes",
+          processType: "depositGrain",
+          mode: "time",
+          deltaSec: 9999,
+        },
+      },
+    ],
     intents: [],
     affordances: ["deposit"],
   },

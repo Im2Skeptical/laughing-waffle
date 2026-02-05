@@ -18,6 +18,7 @@ import { createCharactersView } from "./characters-pixi.js";
 import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
+import { createProcessWidgetView } from "./process-widget-pixi.js";
 import {
   BOARD_COLS,
   HUB_COLS,
@@ -548,6 +549,7 @@ const tooltipView = createTooltipView({
 });
 
 let inventoryView = null;
+let processWidgetView = null;
 const setApDragWarning = (active) => {
   actionLogView?.setApDragWarning?.(active);
 };
@@ -556,6 +558,10 @@ inventoryView = createInventoryView({
   dragLayer: uiLayers.dragLayer,
   tooltipView,
   getOwnerLabel(ownerId) {
+    if (typeof ownerId === "string" && ownerId.startsWith("inv:process:")) {
+      const procId = ownerId.slice("inv:process:".length);
+      return procId ? `Process ${procId}` : "Process Buffer";
+    }
     const state = runner.getState();
     const hubSlot = state.hub.slots.find(
       (s) => s.structure && s.structure.instanceId === ownerId
@@ -588,6 +594,7 @@ inventoryView = createInventoryView({
     },
   getDropTargetOwnerAt: (pos) =>
     charactersView?.getInventoryOwnerAtGlobalPos?.(pos) ??
+    processWidgetView?.getDropTargetOwnerAtGlobalPos?.(pos) ??
     boardView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     null,
   setDragGhost: (spec) => actionLogView?.setDragGhost?.(spec),
@@ -599,6 +606,18 @@ inventoryView = createInventoryView({
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
   moveItemBetweenOwners: (spec) =>
     queueActionWhenPaused(() => {
+      const isProcessBuffer = (ownerId) =>
+        typeof ownerId === "string" && ownerId.startsWith("inv:process:");
+      if (
+        (isProcessBuffer(spec.fromOwnerId) || isProcessBuffer(spec.toOwnerId)) &&
+        spec.fromOwnerId !== spec.toOwnerId
+      ) {
+        return runner.dispatchAction(
+          ActionKinds.PROCESS_BUFFER_MOVE,
+          spec,
+          { apCost: 0 }
+        );
+      }
       if (spec.fromOwnerId === spec.toOwnerId) {
         return runner.dispatchAction(
           ActionKinds.INVENTORY_MOVE,
@@ -781,6 +800,18 @@ const charactersView = createCharactersView({
   },
 });
 
+processWidgetView = createProcessWidgetView({
+  app,
+  layer: uiLayers.controlsLayer,
+  getGameState: () => runner.getState(),
+  interaction: interactionController,
+  dispatchAction: (kind, payload, opts) =>
+    runner.dispatchAction(kind, payload, opts),
+  queueActionWhenPaused,
+  requestPauseForAction,
+  inventoryView,
+});
+
 let goldGraphView = createMetricGraphView({
   app,
   layer: uiLayers.controlsLayer,
@@ -941,6 +972,7 @@ tooltipView.init();
 inventoryView.init();
 boardView.init();
 charactersView.init();
+processWidgetView.init();
 chromeView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
@@ -985,6 +1017,7 @@ app.ticker.add((delta) => {
   charactersView.update(frameDt);
   tooltipView.update(frameDt);
   inventoryView.update(frameDt);
+  processWidgetView.update(frameDt);
   chromeView.update(frameDt);
   sunMoonDisksView.update(frameDt); // NEW
   actionLogView.update(frameDt);

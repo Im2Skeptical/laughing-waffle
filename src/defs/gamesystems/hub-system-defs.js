@@ -19,6 +19,7 @@ export const hubSystemDefs = {
     stateDefaults: {
       byKindTier: {},
       totalByTier: {},
+      processes: [],
     },
   },
   fireplace: {

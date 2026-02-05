@@ -9,6 +9,7 @@ import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
+import { createPillDragController } from "./pill-drag-controller.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
 import { createHubPanels } from "./board/hub-structure-panels.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
@@ -92,7 +93,6 @@ export function createBoardView(opts) {
   const tileInspectorLayer = inspectorLayer || hoverLayer || tileLayer;
 
   const TAG_DRAG_SCALE = 1.06;
-  const TAG_DRAG_BUMP = 6;
   const TAG_DRAG_RELEASE_PAD = 12;
   const AP_OVERLAY_ALPHA = 0.45;
   const AP_OVERLAY_FADE_IN = 14;
@@ -137,6 +137,8 @@ export function createBoardView(opts) {
     flashActionGhost,
   });
   let tagUi = null;
+  let tileTagDragController = null;
+  let hubTagDragController = null;
 
   function setTextResolution(textNodes, resolution) {
     if (!Array.isArray(textNodes)) return;
@@ -202,6 +204,96 @@ export function createBoardView(opts) {
     requestPauseForAction,
     toggleTag: dispatchHubTagToggle,
     openRecipeDropdown: hubPanels?.openRecipeDropdown,
+  });
+
+  tileTagDragController = createPillDragController({
+    app,
+    dragStateKey: "tagDrag",
+    dragScale: TAG_DRAG_SCALE,
+    dragAlpha: 0.95,
+    dragZIndex: 10,
+    dragCursor: "grabbing",
+    idleCursor: "grab",
+    getEntries: (view) => view.tagEntries || [],
+    getContainer: (view) => view.tagContainer,
+    getRowHeight: () => TAG_LAYOUT.PILL_HEIGHT,
+    getRowStep: () => TAG_LAYOUT.PILL_HEIGHT + TAG_LAYOUT.PILL_GAP,
+    layoutEntries: (view) => tagUi?.layoutTagEntries?.(view),
+    onCommit: (view, fromIndex, toIndex) => {
+      const tags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
+      if (tags.length === view.tagEntries.length) {
+        const [moved] = tags.splice(fromIndex, 1);
+        tags.splice(toIndex, 0, moved);
+        dispatchTagOrder(view.col, tags);
+      }
+    },
+    onDragStart: (view) => {
+      activeTagDrag = view;
+    },
+    onDragEnd: (view, drag, globalPos) => {
+      view.ignoreNextTagTap = !!drag?.moved;
+      if (activeTagDrag === view) activeTagDrag = null;
+      tagUi?.layoutTagEntries?.(view);
+
+      if (globalPos) {
+        const inside = isPointerInsideView(
+          view,
+          globalPos,
+          TAG_DRAG_RELEASE_PAD
+        );
+        if (!inside) {
+          clearTileHover(view);
+          if (activeHover?.view === view) activeHover = null;
+        } else {
+          holdHoverAfterTagDrag(view);
+        }
+      }
+    },
+  });
+
+  hubTagDragController = createPillDragController({
+    app,
+    dragStateKey: "tagDrag",
+    dragScale: TAG_DRAG_SCALE,
+    dragAlpha: 0.95,
+    dragZIndex: 10,
+    dragCursor: "grabbing",
+    idleCursor: "grab",
+    getEntries: (view) => view.tagEntries || [],
+    getContainer: (view) => view.tagContainer,
+    getRowHeight: () => HUB_TAG_LAYOUT.PILL_HEIGHT,
+    getRowStep: () => HUB_TAG_LAYOUT.PILL_HEIGHT + HUB_TAG_LAYOUT.PILL_GAP,
+    layoutEntries: (view) => hubTagUi?.layoutTagEntries?.(view),
+    onCommit: (view, fromIndex, toIndex) => {
+      const tags = Array.isArray(view.structure?.tags)
+        ? view.structure.tags.slice()
+        : [];
+      if (tags.length === view.tagEntries.length) {
+        const [moved] = tags.splice(fromIndex, 1);
+        tags.splice(toIndex, 0, moved);
+        dispatchHubTagOrder(view.col, tags);
+      }
+    },
+    onDragStart: (view) => {
+      activeHubTagDrag = view;
+    },
+    onDragEnd: (view, drag, globalPos) => {
+      view.ignoreNextTagTap = !!drag?.moved;
+      if (activeHubTagDrag === view) activeHubTagDrag = null;
+      hubTagUi?.layoutTagEntries?.(view);
+
+      if (globalPos) {
+        const inside = isPointerInsideView(
+          view,
+          globalPos,
+          TAG_DRAG_RELEASE_PAD
+        );
+        if (!inside) {
+          clearHubStructureHover(view);
+          if (activeHover?.view === view) activeHover = null;
+        }
+      }
+    },
   });
 
   function attachHoverFx(
@@ -775,47 +867,7 @@ export function createBoardView(opts) {
   // Tag + system UI helpers live in board/board-tag-ui.js.
 
   function endTagDrag(view, commit, globalPos = null) {
-    const drag = view.tagDrag;
-    if (!drag) return;
-
-    drag.entry.container.scale.set(1);
-    drag.entry.container.alpha = 1;
-    drag.entry.container.zIndex = 0;
-    drag.entry.container.cursor = "grab";
-
-    if (commit && drag.targetIndex !== drag.startIndex) {
-      const tags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
-      if (tags.length === view.tagEntries.length) {
-        const [moved] = tags.splice(drag.startIndex, 1);
-        tags.splice(drag.targetIndex, 0, moved);
-        dispatchTagOrder(view.col, tags);
-      }
-    }
-
-    if (drag.stageMove) {
-      app.stage.off("pointermove", drag.stageMove);
-      app.stage.off("pointerup", drag.stageUp);
-      app.stage.off("pointerupoutside", drag.stageUp);
-    }
-
-    view.tagDrag = null;
-    view.ignoreNextTagTap = !!drag.moved;
-    if (activeTagDrag === view) activeTagDrag = null;
-    tagUi?.layoutTagEntries?.(view);
-
-    if (globalPos) {
-      const inside = isPointerInsideView(
-        view,
-        globalPos,
-        TAG_DRAG_RELEASE_PAD
-      );
-      if (!inside) {
-        clearTileHover(view);
-        if (activeHover?.view === view) activeHover = null;
-      } else {
-        holdHoverAfterTagDrag(view);
-      }
-    }
+    tileTagDragController?.endDrag?.(view, commit, globalPos);
   }
 
   function dispatchHubTagOrder(hubCol, tagIds) {
@@ -883,47 +935,7 @@ export function createBoardView(opts) {
   }
 
   function endHubTagDrag(view, commit, globalPos = null) {
-    const drag = view.tagDrag;
-    if (!drag) return;
-
-    drag.entry.container.scale.set(1);
-    drag.entry.container.alpha = 1;
-    drag.entry.container.zIndex = 0;
-    drag.entry.container.cursor = "grab";
-
-    if (commit && drag.targetIndex !== drag.startIndex) {
-      const tags = Array.isArray(view.structure?.tags)
-        ? view.structure.tags.slice()
-        : [];
-      if (tags.length === view.tagEntries.length) {
-        const [moved] = tags.splice(drag.startIndex, 1);
-        tags.splice(drag.targetIndex, 0, moved);
-        dispatchHubTagOrder(view.col, tags);
-      }
-    }
-
-    if (drag.stageMove) {
-      app.stage.off("pointermove", drag.stageMove);
-      app.stage.off("pointerup", drag.stageUp);
-      app.stage.off("pointerupoutside", drag.stageUp);
-    }
-
-    view.tagDrag = null;
-    view.ignoreNextTagTap = !!drag.moved;
-    if (activeHubTagDrag === view) activeHubTagDrag = null;
-    hubTagUi?.layoutTagEntries?.(view);
-
-    if (globalPos) {
-      const inside = isPointerInsideView(
-        view,
-        globalPos,
-        TAG_DRAG_RELEASE_PAD
-      );
-      if (!inside) {
-        clearHubStructureHover(view);
-        if (activeHover?.view === view) activeHover = null;
-      }
-    }
+    hubTagDragController?.endDrag?.(view, commit, globalPos);
   }
 
   function startHubTagDrag(view, entry, ev) {
@@ -933,72 +945,11 @@ export function createBoardView(opts) {
     if (activeHubTagDrag && activeHubTagDrag !== view) {
       endHubTagDrag(activeHubTagDrag, false);
     }
+    if (activeTagDrag && activeTagDrag !== view) {
+      endTagDrag(activeTagDrag, false);
+    }
 
-    ev?.stopPropagation?.();
-
-    const entries = view.tagEntries || [];
-    const startIndex = entries.indexOf(entry);
-    if (startIndex < 0) return;
-
-    const local = view.tagContainer.toLocal(ev.data.global);
-    const offsetY = local.y - entry.container.y;
-
-    const dragState = {
-      entry,
-      startIndex,
-      targetIndex: startIndex,
-      offsetY,
-      startY: entry.container.y,
-      moved: false,
-      stageMove: null,
-      stageUp: null,
-    };
-
-    view.tagDrag = dragState;
-    activeHubTagDrag = view;
-
-    entry.container.scale.set(TAG_DRAG_SCALE);
-    entry.container.alpha = 0.95;
-    entry.container.zIndex = 10;
-    entry.container.cursor = "grabbing";
-
-    const onMove = (moveEv) => {
-      const drag = view.tagDrag;
-      if (!drag) return;
-      const localPos = view.tagContainer.toLocal(moveEv.data.global);
-      const rowStep = HUB_TAG_LAYOUT.PILL_HEIGHT + HUB_TAG_LAYOUT.PILL_GAP;
-      const maxY = Math.max(0, (entries.length - 1) * rowStep);
-      const nextY = Math.max(0, Math.min(maxY, localPos.y - drag.offsetY));
-      drag.entry.container.y = nextY;
-      if (Math.abs(nextY - drag.startY) > 2) {
-        drag.moved = true;
-      }
-
-      const centerY = nextY + HUB_TAG_LAYOUT.PILL_HEIGHT / 2;
-      const nextIndex = Math.max(
-        0,
-        Math.min(entries.length - 1, Math.floor(centerY / rowStep))
-      );
-
-      if (nextIndex !== drag.targetIndex) {
-        drag.targetIndex = nextIndex;
-        drag.moved = true;
-        hubTagUi?.layoutTagEntries?.(view);
-      }
-    };
-
-    const onUp = (upEv) => {
-      endHubTagDrag(view, true, upEv?.data?.global ?? null);
-    };
-
-    dragState.stageMove = onMove;
-    dragState.stageUp = onUp;
-
-    app.stage.on("pointermove", onMove);
-    app.stage.on("pointerup", onUp);
-    app.stage.on("pointerupoutside", onUp);
-
-    hubTagUi?.layoutTagEntries?.(view);
+    hubTagDragController?.startDrag?.(view, entry, ev);
   }
 
   function startTagDrag(view, entry, ev) {
@@ -1008,72 +959,11 @@ export function createBoardView(opts) {
     if (activeTagDrag && activeTagDrag !== view) {
       endTagDrag(activeTagDrag, false);
     }
+    if (activeHubTagDrag && activeHubTagDrag !== view) {
+      endHubTagDrag(activeHubTagDrag, false);
+    }
 
-    ev?.stopPropagation?.();
-
-    const entries = view.tagEntries || [];
-    const startIndex = entries.indexOf(entry);
-    if (startIndex < 0) return;
-
-    const local = view.tagContainer.toLocal(ev.data.global);
-    const offsetY = local.y - entry.container.y;
-
-    const dragState = {
-      entry,
-      startIndex,
-      targetIndex: startIndex,
-      offsetY,
-      startY: entry.container.y,
-      moved: false,
-      stageMove: null,
-      stageUp: null,
-    };
-
-    view.tagDrag = dragState;
-    activeTagDrag = view;
-
-    entry.container.scale.set(TAG_DRAG_SCALE);
-    entry.container.alpha = 0.95;
-    entry.container.zIndex = 10;
-    entry.container.cursor = "grabbing";
-
-    const onMove = (moveEv) => {
-      const drag = view.tagDrag;
-      if (!drag) return;
-      const localPos = view.tagContainer.toLocal(moveEv.data.global);
-      const rowStep = TAG_LAYOUT.PILL_HEIGHT + TAG_LAYOUT.PILL_GAP;
-      const maxY = Math.max(0, (entries.length - 1) * rowStep);
-      const nextY = Math.max(0, Math.min(maxY, localPos.y - drag.offsetY));
-      drag.entry.container.y = nextY;
-      if (Math.abs(nextY - drag.startY) > 2) {
-        drag.moved = true;
-      }
-
-      const centerY = nextY + TAG_LAYOUT.PILL_HEIGHT / 2;
-      const nextIndex = Math.max(
-        0,
-        Math.min(entries.length - 1, Math.floor(centerY / rowStep))
-      );
-
-      if (nextIndex !== drag.targetIndex) {
-        drag.targetIndex = nextIndex;
-        drag.moved = true;
-        tagUi?.layoutTagEntries?.(view);
-      }
-    };
-
-    const onUp = (upEv) => {
-      endTagDrag(view, true, upEv?.data?.global ?? null);
-    };
-
-    dragState.stageMove = onMove;
-    dragState.stageUp = onUp;
-
-    app.stage.on("pointermove", onMove);
-    app.stage.on("pointerup", onUp);
-    app.stage.on("pointerupoutside", onUp);
-
-    tagUi?.layoutTagEntries?.(view);
+    tileTagDragController?.startDrag?.(view, entry, ev);
   }
 
   // --------------------------------------------------------
