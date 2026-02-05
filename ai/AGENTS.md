@@ -18,3 +18,4 @@ Local instructions for Codex agents working in this repo.
 ## AI workflow
 - Before coding, do an impact analysis (determinism, serialization, replay, layering).
 - Mention how to test any behavior you touch.
+- Refactors are to be clean with no migratory shim style code. We are prototyping and so there is no need to preserve functionality of older saves
