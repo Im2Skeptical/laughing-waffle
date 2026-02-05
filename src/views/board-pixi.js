@@ -82,6 +82,7 @@ export function createBoardView(opts) {
   /** @type {Map<number, BoardHubStructureView>} */
   const hubStructureViews = new Map();
   const hubSlotViews = [];
+  const hubExpandedTagById = new Map();
 
   if (tileLayer) tileLayer.sortableChildren = true;
   if (eventLayer) eventLayer.sortableChildren = true;
@@ -1634,7 +1635,7 @@ export function createBoardView(opts) {
   // Permanent view
   // --------------------------------------------------------
 
-  function buildHubStructureView(structureInst, col) {
+  function buildHubStructureView(structureInst, col, opts = {}) {
     const { title, lines, color, meters } =
       getHubStructureUi(structureInst);
     const span =
@@ -1832,6 +1833,10 @@ export function createBoardView(opts) {
       isFocused: false,
       cancelButton,
     };
+
+    if (opts?.expandedTagId) {
+      view.expandedTagId = opts.expandedTagId;
+    }
 
     hubTagUi?.rebuildStructureTags?.(view, structureInst);
 
@@ -2118,7 +2123,11 @@ export function createBoardView(opts) {
           existing.structure.instanceId !== structureInst.instanceId
         ) {
           if (existing) removeFromParent(existing.container);
-          hubStructureViews.set(id, buildHubStructureView(structureInst, col));
+          const expandedTagId = hubExpandedTagById.get(structureInst.instanceId) ?? null;
+          hubStructureViews.set(
+            id,
+            buildHubStructureView(structureInst, col, { expandedTagId })
+          );
         } else {
           existing.structure = structureInst;
           existing.col = anchorCol;
@@ -2163,6 +2172,15 @@ export function createBoardView(opts) {
       ? { x: lastPointerPos.x, y: lastPointerPos.y }
       : null;
     if (activeHover) clearActiveHover();
+
+    hubExpandedTagById.clear();
+    for (const view of hubStructureViews.values()) {
+      const id = view?.structure?.instanceId;
+      if (id == null) continue;
+      if (view.expandedTagId) {
+        hubExpandedTagById.set(id, view.expandedTagId);
+      }
+    }
 
     tileLayer.removeChildren();
     eventLayer.removeChildren();

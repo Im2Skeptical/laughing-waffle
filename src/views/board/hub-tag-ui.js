@@ -686,7 +686,7 @@ export function createHubTagUi(opts) {
       view.expandedTagId = null;
     }
 
-    if (!view.hasTagToggle) {
+    if (!view.hasTagToggle && !view.expandedTagId) {
       const pawnCount =
         Number.isFinite(view?.pawnCount) && view.pawnCount > 0
           ? Math.floor(view.pawnCount)
