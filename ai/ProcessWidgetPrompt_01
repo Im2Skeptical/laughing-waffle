@@ -1,9 +1,6 @@
-Below is a **ready-to-use Codex / implementation-agent prompt**, designed to be pasted verbatim when instantiating the agent.
-It explicitly references the locked document as the source of truth and sets clear success criteria without over-constraining implementation.
 
----
 
-# CODEX AGENT PROMPT — Process Framework First-Class Upgrade
+# Process Framework First-Class Upgrade
 
 You are assisting on an existing JavaScript single-player deterministic simulation game using PixiJS for rendering and a pure-JS authoritative model with full replay and time-travel.
 
