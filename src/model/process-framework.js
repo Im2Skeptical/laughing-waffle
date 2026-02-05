@@ -4,6 +4,7 @@
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 import {
   Inventory,
@@ -542,6 +543,29 @@ function sortCandidatesByDistance(candidates) {
   return ordered;
 }
 
+function resolveDistributorRange(anchor, baseRange) {
+  const base = Number.isFinite(baseRange) ? Math.max(0, Math.floor(baseRange)) : 0;
+  const def = hubSystemDefs?.distribution;
+  const tier =
+    anchor?.systemTiers?.distribution ||
+    def?.defaultTier ||
+    "bronze";
+  const raw = def?.rangeByTier?.[tier];
+  let tierRange = null;
+  if (raw === "global") {
+    tierRange = Number.POSITIVE_INFINITY;
+  } else if (Number.isFinite(raw)) {
+    tierRange = Math.max(0, Math.floor(raw));
+  } else if (typeof raw === "string") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      tierRange = Math.max(0, Math.floor(parsed));
+    }
+  }
+  if (tierRange == null) tierRange = base;
+  return Math.max(base, tierRange);
+}
+
 function getAnchorsForKind(state, kind) {
   if (kind === "hub") {
     return Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
@@ -711,7 +735,11 @@ export function listCandidateEndpoints(state, process, slotDef, target, context)
       const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
       const span = Number.isFinite(anchor.span) ? Math.floor(anchor.span) : 1;
       const dist = spanDistance(anchorInfo.col, anchorInfo.span, col, span);
-      if (dist > range) continue;
+      const effectiveRange =
+        rule.kind === "adjacentDistributors"
+          ? resolveDistributorRange(anchor, range)
+          : range;
+      if (dist > effectiveRange) continue;
       if (poolSystemId && poolKey) {
         const poolState = anchor?.systemState?.[poolSystemId]?.[poolKey];
         if (poolState && typeof poolState === "object") {

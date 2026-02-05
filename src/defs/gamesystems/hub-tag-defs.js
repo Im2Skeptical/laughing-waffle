@@ -2,6 +2,17 @@
 // Hub tag registry (data only).
 
 export const hubTagDefs = {
+  distributor: {
+    id: "distributor",
+    kind: "hubTag",
+    ui: {
+      name: "Distribute",
+      description: "Provides routing endpoints within its distribution range.",
+    },
+    systems: ["distribution"],
+    passives: [],
+    intents: [],
+  },
   build: {
     id: "build",
     kind: "hubTag",

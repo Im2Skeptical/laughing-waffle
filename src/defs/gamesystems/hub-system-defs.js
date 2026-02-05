@@ -11,6 +11,21 @@ export const hubSystemDefs = {
       processes: [],
     },
   },
+  distribution: {
+    id: "distribution",
+    kind: "hubSystem",
+    ui: {
+      name: "Distribution",
+      description: "Routing range for distributor structures.",
+    },
+    defaultTier: "bronze",
+    rangeByTier: {
+      bronze: 1,
+      silver: 2,
+      gold: 3,
+      diamond: "global",
+    },
+  },
   granaryStore: {
     id: "granaryStore",
     kind: "hubSystem",
