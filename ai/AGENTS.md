@@ -6,7 +6,7 @@ Local instructions for Codex agents working in this repo.
 - Read `ai/ai-context.md` before making changes.
 
 ## Current goal context
-- General feature building and fixing
+- `CorrectionofBuildingConstructionImplementation.md`
 
 ## Core constraints (non-negotiable)
 - Determinism: no `Math.random()`; all randomness must go through `state.rng`.
