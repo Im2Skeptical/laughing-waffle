@@ -247,25 +247,6 @@ function stepConstructionForStructure(state, structure, tSec) {
     didConsume = true;
   }
 
-  const laborDelta = Math.min(laborRemaining, contributors.length);
-  if (laborDelta > 0) {
-    build.laborProgress = laborProgress + laborDelta;
-  }
-
-  for (const pawn of contributors) {
-    const stamina = pawn.systemState?.stamina;
-    if (!stamina || typeof stamina !== "object") continue;
-    const cur = Number.isFinite(stamina.cur) ? Math.floor(stamina.cur) : 0;
-    stamina.cur = Math.max(0, cur - 1);
-  }
-
-  if (inv && didConsume) {
-    Inventory.rebuildDerived(inv);
-    bumpInvVersion(inv);
-  }
-
-  const laborDone =
-    Math.max(0, Math.floor(build.laborProgress ?? 0)) >= laborRequired;
   let reqsDone = true;
   for (const req of reqs) {
     if (!req || typeof req !== "object") continue;
@@ -276,6 +257,27 @@ function stepConstructionForStructure(state, structure, tSec) {
       break;
     }
   }
+
+  if (reqsDone) {
+    const laborDelta = Math.min(laborRemaining, contributors.length);
+    if (laborDelta > 0) {
+      build.laborProgress = laborProgress + laborDelta;
+      for (const pawn of contributors) {
+        const stamina = pawn.systemState?.stamina;
+        if (!stamina || typeof stamina !== "object") continue;
+        const cur = Number.isFinite(stamina.cur) ? Math.floor(stamina.cur) : 0;
+        stamina.cur = Math.max(0, cur - 1);
+      }
+    }
+  }
+
+  if (inv && didConsume) {
+    Inventory.rebuildDerived(inv);
+    bumpInvVersion(inv);
+  }
+
+  const laborDone =
+    Math.max(0, Math.floor(build.laborProgress ?? 0)) >= laborRequired;
 
   if (laborDone && reqsDone) {
     delete structure.build;

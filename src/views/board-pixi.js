@@ -1789,13 +1789,26 @@ export function createBoardView(opts) {
         : Number.isFinite(col)
         ? Math.floor(col)
         : 0;
-      queueActionWhenPaused(() =>
-        dispatchAction(
+      queueActionWhenPaused(() => {
+        const state = getGameState?.();
+        const nowSec = Math.floor(state?.tSec ?? 0);
+        const startedSec = Number.isFinite(structureInst?.build?.startedSec)
+          ? Math.floor(structureInst.build.startedSec)
+          : null;
+        const isSameSec = startedSec != null && startedSec === nowSec;
+        const buildKey = `hub:${anchorCol}`;
+
+        if (isSameSec && actionPlanner?.removeIntent) {
+          const removeRes = actionPlanner.removeIntent(`build:${buildKey}`);
+          if (removeRes?.ok) return removeRes;
+        }
+
+        return dispatchAction(
           ActionKinds.BUILD_CANCEL,
           { hubCol: anchorCol, defId: structureInst.defId },
           { apCost: 0 }
-        )
-      );
+        );
+      });
     });
 
     content.addChild(cancelButton);
@@ -2128,6 +2141,9 @@ export function createBoardView(opts) {
         ) {
           if (existing) removeFromParent(existing.container);
           hubStructureViews.set(id, buildHubStructureView(structureInst, col));
+        } else {
+          existing.structure = structureInst;
+          existing.col = anchorCol;
         }
     }
 

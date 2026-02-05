@@ -31,7 +31,7 @@ export const setupDefs = {
         { defId: "itemzoo", hubCol: 0 },
         { defId: "makeshiftShelter", hubCol: 3 },
         { defId: "hearth", hubCol: 5 },
-        { defId: "granary", hubCol: 6 },
+        // { defId: "granary", hubCol: 6 },
 
       ],
     },
@@ -83,8 +83,10 @@ export const setupDefs = {
       {
         owner: { type: "character", index: 0 },
         items: [
-          { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
+          { kind: "reeds", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
+          { kind: "straw", quantity: 20, gridX: 2, gridY: 0 },
+          { kind: "stone", quantity: 5, gridX: 3, gridY: 0 },
         ],
       },
       {
@@ -98,7 +100,7 @@ export const setupDefs = {
   },
 
   // Example: a curated autumn flood test start
-  floodTest: {
+  altSetup: {
     rngSeed: 777,
     resources: { gold: 0, food: 0, population: 0 },
 

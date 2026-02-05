@@ -1475,7 +1475,10 @@ export function createInventoryView({
     if (!win) return;
 
     const inv = getInventoryForOwner(ownerId);
-    if (!inv) return;
+    if (!inv) {
+      hideWindow(ownerId);
+      return;
+    }
 
     win.body.removeChildren();
 
@@ -2697,7 +2700,10 @@ export function createInventoryView({
       if (!win.container.visible) continue;
 
       const inv = getInventoryForOwner(ownerId);
-      if (!inv) continue;
+      if (!inv) {
+        hideWindow(ownerId);
+        continue;
+      }
 
       const v = inv.version ?? 0;
       const last = lastVersionByOwner.get(ownerId) ?? 0;

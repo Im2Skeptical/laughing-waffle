@@ -72,7 +72,6 @@ export const hubStructureDefs = {
     build: {
       laborSec: 80,
       requirements: [
-        { kind: "tag", tag: "crafting", amount: 12 },
         { kind: "item", itemId: "stone", amount: 4 },
         { kind: "item", itemId: "straw", amount: 6 },
       ],

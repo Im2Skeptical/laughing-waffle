@@ -178,7 +178,7 @@ export const itemDefs = {
     id: "stone",
     name: "Stone",
     color: 0x595959,  //#595959
-    maxStack: 1,
+    maxStack: 5,
     baseTags: ["firematerials"],
     defaultWidth: 2,
     defaultHeight: 2,
