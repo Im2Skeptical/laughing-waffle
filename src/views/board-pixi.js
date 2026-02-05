@@ -12,6 +12,7 @@ import { ActionKinds } from "../model/actions.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
+import { createHubPanels } from "./board/hub-structure-panels.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
   BOARD_COLS,
@@ -128,6 +129,14 @@ export function createBoardView(opts) {
     dropdownLayer: cropDropdownLayer,
     flashActionGhost,
   });
+  const hubPanels = createHubPanels({
+    app,
+    actionPlanner,
+    queueActionWhenPaused,
+    dispatchAction,
+    dropdownLayer: cropDropdownLayer,
+    flashActionGhost,
+  });
   let tagUi = null;
 
   function setTextResolution(textNodes, resolution) {
@@ -193,6 +202,7 @@ export function createBoardView(opts) {
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
     toggleTag: dispatchHubTagToggle,
+    openRecipeDropdown: hubPanels?.openRecipeDropdown,
   });
 
   function attachHoverFx(

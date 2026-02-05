@@ -9,6 +9,13 @@ import { applyGranaryDepositsForStructure } from "./prestige-system.js";
 import { Inventory } from "./inventory-model.js";
 import { bumpInvVersion } from "./effects/core/inventory-version.js";
 
+function hasProcess(structure, systemId, type) {
+  const sys = structure?.systemState?.[systemId];
+  const processes = Array.isArray(sys?.processes) ? sys.processes : [];
+  if (!type) return processes.length > 0;
+  return processes.some((p) => p && p.type === type);
+}
+
 function requirementsPass(requires, seasonKey, structure, hasPawn) {
   if (!requires || typeof requires !== "object") return true;
 
@@ -65,6 +72,27 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
 
     for (const tag of requiredTags) {
       if (!structureTags.includes(tag)) return false;
+    }
+  }
+
+  const processSystem =
+    typeof requires.processSystem === "string" ? requires.processSystem : null;
+  if (processSystem) {
+    if (requires.hasProcessType) {
+      const types = Array.isArray(requires.hasProcessType)
+        ? requires.hasProcessType
+        : [requires.hasProcessType];
+      for (const type of types) {
+        if (!hasProcess(structure, processSystem, type)) return false;
+      }
+    }
+    if (requires.noProcessType) {
+      const types = Array.isArray(requires.noProcessType)
+        ? requires.noProcessType
+        : [requires.noProcessType];
+      for (const type of types) {
+        if (hasProcess(structure, processSystem, type)) return false;
+      }
     }
   }
 

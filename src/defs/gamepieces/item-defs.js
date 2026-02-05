@@ -23,6 +23,25 @@ export const itemDefs = {
       ],
     },
   },
+  roastedBarley: {
+    id: "roastedBarley",
+    name: "Roasted Barley",
+    color: 0xcaa15a,
+    maxStack: 25,
+    baseTags: ["edible"],
+    defaultWidth: 1,
+    defaultHeight: 1,
+    defaultTier: "bronze",
+    ui: {
+      title: "Roasted Barley",
+      lines: [
+        "Item id: {id}",
+        "Owner: {ownerLabel}",
+        "Quantity: {quantity}",
+        "Tier: {tier}",
+      ],
+    },
+  },
   wheat: {
     id: "wheat",
     name: "Wheat",
@@ -202,6 +221,25 @@ export const itemDefs = {
     defaultHeight: 2,
     ui: {
       title: "Reeds",
+      lines: [
+        "Item id: {id}",
+        "Owner: {ownerLabel}",
+        "Quantity: {quantity}",
+        "Size: {width}x{height}",
+      ],
+    },
+  },
+  basket: {
+    id: "basket",
+    name: "Basket",
+    color: 0x9b7a4a,
+    maxStack: 1,
+    baseTags: [],
+    defaultWidth: 2,
+    defaultHeight: 2,
+    defaultTier: "bronze",
+    ui: {
+      title: "Basket",
       lines: [
         "Item id: {id}",
         "Owner: {ownerLabel}",

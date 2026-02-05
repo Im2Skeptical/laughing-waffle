@@ -8,6 +8,7 @@ import { cloneSerializable } from "../core/clone.js";
 import { resolveEffectDef } from "../core/registry.js";
 import { ensureSystemState, getTierValueForSystem } from "../core/system-state.js";
 import { resolveBoardTargets } from "../core/targets-board.js";
+import { handleSpawnItem } from "./game-ops.js";
 
 // Process refactor:
 // - CreateWorkProcess: enqueue a process with progress tracking (time or work)
@@ -244,11 +245,17 @@ export function handleCreateWorkProcess(state, effect, context) {
     if (!Array.isArray(systemState[queueKey])) systemState[queueKey] = [];
 
     const { defId, def } = resolveEffectDef(effect, target, context);
-    if (!defId || !def) continue;
 
-    const amountRaw = resolveAmount(effect, systemState, def, context);
-    const inputAmount = Math.max(0, Math.floor(amountRaw ?? 0));
-    if (inputAmount <= 0) continue;
+    // Allow defless processes (crafting). If def exists, inputAmount can be derived from amount expression;
+    // otherwise allow explicit inputAmount or default to 1.
+    let inputAmount = 1;
+    if (def) {
+      const amountRaw = resolveAmount(effect, systemState, def, context);
+      inputAmount = Math.max(0, Math.floor(amountRaw ?? 0));
+    } else if (Number.isFinite(effect.inputAmount)) {
+      inputAmount = Math.max(0, Math.floor(effect.inputAmount));
+    }
+    if (inputAmount <= 0) inputAmount = 1;
 
     const durationRaw = Number.isFinite(effect.durationSec)
       ? effect.durationSec
@@ -282,6 +289,10 @@ export function handleCreateWorkProcess(state, effect, context) {
         (type === "cropGrowth" ? "cropGrowth" : "none"),
       poolKey: effect.poolKey || "maturedPool",
     };
+
+    if (Array.isArray(effect.outputs) && effect.outputs.length > 0) {
+      process.outputs = effect.outputs.map((out) => ({ ...out }));
+    }
 
     if (effect.captureSystem && effect.captureKey) {
       const captureState = ensureSystemState(target, effect.captureSystem);
@@ -389,16 +400,23 @@ export function handleAdvanceWorkProcess(state, effect, context) {
 
       let inc = deltaTime;
       if (mode === "work") {
-        const workersFrom = effect.workersFrom || "auto";
-        let workers = 0;
-        if (workersFrom === "envCol" || (workersFrom === "auto" && context?.envCol != null)) {
-          workers = countEnvWorkers(state, context?.envCol);
-        } else if (workersFrom === "hubAnchor" || (workersFrom === "auto" && context?.hubCol != null)) {
-          workers = countHubWorkers(state, context?.source);
+        // If workersFrom is explicitly provided, use worker counting.
+        // Otherwise, treat this as a per-pawn contribution call and use effect.amount.
+        if (typeof effect.workersFrom === "string") {
+          const workersFrom = effect.workersFrom;
+          let workers = 0;
+          if (workersFrom === "envCol") {
+            workers = countEnvWorkers(state, context?.envCol);
+          } else if (workersFrom === "hubAnchor") {
+            workers = countHubWorkers(state, context?.source);
+          } else {
+            workers = 1;
+          }
+          inc = Math.max(0, Math.floor(workers));
         } else {
-          workers = 1;
+          const amtRaw = Number.isFinite(effect.amount) ? effect.amount : 1;
+          inc = Math.max(0, Math.floor(amtRaw));
         }
-        inc = Math.max(0, Math.floor(workers));
       }
 
       const cur = Number.isFinite(process.progress) ? process.progress : 0;
@@ -463,6 +481,22 @@ export function handleAdvanceWorkProcess(state, effect, context) {
         changed = true;
       } else {
         // policy === "none": just drop the process
+        if (Array.isArray(process.outputs)) {
+          for (const out of process.outputs) {
+            if (!out?.kind) continue;
+            handleSpawnItem(
+              state,
+              {
+                op: "SpawnItem",
+                itemKind: out.kind,
+                amount: Number.isFinite(out.qty) ? out.qty : 1,
+                perOwner: true,
+                target: { kind: "tileOccupants" },
+              },
+              context
+            );
+          }
+        }
         changed = true;
       }
     }

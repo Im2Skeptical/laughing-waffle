@@ -4,6 +4,7 @@
 import { ActionKinds } from "../../model/actions.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import {
   IntentKinds,
   makeItemTransferIntent,
@@ -12,6 +13,7 @@ import {
   makeTileTagOrderIntent,
   makeTileCropSelectIntent,
   makeHubTagOrderIntent,
+  makeHubRecipeSelectIntent,
   makeTileTagToggleIntent,
   makeHubTagToggleIntent,
   getIntentSubjectKey,
@@ -101,6 +103,17 @@ function normalizeApCost(value) {
 function normalizeCropId(value) {
   if (value == null || value === "") return null;
   return String(value);
+}
+
+function normalizeRecipeId(value) {
+  if (value == null || value === "") return null;
+  return String(value);
+}
+
+function getRecipeKindForHubSystem(systemId) {
+  if (systemId === "fireplace") return "cook";
+  if (systemId === "workspace") return "craft";
+  return null;
 }
 
 function normalizeBuildHubCol(target) {
@@ -478,6 +491,30 @@ export function createActionPlanner({
           envCol: col,
           cropId,
           baselineCropId: cropId,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
+      if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) {
+        const hubCol = payload.hubCol ?? null;
+        const systemId = payload.systemId ?? null;
+        if (!Number.isFinite(hubCol) || !systemId) continue;
+        const col = Math.floor(hubCol);
+        const subjectKey = `hubRecipe:${col}:${systemId}`;
+        const recipeId = normalizeRecipeId(payload.recipeId);
+        const intent = makeHubRecipeSelectIntent({
+          id: subjectKey,
+          subjectKey,
+          hubCol: col,
+          systemId,
+          recipeId,
+          baselineRecipeId: recipeId,
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
           source: "timeline",
         });
@@ -1399,6 +1436,64 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
+  function setHubRecipeSelectionIntent({ hubCol, systemId, recipeId }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+    if (!systemId) return { ok: false, reason: "badSystemId" };
+
+    const anchorCol = normalizeHubColForStructure(state, hubCol);
+    if (!Number.isFinite(anchorCol)) return { ok: false, reason: "badHubCol" };
+    const structure = getHubStructureAtCol(state, anchorCol);
+    if (!structure) return { ok: false, reason: "noHubStructure" };
+
+    const hasSystem =
+      structure.systemState?.[systemId] ||
+      Object.prototype.hasOwnProperty.call(structure.systemTiers || {}, systemId);
+    if (!hasSystem) return { ok: false, reason: "missingSystem" };
+
+    const nextRecipeId = normalizeRecipeId(recipeId);
+    if (nextRecipeId && !recipeDefs[nextRecipeId]) {
+      return { ok: false, reason: "badRecipeId" };
+    }
+    if (nextRecipeId) {
+      const expectedKind = getRecipeKindForHubSystem(systemId);
+      const actualKind = recipeDefs[nextRecipeId]?.kind ?? null;
+      if (expectedKind && actualKind && expectedKind !== actualKind) {
+        return { ok: false, reason: "badRecipeKind" };
+      }
+    }
+
+    const subjectKey = `hubRecipe:${anchorCol}:${systemId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const currentRecipeId =
+      structure.systemState?.[systemId]?.selectedRecipeId ?? null;
+    const baselineRecipeId =
+      existing?.baselineRecipeId ?? existing?.recipeId ?? currentRecipeId;
+
+    const intent = makeHubRecipeSelectIntent({
+      id: subjectKey,
+      subjectKey,
+      hubCol: anchorCol,
+      systemId,
+      recipeId: nextRecipeId,
+      baselineRecipeId,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if ((intent.recipeId ?? null) === (intent.baselineRecipeId ?? null)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
   function buildCommitActions() {
     ensureActive();
     const state = getStateSafe();
@@ -1547,6 +1642,21 @@ export function createActionPlanner({
           },
           apCost,
         });
+      } else if (intent.kind === IntentKinds.HUB_RECIPE_SELECT) {
+        if (!Number.isFinite(intent.hubCol) || !intent.systemId) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.SET_HUB_RECIPE_SELECTION,
+          payload: {
+            hubCol: Math.floor(intent.hubCol),
+            systemId: intent.systemId,
+            recipeId: intent.recipeId ?? null,
+          },
+          apCost,
+        });
       }
     }
 
@@ -1657,6 +1767,7 @@ export function createActionPlanner({
     getTileTagTogglePreview,
     getHubTagTogglePreview,
     setTileCropSelectionIntent,
+    setHubRecipeSelectionIntent,
     removeIntent(intentId) {
       ensureActive();
       return removeIntentByKey(intentId);

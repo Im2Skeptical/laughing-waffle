@@ -8,6 +8,7 @@ export const IntentKinds = {
   TILE_TAG_ORDER: "tileTagOrder",
   TILE_CROP_SELECT: "tileCropSelect",
   HUB_TAG_ORDER: "hubTagOrder",
+  HUB_RECIPE_SELECT: "hubRecipeSelect",
   TILE_TAG_TOGGLE: "tileTagToggle",
   HUB_TAG_TOGGLE: "hubTagToggle",
 };
@@ -99,6 +100,20 @@ export function makeHubTagOrderIntent(spec = {}) {
   };
 }
 
+export function makeHubRecipeSelectIntent(spec = {}) {
+  return {
+    kind: IntentKinds.HUB_RECIPE_SELECT,
+    id: spec.id ?? null,
+    subjectKey: spec.subjectKey ?? null,
+    hubCol: spec.hubCol ?? null,
+    systemId: spec.systemId ?? null,
+    recipeId: spec.recipeId ?? null,
+    baselineRecipeId: spec.baselineRecipeId ?? null,
+    apCostOverride: spec.apCostOverride ?? null,
+    source: spec.source ?? "planner",
+  };
+}
+
 export function makeTileTagToggleIntent(spec = {}) {
   return {
     kind: IntentKinds.TILE_TAG_TOGGLE,
@@ -148,6 +163,10 @@ export function getIntentSubjectKey(intent) {
     case IntentKinds.HUB_TAG_ORDER:
       return Number.isFinite(intent.hubCol)
         ? `hubTags:${Math.floor(intent.hubCol)}`
+        : null;
+    case IntentKinds.HUB_RECIPE_SELECT:
+      return Number.isFinite(intent.hubCol) && intent.systemId
+        ? `hubRecipe:${Math.floor(intent.hubCol)}:${intent.systemId}`
         : null;
     case IntentKinds.TILE_TAG_TOGGLE:
       return Number.isFinite(intent.envCol) && intent.tagId

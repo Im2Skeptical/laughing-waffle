@@ -2,8 +2,10 @@
 // public mutation APIs (cmd*) + move rules
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { validateHubConstructionPlacement } from "./build-helpers.js";
@@ -608,6 +610,81 @@ export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {
     result: "cropSelected",
     envCol: col,
     cropId: nextCropId,
+  };
+}
+
+// =============================================================================
+// HUB RECIPE SELECTION
+// =============================================================================
+
+function getRecipeKindForHubSystem(systemId) {
+  if (systemId === "fireplace") return "cook";
+  if (systemId === "workspace") return "craft";
+  return null;
+}
+
+function ensureHubSystemState(structure, systemId) {
+  if (!structure.systemState || typeof structure.systemState !== "object") {
+    structure.systemState = {};
+  }
+  if (!structure.systemState[systemId] || typeof structure.systemState[systemId] !== "object") {
+    const defaults = hubSystemDefs[systemId]?.stateDefaults ?? {};
+    structure.systemState[systemId] = cloneSerializable(defaults);
+  }
+  return structure.systemState[systemId];
+}
+
+export function cmdSetHubRecipeSelection(
+  state,
+  { hubCol, systemId, recipeId } = {}
+) {
+  if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+  if (!systemId || typeof systemId !== "string") {
+    return { ok: false, reason: "badSystemId" };
+  }
+
+  const col = Math.floor(hubCol);
+  const structure =
+    state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
+  if (!structure) return { ok: false, reason: "noHubStructure" };
+
+  const hasSystem =
+    structure.systemState?.[systemId] ||
+    Object.prototype.hasOwnProperty.call(structure.systemTiers || {}, systemId);
+  if (!hasSystem) return { ok: false, reason: "missingSystem" };
+
+  const nextRecipeId =
+    recipeId == null || recipeId === "" ? null : String(recipeId);
+  if (nextRecipeId) {
+    const def = recipeDefs[nextRecipeId];
+    if (!def) return { ok: false, reason: "badRecipeId" };
+    const expectedKind = getRecipeKindForHubSystem(systemId);
+    if (expectedKind && def.kind !== expectedKind) {
+      return { ok: false, reason: "badRecipeKind" };
+    }
+  }
+
+  const systemState = ensureHubSystemState(structure, systemId);
+  if (!Object.prototype.hasOwnProperty.call(systemState, "selectedRecipeId")) {
+    systemState.selectedRecipeId = null;
+  }
+  if (systemState.selectedRecipeId === nextRecipeId) {
+    return {
+      ok: true,
+      result: "recipeUnchanged",
+      hubCol: col,
+      systemId,
+      recipeId: nextRecipeId,
+    };
+  }
+
+  systemState.selectedRecipeId = nextRecipeId;
+  return {
+    ok: true,
+    result: "recipeSelected",
+    hubCol: col,
+    systemId,
+    recipeId: nextRecipeId,
   };
 }
 

@@ -5,6 +5,7 @@ import { hubStructureDefs }  from "../../defs/gamepieces/hub-structure-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
 import { ActionKinds } from "../../model/actions.js";
@@ -22,6 +23,11 @@ function formatItemNameFromKind(kind) {
 function formatCropName(cropId) {
   if (!cropId) return "None";
   return cropDefs[cropId]?.name || cropDefs[cropId]?.cropId || cropId;
+}
+
+function formatRecipeName(recipeId) {
+  if (!recipeId) return "None";
+  return recipeDefs[recipeId]?.name || recipeDefs[recipeId]?.id || recipeId;
 }
 
 function formatEnvTagName(tagId) {
@@ -75,7 +81,8 @@ function isHubPlanIntent(intent) {
   if (!intent) return false;
   return (
     intent.kind === IntentKinds.HUB_TAG_ORDER ||
-    intent.kind === IntentKinds.HUB_TAG_TOGGLE
+    intent.kind === IntentKinds.HUB_TAG_TOGGLE ||
+    intent.kind === IntentKinds.HUB_RECIPE_SELECT
   );
 }
 
@@ -92,7 +99,8 @@ function isHubPlanAction(action) {
   const kind = action?.kind;
   return (
     kind === ActionKinds.SET_HUB_TAG_ORDER ||
-    kind === ActionKinds.TOGGLE_HUB_TAG
+    kind === ActionKinds.TOGGLE_HUB_TAG ||
+    kind === ActionKinds.SET_HUB_RECIPE_SELECTION
   );
 }
 
@@ -130,6 +138,10 @@ function getHubPlanIntentSignature(intent) {
   }
   if (intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
     return `toggle:${intent.tagId ?? ""}:${intent.disabled === true}`;
+  }
+  if (intent.kind === IntentKinds.HUB_RECIPE_SELECT) {
+    const recipe = intent.recipeId ?? "none";
+    return `recipe:${intent.systemId ?? ""}:${recipe}`;
   }
   return intent.kind || "";
 }
@@ -207,6 +219,11 @@ function describeIntent(intent, state, getOwnerLabel) {
       const tileName = formatTileName(intent.envCol, state);
       const cropName = formatCropName(intent.cropId);
       return `Crop > ${tileName}: ${cropName}`;
+    }
+    case IntentKinds.HUB_RECIPE_SELECT: {
+      const hubName = formatHubName(intent.hubCol, state);
+      const recipeName = formatRecipeName(intent.recipeId);
+      return `Recipe > ${hubName}: ${recipeName}`;
     }
     default:
       return intent.kind || "Action";
@@ -410,6 +427,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
     if (intent.kind === IntentKinds.TILE_TAG_TOGGLE && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.HUB_TAG_TOGGLE && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_CROP_SELECT && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.HUB_RECIPE_SELECT && intentCost <= 0) continue;
     const rowId = intentId ?? `intent:${rowsOut.length}`;
     rowsOut.push({
       id: rowId,
@@ -622,6 +640,10 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       const tileName = formatTileName(payload.envCol, state);
       const cropName = formatCropName(payload.cropId);
       desc = `Crop > ${tileName}: ${cropName}`;
+    } else if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) {
+      const hubName = formatHubName(payload.hubCol, state);
+      const recipeName = formatRecipeName(payload.recipeId);
+      desc = `Recipe > ${hubName}: ${recipeName}`;
     }
 
     if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
@@ -630,6 +652,7 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     if (kind === ActionKinds.TOGGLE_TILE_TAG && apCost <= 0) continue;
     if (kind === ActionKinds.TOGGLE_HUB_TAG && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_CROP_SELECTION && apCost <= 0) continue;
+    if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION && apCost <= 0) continue;
     rowsOut.push({
       id: `${kind}:${i}`,
       description: desc,
@@ -658,6 +681,7 @@ function isLogAction(action) {
   if (kind === ActionKinds.TOGGLE_TILE_TAG) return true;
   if (kind === ActionKinds.TOGGLE_HUB_TAG) return true;
   if (kind === ActionKinds.SET_TILE_CROP_SELECTION) return true;
+  if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) return true;
   return false;
 }
 

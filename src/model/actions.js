@@ -14,6 +14,7 @@ import {
   cmdToggleTileTag,
   cmdToggleHubTag,
   cmdSetTileCropSelection,
+  cmdSetHubRecipeSelection,
   cmdDebugQueueEnvEvent,
   cmdAdjustFollowerCount,
   cmdBuildDesignate,
@@ -33,6 +34,7 @@ export const ActionKinds = {
   TOGGLE_TILE_TAG: "toggleTileTag",
   TOGGLE_HUB_TAG: "toggleHubTag",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
+  SET_HUB_RECIPE_SELECTION: "setHubRecipeSelection",
   ADJUST_FOLLOWER_COUNT: "adjustFollowerCount",
   DEBUG_SET_CAP: "debugSetCap",
   DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
@@ -58,6 +60,7 @@ function getActionApCost(action) {
     kind === ActionKinds.BUILD_DESIGNATE ||
     kind === ActionKinds.BUILD_CANCEL ||
     kind === ActionKinds.SET_TILE_CROP_SELECTION
+    || kind === ActionKinds.SET_HUB_RECIPE_SELECTION
     || kind === ActionKinds.SET_HUB_TAG_ORDER
     || kind === ActionKinds.TOGGLE_TILE_TAG
     || kind === ActionKinds.TOGGLE_HUB_TAG
@@ -179,6 +182,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.SET_TILE_CROP_SELECTION:
       result = cmdSetTileCropSelection(state, payload);
+      break;
+
+    case ActionKinds.SET_HUB_RECIPE_SELECTION:
+      result = cmdSetHubRecipeSelection(state, payload);
       break;
 
     case ActionKinds.ADJUST_FOLLOWER_COUNT:

@@ -2,6 +2,8 @@
 // Tag UI helpers for hub structures.
 
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
+import { hubSystemDefs } from "../../defs/gamesystems/hub-system-defs.js";
+import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -24,6 +26,21 @@ const TAG_PILL_BORDER_BYPASSED = 0x7a2d36;
 const TAG_PILL_TEXT = 0xe6eef9;
 const TAG_PILL_TEXT_LOW = 0xb8c2d6;
 const TAG_PILL_TEXT_BYPASSED = 0xf2b0b0;
+
+const SYSTEM_ROW_HEIGHT = 18;
+const SYSTEM_ROW_GAP = 4;
+const SYSTEM_ICON_SIZE = 12;
+const SYSTEM_BAR_HEIGHT = 8;
+const SYSTEM_BAR_BG = 0x2b3142;
+const SYSTEM_BAR_BORDER = 0x0f1422;
+const SYSTEM_BAR_TEXT = 0xe6eef9;
+const SYSTEM_BAR_RADIUS = 4;
+
+const HUB_SYSTEM_UI_MAP = {
+  fireplace: { label: "Fireplace", icon: "F", color: 0xd9793a },
+  workspace: { label: "Workspace", icon: "W", color: 0x7a9a5f },
+  granaryStore: { label: "Granary", icon: "G", color: 0xc2a16a },
+};
 
 const TAG_PILL_STYLES = {
   active: {
@@ -73,11 +90,30 @@ export function createHubTagUi(opts) {
     hoverTextResolution,
     requestPauseForAction,
     toggleTag,
+    openRecipeDropdown,
   } = opts;
 
   function getTagLabel(tagId) {
     const def = hubTagDefs[tagId];
     return def?.ui?.name || tagId;
+  }
+
+  function getSystemUi(systemId) {
+    const entry = HUB_SYSTEM_UI_MAP[systemId];
+    if (entry) return entry;
+    const def = hubSystemDefs?.[systemId];
+    const label = def?.ui?.name || systemId || "System";
+    const icon = label ? label.slice(0, 1).toUpperCase() : "?";
+    return { label, icon, color: 0x7a7a7a };
+  }
+
+  function isRecipeSystem(systemId) {
+    return systemId === "fireplace" || systemId === "workspace";
+  }
+
+  function formatRecipeName(recipeId) {
+    if (!recipeId) return "select recipe";
+    return recipeDefs?.[recipeId]?.name || recipeId;
   }
 
   function getTagTooltipLines(tagId) {
@@ -157,10 +193,118 @@ export function createHubTagUi(opts) {
     if (entry.rowScale !== rowScale) {
       entry.rowScale = rowScale;
       entry.row.scale.set(rowScale);
+      if (entry.systemContainer) {
+        entry.systemContainer.y = TAG_PILL_HEIGHT * rowScale + 4;
+      }
     }
   }
 
+  function drawSystemBar(row, ratio, color) {
+    const width = row.barWidth * Math.max(0, Math.min(1, ratio));
+    row.barFill.clear();
+    if (width <= 0) return;
+    row.barFill.beginFill(color, 0.95);
+    row.barFill.drawRoundedRect(
+      row.barX,
+      row.barY,
+      width,
+      SYSTEM_BAR_HEIGHT,
+      SYSTEM_BAR_RADIUS
+    );
+    row.barFill.endFill();
+  }
+
+  function buildSystemRow(view, systemId) {
+    const ui = getSystemUi(systemId);
+    const container = new PIXI.Container();
+    container.eventMode = "static";
+    container.hitArea = new PIXI.Rectangle(
+      0,
+      0,
+      TAG_PILL_WIDTH,
+      SYSTEM_ROW_HEIGHT
+    );
+    container.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+    });
+
+    const icon = new PIXI.Container();
+    icon.eventMode = "static";
+    icon.cursor = "help";
+
+    const iconBg = new PIXI.Graphics()
+      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
+      .beginFill(ui.color, 1)
+      .drawCircle(
+        SYSTEM_ICON_SIZE / 2,
+        SYSTEM_ROW_HEIGHT / 2,
+        SYSTEM_ICON_SIZE / 2
+      )
+      .endFill();
+    const iconText = new PIXI.Text(ui.icon, {
+      fill: 0xffffff,
+      fontSize: 8,
+      fontWeight: "bold",
+    });
+    iconText.anchor.set(0.5, 0.5);
+    iconText.x = SYSTEM_ICON_SIZE / 2;
+    iconText.y = SYSTEM_ROW_HEIGHT / 2;
+    icon.addChild(iconBg, iconText);
+    container.addChild(icon);
+
+    const barX = SYSTEM_ICON_SIZE + 6;
+    const barWidth = TAG_PILL_WIDTH - barX - 6;
+    const barY = Math.floor((SYSTEM_ROW_HEIGHT - SYSTEM_BAR_HEIGHT) / 2);
+
+    const barBg = new PIXI.Graphics()
+      .lineStyle(1, SYSTEM_BAR_BORDER, 0.9)
+      .beginFill(SYSTEM_BAR_BG, 0.95)
+      .drawRoundedRect(
+        barX,
+        barY,
+        barWidth,
+        SYSTEM_BAR_HEIGHT,
+        SYSTEM_BAR_RADIUS
+      )
+      .endFill();
+    const barFill = new PIXI.Graphics();
+    container.addChild(barBg, barFill);
+
+    const labelText = new PIXI.Text("", {
+      fill: SYSTEM_BAR_TEXT,
+      fontSize: 9,
+    });
+    labelText.x = barX + 4;
+    labelText.y = barY - 2;
+    container.addChild(labelText);
+
+    if (isRecipeSystem(systemId)) {
+      container.cursor = "pointer";
+      container.on("pointerdown", (ev) => {
+        ev?.stopPropagation?.();
+        requestPauseForAction?.();
+        openRecipeDropdown?.(view, systemId, container.getBounds());
+      });
+    }
+
+    return {
+      systemId,
+      container,
+      icon,
+      barBg,
+      barFill,
+      barX,
+      barWidth,
+      barY,
+      labelText,
+      uiColor: ui.color,
+    };
+  }
+
   function buildTagEntry(view, tagId) {
+    const tagDef = hubTagDefs[tagId];
+    const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
+
     const container = new PIXI.Container();
     const row = new PIXI.Container();
     row.eventMode = "static";
@@ -205,6 +349,20 @@ export function createHubTagUi(opts) {
     expandText.y = Math.round((TAG_PILL_HEIGHT - expandText.height) / 2);
     row.addChild(expandText);
 
+    const systemContainer = new PIXI.Container();
+    systemContainer.y = TAG_PILL_HEIGHT + 4;
+    container.addChild(systemContainer);
+
+    const systemRows = [];
+    let sysY = 0;
+    for (const systemId of systems) {
+      const rowEntry = buildSystemRow(view, systemId);
+      rowEntry.container.y = sysY;
+      systemContainer.addChild(rowEntry.container);
+      systemRows.push(rowEntry);
+      sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+    }
+
     const entry = {
       tagId,
       container,
@@ -218,7 +376,10 @@ export function createHubTagUi(opts) {
       toggleBg,
       toggleIcon,
       rowScale: 1,
+      systemContainer,
+      systemRows,
       expanded: false,
+      systemHeight: sysY > 0 ? sysY - SYSTEM_ROW_GAP : 0,
       height: TAG_PILL_HEIGHT,
     };
 
@@ -296,9 +457,57 @@ export function createHubTagUi(opts) {
       entry.container.visible = true;
       entry.container.x = 0;
       entry.container.y = y;
-      entry.height = rowHeight;
-      y += rowHeight + TAG_PILL_GAP;
+
+      let entryHeight = rowHeight;
+      if (entry.expanded && entry.systemRows.length > 0) {
+        const maxSystemHeight = spaceRemaining - rowHeight - 4;
+        if (maxSystemHeight > 0) {
+          let sysY = 0;
+          for (const row of entry.systemRows) {
+            if (sysY + SYSTEM_ROW_HEIGHT <= maxSystemHeight) {
+              row.container.visible = true;
+              row.container.y = sysY;
+              sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+            } else {
+              row.container.visible = false;
+            }
+          }
+          if (sysY > 0) sysY -= SYSTEM_ROW_GAP;
+          entry.systemContainer.visible = sysY > 0;
+          entryHeight = rowHeight + (sysY > 0 ? sysY + 4 : 0);
+        } else {
+          entry.systemContainer.visible = false;
+          for (const row of entry.systemRows) {
+            row.container.visible = false;
+          }
+        }
+      } else {
+        entry.systemContainer.visible = false;
+        for (const row of entry.systemRows) {
+          row.container.visible = false;
+        }
+      }
+
+      entry.height = entryHeight;
+      y += entryHeight + TAG_PILL_GAP;
     }
+  }
+
+  function updateSystemRow(structure, row) {
+    if (!row) return;
+    const systemId = row.systemId;
+    if (!systemId) return;
+
+    if (isRecipeSystem(systemId)) {
+      const selected =
+        structure?.systemState?.[systemId]?.selectedRecipeId ?? null;
+      row.labelText.text = formatRecipeName(selected);
+      drawSystemBar(row, selected ? 1 : 0, row.uiColor);
+      return;
+    }
+
+    row.labelText.text = getSystemUi(systemId).label;
+    drawSystemBar(row, 1, row.uiColor);
   }
 
   function updateTagEntries(view, structure) {
@@ -336,6 +545,10 @@ export function createHubTagUi(opts) {
 
       setTagPillStyle(entry, style);
       updateToggleVisual(entry, isDisabled);
+
+      for (const row of entry.systemRows || []) {
+        updateSystemRow(structure, row);
+      }
     }
   }
 
@@ -376,6 +589,9 @@ export function createHubTagUi(opts) {
       for (const entry of view.tagEntries) {
         if (entry?.labelText) view.hoverTextNodes.push(entry.labelText);
         if (entry?.expandText) view.hoverTextNodes.push(entry.expandText);
+        for (const row of entry?.systemRows || []) {
+          if (row?.labelText) view.hoverTextNodes.push(row.labelText);
+        }
       }
       setTextResolution?.(
         view.hoverTextNodes,

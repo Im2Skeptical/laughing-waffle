@@ -43,7 +43,11 @@ function getTilePlanKey(intent) {
 
 function getHubPlanKey(intent) {
   if (!intent || typeof intent !== "object") return null;
-  if (intent.kind === "hubTagOrder" || intent.kind === "hubTagToggle") {
+  if (
+    intent.kind === "hubTagOrder" ||
+    intent.kind === "hubTagToggle" ||
+    intent.kind === "hubRecipeSelect"
+  ) {
     if (!Number.isFinite(intent.hubCol)) return null;
     return `hubPlan:${Math.floor(intent.hubCol)}`;
   }
@@ -128,6 +132,10 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
     case "tileCropSelect": {
       if ((intent.cropId ?? null) === (intent.baselineCropId ?? null)) return 0;
       return INTENT_AP_COSTS.tileCropSelect ?? 0;
+    }
+    case "hubRecipeSelect": {
+      if ((intent.recipeId ?? null) === (intent.baselineRecipeId ?? null)) return 0;
+      return INTENT_AP_COSTS.hubRecipeSelect ?? INTENT_AP_COSTS.hubPlan ?? 0;
     }
     default:
       return 0;

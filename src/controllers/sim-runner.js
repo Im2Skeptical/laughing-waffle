@@ -384,6 +384,7 @@ export function createSimRunner({
       kind === "buildDesignate" ||
       kind === "setTileTagOrder" ||
       kind === "setTileCropSelection" ||
+      kind === "setHubRecipeSelection" ||
       kind === "setHubTagOrder" ||
       kind === "toggleTileTag" ||
       kind === "toggleHubTag"
@@ -423,6 +424,13 @@ export function createSimRunner({
     if (action.kind === "setHubTagOrder") {
       const hubCol = payload.hubCol ?? null;
       return Number.isFinite(hubCol) ? `hubTags:${Math.floor(hubCol)}` : null;
+    }
+    if (action.kind === "setHubRecipeSelection") {
+      const hubCol = payload.hubCol ?? null;
+      const systemId = payload.systemId ?? null;
+      return Number.isFinite(hubCol) && systemId
+        ? `hubRecipe:${Math.floor(hubCol)}:${systemId}`
+        : null;
     }
     if (action.kind === "toggleTileTag") {
       const envCol = payload.envCol ?? null;
