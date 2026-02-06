@@ -78,6 +78,7 @@ inv:hub:<structureInstanceId>
 res:state
 sys:hub:<structureInstanceId>
 sys:pawn:<pawnId>
+sys:pool:<ownerKind>:<ownerId>:<systemId>:<poolKey>
 spawn:tileOccupants
 ```
 
@@ -86,6 +87,19 @@ Rules:
 * IDs must be derived only from authoritative state IDs.
 * `inv:*`, `res:*`, and `sys:*` are distinct namespaces even if backed by similar data.
 * Endpoint IDs are stable across replay and rebuild.
+
+### 4.2 System Pool Endpoints
+
+System pools are addressable endpoints that represent a tiered pool in a system state:
+
+```
+sys:pool:<ownerKind>:<ownerId>:<systemId>:<poolKey>
+```
+
+* `ownerKind` is one of `hub | env | pawn`.
+* `ownerId` is the authoritative instance id for the owner.
+* `systemId` and `poolKey` locate the pool object under `owner.systemState[systemId][poolKey]`.
+* Pools are valid routing targets for both inputs and outputs.
 
 ---
 
@@ -141,18 +155,21 @@ type CandidateRule =
   | { kind: "fixed"; endpointId: string }
   | { kind: "selfInv" }
   | { kind: "selfSys" }
+  | { kind: "selfPool"; systemId: string; poolKey: string }
   | { kind: "ownerInv" }
   | {
       kind: "adjacentDistributors";
       range: number;
       tag: "distributor";
       store: "sys" | "inv";
+      includePool?: { systemId: string; poolKey: string } | Array<{ systemId: string; poolKey: string }>;
     }
   | {
       kind: "adjacentStructures";
       range: number;
       tag?: string;
       store: "sys" | "inv";
+      includePool?: { systemId: string; poolKey: string } | Array<{ systemId: string; poolKey: string }>;
     }
   | { kind: "tileOccupantsSpawn" };
 ```
@@ -166,6 +183,9 @@ When generating candidates, order must be stable:
 3. stable instanceId
 
 No iteration over unordered maps.
+
+If `includePool` is specified, pool endpoints are discovered with the same
+deterministic ordering rules and are appended ahead of non-pool store endpoints.
 
 ---
 
