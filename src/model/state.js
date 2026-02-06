@@ -8,7 +8,7 @@ import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
-import { attachRngHelpers } from "./rng.js";
+import { attachRngHelpers, createRng } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 import { Inventory } from "./inventory-model.js";
 
@@ -287,7 +287,7 @@ export function createEmptyState(seed = 123456789) {
     nextCharacterId: 101,
     nextFollowerCreationOrderIndex: 1,
 
-    rng: { seed },
+    rng: { seed, baseSeed: seed },
   };
 
   attachRngHelpers(state);
@@ -550,9 +550,9 @@ function normalizeTagList(tags) {
 // SEASON EVENT DECKS (tile-driven)
 // =============================================================================
 
-function pickWeightedDefId(state, entries) {
+function pickWeightedDefId(rng, entries) {
   if (!Array.isArray(entries) || entries.length === 0) return null;
-  if (typeof state?.rngNextFloat !== "function") return null;
+  if (!rng || typeof rng.nextFloat !== "function") return null;
 
   let total = 0;
   const weights = new Array(entries.length);
@@ -566,7 +566,7 @@ function pickWeightedDefId(state, entries) {
 
   if (total <= 0) return null;
 
-  const roll = state.rngNextFloat() * total;
+  const roll = rng.nextFloat() * total;
   let acc = 0;
   for (let i = 0; i < entries.length; i++) {
     acc += weights[i];
@@ -589,11 +589,11 @@ function getOrderedTileAnchors(state) {
   return ordered.map((entry) => entry.anchor);
 }
 
-function shuffleDeckInPlace(state, deck) {
+function shuffleDeckInPlace(rng, deck) {
   if (!Array.isArray(deck) || deck.length < 2) return;
-  if (typeof state?.rngNextInt !== "function") return;
+  if (!rng || typeof rng.nextInt !== "function") return;
   for (let i = deck.length - 1; i > 0; i--) {
-    const j = state.rngNextInt(0, i);
+    const j = rng.nextInt(0, i);
     if (i === j) continue;
     const tmp = deck[i];
     deck[i] = deck[j];
@@ -601,10 +601,27 @@ function shuffleDeckInPlace(state, deck) {
   }
 }
 
+function deriveSeasonDeckSeed(state) {
+  const baseSeed = Number.isFinite(state?.rng?.baseSeed)
+    ? Math.floor(state.rng.baseSeed)
+    : Number.isFinite(state?.rng?.seed)
+      ? Math.floor(state.rng.seed)
+      : 0;
+  const year = Number.isFinite(state?.year) ? Math.floor(state.year) : 0;
+  const seasonIndex = Number.isFinite(state?.currentSeasonIndex)
+    ? Math.floor(state.currentSeasonIndex)
+    : 0;
+  let seed = baseSeed | 0;
+  seed = Math.imul(seed ^ (year + 0x9e3779b9), 0x85ebca6b);
+  seed = Math.imul(seed ^ (seasonIndex + 0x7f4a7c15), 0xc2b2ae35);
+  return seed | 0;
+}
+
 export function buildSeasonDeckForCurrentSeason(state) {
   if (!state) return null;
   const seasonKey = getCurrentSeasonKey(state);
   const deck = [];
+  const rng = createRng(deriveSeasonDeckSeed(state));
 
   for (const anchor of getOrderedTileAnchors(state)) {
     if (!anchor) continue;
@@ -612,14 +629,14 @@ export function buildSeasonDeckForCurrentSeason(state) {
     const table = def?.seasonTables?.[seasonKey];
     if (!Array.isArray(table) || table.length === 0) continue;
 
-    const defId = pickWeightedDefId(state, table);
+    const defId = pickWeightedDefId(rng, table);
     if (!defId) continue;
 
     deck.push({ defId });
   }
 
   // Shuffle so draw order is not tied to tile columns.
-  shuffleDeckInPlace(state, deck);
+  shuffleDeckInPlace(rng, deck);
   state.currentSeasonDeck = { seasonKey, deck };
   return state.currentSeasonDeck;
 }
@@ -734,7 +751,15 @@ export function deserializeGameState(data) {
   const state = deepCloneSerializable(raw);
 
   // Ensure defaults
-  if (!state.rng) state.rng = { seed: 123456789 };
+  if (!state.rng) state.rng = { seed: 123456789, baseSeed: 123456789 };
+  if (!Number.isFinite(state.rng.seed)) {
+    state.rng.seed = Number.isFinite(state.rng.baseSeed)
+      ? Math.floor(state.rng.baseSeed)
+      : 123456789;
+  }
+  if (!Number.isFinite(state.rng.baseSeed)) {
+    state.rng.baseSeed = Math.floor(state.rng.seed ?? 123456789);
+  }
   if (!state.resources) state.resources = { gold: 0, food: 0, population: 0 };
   if (state.envSlots) delete state.envSlots;
   if (state.envSlotsEnabled != null) delete state.envSlotsEnabled;

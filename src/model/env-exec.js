@@ -10,6 +10,7 @@ import {
   ensurePawnSystems,
   rebuildBoardOccupancy,
 } from "./state.js";
+import { createRng } from "./rng.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 
@@ -562,7 +563,14 @@ function collectRandomCandidateCols(state, span, placementSpec, whereSpec, colli
   return filtered;
 }
 
-function collectOriginColsByMode(state, spawnSpec, span, placementSpec, collisionMode) {
+function collectOriginColsByMode(
+  state,
+  spawnSpec,
+  span,
+  placementSpec,
+  collisionMode,
+  rng
+) {
   const boardCols = Number.isFinite(state?.board?.cols)
     ? Math.floor(state.board.cols)
     : 0;
@@ -596,6 +604,10 @@ function collectOriginColsByMode(state, spawnSpec, span, placementSpec, collisio
     collisionMode
   );
   if (!candidates.length) return [];
+  if (rng && typeof rng.nextInt === "function") {
+    const idx = rng.nextInt(0, candidates.length - 1);
+    return [candidates[idx]];
+  }
   if (typeof state.rngNextInt !== "function") return [candidates[0]];
   const idx = state.rngNextInt(0, candidates.length - 1);
   return [candidates[idx]];
@@ -662,6 +674,30 @@ function attemptPlacement(state, defId, span, tSec, originCol, placementSpec, co
   return { placed, needsRebuild: true };
 }
 
+function hashString(value) {
+  const str = String(value ?? "");
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash | 0;
+}
+
+function deriveEnvEventSeed(state, tSec, defId) {
+  const baseSeed = Number.isFinite(state?.rng?.baseSeed)
+    ? Math.floor(state.rng.baseSeed)
+    : Number.isFinite(state?.rng?.seed)
+      ? Math.floor(state.rng.seed)
+      : 0;
+  const sec = Number.isFinite(tSec) ? Math.floor(tSec) : 0;
+  const defHash = hashString(defId);
+  let seed = baseSeed | 0;
+  seed = Math.imul(seed ^ (sec + 0x9e3779b9), 0x85ebca6b);
+  seed = Math.imul(seed ^ defHash, 0xc2b2ae35);
+  return seed | 0;
+}
+
 function spawnEnvEventFromDef(state, defId, def, tSec) {
   const board = state?.board;
   if (!board) return { placedAny: false, needsRebuild: false };
@@ -679,12 +715,14 @@ function spawnEnvEventFromDef(state, defId, def, tSec) {
   const multiSpawn =
     spawnSpec.multiSpawn === "planThenApply" ? "planThenApply" : "independent";
 
+  const rng = createRng(deriveEnvEventSeed(state, tSec, defId));
   const originCols = collectOriginColsByMode(
     state,
     spawnSpec,
     span,
     placementSpec,
-    collision.mode
+    collision.mode,
+    rng
   );
   if (!originCols.length) return { placedAny: false, needsRebuild: false };
 
