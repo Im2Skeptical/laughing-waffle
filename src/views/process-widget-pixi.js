@@ -492,7 +492,38 @@ export function createProcessWidgetView({
     return null;
   }
 
-  function buildProcessSignature(targetKey, entries) {
+  function buildCandidateSignature(state, target, process, processDef) {
+    if (!state || !target || !process || !processDef) return "none";
+    const parts = [];
+    const context = { leaderId: process?.leaderId ?? null };
+    for (const kind of ["inputs", "outputs"]) {
+      const slots = processDef?.routingSlots?.[kind] || [];
+      for (const slotDef of slots) {
+        if (!slotDef || slotDef.locked) continue;
+        const candidates = listCandidateEndpoints(
+          state,
+          process,
+          slotDef,
+          target,
+          context
+        );
+        const list = candidates.length ? candidates.join(",") : "none";
+        parts.push(`${kind}:${slotDef.slotId}:${list}`);
+      }
+    }
+    return parts.length ? parts.join("|") : "none";
+  }
+
+  function buildTemplateCandidateSignature(state, target, systemId) {
+    if (!state || !target || !systemId) return "none";
+    const templateProcess = getTemplateProcessForSystem(target, systemId, {});
+    if (!templateProcess) return "none";
+    const templateDef = getProcessDefForInstance(templateProcess, target, {});
+    if (!templateDef) return "none";
+    return buildCandidateSignature(state, target, templateProcess, templateDef);
+  }
+
+  function buildProcessSignature(state, targetKey, target, entries) {
     if (!Array.isArray(entries) || entries.length === 0) return null;
     const parts = [];
     for (const entry of entries) {
@@ -513,12 +544,20 @@ export function createProcessWidgetView({
               (o) =>
                 `${o.kind}:${o.itemId || o.resource || o.system || ""}:${o.qty ?? o.amount ?? 0}`
             )
-            .join("|")
+          .join("|")
         : "";
       const progress = Number.isFinite(process.progress)
         ? Math.floor(process.progress)
         : 0;
-      parts.push(`${process.id}|${progress}|${routingSig}|${reqSig}|${outSig}`);
+      const candidateSig = buildCandidateSignature(
+        state,
+        target,
+        process,
+        entry?.processDef
+      );
+      parts.push(
+        `${process.id}|${progress}|${routingSig}|${reqSig}|${outSig}|${candidateSig}`
+      );
     }
     return `${targetKey}|${parts.join("||")}`;
   }
@@ -1826,7 +1865,7 @@ export function createProcessWidgetView({
     return { card, width: totalWidth, height: totalHeight };
   }
 
-  function buildGrowthSignature(targetKey, target, entries) {
+  function buildGrowthSignature(state, targetKey, target, entries) {
     const growth = target?.systemState?.growth || {};
     const cropId = growth.selectedCropId || "";
     const pool = growth.maturedPool || {};
@@ -1834,8 +1873,9 @@ export function createProcessWidgetView({
       pool.bronze ?? 0
     }:${pool.silver ?? 0}:${pool.gold ?? 0}:${pool.diamond ?? 0}`;
     const templateSig = buildRoutingTemplateSignature(target, "growth");
-    const baseSig = buildProcessSignature(targetKey, entries) || "empty";
-    return `growth:${targetKey}:${cropId}:${poolSig}:${templateSig}:${baseSig}`;
+    const candidateSig = buildTemplateCandidateSignature(state, target, "growth");
+    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
+    return `growth:${targetKey}:${cropId}:${poolSig}:${templateSig}:${candidateSig}:${baseSig}`;
   }
 
   function rebuildGrowthWidget(state, target, entries, opts = {}) {
@@ -1892,10 +1932,11 @@ export function createProcessWidgetView({
     content.addChild(built.card);
   }
 
-  function buildBuildSignature(targetKey, target, entries) {
+  function buildBuildSignature(state, targetKey, target, entries) {
     const templateSig = buildRoutingTemplateSignature(target, "build");
-    const baseSig = buildProcessSignature(targetKey, entries) || "empty";
-    return `build:${targetKey}:${templateSig}:${baseSig}`;
+    const candidateSig = buildTemplateCandidateSignature(state, target, "build");
+    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
+    return `build:${targetKey}:${templateSig}:${candidateSig}:${baseSig}`;
   }
 
   function rebuildBuildWidget(state, target, entries, opts = {}) {
@@ -2103,11 +2144,11 @@ export function createProcessWidgetView({
     });
   }
 
-  function buildDepositSignature(targetKey, target, entries) {
+  function buildDepositSignature(state, targetKey, target, entries) {
     const depositInfo = getDepositPoolTarget(target);
     const poolSig = buildPoolSignature(depositInfo?.pool);
     const templateSig = buildRoutingTemplateSignature(target, "deposit");
-    const baseSig = buildProcessSignature(targetKey, entries) || "empty";
+    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
     return `deposit:${targetKey}:${poolSig}:${templateSig}:${baseSig}`;
   }
 
@@ -2244,11 +2285,12 @@ export function createProcessWidgetView({
     content.addChild(built.card);
   }
 
-  function buildRecipeSystemSignature(targetKey, target, entries, systemId) {
+  function buildRecipeSystemSignature(state, targetKey, target, entries, systemId) {
     const recipeId = getSelectedRecipeId(target, systemId) || "none";
     const templateSig = buildRoutingTemplateSignature(target, systemId);
-    const baseSig = buildProcessSignature(targetKey, entries) || "empty";
-    return `recipe:${systemId}:${targetKey}:${recipeId}:${templateSig}:${baseSig}`;
+    const candidateSig = buildTemplateCandidateSignature(state, target, systemId);
+    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
+    return `recipe:${systemId}:${targetKey}:${recipeId}:${templateSig}:${candidateSig}:${baseSig}`;
   }
 
   function collectProcessEntries(state, target, systemIdFilter) {
@@ -2472,20 +2514,21 @@ export function createProcessWidgetView({
         const signatureKey = `${windowId}|${getTargetKey(target)}`;
         let signature = null;
         if (win.groupKind === "growth") {
-          signature = buildGrowthSignature(signatureKey, target, entries);
+          signature = buildGrowthSignature(state, signatureKey, target, entries);
         } else if (win.groupKind === "build") {
-          signature = buildBuildSignature(signatureKey, target, entries);
+          signature = buildBuildSignature(state, signatureKey, target, entries);
         } else if (win.groupKind === "deposit") {
-          signature = buildDepositSignature(signatureKey, target, entries);
+          signature = buildDepositSignature(state, signatureKey, target, entries);
         } else if (isRecipeSystem(win.groupKind)) {
           signature = buildRecipeSystemSignature(
+            state,
             signatureKey,
             target,
             entries,
             win.groupKind
           );
         } else {
-          signature = buildProcessSignature(signatureKey, entries);
+          signature = buildProcessSignature(state, signatureKey, target, entries);
         }
 
         if (signature !== win.lastSignature) {
@@ -2575,7 +2618,7 @@ export function createProcessWidgetView({
 
       const entries = [{ ...entry, processDef }];
       const signatureKey = `${windowId}|${getTargetKey(target)}`;
-      const signature = buildProcessSignature(signatureKey, entries);
+      const signature = buildProcessSignature(state, signatureKey, target, entries);
       if (signature !== win.lastSignature) {
         win.lastSignature = signature;
         rebuildWidget(state, target, entries, {
