@@ -41,7 +41,7 @@ export const hubStructureDefs = {
     color: 0xc2a16a,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: ["depositable", "communal", "distributor"],
+    tags: ["depositable", "communal", "distributor", "canPreserve"],
     systems: {},
     inventory: { cols: 5, rows: 6 },
     inventoryRules: { allowedItemTags: ["grain"] },

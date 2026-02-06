@@ -1,6 +1,11 @@
 // hub-tag-defs.js
 // Hub tag registry (data only).
 
+import {
+  PERISHABLE_ROT_CHANCE_PER_SEC,
+  PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
+} from "../gamesettings/gamerules-defs.js";
+
 export const hubTagDefs = {
   distributor: {
     id: "distributor",
@@ -212,6 +217,20 @@ export const hubTagDefs = {
     systems: ["deposit", "storage"],
     passives: [
       {
+        id: "poolRotTick",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "ExpireStoredPerishables",
+          chance: PERISHABLE_ROT_CHANCE_PER_SEC,
+          tierMultiplierByTier: PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
+          perishableTag: "perishable",
+          preserveTag: "canPreserve",
+          rotPoolKey: "rotByKindTier",
+          rotKind: "rot",
+          preserveTierBonusProp: "perishabilityTierBonus",
+        },
+      },
+      {
         id: "depositAdvance",
         timing: { cadenceSec: 1 },
         requires: { hasPawn: true },
@@ -238,6 +257,30 @@ export const hubTagDefs = {
     },
     systems: [],
     passives: [],
+    intents: [],
+  },
+
+  canPreserve: {
+    id: "canPreserve",
+    kind: "hubTag",
+    ui: {
+      name: "Preserve",
+      description: "Improves perishability for stored items.",
+    },
+    systems: [],
+    passives: [
+      {
+        id: "preserveBoost",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "SetProp",
+          target: { ref: "self" },
+          prop: "perishabilityTierBonus",
+          value: 1,
+          min: 0,
+        },
+      },
+    ],
     intents: [],
   },
 };

@@ -49,6 +49,7 @@ export const hubSystemDefs = {
     defaultTier: "bronze",
     stateDefaults: {
       byKindTier: {},
+      rotByKindTier: {},
       totalByTier: {},
       processes: [],
     },
@@ -63,6 +64,7 @@ export const hubSystemDefs = {
     defaultTier: "bronze",
     stateDefaults: {
       byKindTier: {},
+      rotByKindTier: {},
       totalByTier: {},
       processes: [],
     },

@@ -22,6 +22,7 @@ import {
   handleAccumulateRatio,
   handleResetSystemState,
   handleAdjustSystemState,
+  handleExpireStoredPerishables,
   handleCreateWorkProcess,
   handleAdvanceWorkProcess,
 } from "./ops/system-ops.js";
@@ -53,6 +54,7 @@ const handlers = {
   AccumulateRatio: handleAccumulateRatio,
   ResetSystemState: handleResetSystemState,
   AdjustSystemState: handleAdjustSystemState,
+  ExpireStoredPerishables: handleExpireStoredPerishables,
   ConsumeItem: handleConsumeItem,
   TransferUnits: handleTransferUnits,
   SpawnItem: handleSpawnItem,
