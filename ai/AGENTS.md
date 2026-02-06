@@ -6,7 +6,7 @@ Local instructions for Codex agents working in this repo.
 - Read `ai/ai-context.md` before making changes.
 
 ## Current goal context
-- Detailed design specifications and locked behaviours at `ai/process_framework_v2_feature_goals.md`
+- General feature buildout and fixes. Prompt saved at `MiscFeatureBuildout_01.md`
 
 ## Core constraints (non-negotiable)
 - Determinism: no `Math.random()`; all randomness must go through `state.rng`.
