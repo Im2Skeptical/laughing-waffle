@@ -168,6 +168,22 @@ function getProcessDisplayName(process, recipeDef) {
   return kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
+function listRecipeIdsByKind(kind) {
+  const ids = Object.keys(recipeDefs || {});
+  ids.sort((a, b) => a.localeCompare(b));
+  return ids.filter((id) => recipeDefs?.[id]?.kind === kind);
+}
+
+function getRecipeIdForSystem(target, systemId) {
+  if (!target || !systemId) return null;
+  if (systemId !== "fireplace" && systemId !== "workspace") return null;
+  const desiredKind = systemId === "fireplace" ? "cook" : "craft";
+  const selected = target?.systemState?.[systemId]?.selectedRecipeId;
+  if (selected && recipeDefs?.[selected]?.kind === desiredKind) return selected;
+  const ids = listRecipeIdsByKind(desiredKind);
+  return ids.length > 0 ? ids[0] : null;
+}
+
 function buildInputSlotsForProcess(kind, opts = {}) {
   const base = [];
   if (kind === "build") {
@@ -449,6 +465,76 @@ export function getProcessDefForInstance(process, target, context) {
   };
 }
 
+export function getTemplateProcessForSystem(target, systemId, context = {}) {
+  if (!target || !systemId) return null;
+  const targetId = resolveTargetOwnerId(target);
+  const base = {
+    id: `template:${systemId}:${targetId ?? "0"}`,
+    type: systemId,
+    mode: "time",
+    durationSec: 1,
+    progress: 0,
+    ownerId: targetId ?? null,
+  };
+
+  if (systemId === "build") {
+    return { ...base, type: "build", mode: "work", durationSec: 1 };
+  }
+
+  if (systemId === "growth") {
+    const cropId = target?.systemState?.growth?.selectedCropId ?? null;
+    return {
+      ...base,
+      type: "cropGrowth",
+      mode: "time",
+      durationSec: 1,
+      defId: cropId || undefined,
+      cropId: cropId || undefined,
+      inputAmount: 1,
+      completionPolicy: "cropGrowth",
+    };
+  }
+
+  if (systemId === "fireplace" || systemId === "workspace") {
+    const recipeId = getRecipeIdForSystem(target, systemId);
+    if (recipeId) {
+      const recipe = recipeDefs?.[recipeId] || null;
+      const durationSec = Number.isFinite(recipe?.durationSec)
+        ? Math.max(1, Math.floor(recipe.durationSec))
+        : 1;
+      return { ...base, type: recipeId, mode: "work", durationSec };
+    }
+    return { ...base, type: `${systemId}-idle`, mode: "work", durationSec: 1 };
+  }
+
+  if (systemId === "deposit") {
+    return {
+      ...base,
+      type: "depositItems",
+      mode: "time",
+      durationSec: 1,
+      ownerKind: "pawn",
+      ownerId: context?.ownerId ?? base.ownerId,
+    };
+  }
+
+  const processes = Array.isArray(target?.systemState?.[systemId]?.processes)
+    ? target.systemState[systemId].processes
+    : [];
+  const existing = processes.find((proc) => proc && proc.type);
+  if (existing) {
+    return {
+      ...base,
+      type: existing.type,
+      mode: existing.mode === "work" ? "work" : "time",
+      durationSec: Math.max(1, Math.floor(existing.durationSec ?? 1)),
+      defId: existing.defId ?? undefined,
+    };
+  }
+
+  return base;
+}
+
 function ensureRoutingSlotState(container, slotId, orderedDefaults) {
   if (!container[slotId] || typeof container[slotId] !== "object") {
     container[slotId] = { ordered: [], enabled: {} };
@@ -473,6 +559,140 @@ function ensureRoutingSlotState(container, slotId, orderedDefaults) {
   return slotState;
 }
 
+function cloneRoutingSlotState(slotState, opts = {}) {
+  const stripDrop = opts.stripDrop === true;
+  const orderedRaw = Array.isArray(slotState?.ordered) ? slotState.ordered : [];
+  const ordered = orderedRaw.filter(
+    (id) => typeof id === "string" && id.length && (!stripDrop || !isDropEndpoint(id))
+  );
+  const enabled = {};
+  const enabledRaw =
+    slotState?.enabled && typeof slotState.enabled === "object"
+      ? slotState.enabled
+      : {};
+  for (const endpointId of ordered) {
+    enabled[endpointId] = enabledRaw[endpointId] === false ? false : true;
+  }
+  for (const [endpointId, value] of Object.entries(enabledRaw)) {
+    if (stripDrop && isDropEndpoint(endpointId)) continue;
+    if (enabled[endpointId] !== undefined) continue;
+    enabled[endpointId] = value === false ? false : true;
+  }
+  return { ordered, enabled };
+}
+
+function applyRoutingSlotState(slotState, nextState) {
+  if (!slotState || !nextState) return false;
+  let changed = false;
+  const ordered = Array.isArray(nextState.ordered) ? nextState.ordered.slice() : [];
+  const enabled =
+    nextState.enabled && typeof nextState.enabled === "object"
+      ? { ...nextState.enabled }
+      : {};
+
+  if (
+    slotState.ordered?.length !== ordered.length ||
+    slotState.ordered?.some((id, idx) => id !== ordered[idx])
+  ) {
+    slotState.ordered = ordered;
+    changed = true;
+  }
+  if (!slotState.enabled || typeof slotState.enabled !== "object") {
+    slotState.enabled = {};
+  }
+  for (const key of Object.keys(slotState.enabled)) {
+    if (!Object.prototype.hasOwnProperty.call(enabled, key)) {
+      delete slotState.enabled[key];
+      changed = true;
+    }
+  }
+  for (const [key, value] of Object.entries(enabled)) {
+    if (slotState.enabled[key] !== value) {
+      slotState.enabled[key] = value;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+export function ensureSystemRoutingTemplate(target, systemId, processDef) {
+  if (!target || !systemId || !processDef) return null;
+  if (!target.systemState || typeof target.systemState !== "object") {
+    target.systemState = {};
+  }
+  if (!target.systemState[systemId] || typeof target.systemState[systemId] !== "object") {
+    target.systemState[systemId] = {};
+  }
+  const systemState = target.systemState[systemId];
+  if (!systemState.routingTemplate || typeof systemState.routingTemplate !== "object") {
+    systemState.routingTemplate = { inputs: {}, outputs: {} };
+  }
+  if (!systemState.routingTemplate.inputs || typeof systemState.routingTemplate.inputs !== "object") {
+    systemState.routingTemplate.inputs = {};
+  }
+  if (!systemState.routingTemplate.outputs || typeof systemState.routingTemplate.outputs !== "object") {
+    systemState.routingTemplate.outputs = {};
+  }
+
+  for (const slot of processDef?.routingSlots?.inputs || []) {
+    if (!slot || slot.locked) continue;
+    const defaultsRaw = Array.isArray(slot?.default?.ordered) ? slot.default.ordered : [];
+    const slotState = ensureRoutingSlotState(
+      systemState.routingTemplate.inputs,
+      slot.slotId,
+      defaultsRaw
+    );
+    if (Array.isArray(slotState.ordered)) {
+      slotState.ordered = slotState.ordered.filter((id) => !isDropEndpoint(id));
+    }
+    if (slotState.enabled && typeof slotState.enabled === "object") {
+      for (const key of Object.keys(slotState.enabled)) {
+        if (isDropEndpoint(key)) delete slotState.enabled[key];
+      }
+    }
+  }
+
+  for (const slot of processDef?.routingSlots?.outputs || []) {
+    if (!slot || slot.locked) continue;
+    const defaultsRaw = Array.isArray(slot?.default?.ordered) ? slot.default.ordered : [];
+    ensureRoutingSlotState(
+      systemState.routingTemplate.outputs,
+      slot.slotId,
+      defaultsRaw
+    );
+  }
+
+  return systemState.routingTemplate;
+}
+
+export function syncRoutingTemplateFromProcess(process, target, systemId, processDef) {
+  if (!process || !target || !systemId || !processDef) return false;
+  const template = ensureSystemRoutingTemplate(target, systemId, processDef);
+  if (!template) return false;
+  let changed = false;
+
+  const groups = [
+    { kind: "inputs", slots: processDef.routingSlots?.inputs || [] },
+    { kind: "outputs", slots: processDef.routingSlots?.outputs || [] },
+  ];
+
+  for (const group of groups) {
+    for (const slot of group.slots || []) {
+      if (!slot || slot.locked) continue;
+      const slotState = process?.routing?.[group.kind]?.[slot.slotId];
+      if (!slotState) continue;
+      const nextState = cloneRoutingSlotState(slotState, { stripDrop: true });
+      const templateSlot = ensureRoutingSlotState(
+        template[group.kind],
+        slot.slotId,
+        null
+      );
+      if (applyRoutingSlotState(templateSlot, nextState)) changed = true;
+    }
+  }
+  return changed;
+}
+
 export function ensureProcessRoutingState(process, processDef, context) {
   if (!process || !processDef) return null;
   if (!process.routing || typeof process.routing !== "object") {
@@ -489,12 +709,31 @@ export function ensureProcessRoutingState(process, processDef, context) {
     ? `${DROP_ENDPOINT_PREFIX}${process.id}`
     : null;
 
+  const target = context?.target ?? null;
+  const systemId = context?.systemId ?? null;
+  const routingTemplate =
+    target && systemId ? ensureSystemRoutingTemplate(target, systemId, processDef) : null;
+
   for (const slot of processDef.routingSlots?.inputs || []) {
     const defaultsRaw = Array.isArray(slot?.default?.ordered) ? slot.default.ordered : [];
     const defaults = defaultsRaw
       .map((endpointId) => resolveFixedEndpointId(endpointId, process, context) ?? endpointId)
       .filter(Boolean);
-    const slotState = ensureRoutingSlotState(process.routing.inputs, slot.slotId, defaults);
+    const slotState = ensureRoutingSlotState(process.routing.inputs, slot.slotId, null);
+    const templateSlot = routingTemplate?.inputs?.[slot.slotId];
+    if (templateSlot && slotState.ordered.length === 0) {
+      applyRoutingSlotState(slotState, cloneRoutingSlotState(templateSlot, { stripDrop: true }));
+    }
+    if (slot.locked) {
+      applyRoutingSlotState(slotState, { ordered: defaults, enabled: {} });
+    } else if (slotState.ordered.length === 0 && defaults.length > 0) {
+      slotState.ordered = defaults.slice();
+    }
+    for (const endpointId of slotState.ordered) {
+      if (slotState.enabled[endpointId] === undefined) {
+        slotState.enabled[endpointId] = true;
+      }
+    }
     if (dropEndpointId && !slotState.ordered.includes(dropEndpointId)) {
       slotState.ordered.unshift(dropEndpointId);
     }
@@ -508,7 +747,21 @@ export function ensureProcessRoutingState(process, processDef, context) {
     const defaults = defaultsRaw
       .map((endpointId) => resolveFixedEndpointId(endpointId, process, context) ?? endpointId)
       .filter(Boolean);
-    ensureRoutingSlotState(process.routing.outputs, slot.slotId, defaults);
+    const slotState = ensureRoutingSlotState(process.routing.outputs, slot.slotId, null);
+    const templateSlot = routingTemplate?.outputs?.[slot.slotId];
+    if (templateSlot && slotState.ordered.length === 0) {
+      applyRoutingSlotState(slotState, cloneRoutingSlotState(templateSlot, { stripDrop: true }));
+    }
+    if (slot.locked) {
+      applyRoutingSlotState(slotState, { ordered: defaults, enabled: {} });
+    } else if (slotState.ordered.length === 0 && defaults.length > 0) {
+      slotState.ordered = defaults.slice();
+    }
+    for (const endpointId of slotState.ordered) {
+      if (slotState.enabled[endpointId] === undefined) {
+        slotState.enabled[endpointId] = true;
+      }
+    }
   }
 
   return process.routing;

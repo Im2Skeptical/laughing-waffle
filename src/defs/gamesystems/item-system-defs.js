@@ -11,4 +11,13 @@ export const itemSystemDefs = {
     stateDefaults: {
     },
   },
+  nourishment: {
+    id: "nourishment",
+    kind: "itemSystem",
+    ui: { name: "Nourishment", description: "Tracks nutritional value of items." },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+    },
+  },
 };

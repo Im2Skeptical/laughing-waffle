@@ -19,6 +19,9 @@ import {
   cmdSetProcessRouting,
   cmdReorderProcessRoutingEndpoint,
   cmdToggleProcessRoutingEndpoint,
+  cmdSetRoutingTemplate,
+  cmdReorderRoutingTemplateEndpoint,
+  cmdToggleRoutingTemplateEndpoint,
   cmdDebugQueueEnvEvent,
   cmdAdjustFollowerCount,
   cmdBuildDesignate,
@@ -43,6 +46,9 @@ export const ActionKinds = {
   SET_PROCESS_ROUTING: "setProcessRouting",
   REORDER_PROCESS_ROUTING_ENDPOINT: "reorderProcessRoutingEndpoint",
   TOGGLE_PROCESS_ROUTING_ENDPOINT: "toggleProcessRoutingEndpoint",
+  SET_ROUTING_TEMPLATE: "setRoutingTemplate",
+  REORDER_ROUTING_TEMPLATE_ENDPOINT: "reorderRoutingTemplateEndpoint",
+  TOGGLE_ROUTING_TEMPLATE_ENDPOINT: "toggleRoutingTemplateEndpoint",
   ADJUST_FOLLOWER_COUNT: "adjustFollowerCount",
   DEBUG_SET_CAP: "debugSetCap",
   DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
@@ -210,6 +216,18 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.TOGGLE_PROCESS_ROUTING_ENDPOINT:
       result = cmdToggleProcessRoutingEndpoint(state, payload);
+      break;
+
+    case ActionKinds.SET_ROUTING_TEMPLATE:
+      result = cmdSetRoutingTemplate(state, payload);
+      break;
+
+    case ActionKinds.REORDER_ROUTING_TEMPLATE_ENDPOINT:
+      result = cmdReorderRoutingTemplateEndpoint(state, payload);
+      break;
+
+    case ActionKinds.TOGGLE_ROUTING_TEMPLATE_ENDPOINT:
+      result = cmdToggleRoutingTemplateEndpoint(state, payload);
       break;
 
     case ActionKinds.ADJUST_FOLLOWER_COUNT:

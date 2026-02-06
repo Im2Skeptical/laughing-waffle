@@ -483,7 +483,7 @@ function canOutputUseEndpoint(state, output, endpoint) {
   return false;
 }
 
-function canProcessOutputsProceed(state, structure, process) {
+function canProcessOutputsProceed(state, structure, process, systemId) {
   if (!state || !structure || !process) return true;
   const processDef = getProcessDefForInstance(process, structure, {
     leaderId: process?.leaderId ?? null,
@@ -501,6 +501,8 @@ function canProcessOutputsProceed(state, structure, process) {
 
   ensureProcessRoutingState(process, processDef, {
     leaderId: process?.leaderId ?? null,
+    target: structure,
+    systemId,
   });
 
   for (const output of outputs) {
@@ -509,13 +511,9 @@ function canProcessOutputsProceed(state, structure, process) {
     if (!slotDef) return false;
     const slotState = resolveSlotState(process, "outputs", slotDef);
     if (!slotState) return false;
-    const candidates = listCandidateEndpoints(
-      state,
-      process,
-      slotDef,
-      structure,
-      { leaderId: process?.leaderId ?? null }
-    );
+    const candidates = listCandidateEndpoints(state, process, slotDef, structure, {
+      leaderId: process?.leaderId ?? null,
+    });
     const orderedList =
       slotState.ordered.length > 0 ? slotState.ordered : candidates;
 
@@ -606,7 +604,7 @@ function canAdvanceWorkEffect(state, structure, effect) {
     : processes.slice();
   if (matches.length === 0) return true;
   for (const proc of matches) {
-    if (canProcessOutputsProceed(state, structure, proc)) return true;
+    if (canProcessOutputsProceed(state, structure, proc, systemId)) return true;
   }
   return false;
 }

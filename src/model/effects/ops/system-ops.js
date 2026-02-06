@@ -1265,8 +1265,9 @@ export function handleCreateWorkProcess(state, effect, context) {
 
     const processDef = getProcessDefForInstance(process, target, context);
     if (processDef) {
-      ensureProcessRoutingState(process, processDef, context);
-      seedRoutingWithCandidates(state, target, process, processDef, context);
+      const routingContext = { ...(context || {}), target, systemId };
+      ensureProcessRoutingState(process, processDef, routingContext);
+      seedRoutingWithCandidates(state, target, process, processDef, routingContext);
       ensureProcessRequirements(process, processDef);
       ensureProcessBufferInventory(state, process, processDef);
     }
@@ -1344,8 +1345,9 @@ export function handleAdvanceWorkProcess(state, effect, context) {
 
       const processDef = getProcessDefForInstance(process, target, context);
       if (processDef) {
-        ensureProcessRoutingState(process, processDef, context);
-        seedRoutingWithCandidates(state, target, process, processDef, context);
+        const routingContext = { ...(context || {}), target, systemId };
+        ensureProcessRoutingState(process, processDef, routingContext);
+        seedRoutingWithCandidates(state, target, process, processDef, routingContext);
         ensureProcessRequirements(process, processDef);
         ensureProcessBufferInventory(state, process, processDef);
       }

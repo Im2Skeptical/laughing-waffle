@@ -42,7 +42,7 @@ export const itemTagDefs = {
     id: "edible",
     kind: "itemTag",
     ui: { name: "Edible", description: "Can be eaten." },
-    systems: [],
+    systems: ["nourishment"],
     passives: [],
     intents: [],
   },

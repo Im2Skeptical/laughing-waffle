@@ -453,6 +453,7 @@ export function createHubTagUi(opts) {
 
     const row = {
       systemId,
+      processSystemId: opts?.processSystemId ?? null,
       container,
       icon,
       barBg,
@@ -470,13 +471,13 @@ export function createHubTagUi(opts) {
     };
 
     icon.on("pointerover", () => {
-      onSystemIconHover?.(view, systemId);
+      onSystemIconHover?.(view, row.processSystemId || systemId);
       if (systemId === "storage") {
         showStorageTooltip(view.structure, row, icon.getBounds());
       }
     });
     icon.on("pointerout", () => {
-      onSystemIconOut?.(view, systemId);
+      onSystemIconOut?.(view, row.processSystemId || systemId);
       if (systemId === "storage") {
         tooltipView?.hide?.();
       }
@@ -486,7 +487,7 @@ export function createHubTagUi(opts) {
     });
     icon.on("pointertap", (ev) => {
       ev?.stopPropagation?.();
-      onSystemIconClick?.(view, systemId);
+      onSystemIconClick?.(view, row.processSystemId || systemId);
     });
 
     return row;
@@ -567,6 +568,7 @@ export function createHubTagUi(opts) {
               storageItemId: null,
               storageLabel: "Storage",
               uiOverride: getSystemUi("storage"),
+              processSystemId: "deposit",
             });
             rowEntry.container.y = sysY;
             systemContainer.addChild(rowEntry.container);
@@ -582,6 +584,7 @@ export function createHubTagUi(opts) {
                 storageItemId: itemId,
                 storageLabel: label,
                 uiOverride: { label, icon, color },
+                processSystemId: "deposit",
               });
               rowEntry.container.y = sysY;
               systemContainer.addChild(rowEntry.container);
