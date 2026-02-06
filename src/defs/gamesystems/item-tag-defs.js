@@ -61,10 +61,10 @@ export const itemTagDefs = {
     passives: [],
     intents: [],
   },
-  crop: {
-    id: "crop",
+  seed: {
+    id: "seed",
     kind: "itemTag",
-    ui: { name: "Crop", description: "Agricultural good." },
+    ui: { name: "Seed", description: "Agricultural good." },
     systems: [],
     passives: [],
     intents: [],
