@@ -63,6 +63,27 @@ export function handleExpireItemChance(state, effect, context) {
   if (!Number.isFinite(chance) && effect.chanceFromDefKey && itemDef) {
     chance = itemDef[effect.chanceFromDefKey];
   }
+
+  const tierSystemId =
+    typeof effect.tierSystemId === "string" ? effect.tierSystemId : null;
+  if (tierSystemId) {
+    const tier =
+      item.systemTiers?.[tierSystemId] ??
+      item.tier ??
+      itemDef?.defaultTier ??
+      "bronze";
+    const multiplierMap =
+      effect.tierMultiplierByTier &&
+      typeof effect.tierMultiplierByTier === "object"
+        ? effect.tierMultiplierByTier
+        : effect.multiplierByTier && typeof effect.multiplierByTier === "object"
+          ? effect.multiplierByTier
+          : null;
+    if (multiplierMap && Number.isFinite(multiplierMap[tier])) {
+      chance = (Number.isFinite(chance) ? chance : 0) * multiplierMap[tier];
+    }
+  }
+
   if (!Number.isFinite(chance) || chance <= 0) return false;
 
   const qty = Math.floor(item.quantity ?? 0);

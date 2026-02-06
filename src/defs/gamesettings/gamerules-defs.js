@@ -36,3 +36,12 @@ export const PRESTIGE_CURVE_A_BY_TIER = {
   gold: 8,
   diamond: 12,
 };
+
+// --- Perishability ---
+export const PERISHABLE_ROT_CHANCE_PER_SEC = 0.005;
+export const PERISHABILITY_ROT_MULTIPLIER_BY_TIER = {
+  bronze: 1,
+  silver: 0.75,
+  gold: 0.5,
+  diamond: 0.25,
+};

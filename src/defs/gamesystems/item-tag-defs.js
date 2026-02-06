@@ -1,6 +1,11 @@
 // item-tag-defs.js
 // Item tag registry (data only).
 
+import {
+  PERISHABLE_ROT_CHANCE_PER_SEC,
+  PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
+} from "../gamesettings/gamerules-defs.js";
+
 export const itemTagDefs = {
   perishable: {
     id: "perishable",
@@ -14,7 +19,9 @@ export const itemTagDefs = {
         effect: [
           {
             op: "ExpireItemChance",
-            chanceFromDefKey: "rotChancePerSec",
+            chance: PERISHABLE_ROT_CHANCE_PER_SEC,
+            tierSystemId: "perishability",
+            tierMultiplierByTier: PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
             targetKind: "rot",
           },
         ],
