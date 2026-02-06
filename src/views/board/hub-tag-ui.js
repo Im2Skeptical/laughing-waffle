@@ -3,9 +3,11 @@
 
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
 import { hubSystemDefs } from "../../defs/gamesystems/hub-system-defs.js";
+import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
+import { TIER_ASC } from "../../model/effects/core/tiers.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -43,6 +45,7 @@ const HUB_SYSTEM_UI_MAP = {
   fireplace: { label: "Fireplace", icon: "F", color: 0xd9793a },
   workspace: { label: "Workspace", icon: "W", color: 0x7a9a5f },
   granaryStore: { label: "Granary", icon: "G", color: 0xc2a16a },
+  storage: { label: "Storage", icon: "S", color: 0x6a8fbf },
 };
 
 const TAG_PILL_STYLES = {
@@ -133,6 +136,99 @@ export function createHubTagUi(opts) {
 
   function getStructureTags(structure) {
     return Array.isArray(structure?.tags) ? structure.tags : [];
+  }
+
+  function isTierBucket(pool) {
+    if (!pool || typeof pool !== "object") return false;
+    for (const tier of TIER_ASC) {
+      if (Object.prototype.hasOwnProperty.call(pool, tier)) return true;
+    }
+    return false;
+  }
+
+  function getDepositPoolInfo(structure) {
+    if (!structure?.defId) return null;
+    const def = hubStructureDefs?.[structure.defId];
+    const deposit = def?.deposit;
+    if (!deposit || typeof deposit !== "object") return null;
+    const systemId =
+      typeof deposit.systemId === "string" ? deposit.systemId : null;
+    if (!systemId) return null;
+    const poolKey =
+      typeof deposit.poolKey === "string" && deposit.poolKey.length > 0
+        ? deposit.poolKey
+        : "byKindTier";
+    const pool = structure?.systemState?.[systemId]?.[poolKey] ?? null;
+    return { systemId, poolKey, pool };
+  }
+
+  function listStorageItemIds(structure) {
+    const info = getDepositPoolInfo(structure);
+    if (!info?.pool || typeof info.pool !== "object") return [];
+    if (isTierBucket(info.pool)) return [null];
+    const keys = Object.keys(info.pool || {});
+    const items = [];
+    for (const key of keys) {
+      const bucket = info.pool[key];
+      if (!bucket || typeof bucket !== "object") continue;
+      items.push(key);
+    }
+    items.sort((a, b) => a.localeCompare(b));
+    return items;
+  }
+
+  function getStorageSignature(structure) {
+    const items = listStorageItemIds(structure);
+    if (!items.length) return "empty";
+    return items.map((id) => (id == null ? "_pool" : id)).join("|");
+  }
+
+  function getStorageTotals(pool, itemId) {
+    const empty = { total: 0, byTier: { bronze: 0, silver: 0, gold: 0, diamond: 0 } };
+    if (!pool || typeof pool !== "object") return empty;
+    const bucket =
+      itemId == null || isTierBucket(pool) ? pool : pool[itemId];
+    if (!bucket || typeof bucket !== "object") return empty;
+    const byTier = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
+    let total = 0;
+    for (const tier of TIER_ASC) {
+      const amount = Math.max(0, Math.floor(bucket[tier] ?? 0));
+      byTier[tier] = amount;
+      total += amount;
+    }
+    return { total, byTier };
+  }
+
+  function getStorageMaxTotal(pool) {
+    if (!pool || typeof pool !== "object") return 0;
+    if (isTierBucket(pool)) {
+      return getStorageTotals(pool, null).total;
+    }
+    let maxTotal = 0;
+    const keys = Object.keys(pool);
+    for (const key of keys) {
+      const totals = getStorageTotals(pool, key);
+      if (totals.total > maxTotal) maxTotal = totals.total;
+    }
+    return maxTotal;
+  }
+
+  function showStorageTooltip(structure, row, bounds) {
+    if (!tooltipView) return;
+    const info = getDepositPoolInfo(structure);
+    const pool = info?.pool;
+    if (!pool || typeof pool !== "object") return;
+    const itemId = row?.storageItemId ?? null;
+    const totals = getStorageTotals(pool, itemId);
+    const title = row?.storageLabel || "Storage";
+    const lines = [
+      `Total: ${totals.total}`,
+      `Bronze: ${totals.byTier.bronze}`,
+      `Silver: ${totals.byTier.silver}`,
+      `Gold: ${totals.byTier.gold}`,
+      `Diamond: ${totals.byTier.diamond}`,
+    ];
+    tooltipView.show({ title, lines }, bounds);
   }
 
   function getBuildProcess(structure) {
@@ -276,7 +372,8 @@ export function createHubTagUi(opts) {
   }
 
   function buildSystemRow(view, systemId, opts = null) {
-    const ui = getSystemUi(systemId);
+    const uiOverride = opts?.uiOverride ?? null;
+    const ui = uiOverride || getSystemUi(systemId);
     const container = new PIXI.Container();
     container.eventMode = "static";
     container.hitArea = new PIXI.Rectangle(
@@ -348,7 +445,7 @@ export function createHubTagUi(opts) {
       });
     }
 
-    return {
+    const row = {
       systemId,
       container,
       icon,
@@ -362,7 +459,20 @@ export function createHubTagUi(opts) {
       buildKind: opts?.kind ?? null,
       buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
       buildLabel: opts?.label ?? null,
+      storageItemId: opts?.storageItemId ?? null,
+      storageLabel: opts?.storageLabel ?? null,
     };
+
+    if (systemId === "storage") {
+      icon.on("pointerover", () => {
+        showStorageTooltip(view.structure, row, icon.getBounds());
+      });
+      icon.on("pointerout", () => {
+        tooltipView?.hide?.();
+      });
+    }
+
+    return row;
   }
 
   function buildTagEntry(view, tagId, structure) {
@@ -432,6 +542,38 @@ export function createHubTagUi(opts) {
       }
     } else {
       for (const systemId of systems) {
+        if (systemId === "deposit") continue;
+        if (systemId === "storage") {
+          const itemIds = listStorageItemIds(structure);
+          if (itemIds.length === 0) {
+            const rowEntry = buildSystemRow(view, "storage", {
+              storageItemId: null,
+              storageLabel: "Storage",
+              uiOverride: getSystemUi("storage"),
+            });
+            rowEntry.container.y = sysY;
+            systemContainer.addChild(rowEntry.container);
+            systemRows.push(rowEntry);
+            sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+          } else {
+            for (const itemId of itemIds) {
+              const def = itemId ? itemDefs?.[itemId] : null;
+              const label = def?.name || itemId || "Pool";
+              const icon = label ? label.slice(0, 1).toUpperCase() : "S";
+              const color = def?.color ?? getSystemUi("storage").color;
+              const rowEntry = buildSystemRow(view, "storage", {
+                storageItemId: itemId,
+                storageLabel: label,
+                uiOverride: { label, icon, color },
+              });
+              rowEntry.container.y = sysY;
+              systemContainer.addChild(rowEntry.container);
+              systemRows.push(rowEntry);
+              sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+            }
+          }
+          continue;
+        }
         const rowEntry = buildSystemRow(view, systemId);
         rowEntry.container.y = sysY;
         systemContainer.addChild(rowEntry.container);
@@ -459,6 +601,7 @@ export function createHubTagUi(opts) {
       systemHeight: sysY > 0 ? sysY - SYSTEM_ROW_GAP : 0,
       height: TAG_PILL_HEIGHT,
       buildRowSignature,
+      storageSignature: systems.includes("storage") ? getStorageSignature(structure) : null,
     };
 
     entry.setExpanded = (expanded) => {
@@ -616,6 +759,23 @@ export function createHubTagUi(opts) {
       return;
     }
 
+    if (systemId === "storage") {
+      const info = getDepositPoolInfo(structure);
+      const pool = info?.pool;
+      if (!pool || typeof pool !== "object") {
+        row.labelText.text = row.storageLabel || "Storage";
+        drawSystemBar(row, 0, row.uiColor);
+        return;
+      }
+      const totals = getStorageTotals(pool, row.storageItemId);
+      const maxTotal = Math.max(1, getStorageMaxTotal(pool));
+      const ratio = maxTotal > 0 ? totals.total / maxTotal : 0;
+      const label = row.storageLabel || getSystemUi("storage").label;
+      row.labelText.text = `${label} ${totals.total}`;
+      drawSystemBar(row, ratio, row.uiColor);
+      return;
+    }
+
     row.labelText.text = getSystemUi(systemId).label;
     drawSystemBar(row, 1, row.uiColor);
   }
@@ -639,6 +799,16 @@ export function createHubTagUi(opts) {
       const desired = buildRowsForBuildProcess(structure);
       const signature = getBuildRowSignature(desired);
       if (signature !== buildEntry.buildRowSignature) {
+        rebuildStructureTags(view, structure);
+        return;
+      }
+    }
+    const storageEntry = (view.tagEntries || []).find(
+      (entry) => entry?.storageSignature != null
+    );
+    if (storageEntry) {
+      const signature = getStorageSignature(structure);
+      if (signature !== storageEntry.storageSignature) {
         rebuildStructureTags(view, structure);
         return;
       }

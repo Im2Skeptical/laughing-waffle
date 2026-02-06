@@ -11,6 +11,13 @@ export const hubSystemDefs = {
       processes: [],
     },
   },
+  storage: {
+    id: "storage",
+    kind: "hubSystem",
+    ui: { name: "Storage", description: "Stored item pools." },
+    defaultTier: "bronze",
+    stateDefaults: {},
+  },
   build: {
     id: "build",
     kind: "hubSystem",

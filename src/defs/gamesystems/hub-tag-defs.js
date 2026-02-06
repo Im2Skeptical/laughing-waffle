@@ -207,7 +207,7 @@ export const hubTagDefs = {
     id: "depositable",
     kind: "hubTag",
     ui: { name: "Deposit", description: "Deposit items into a storage pool." },
-    systems: ["deposit"],
+    systems: ["deposit", "storage"],
     passives: [
       {
         id: "depositAdvance",
