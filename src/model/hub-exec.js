@@ -2,6 +2,8 @@
 // Per-second hub structure execution (passives + intents).
 
 import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
@@ -156,92 +158,197 @@ function getContributingPawns(state, structure) {
   return contributors;
 }
 
-function countGrainUnitsInInventory(inv) {
-  if (!inv || !Array.isArray(inv.items)) return 0;
-  let total = 0;
-  for (const item of inv.items) {
-    if (!item || !Array.isArray(item.tags)) continue;
-    if (!item.tags.includes("grain")) continue;
-    total += Math.max(0, Math.floor(item.quantity ?? 0));
-  }
-  return total;
+function normalizeDepositConfig(structure) {
+  if (!structure || !structure.defId) return null;
+  const def = hubStructureDefs?.[structure.defId];
+  const deposit = def?.deposit;
+  if (!deposit || typeof deposit !== "object") return null;
+  const systemId =
+    typeof deposit.systemId === "string" ? deposit.systemId : null;
+  if (!systemId) return null;
+  const poolKey =
+    typeof deposit.poolKey === "string" && deposit.poolKey.length > 0
+      ? deposit.poolKey
+      : "byKindTier";
+  const allowedTags = Array.isArray(deposit.allowedTags)
+    ? deposit.allowedTags.filter((tag) => typeof tag === "string" && tag.length > 0)
+    : [];
+  const allowedItemIds = Array.isArray(deposit.allowedItemIds)
+    ? deposit.allowedItemIds.filter(
+        (id) => typeof id === "string" && id.length > 0
+      )
+    : [];
+  const allowAny = deposit.allowAny === true;
+  return { systemId, poolKey, allowedTags, allowedItemIds, allowAny };
 }
 
-function ensureGranaryProcessQueue(structure) {
-  if (!structure || typeof structure !== "object") return [];
+function ensureHubSystemState(structure, systemId) {
+  if (!structure || !systemId) return null;
   if (!structure.systemState || typeof structure.systemState !== "object") {
     structure.systemState = {};
   }
-  const store = structure.systemState.granaryStore;
-  if (!store || typeof store !== "object") {
-    structure.systemState.granaryStore = {
-      byKindTier: {},
-      totalByTier: {},
-      processes: [],
-    };
+  if (!structure.systemTiers || typeof structure.systemTiers !== "object") {
+    structure.systemTiers = {};
   }
-  if (!Array.isArray(structure.systemState.granaryStore.processes)) {
-    structure.systemState.granaryStore.processes = [];
+  if (structure.systemTiers[systemId] == null) {
+    const def = hubSystemDefs?.[systemId];
+    if (def?.defaultTier != null) {
+      structure.systemTiers[systemId] = def.defaultTier;
+    }
   }
-  return structure.systemState.granaryStore.processes;
+  if (!structure.systemState[systemId]) {
+    const def = hubSystemDefs?.[systemId];
+    if (def?.stateDefaults) {
+      structure.systemState[systemId] = JSON.parse(
+        JSON.stringify(def.stateDefaults)
+      );
+    } else {
+      structure.systemState[systemId] = {};
+    }
+  }
+  return structure.systemState[systemId];
+}
+
+function ensureDepositQueue(structure) {
+  const depositState = ensureHubSystemState(structure, "deposit");
+  if (!depositState) return [];
+  if (!Array.isArray(depositState.processes)) {
+    depositState.processes = [];
+  }
+  return depositState.processes;
+}
+
+function itemMatchesDepositFilter(item, depositConfig) {
+  if (!item || !depositConfig) return false;
+  const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+  if (qty <= 0) return false;
+  const allowAny = depositConfig.allowAny === true;
+  const allowedItemIds = depositConfig.allowedItemIds || [];
+  const allowedTags = depositConfig.allowedTags || [];
+  if (allowAny && allowedItemIds.length === 0 && allowedTags.length === 0) {
+    return true;
+  }
+  if (allowedItemIds.length > 0 && allowedItemIds.includes(item.kind)) {
+    return true;
+  }
+  if (allowedTags.length > 0) {
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    for (const tag of allowedTags) {
+      if (tags.includes(tag)) return true;
+    }
+  }
+  return allowAny;
+}
+
+function countDepositableByKind(inv, depositConfig) {
+  if (!inv || !Array.isArray(inv.items) || !depositConfig) return {};
+  const totals = {};
+  for (const item of inv.items) {
+    if (!itemMatchesDepositFilter(item, depositConfig)) continue;
+    const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+    if (qty <= 0) continue;
+    const kind = item.kind;
+    if (!kind) continue;
+    totals[kind] = Math.max(0, Math.floor(totals[kind] ?? 0)) + qty;
+  }
+  return totals;
+}
+
+function buildDepositRequirements(kindTotals) {
+  const kinds = Object.keys(kindTotals || {});
+  kinds.sort((a, b) => a.localeCompare(b));
+  const reqs = [];
+  for (const kind of kinds) {
+    const qty = Math.max(0, Math.floor(kindTotals[kind] ?? 0));
+    if (qty <= 0) continue;
+    reqs.push({
+      kind: "item",
+      itemId: kind,
+      amount: qty,
+      progress: 0,
+      consume: true,
+      slotId: "items",
+    });
+  }
+  return reqs;
 }
 
 function ensureDepositProcesses(state, structure, pawns, tSec) {
   if (!state || !structure || !Array.isArray(pawns) || pawns.length === 0) {
     return false;
   }
-  const processes = ensureGranaryProcessQueue(structure);
+  const depositConfig = normalizeDepositConfig(structure);
+  if (!depositConfig) return false;
+
+  ensureHubSystemState(structure, depositConfig.systemId);
+
+  const processes = ensureDepositQueue(structure);
   let changed = false;
 
   for (const pawn of pawns) {
     if (!pawn) continue;
+    const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
+    if (!pawnInv) continue;
+
+    const kindTotals = countDepositableByKind(pawnInv, depositConfig);
+    const totalUnits = Object.values(kindTotals).reduce(
+      (sum, value) => sum + Math.max(0, Math.floor(value ?? 0)),
+      0
+    );
+    if (totalUnits <= 0) continue;
+
+    const hasExisting = processes.some(
+      (proc) => proc?.type === "depositItems" && proc?.ownerId === pawn.id
+    );
+    if (hasExisting) continue;
+
     const leader =
       pawn.role === PAWN_ROLE_LEADER
         ? pawn
         : pawn.leaderId != null
         ? getLeaderById(state, pawn.leaderId)
         : null;
-    if (!leader || leader.role !== PAWN_ROLE_LEADER) continue;
+    const hasLeader = leader && leader.role === PAWN_ROLE_LEADER;
+    const communal =
+      Array.isArray(structure.tags) &&
+      structure.tags.includes("communal") &&
+      !isTagDisabled(structure, "communal");
 
-    const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
-    if (!pawnInv) continue;
-    const grainUnits = countGrainUnitsInInventory(pawnInv);
-    if (grainUnits <= 0) continue;
+    const requirements = buildDepositRequirements(kindTotals);
+    if (requirements.length === 0) continue;
 
-    const hasExisting = processes.some(
-      (proc) => proc?.type === "depositGrain" && proc?.ownerId === pawn.id
-    );
-    if (hasExisting) continue;
+    const outputs = [
+      {
+        kind: "pool",
+        system: depositConfig.systemId,
+        poolKey: depositConfig.poolKey,
+        fromLedger: true,
+        slotId: "pool",
+      },
+    ];
+
+    if (communal && hasLeader) {
+      outputs.push({
+        kind: "prestige",
+        qty: totalUnits,
+        slotId: "prestige",
+      });
+    }
 
     runEffect(
       state,
       {
         op: "CreateWorkProcess",
-        system: "granaryStore",
+        system: "deposit",
         queueKey: "processes",
-        processType: "depositGrain",
+        processType: "depositItems",
         mode: "time",
         durationSec: 1,
-        requirements: [
-          {
-            kind: "tag",
-            tag: "grain",
-            amount: grainUnits,
-            progress: 0,
-            consume: true,
-            slotId: "grain",
-          },
-        ],
-        outputs: [
-          {
-            kind: "prestige",
-            qty: grainUnits,
-            slotId: "prestige",
-          },
-        ],
+        requirements,
+        outputs,
         processMeta: {
-          ownerId: pawn.id,
-          leaderId: leader.id,
+          ownerKind: "pawn",
+          leaderId: hasLeader ? leader.id : null,
         },
       },
       {
@@ -249,7 +356,8 @@ function ensureDepositProcesses(state, structure, pawns, tSec) {
         state,
         source: structure,
         tSec,
-        ownerId: structure.instanceId,
+        ownerId: pawn.id,
+        leaderId: hasLeader ? leader.id : null,
       }
     );
 
@@ -280,7 +388,11 @@ export function stepHubSecond(state, tSec) {
     const contributingPawns = getContributingPawns(state, structure);
     const hasPawn = pawns.length > 0;
 
-    if (hasPawn && tags.includes("deposit") && !isTagDisabled(structure, "deposit")) {
+    if (
+      hasPawn &&
+      tags.includes("depositable") &&
+      !isTagDisabled(structure, "depositable")
+    ) {
       ensureDepositProcesses(state, structure, pawns, tSec);
     }
 

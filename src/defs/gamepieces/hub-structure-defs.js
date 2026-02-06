@@ -9,7 +9,7 @@ export const hubStructureDefs = {
     color: 0xd9793a,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: ["canCook", "canCraft", "distributor"],
+    tags: ["canCook", "canCraft"],
     systems: {},
     inventory: { cols: 5, rows: 10 },
     ui: {
@@ -41,10 +41,15 @@ export const hubStructureDefs = {
     color: 0xc2a16a,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: ["canDeposit", "distributor"],
+    tags: ["depositable", "communal", "distributor"],
     systems: {},
     inventory: { cols: 5, rows: 6 },
     inventoryRules: { allowedItemTags: ["grain"] },
+    deposit: {
+      systemId: "granaryStore",
+      poolKey: "byKindTier",
+      allowedTags: ["grain"],
+    },
     build: {
       laborSec: 60,
       requirements: [
@@ -66,9 +71,14 @@ export const hubStructureDefs = {
     color: 0x8a6a4f,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: ["distributor"],
+    tags: ["depositable", "distributor"],
     systems: {},
     inventory: { cols: 6, rows: 8 },
+    deposit: {
+      systemId: "storehouseStore",
+      poolKey: "byKindTier",
+      allowAny: true,
+    },
     build: {
       laborSec: 80,
       requirements: [

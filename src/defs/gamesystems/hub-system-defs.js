@@ -2,6 +2,15 @@
 // Hub system registry (data only).
 
 export const hubSystemDefs = {
+  deposit: {
+    id: "deposit",
+    kind: "hubSystem",
+    ui: { name: "Deposit", description: "Deposit processes for storage pools." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      processes: [],
+    },
+  },
   build: {
     id: "build",
     kind: "hubSystem",
@@ -30,6 +39,20 @@ export const hubSystemDefs = {
     id: "granaryStore",
     kind: "hubSystem",
     ui: { name: "Granary Store", description: "Stored grain by type and tier." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      byKindTier: {},
+      totalByTier: {},
+      processes: [],
+    },
+  },
+  storehouseStore: {
+    id: "storehouseStore",
+    kind: "hubSystem",
+    ui: {
+      name: "Storehouse Store",
+      description: "Stored items by type and tier.",
+    },
     defaultTier: "bronze",
     stateDefaults: {
       byKindTier: {},

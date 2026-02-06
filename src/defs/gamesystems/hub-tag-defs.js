@@ -203,11 +203,11 @@ export const hubTagDefs = {
     ],
   },
 
-  canDeposit: {
-    id: "canDeposit",
+  depositable: {
+    id: "depositable",
     kind: "hubTag",
-    ui: { name: "Deposit", description: "Deposit grain into the granary." },
-    systems: ["granaryStore"],
+    ui: { name: "Deposit", description: "Deposit items into a storage pool." },
+    systems: ["deposit"],
     passives: [
       {
         id: "depositAdvance",
@@ -215,9 +215,9 @@ export const hubTagDefs = {
         requires: { hasPawn: true },
         effect: {
           op: "AdvanceWorkProcess",
-          system: "granaryStore",
+          system: "deposit",
           queueKey: "processes",
-          processType: "depositGrain",
+          processType: "depositItems",
           mode: "time",
           deltaSec: 9999,
         },
@@ -225,5 +225,17 @@ export const hubTagDefs = {
     ],
     intents: [],
     affordances: ["deposit"],
+  },
+
+  communal: {
+    id: "communal",
+    kind: "hubTag",
+    ui: {
+      name: "Communal",
+      description: "Deposits here award prestige.",
+    },
+    systems: [],
+    passives: [],
+    intents: [],
   },
 };

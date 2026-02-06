@@ -284,11 +284,6 @@ export function applyPrestigeDeposit(state, leaderId, structure, kindTierTotals)
 
   ensureLeaderPrestigeFields(leader);
 
-  const hasStore =
-    structure?.systemState &&
-    Object.prototype.hasOwnProperty.call(structure.systemState, "granaryStore");
-  const store = hasStore ? ensureGranaryStore(structure) : null;
-
   let depositedTotal = 0;
   const kinds = Object.keys(kindTierTotals || {});
   for (const kind of kinds) {
@@ -298,7 +293,6 @@ export function applyPrestigeDeposit(state, leaderId, structure, kindTierTotals)
       const amount = Math.max(0, Math.floor(amountRaw ?? 0));
       if (amount <= 0) continue;
       const tier = typeof tierRaw === "string" && tierRaw.length ? tierRaw : "bronze";
-      if (store) addToGranaryStore(store, kind, tier, amount);
       addToLeaderTotals(leader, tier, amount);
       depositedTotal += amount;
     }

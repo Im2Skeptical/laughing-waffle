@@ -214,6 +214,7 @@ export function createProcessWidgetView({
       return def?.name || out.itemId || "Item";
     }
     if (out.kind === "pool") {
+      if (out.fromLedger) return "Deposit Pool";
       const def = itemDefs?.[out.itemId];
       const itemLabel = def?.name || out.itemId || "Item";
       return `${itemLabel} Pool`;
@@ -561,7 +562,8 @@ export function createProcessWidgetView({
       for (const out of outputs) {
         const label = formatOutputLabel(out);
         const qty = Math.max(0, Math.floor(out.qty ?? out.amount ?? 0));
-        const line = new PIXI.Text(`${label}: ${qty}`, {
+        const lineText = out.fromLedger ? `${label}: From Inputs` : `${label}: ${qty}`;
+        const line = new PIXI.Text(lineText, {
           fill: COLORS.subText,
           fontSize: 10,
         });

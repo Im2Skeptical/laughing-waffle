@@ -475,6 +475,18 @@ function ensureTierBucket(container, itemId = null) {
   return bucket;
 }
 
+function addPoolTotals(endpoint, tier, amount) {
+  if (!endpoint || amount <= 0) return;
+  const owner = endpoint.owner;
+  const systemId = endpoint.systemId;
+  if (!owner || !systemId) return;
+  const store = owner.systemState?.[systemId];
+  if (!store || typeof store !== "object") return;
+  if (!store.totalByTier || typeof store.totalByTier !== "object") return;
+  const current = Math.max(0, Math.floor(store.totalByTier[tier] ?? 0));
+  store.totalByTier[tier] = current + amount;
+}
+
 function getPoolCandidateItemId(endpoint, requirement) {
   if (!endpoint || !requirement) return null;
   if (requirement.kind === "item" && requirement.itemId) {
@@ -810,10 +822,12 @@ function tryApplyOutputUnit(state, target, process, output, endpoint, context) {
       if (endpoint.itemId && endpoint.itemId !== itemId) return false;
       const bucket = ensureTierBucket(pool);
       bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + 1;
+      addPoolTotals(endpoint, tier, 1);
       return true;
     }
     const bucket = ensureTierBucket(pool, itemId);
     bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + 1;
+    addPoolTotals(endpoint, tier, 1);
     return true;
   }
   if (output.kind === "item") {
@@ -884,6 +898,43 @@ function applyPrestigeOutput(state, target, process, output, endpointId) {
   return applyPrestigeDeposit(state, leaderId, target, fallback);
 }
 
+function applyPoolLedgerOutput(process, endpoint) {
+  if (!process || !endpoint || endpoint.kind !== "pool") return false;
+  const ledger =
+    process?.consumedByKindTier && typeof process.consumedByKindTier === "object"
+      ? process.consumedByKindTier
+      : null;
+  if (!ledger || Object.keys(ledger).length === 0) return false;
+
+  const pool = endpoint.target;
+  if (!pool || typeof pool !== "object") return false;
+
+  let applied = false;
+  const kinds = Object.keys(ledger).sort((a, b) => a.localeCompare(b));
+  const isBucket = isTierBucket(pool);
+
+  for (const kind of kinds) {
+    const tiers = ledger[kind];
+    if (!tiers || typeof tiers !== "object") continue;
+    if (isBucket && endpoint.itemId && endpoint.itemId !== kind) continue;
+    for (const tier of TIER_ASC) {
+      const amount = Math.max(0, Math.floor(tiers[tier] ?? 0));
+      if (amount <= 0) continue;
+      if (isBucket) {
+        const bucket = ensureTierBucket(pool);
+        bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + amount;
+      } else {
+        const bucket = ensureTierBucket(pool, kind);
+        bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + amount;
+      }
+      addPoolTotals(endpoint, tier, amount);
+      applied = true;
+    }
+  }
+
+  return applied;
+}
+
 function applyProcessOutputs(state, target, process, processDef, context) {
   const outputs = Array.isArray(processDef?.transform?.outputs)
     ? processDef.transform.outputs
@@ -908,6 +959,30 @@ function applyProcessOutputs(state, target, process, processDef, context) {
         if (!endpointId) continue;
         if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
         if (applyPrestigeOutput(state, target, process, output, endpointId)) {
+          applied = true;
+          changed = true;
+          break;
+        }
+      }
+      if (!applied) continue;
+      continue;
+    }
+    if (output.kind === "pool" && output.fromLedger) {
+      const slotDef = resolveSlotDef(processDef, "outputs", output.slotId);
+      if (!slotDef) continue;
+      const slotState = resolveSlotState(process, "outputs", slotDef);
+      if (!slotState) continue;
+      const candidates = listCandidateEndpoints(state, process, slotDef, target, context);
+      let applied = false;
+      for (const endpointRaw of slotState.ordered || []) {
+        const enabled = slotState.enabled?.[endpointRaw];
+        if (enabled === false) continue;
+        const endpointId = resolveEndpointIdForRouting(endpointRaw, process, context);
+        if (!endpointId) continue;
+        if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+        const endpoint = resolveEndpointTarget(state, endpointId);
+        if (!endpoint) continue;
+        if (applyPoolLedgerOutput(process, endpoint)) {
           applied = true;
           changed = true;
           break;

@@ -473,26 +473,37 @@ function ensureHubStructureFields(instance, def) {
     instance.systemState = {};
   }
 
+  function ensureHubSystemState(systemId) {
+    if (!systemId || typeof systemId !== "string") return;
+    if (instance.systemTiers[systemId] == null) {
+      const sysDef = hubSystemDefs[systemId];
+      if (sysDef?.defaultTier != null) {
+        instance.systemTiers[systemId] = sysDef.defaultTier;
+      }
+    }
+    if (!instance.systemState[systemId]) {
+      const sysDef = hubSystemDefs[systemId];
+      if (sysDef?.stateDefaults) {
+        instance.systemState[systemId] = deepCloneSerializable(
+          sysDef.stateDefaults
+        );
+      }
+    }
+  }
+
   const tags = Array.isArray(instance.tags) ? instance.tags : [];
   for (const tagId of tags) {
     const tagDef = hubTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
     for (const systemId of systems) {
-      if (instance.systemTiers[systemId] == null) {
-        const sysDef = hubSystemDefs[systemId];
-        if (sysDef?.defaultTier != null) {
-          instance.systemTiers[systemId] = sysDef.defaultTier;
-        }
-      }
-      if (!instance.systemState[systemId]) {
-        const sysDef = hubSystemDefs[systemId];
-        if (sysDef?.stateDefaults) {
-          instance.systemState[systemId] = deepCloneSerializable(
-            sysDef.stateDefaults
-          );
-        }
-      }
+      ensureHubSystemState(systemId);
     }
+  }
+
+  const depositSystemId =
+    typeof def?.deposit?.systemId === "string" ? def.deposit.systemId : null;
+  if (depositSystemId) {
+    ensureHubSystemState(depositSystemId);
   }
 }
 
