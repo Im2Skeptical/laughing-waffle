@@ -346,6 +346,14 @@ export function getProcessDefForInstance(process, target, context) {
         { systemId: "storehouseStore", poolKey: "byKindTier" },
       ],
     };
+    outputRule = {
+      kind: "adjacentDistributors",
+      range: 1,
+      tag: "distributor",
+      store: "inv",
+      includeSelfInv: true,
+      includeOccupants: true,
+    };
   } else if (kind === "cropGrowth") {
     inputRule = {
       kind: "adjacentDistributors",
