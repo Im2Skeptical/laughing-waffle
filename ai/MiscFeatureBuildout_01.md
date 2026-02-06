@@ -11,9 +11,9 @@ I would like to address how rotChancePerSec currently works.
 rotChancePerSec needs to be declared/attached with the tag perishable
 and not a property of the item itself.
 
-The perishability system tier needs to modify the base rotChancePerSec, bronze giving the highest rot chance and diamond giving the lowest.
+The perishability system tier needs to modify/multiply the base rotChancePerSec, bronze giving the highest rot chance and diamond giving the lowest. 
 
-For now the base rotChancePerSec can exist as a single number for all items defined in gamerules-defs. 
+For now the base rotChancePerSec can exist as a single number acting as the base number for the perisiable tag to work off defined in gamerules-defs.  
 
 ---
 
