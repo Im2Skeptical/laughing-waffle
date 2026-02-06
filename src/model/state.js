@@ -301,7 +301,7 @@ export const gameState = createEmptyState();
 // INSTANCE CREATION (core; used by init + effects)
 // =============================================================================
 
-export function makeHubStructureInstance(defId, state) {
+export function makeHubStructureInstance(defId, state, options = {}) {
   const def = hubStructureDefs[defId];
   const span =
     Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
@@ -311,6 +311,7 @@ export function makeHubStructureInstance(defId, state) {
     instanceId: state.nextHubStructureInstanceId++,
     defId,
     span,
+    tier: typeof options?.tier === "string" ? options.tier : null,
     props: {},
     tags: [],
     systemTiers: {},
@@ -477,7 +478,11 @@ function ensureHubStructureFields(instance, def) {
     if (!systemId || typeof systemId !== "string") return;
     if (instance.systemTiers[systemId] == null) {
       const sysDef = hubSystemDefs[systemId];
-      if (sysDef?.defaultTier != null) {
+      const instanceTier =
+        typeof instance.tier === "string" ? instance.tier : null;
+      if (instanceTier) {
+        instance.systemTiers[systemId] = instanceTier;
+      } else if (sysDef?.defaultTier != null) {
         instance.systemTiers[systemId] = sysDef.defaultTier;
       }
     }

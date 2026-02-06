@@ -230,7 +230,11 @@ function ensureHubSystemState(structure, systemId) {
   }
   if (structure.systemTiers[systemId] == null) {
     const def = hubSystemDefs?.[systemId];
-    if (def?.defaultTier != null) {
+    const structureTier =
+      typeof structure.tier === "string" ? structure.tier : null;
+    if (structureTier) {
+      structure.systemTiers[systemId] = structureTier;
+    } else if (def?.defaultTier != null) {
       structure.systemTiers[systemId] = def.defaultTier;
     }
   }

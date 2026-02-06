@@ -160,7 +160,8 @@ export function cmdBuildDesignate(state, payload = {}) {
 
   const def = validity.def;
   const col = validity.hubCol;
-  const structure = makeHubStructureInstance(defId, state);
+  const tier = typeof payload.tier === "string" ? payload.tier : null;
+  const structure = makeHubStructureInstance(defId, state, { tier });
   structure.tags = ["build"];
   if (structure.tagStates) delete structure.tagStates;
 

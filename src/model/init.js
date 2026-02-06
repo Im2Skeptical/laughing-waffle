@@ -301,7 +301,9 @@ function buildHubSlots(setup, hubCols, state) {
     }
     if (blocked) continue;
 
-    const structure = makeHubStructureInstance(spec.defId, state);
+      const structure = makeHubStructureInstance(spec.defId, state, {
+        tier: typeof spec.tier === "string" ? spec.tier : null,
+      });
     slots[hubCol] = {
       x: spec.x,
       y: spec.y,

@@ -64,13 +64,15 @@ function ensureItemSystemInitialized(item, def, systemId, reset) {
   const systemDef = itemSystemDefs[systemId];
   if (!systemDef) return;
 
+  const itemTier = typeof item?.tier === "string" ? item.tier : null;
   const defTier = def?.baseSystemTiers?.[systemId];
   const targetTier =
-    typeof defTier === "string"
+    itemTier ??
+    (typeof defTier === "string"
       ? defTier
       : typeof systemDef.defaultTier === "string"
         ? systemDef.defaultTier
-        : "bronze";
+        : "bronze");
 
   if (reset || item.systemTiers[systemId] == null) {
     item.systemTiers[systemId] = targetTier;
