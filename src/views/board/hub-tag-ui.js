@@ -97,6 +97,9 @@ export function createHubTagUi(opts) {
     requestPauseForAction,
     toggleTag,
     openRecipeDropdown,
+    onSystemIconHover,
+    onSystemIconOut,
+    onSystemIconClick,
   } = opts;
 
   function getTagLabel(tagId) {
@@ -388,7 +391,10 @@ export function createHubTagUi(opts) {
 
     const icon = new PIXI.Container();
     icon.eventMode = "static";
-    icon.cursor = "help";
+    icon.cursor =
+      onSystemIconClick || onSystemIconHover || onSystemIconOut
+        ? "pointer"
+        : "help";
 
     const iconBg = new PIXI.Graphics()
       .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
@@ -463,14 +469,25 @@ export function createHubTagUi(opts) {
       storageLabel: opts?.storageLabel ?? null,
     };
 
-    if (systemId === "storage") {
-      icon.on("pointerover", () => {
+    icon.on("pointerover", () => {
+      onSystemIconHover?.(view, systemId);
+      if (systemId === "storage") {
         showStorageTooltip(view.structure, row, icon.getBounds());
-      });
-      icon.on("pointerout", () => {
+      }
+    });
+    icon.on("pointerout", () => {
+      onSystemIconOut?.(view, systemId);
+      if (systemId === "storage") {
         tooltipView?.hide?.();
-      });
-    }
+      }
+    });
+    icon.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+    });
+    icon.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onSystemIconClick?.(view, systemId);
+    });
 
     return row;
   }

@@ -1,9 +1,10 @@
 // process-widget-pixi.js
-// Minimal process inspector with routing editor.
+// Process Widget v2: modular layout + routing drawers.
 
 import { ActionKinds } from "../model/actions.js";
 import {
   getProcessDefForInstance,
+  getDropEndpointId,
   isDropEndpoint,
   listCandidateEndpoints,
   resolveEndpointTarget,
@@ -11,33 +12,50 @@ import {
 } from "../model/process-framework.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
-import { createPillDragController } from "./pill-drag-controller.js";
+import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
+import { createWindowHeader } from "./ui-helpers/window-header.js";
 
-const PANEL_WIDTH = 360;
-const HEADER_HEIGHT = 28;
-const TAB_HEIGHT = 24;
-const PADDING = 12;
-const SECTION_GAP = 10;
-const ROW_GAP = 6;
+const CORE_WIDTH = 280;
+const CARD_RADIUS = 12;
+const CARD_GAP = 10;
+const HEADER_HEIGHT = 22;
+const HEADER_PAD_X = 10;
+const HEADER_PAD_Y = 6;
+const BODY_PAD = 8;
+const SEGMENT_GAP = 6;
 
-const PILL_HEIGHT = 20;
-const PILL_RADIUS = 10;
+const DRAWER_COLLAPSED = 22;
+const DRAWER_EXPANDED = 126;
+const BUFFER_SIZE = 44;
+
+const MODULE_GAP = 8;
+const MODULE_PAD = 6;
+const MODULE_RADIUS = 8;
+
+const PILL_HEIGHT = 18;
+const PILL_RADIUS = 9;
 const PILL_GAP = 6;
-const PILL_PAD_X = 10;
+const PILL_PAD_X = 8;
 const TOGGLE_SIZE = 10;
 const TOGGLE_PAD = 6;
 
+const GROUP_SYSTEM_IDS = new Set(["growth"]);
+
 const COLORS = {
-  panel: 0x1a1f2f,
-  panelBorder: 0x30384f,
+  panel: 0x151a2a,
+  panelBorder: 0x2a3146,
+  headerBg: 0x303048,
   headerText: 0xffffff,
-  subText: 0x9aa0b5,
-  tabActive: 0x2a3958,
-  tabInactive: 0x1f263d,
-  tabText: 0xffffff,
-  slotText: 0xe6eef9,
+  headerSub: 0xa0a7bb,
+  moduleBg: 0x1e2438,
+  moduleBorder: 0x2b334a,
+  moduleText: 0xe6eef9,
+  moduleSub: 0x9aa0b5,
+  drawerBg: 0x1a2034,
+  drawerBorder: 0x2a3146,
   pillEnabled: 0x2a3958,
   pillDisabled: 0x2a2f3d,
   pillInvalid: 0x4b252c,
@@ -47,9 +65,9 @@ const COLORS = {
   pillTextInvalid: 0xf2b0b0,
   progressBg: 0x2a2f45,
   progressFill: 0x7ccf6b,
+  bufferBg: 0x1b2136,
+  bufferBorder: 0x323b56,
 };
-
-const TAB_IDS = ["transform", "inputs", "outputs"];
 
 export function createProcessWidgetView({
   app,
@@ -61,25 +79,13 @@ export function createProcessWidgetView({
   inventoryView,
   position = { x: 1180, y: 640 },
 }) {
-  const container = new PIXI.Container();
-  container.x = position.x;
-  container.y = position.y;
-  container.zIndex = 120;
-  container.visible = false;
-  layer.addChild(container);
+  const windows = new Map();
+  const drawerExpanded = {
+    inputs: new Set(),
+    outputs: new Set(),
+  };
 
-  const bg = new PIXI.Graphics();
-  container.addChild(bg);
-
-  const content = new PIXI.Container();
-  container.addChild(content);
-
-  const dropTargets = [];
-
-  let activeTab = "inputs";
-  let lastSignature = null;
-  let activeTargetKey = null;
-  const expandedSlots = new Set();
+  let hoverContext = null;
 
   const routingDragController = createPillDragController({
     app,
@@ -188,6 +194,31 @@ export function createProcessWidgetView({
     }
     const tileDef = envTileDefs[target.defId];
     return tileDef?.name || target.defId || "Tile";
+  }
+
+  function isGroupedSystem(systemId) {
+    return systemId && GROUP_SYSTEM_IDS.has(systemId);
+  }
+  function getProcessVariant(process, processDef) {
+    if (!processDef) return "generic";
+    const kind = processDef.processKind;
+    if (kind === "cropGrowth") return "growing";
+    if (kind === "depositItems") return "depositing";
+    if (kind === "build") return "building";
+    const recipe = recipeDefs?.[process?.type] || null;
+    if (recipe?.kind === "cook") return "cooking";
+    if (recipe?.kind === "craft") return "crafting";
+    return "generic";
+  }
+
+  function getCardTitle(targetLabel, process, processDef) {
+    const variant = getProcessVariant(process, processDef);
+    if (variant === "growing") return `${targetLabel} - Growing`;
+    if (variant === "depositing") return `${targetLabel} - Depositing`;
+    if (variant === "building") return `${targetLabel} - Building`;
+    if (variant === "cooking") return `${targetLabel} - Cooking`;
+    if (variant === "crafting") return `${targetLabel} - Crafting`;
+    return `${targetLabel} - ${processDef?.displayName || "Process"}`;
   }
 
   function formatRequirementLabel(req) {
@@ -344,6 +375,27 @@ export function createProcessWidgetView({
     return null;
   }
 
+  function makeTargetRef(target) {
+    if (!target) return null;
+    const id = target.instanceId ?? target.id ?? null;
+    if (id == null) return null;
+    const isHub = !!hubStructureDefs[target.defId];
+    const kind = isHub ? "hub" : "env";
+    return { kind, id: String(id) };
+  }
+
+  function sameTargetRef(a, b) {
+    if (!a || !b) return false;
+    return a.kind === b.kind && String(a.id) === String(b.id);
+  }
+
+  function resolveTargetFromRef(state, ref) {
+    if (!ref || !state) return null;
+    if (ref.kind === "hub") return findStructureById(state, ref.id);
+    if (ref.kind === "env") return findTileById(state, ref.id);
+    return null;
+  }
+
   function buildProcessSignature(targetKey, entries) {
     if (!Array.isArray(entries) || entries.length === 0) return null;
     const parts = [];
@@ -370,219 +422,51 @@ export function createProcessWidgetView({
       const progress = Number.isFinite(process.progress)
         ? Math.floor(process.progress)
         : 0;
-      parts.push(
-        `${process.id}|${progress}|${routingSig}|${reqSig}|${outSig}`
-      );
+      parts.push(`${process.id}|${progress}|${routingSig}|${reqSig}|${outSig}`);
     }
-    return `${targetKey}|${activeTab}|${parts.join("||")}`;
+    return `${targetKey}|${parts.join("||")}`;
   }
 
-  function clearContent() {
-    content.removeChildren();
-    dropTargets.length = 0;
+  function clearContent(content, dropTargets) {
+    if (content) content.removeChildren();
+    if (Array.isArray(dropTargets)) dropTargets.length = 0;
   }
 
-  function drawPanel(height) {
+  function invalidateAllSignatures() {
+    for (const win of windows.values()) {
+      if (win) win.lastSignature = null;
+    }
+  }
+  function drawCardBackground(bg, width, height) {
     bg.clear();
     bg.lineStyle(2, COLORS.panelBorder, 0.9);
-    bg.beginFill(COLORS.panel, 0.95);
-    bg.drawRoundedRect(0, 0, PANEL_WIDTH, height, 14);
+    bg.beginFill(COLORS.panel, 0.96);
+    bg.drawRoundedRect(0, 0, width, height, CARD_RADIUS);
     bg.endFill();
   }
 
-  function addHeader(targetLabel) {
-    const header = new PIXI.Container();
-    header.x = PADDING;
-    header.y = PADDING;
-    content.addChild(header);
-
-    const title = new PIXI.Text(targetLabel, {
-      fill: COLORS.headerText,
-      fontSize: 14,
-      fontWeight: "bold",
-    });
-    title.x = 0;
-    title.y = 0;
-    header.addChild(title);
-
-    return HEADER_HEIGHT;
+  function drawModuleBox(bg, width, height) {
+    bg.clear();
+    bg.lineStyle(1, COLORS.moduleBorder, 0.9);
+    bg.beginFill(COLORS.moduleBg, 0.95);
+    bg.drawRoundedRect(0, 0, width, height, MODULE_RADIUS);
+    bg.endFill();
   }
 
-  function addTabs(yStart) {
-    const tabBar = new PIXI.Container();
-    tabBar.x = PADDING;
-    tabBar.y = yStart;
-    content.addChild(tabBar);
-
-    const tabWidth = Math.floor((PANEL_WIDTH - PADDING * 2 - 8) / TAB_IDS.length);
-    let x = 0;
-    for (const tabId of TAB_IDS) {
-      const active = tabId === activeTab;
-      const tabBg = new PIXI.Graphics();
-      tabBg.beginFill(active ? COLORS.tabActive : COLORS.tabInactive, 1);
-      tabBg.drawRoundedRect(0, 0, tabWidth, TAB_HEIGHT, 6);
-      tabBg.endFill();
-      tabBg.x = x;
-      tabBar.addChild(tabBg);
-
-      const tabText = new PIXI.Text(tabId[0].toUpperCase() + tabId.slice(1), {
-        fill: COLORS.tabText,
-        fontSize: 11,
-        fontWeight: active ? "bold" : "normal",
-      });
-      tabText.x = x + 8;
-      tabText.y = 5;
-      tabBar.addChild(tabText);
-
-      tabBg.eventMode = "static";
-      tabBg.cursor = "pointer";
-      tabBg.on("pointertap", () => {
-        if (activeTab === tabId) return;
-        activeTab = tabId;
-        lastSignature = null;
-      });
-
-      x += tabWidth + 4;
-    }
-
-    return TAB_HEIGHT + 8;
+  function drawDrawerBox(bg, width, height) {
+    bg.clear();
+    bg.lineStyle(1, COLORS.drawerBorder, 0.9);
+    bg.beginFill(COLORS.drawerBg, 0.95);
+    bg.drawRoundedRect(0, 0, width, height, MODULE_RADIUS);
+    bg.endFill();
   }
 
-  function addProgressBar(yStart, processDef, process) {
-    const bar = new PIXI.Container();
-    bar.x = PADDING;
-    bar.y = yStart;
-    content.addChild(bar);
-
-    const label = processDef?.transform?.mode === "work" ? "Progress: Work" : "Progress: Time";
-    const labelText = new PIXI.Text(label, {
-      fill: COLORS.subText,
-      fontSize: 10,
-    });
-    labelText.x = 0;
-    labelText.y = 0;
-    bar.addChild(labelText);
-
-    const width = PANEL_WIDTH - PADDING * 2;
-    const height = 10;
-    const y = 14;
-    const bgRect = new PIXI.Graphics();
-    bgRect.beginFill(COLORS.progressBg, 1);
-    bgRect.drawRoundedRect(0, y, width, height, 4);
-    bgRect.endFill();
-    bar.addChild(bgRect);
-
-    const duration = Math.max(1, Math.floor(processDef?.transform?.durationSec ?? 1));
-    const progress = Math.max(0, Math.floor(process?.progress ?? 0));
-    const ratio = Math.min(1, progress / duration);
-    const fill = new PIXI.Graphics();
-    if (ratio > 0) {
-      fill.beginFill(COLORS.progressFill, 1);
-      fill.drawRoundedRect(0, y, Math.max(2, width * ratio), height, 4);
-      fill.endFill();
-    }
-    bar.addChild(fill);
-
-    const timeText = new PIXI.Text(`${progress}/${duration}s`, {
-      fill: COLORS.subText,
-      fontSize: 10,
-    });
-    timeText.x = width - timeText.width;
-    timeText.y = 0;
-    bar.addChild(timeText);
-
-    return y + height + 6;
-  }
-
-  function addTransformTab(yStart, processDef, process) {
-    let y = yStart;
-    const transform = processDef?.transform || {};
-
-    y += addProgressBar(y, processDef, process);
-
-    const reqs = Array.isArray(transform.requirements) ? transform.requirements : [];
-    const outputs = Array.isArray(transform.outputs) ? transform.outputs : [];
-
-    const reqTitle = new PIXI.Text("Requirements", {
-      fill: COLORS.slotText,
-      fontSize: 11,
-      fontWeight: "bold",
-    });
-    reqTitle.x = PADDING;
-    reqTitle.y = y;
-    content.addChild(reqTitle);
-    y += 16;
-
-    if (!reqs.length) {
-      const none = new PIXI.Text("None", {
-        fill: COLORS.subText,
-        fontSize: 10,
-      });
-      none.x = PADDING;
-      none.y = y;
-      content.addChild(none);
-      y += 14 + ROW_GAP;
-    } else {
-      for (const req of reqs) {
-        const label = formatRequirementLabel(req);
-        const required = Math.max(0, Math.floor(req.amount ?? 0));
-        const progress = Math.max(0, Math.floor(req.progress ?? 0));
-        const line = new PIXI.Text(`${label}: ${progress}/${required}`, {
-          fill: COLORS.subText,
-          fontSize: 10,
-        });
-        line.x = PADDING;
-        line.y = y;
-        content.addChild(line);
-        y += 14 + ROW_GAP;
-      }
-    }
-
-    y += 4;
-    const outTitle = new PIXI.Text("Outputs", {
-      fill: COLORS.slotText,
-      fontSize: 11,
-      fontWeight: "bold",
-    });
-    outTitle.x = PADDING;
-    outTitle.y = y;
-    content.addChild(outTitle);
-    y += 16;
-
-    if (!outputs.length) {
-      const none = new PIXI.Text("None", {
-        fill: COLORS.subText,
-        fontSize: 10,
-      });
-      none.x = PADDING;
-      none.y = y;
-      content.addChild(none);
-      y += 14 + ROW_GAP;
-    } else {
-      for (const out of outputs) {
-        const label = formatOutputLabel(out);
-        const qty = Math.max(0, Math.floor(out.qty ?? out.amount ?? 0));
-        const lineText = out.fromLedger ? `${label}: From Inputs` : `${label}: ${qty}`;
-        const line = new PIXI.Text(lineText, {
-          fill: COLORS.subText,
-          fontSize: 10,
-        });
-        line.x = PADDING;
-        line.y = y;
-        content.addChild(line);
-        y += 14 + ROW_GAP;
-      }
-    }
-
-    return y;
-  }
-
-  function ensureSlotExpanded(slotKey, locked) {
-    if (locked) return true;
-    if (!expandedSlots.has(slotKey)) {
-      expandedSlots.add(slotKey);
-    }
-    return expandedSlots.has(slotKey);
+  function drawBufferBox(bg, width, height) {
+    bg.clear();
+    bg.lineStyle(1, COLORS.bufferBorder, 0.9);
+    bg.beginFill(COLORS.bufferBg, 0.95);
+    bg.drawRoundedRect(0, 0, width, height, MODULE_RADIUS);
+    bg.endFill();
   }
 
   function layoutPillEntries(slotView) {
@@ -626,6 +510,7 @@ export function createProcessWidgetView({
   }
 
   function buildPillEntry(state, slotView, rawEndpointId, resolvedId, opts = {}) {
+    const entryWidth = Math.max(60, slotView.entryWidth || 80);
     const entry = {
       endpointId: rawEndpointId,
       resolvedId,
@@ -636,7 +521,7 @@ export function createProcessWidgetView({
       container: new PIXI.Container(),
       bg: new PIXI.Graphics(),
       labelText: null,
-      width: PANEL_WIDTH - PADDING * 2 - 12,
+      width: entryWidth,
     };
 
     const row = entry.container;
@@ -690,12 +575,7 @@ export function createProcessWidgetView({
         slotView.ignoreNextTap = false;
         return;
       }
-      if (entry.locked) {
-        if (entry.resolvedId && entry.resolvedId.startsWith("inv:process:")) {
-          inventoryView?.revealWindow?.(entry.resolvedId, { pinned: true });
-        }
-        return;
-      }
+      if (entry.locked) return;
       if (!entry.endpointId || !slotView.processId) return;
       const nextEnabled = !entry.enabled;
       queueActionWhenPaused?.(() =>
@@ -742,210 +622,1065 @@ export function createProcessWidgetView({
         totals.diamond += Math.max(0, Math.floor(bucket.diamond ?? 0));
       }
     }
-    return `Pool: B ${totals.bronze}  S ${totals.silver}  G ${totals.gold}  D ${totals.diamond}`;
+    return `B ${totals.bronze}  S ${totals.silver}  G ${totals.gold}  D ${totals.diamond}`;
   }
 
-  function addRoutingSlots(yStart, slotKind, state, target, process, processDef) {
-    let y = yStart;
+  function hasSelectableSlots(processDef, slotKind) {
     const slots = processDef?.routingSlots?.[slotKind] || [];
-    const context = { leaderId: process?.leaderId ?? null };
-
-    for (const slotDef of slots) {
-      if (!slotDef) continue;
-      const slotKey = `${process.id}:${slotKind}:${slotDef.slotId}`;
-      const locked = slotDef.locked === true;
-      const expanded = ensureSlotExpanded(slotKey, locked);
-
-      const slotLabel = new PIXI.Text(slotDef.label || slotDef.slotId, {
-        fill: COLORS.slotText,
-        fontSize: 11,
-        fontWeight: "bold",
-      });
-      slotLabel.x = PADDING;
-      slotLabel.y = y;
-      content.addChild(slotLabel);
-
-      if (!locked) {
-        const arrow = new PIXI.Text(expanded ? "v" : ">", {
-          fill: COLORS.subText,
-          fontSize: 12,
-        });
-        arrow.x = PANEL_WIDTH - PADDING - 10;
-        arrow.y = y - 1;
-        arrow.eventMode = "static";
-        arrow.cursor = "pointer";
-        arrow.on("pointertap", () => {
-          if (expandedSlots.has(slotKey)) {
-            expandedSlots.delete(slotKey);
-          } else {
-            expandedSlots.add(slotKey);
-          }
-          lastSignature = null;
-        });
-        content.addChild(arrow);
-      }
-
-      y += 16;
-
-      if (!expanded && !locked) {
-        y += SECTION_GAP;
-        continue;
-      }
-
-      const slotState =
-        process?.routing?.[slotKind]?.[slotDef.slotId] || {
-          ordered: [],
-          enabled: {},
-        };
-      const ordered = Array.isArray(slotState.ordered) ? slotState.ordered : [];
-      if (ordered.length === 0) {
-        const none = new PIXI.Text("None", {
-          fill: COLORS.subText,
-          fontSize: 10,
-        });
-        none.x = PADDING;
-        none.y = y;
-        content.addChild(none);
-        y += 14 + SECTION_GAP;
-        continue;
-      }
-      const candidates = listCandidateEndpoints(state, process, slotDef, target, context);
-
-      const pillContainer = new PIXI.Container();
-      pillContainer.x = PADDING;
-      pillContainer.y = y;
-      content.addChild(pillContainer);
-
-      const slotView = {
-        processId: process.id,
-        slotKind,
-        slotId: slotDef.slotId,
-        slotLocked: locked,
-        pillContainer,
-        pillEntries: [],
-        ignoreNextTap: false,
-      };
-
-      for (const rawEndpointId of ordered) {
-        const resolvedId =
-          resolveFixedEndpointId(rawEndpointId, process, context) || rawEndpointId;
-        const isDrop = isDropEndpoint(resolvedId) && processDef.supportsDropslot;
-        const enabled = slotState.enabled?.[rawEndpointId] !== false;
-        const valid = isDrop || candidates.includes(resolvedId);
-        const entry = buildPillEntry(state, slotView, rawEndpointId, resolvedId, {
-          enabled,
-          invalid: !valid,
-          locked: locked || isDrop,
-          draggable: !locked && !isDrop,
-        });
-        pillContainer.addChild(entry.container);
-        slotView.pillEntries.push(entry);
-
-        if (isDrop) {
-          dropTargets.push({
-            ownerId: resolvedId,
-            getBounds: () => entry.container.getBounds(),
-          });
-        }
-
-        if (resolvedId && resolvedId.startsWith("sys:pool:")) {
-          const poolTarget = resolveEndpointTarget(state, resolvedId);
-          const poolText = formatPoolSummary(poolTarget);
-          if (poolText) {
-            const poolLabel = new PIXI.Text(poolText, {
-              fill: COLORS.subText,
-              fontSize: 9,
-            });
-            poolLabel.x = PILL_PAD_X + TOGGLE_SIZE + TOGGLE_PAD;
-            poolLabel.y = PILL_HEIGHT + 2;
-            entry.container.addChild(poolLabel);
-            entry.container.height = PILL_HEIGHT + 12;
-          }
-        }
-      }
-
-      layoutPillEntries(slotView);
-      y += slotView.pillHeight + SECTION_GAP;
-    }
-
-    return y;
+    return slots.some((slot) => slot && slot.locked !== true);
   }
 
-  function addProcessSection(yStart, state, target, processEntry, processDef, index, count) {
-    let y = yStart;
-    const name = processDef?.displayName || processEntry?.process?.type || "Process";
-    const header = new PIXI.Text(
-      count > 1 ? `${name} (${index + 1}/${count})` : name,
+  function getRequirementRows(reqs) {
+    if (!Array.isArray(reqs) || reqs.length === 0) return [];
+    if (reqs.length > 3) {
+      let totalAmount = 0;
+      let totalProgress = 0;
+      for (const req of reqs) {
+        totalAmount += Math.max(0, Math.floor(req.amount ?? 0));
+        totalProgress += Math.max(0, Math.floor(req.progress ?? 0));
+      }
+      return [
+        {
+          label: "Items",
+          progress: totalProgress,
+          amount: totalAmount,
+        },
+      ];
+    }
+    return reqs.map((req) => ({
+      label: formatRequirementLabel(req),
+      progress: Math.max(0, Math.floor(req.progress ?? 0)),
+      amount: Math.max(0, Math.floor(req.amount ?? 0)),
+    }));
+  }
+
+  function getPrestigeTotals(process) {
+    const totals = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
+    const byKind = process?.consumedByKindTier || null;
+    if (!byKind || typeof byKind !== "object") return totals;
+    for (const bucket of Object.values(byKind)) {
+      if (!bucket || typeof bucket !== "object") continue;
+      totals.bronze += Math.max(0, Math.floor(bucket.bronze ?? 0));
+      totals.silver += Math.max(0, Math.floor(bucket.silver ?? 0));
+      totals.gold += Math.max(0, Math.floor(bucket.gold ?? 0));
+      totals.diamond += Math.max(0, Math.floor(bucket.diamond ?? 0));
+    }
+    return totals;
+  }
+
+  function resolveLockedOutputEndpoint(process, processDef, output) {
+    if (!processDef || !output) return null;
+    const slots = processDef.routingSlots?.outputs || [];
+    const slot =
+      output.slotId && slots.find((s) => s?.slotId === output.slotId)
+        ? slots.find((s) => s?.slotId === output.slotId)
+        : slots[0] || null;
+    if (!slot || !slot.locked) return null;
+    const endpointId =
+      resolveFixedEndpointId(slot.candidateRule?.endpointId, process, {
+        leaderId: process?.leaderId ?? null,
+      }) || (Array.isArray(slot.default?.ordered) ? slot.default.ordered[0] : null);
+    return endpointId || null;
+  }
+  function buildProgressModule({
+    container,
+    width,
+    process,
+    processDef,
+    vertical,
+  }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const labelText = new PIXI.Text(
+      vertical ? "Progress: Time" : "Progress: Work",
       {
-        fill: COLORS.slotText,
-        fontSize: 12,
-        fontWeight: "bold",
+        fill: COLORS.moduleSub,
+        fontSize: 10,
       }
     );
-    header.x = PADDING;
-    header.y = y;
-    content.addChild(header);
-    y += 16;
+    labelText.x = MODULE_PAD;
+    labelText.y = MODULE_PAD;
+    container.addChild(labelText);
 
-    if (activeTab === "transform") {
-      y = addTransformTab(y, processDef, processEntry.process);
-    } else if (activeTab === "inputs") {
-      y = addRoutingSlots(y, "inputs", state, target, processEntry.process, processDef);
+    const duration = Math.max(1, Math.floor(processDef?.transform?.durationSec ?? 1));
+    const progress = Math.max(0, Math.floor(process?.progress ?? 0));
+    const ratio = Math.min(1, progress / duration);
+
+    if (vertical) {
+      const barWidth = 14;
+      const barHeight = 40;
+      const barX = Math.floor((width - barWidth) / 2);
+      const barY = labelText.y + 14;
+
+      const barBg = new PIXI.Graphics();
+      barBg.beginFill(COLORS.progressBg, 1);
+      barBg.drawRoundedRect(barX, barY, barWidth, barHeight, 6);
+      barBg.endFill();
+      container.addChild(barBg);
+
+      const fillHeight = Math.max(2, barHeight * ratio);
+      const fill = new PIXI.Graphics();
+      fill.beginFill(COLORS.progressFill, 1);
+      fill.drawRoundedRect(
+        barX,
+        barY + (barHeight - fillHeight),
+        barWidth,
+        fillHeight,
+        6
+      );
+      fill.endFill();
+      container.addChild(fill);
+
+      const remain = Math.max(0, duration - progress);
+      const timeText = new PIXI.Text(`${remain}s`, {
+        fill: COLORS.moduleSub,
+        fontSize: 10,
+      });
+      timeText.x = Math.floor((width - timeText.width) / 2);
+      timeText.y = barY + barHeight + 4;
+      container.addChild(timeText);
     } else {
-      y = addRoutingSlots(y, "outputs", state, target, processEntry.process, processDef);
+      const barWidth = width - MODULE_PAD * 2;
+      const barHeight = 10;
+      const barX = MODULE_PAD;
+      const barY = labelText.y + 16;
+
+      const barBg = new PIXI.Graphics();
+      barBg.beginFill(COLORS.progressBg, 1);
+      barBg.drawRoundedRect(barX, barY, barWidth, barHeight, 6);
+      barBg.endFill();
+      container.addChild(barBg);
+
+      const fillWidth = Math.max(2, barWidth * ratio);
+      const fill = new PIXI.Graphics();
+      fill.beginFill(COLORS.progressFill, 1);
+      fill.drawRoundedRect(barX, barY, fillWidth, barHeight, 6);
+      fill.endFill();
+      container.addChild(fill);
+
+      const remain = Math.max(0, duration - progress);
+      const timeText = new PIXI.Text(`${remain}s`, {
+        fill: COLORS.moduleSub,
+        fontSize: 10,
+      });
+      timeText.x = Math.floor((width - timeText.width) / 2);
+      timeText.y = barY + barHeight + 6;
+      container.addChild(timeText);
     }
 
-    y += SECTION_GAP;
-    return y;
+    const height = Math.max(56, container.height + MODULE_PAD);
+    drawModuleBox(bg, width, height);
+    return height;
   }
 
-  function rebuildWidget(state, target, entries) {
-    clearContent();
+  function buildGrowthProgressModule({ container, width, entries }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
 
+    const labelText = new PIXI.Text("Progress: Time", {
+      fill: COLORS.moduleSub,
+      fontSize: 10,
+    });
+    labelText.x = MODULE_PAD;
+    labelText.y = MODULE_PAD;
+    container.addChild(labelText);
+
+    const list = Array.isArray(entries) ? entries : [];
+    if (list.length === 0) {
+      const none = new PIXI.Text("No crops growing", {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      none.x = MODULE_PAD;
+      none.y = labelText.y + 16;
+      container.addChild(none);
+
+      const height = Math.max(56, none.y + 18);
+      drawModuleBox(bg, width, height);
+      return height;
+    }
+
+    const barHeight = 40;
+    const barGap = 8;
+    const barAreaWidth = width - MODULE_PAD * 2;
+    const count = list.length;
+    const maxBarWidth = 12;
+    const barWidthRaw = Math.floor(
+      (barAreaWidth - barGap * (count - 1)) / count
+    );
+    const barWidth = Math.max(6, Math.min(maxBarWidth, barWidthRaw));
+    const totalBarsWidth =
+      barWidth * count + barGap * Math.max(0, count - 1);
+    const startX = Math.floor(MODULE_PAD + (barAreaWidth - totalBarsWidth) / 2);
+    const barY = labelText.y + 16;
+
+    list.forEach((entry, index) => {
+      const process = entry?.process || null;
+      const processDef = entry?.processDef || null;
+      const duration = Math.max(
+        1,
+        Math.floor(
+          processDef?.transform?.durationSec ?? process?.durationSec ?? 1
+        )
+      );
+      const progress = Math.max(0, Math.floor(process?.progress ?? 0));
+      const ratio = Math.min(1, progress / duration);
+      const remain = Math.max(0, duration - progress);
+
+      const x = startX + index * (barWidth + barGap);
+      const barBg = new PIXI.Graphics();
+      barBg.beginFill(COLORS.progressBg, 1);
+      barBg.drawRoundedRect(x, barY, barWidth, barHeight, 6);
+      barBg.endFill();
+      container.addChild(barBg);
+
+      const fillHeight = Math.max(2, barHeight * ratio);
+      const fill = new PIXI.Graphics();
+      fill.beginFill(COLORS.progressFill, 1);
+      fill.drawRoundedRect(
+        x,
+        barY + (barHeight - fillHeight),
+        barWidth,
+        fillHeight,
+        6
+      );
+      fill.endFill();
+      container.addChild(fill);
+
+      const timeText = new PIXI.Text(`${remain}s`, {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      timeText.x = x + Math.max(0, Math.floor((barWidth - timeText.width) / 2));
+      timeText.y = barY + barHeight + 4;
+      container.addChild(timeText);
+    });
+
+    const height = Math.max(56, barY + barHeight + 18);
+    drawModuleBox(bg, width, height);
+    return height;
+  }
+
+  function buildRequirementsModule({ container, width, reqs }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const title = new PIXI.Text("Materials", {
+      fill: COLORS.moduleText,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    title.x = MODULE_PAD;
+    title.y = MODULE_PAD;
+    container.addChild(title);
+
+    let y = title.y + 14;
+    const rows = getRequirementRows(reqs);
+    if (rows.length === 0) {
+      const none = new PIXI.Text("None", {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      none.x = MODULE_PAD;
+      none.y = y;
+      container.addChild(none);
+      y += 12;
+    } else {
+      for (const row of rows) {
+        const label = new PIXI.Text(
+          `${row.label} ${row.progress}/${row.amount}`,
+          {
+            fill: COLORS.moduleSub,
+            fontSize: 9,
+          }
+        );
+        label.x = MODULE_PAD;
+        label.y = y;
+        container.addChild(label);
+
+        const barWidth = width - MODULE_PAD * 2;
+        const barHeight = 6;
+        const barY = y + 10;
+        const ratio = row.amount > 0 ? Math.min(1, row.progress / row.amount) : 0;
+
+        const barBg = new PIXI.Graphics();
+        barBg.beginFill(COLORS.progressBg, 1);
+        barBg.drawRoundedRect(MODULE_PAD, barY, barWidth, barHeight, 4);
+        barBg.endFill();
+        container.addChild(barBg);
+
+        const fill = new PIXI.Graphics();
+        fill.beginFill(COLORS.progressFill, 1);
+        fill.drawRoundedRect(
+          MODULE_PAD,
+          barY,
+          Math.max(2, barWidth * ratio),
+          barHeight,
+          4
+        );
+        fill.endFill();
+        container.addChild(fill);
+
+        y += 18;
+      }
+    }
+
+    const height = Math.max(52, y + MODULE_PAD - 2);
+    drawModuleBox(bg, width, height);
+    return height;
+  }
+
+  function buildOutputModule({ container, width, outputs, poolSummary }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const title = new PIXI.Text("Output", {
+      fill: COLORS.moduleText,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    title.x = MODULE_PAD;
+    title.y = MODULE_PAD;
+    container.addChild(title);
+
+    let y = title.y + 14;
+    if (!Array.isArray(outputs) || outputs.length === 0) {
+      const none = new PIXI.Text("None", {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      none.x = MODULE_PAD;
+      none.y = y;
+      container.addChild(none);
+      y += 12;
+    } else {
+      const primary = outputs[0];
+      const label = formatOutputLabel(primary);
+      const qty = Math.max(0, Math.floor(primary.qty ?? primary.amount ?? 0));
+      const lineText = primary.kind === "pool" && primary.fromLedger
+        ? label
+        : qty > 1
+          ? `${label} x${qty}`
+          : label;
+
+      const line = new PIXI.Text(lineText, {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      line.x = MODULE_PAD;
+      line.y = y;
+      container.addChild(line);
+      y += 12;
+
+      if (poolSummary) {
+        const poolText = new PIXI.Text(poolSummary, {
+          fill: COLORS.moduleSub,
+          fontSize: 9,
+        });
+        poolText.x = MODULE_PAD;
+        poolText.y = y;
+        container.addChild(poolText);
+        y += 12;
+      }
+
+      if (outputs.length > 1) {
+        const more = new PIXI.Text(`+${outputs.length - 1} more`, {
+          fill: COLORS.moduleSub,
+          fontSize: 9,
+        });
+        more.x = MODULE_PAD;
+        more.y = y;
+        container.addChild(more);
+        y += 12;
+      }
+    }
+
+    const height = Math.max(52, y + MODULE_PAD - 2);
+    drawModuleBox(bg, width, height);
+    return height;
+  }
+
+  function buildGrowthOutputModule({ container, width, pool }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const title = new PIXI.Text("Matured Pool", {
+      fill: COLORS.moduleText,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    title.x = MODULE_PAD;
+    title.y = MODULE_PAD;
+    container.addChild(title);
+
+    let y = title.y + 14;
+    const summary = formatPoolSummary({ kind: "pool", target: pool });
+    if (!summary) {
+      const none = new PIXI.Text("None", {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      none.x = MODULE_PAD;
+      none.y = y;
+      container.addChild(none);
+      y += 12;
+    } else {
+      const poolText = new PIXI.Text(summary, {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      poolText.x = MODULE_PAD;
+      poolText.y = y;
+      container.addChild(poolText);
+      y += 12;
+    }
+
+    const height = Math.max(52, y + MODULE_PAD - 2);
+    drawModuleBox(bg, width, height);
+    return height;
+  }
+
+  function buildPrestigeModule({ container, width, process }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const title = new PIXI.Text("Prestige", {
+      fill: COLORS.moduleText,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    title.x = MODULE_PAD;
+    title.y = MODULE_PAD;
+    container.addChild(title);
+
+    const totals = getPrestigeTotals(process);
+    const rows = [
+      { key: "bronze", label: "B", value: totals.bronze },
+      { key: "silver", label: "S", value: totals.silver },
+      { key: "gold", label: "G", value: totals.gold },
+      { key: "diamond", label: "D", value: totals.diamond },
+    ];
+    const max = Math.max(1, ...rows.map((r) => r.value));
+
+    let y = title.y + 14;
+    const barWidth = width - MODULE_PAD * 2 - 16;
+    for (const row of rows) {
+      const label = new PIXI.Text(row.label, {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      label.x = MODULE_PAD;
+      label.y = y;
+      container.addChild(label);
+
+      const ratio = Math.min(1, row.value / max);
+      const barBg = new PIXI.Graphics();
+      barBg.beginFill(COLORS.progressBg, 1);
+      barBg.drawRoundedRect(MODULE_PAD + 12, y + 2, barWidth, 6, 4);
+      barBg.endFill();
+      container.addChild(barBg);
+
+      const fill = new PIXI.Graphics();
+      fill.beginFill(COLORS.progressFill, 1);
+      fill.drawRoundedRect(
+        MODULE_PAD + 12,
+        y + 2,
+        Math.max(2, barWidth * ratio),
+        6,
+        4
+      );
+      fill.endFill();
+      container.addChild(fill);
+
+      y += 12;
+    }
+
+    const height = Math.max(52, y + MODULE_PAD - 2);
+    drawModuleBox(bg, width, height);
+    return height;
+  }
+
+  function buildBufferModule({ container, width, height, process, dropTargets }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const size = Math.min(width, height);
+    const slot = new PIXI.Graphics();
+    slot.lineStyle(1, COLORS.bufferBorder, 0.9);
+    slot.beginFill(0x1a2034, 0.95);
+    slot.drawRoundedRect(0, 0, size, size, 8);
+    slot.endFill();
+    slot.x = Math.floor((width - size) / 2);
+    slot.y = Math.floor((height - size) / 2) - 6;
+    container.addChild(slot);
+
+    const label = new PIXI.Text("Buffer", {
+      fill: COLORS.moduleSub,
+      fontSize: 9,
+    });
+    label.x = Math.floor((width - label.width) / 2);
+    label.y = slot.y + size + 4;
+    container.addChild(label);
+
+    const dropId = getDropEndpointId(process?.id);
+    if (dropId && Array.isArray(dropTargets)) {
+      dropTargets.push({
+        ownerId: dropId,
+        getBounds: () => slot.getBounds(),
+      });
+
+      slot.eventMode = "static";
+      slot.cursor = "pointer";
+      slot.on("pointertap", () => {
+        inventoryView?.revealWindow?.(dropId, { pinned: true });
+      });
+    }
+
+    drawBufferBox(bg, width, height);
+  }
+
+  function buildRoutingDrawer({
+    kind,
+    width,
+    height,
+    process,
+    processDef,
+    target,
+    state,
+    hideDrop,
+  }) {
+    const container = new PIXI.Container();
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const key = `${process.id}:${kind}`;
+    const expanded = drawerExpanded[kind].has(key);
+
+    const arrow = new PIXI.Text(expanded ? (kind === "inputs" ? "<" : ">") : (kind === "inputs" ? ">" : "<"), {
+      fill: COLORS.headerSub,
+      fontSize: 12,
+    });
+    arrow.eventMode = "static";
+    arrow.cursor = "pointer";
+    arrow.x = Math.floor((width - arrow.width) / 2);
+    arrow.y = 6;
+    arrow.on("pointertap", () => {
+      if (expanded) drawerExpanded[kind].delete(key);
+      else drawerExpanded[kind].add(key);
+      invalidateAllSignatures();
+    });
+    container.addChild(arrow);
+
+    if (expanded) {
+      let y = 22;
+      const slots = processDef?.routingSlots?.[kind] || [];
+      const context = { leaderId: process?.leaderId ?? null };
+      for (const slotDef of slots) {
+        if (!slotDef || slotDef.locked) continue;
+
+        const label = new PIXI.Text(slotDef.label || slotDef.slotId, {
+          fill: COLORS.moduleText,
+          fontSize: 10,
+          fontWeight: "bold",
+        });
+        label.x = MODULE_PAD;
+        label.y = y;
+        container.addChild(label);
+        y += 14;
+
+        const slotState =
+          process?.routing?.[kind]?.[slotDef.slotId] || {
+            ordered: [],
+            enabled: {},
+          };
+        const orderedRaw = Array.isArray(slotState.ordered)
+          ? slotState.ordered
+          : [];
+
+        const candidates = listCandidateEndpoints(state, process, slotDef, target, context);
+
+        const pillContainer = new PIXI.Container();
+        pillContainer.x = MODULE_PAD;
+        pillContainer.y = y;
+        container.addChild(pillContainer);
+
+        const slotView = {
+          processId: process.id,
+          slotKind: kind,
+          slotId: slotDef.slotId,
+          slotLocked: false,
+          pillContainer,
+          pillEntries: [],
+          ignoreNextTap: false,
+          entryWidth: width - MODULE_PAD * 2,
+        };
+
+        for (const rawEndpointId of orderedRaw) {
+          const resolvedId =
+            resolveFixedEndpointId(rawEndpointId, process, context) || rawEndpointId;
+          const isDrop = isDropEndpoint(resolvedId) && processDef.supportsDropslot;
+          if (hideDrop && isDrop) continue;
+          const enabled = slotState.enabled?.[rawEndpointId] !== false;
+          const valid = isDrop || candidates.includes(resolvedId);
+          const entry = buildPillEntry(state, slotView, rawEndpointId, resolvedId, {
+            enabled,
+            invalid: !valid,
+            locked: isDrop,
+            draggable: !isDrop,
+          });
+          pillContainer.addChild(entry.container);
+          slotView.pillEntries.push(entry);
+        }
+
+        layoutPillEntries(slotView);
+        y += slotView.pillHeight + MODULE_GAP;
+      }
+    }
+
+    drawDrawerBox(bg, width, height);
+
+    return { container };
+  }
+  function buildProcessCard(state, target, entry, index, count, opts = {}) {
+    const process = entry.process;
+    const processDef = entry.processDef;
     const targetLabel = getTargetLabel(target);
+    const isGrowthGroup = opts.groupMode === "growth";
+    const growthEntries = Array.isArray(opts.groupEntries)
+      ? opts.groupEntries
+      : null;
+
+    const card = new PIXI.Container();
+    const bg = new PIXI.Graphics();
+    card.addChild(bg);
+
+    const showBuffer = !!processDef?.supportsDropslot;
+    const inputDrawerVisible = hasSelectableSlots(processDef, "inputs");
+    const outputDrawerVisible = hasSelectableSlots(processDef, "outputs");
+
+    const leftDrawerWidth = inputDrawerVisible
+      ? drawerExpanded.inputs.has(`${process.id}:inputs`)
+        ? DRAWER_EXPANDED
+        : DRAWER_COLLAPSED
+      : 0;
+    const rightDrawerWidth = outputDrawerVisible
+      ? drawerExpanded.outputs.has(`${process.id}:outputs`)
+        ? DRAWER_EXPANDED
+        : DRAWER_COLLAPSED
+      : 0;
+
+    const bufferGap = showBuffer ? SEGMENT_GAP : 0;
+    const centralWidth = Math.max(120, CORE_WIDTH - (showBuffer ? (BUFFER_SIZE + bufferGap) : 0));
+
+    const segments = [];
+    if (inputDrawerVisible) segments.push({ key: "left", width: leftDrawerWidth });
+    if (showBuffer) segments.push({ key: "buffer", width: BUFFER_SIZE });
+    segments.push({ key: "central", width: centralWidth });
+    if (outputDrawerVisible) segments.push({ key: "right", width: rightDrawerWidth });
+
+    let x = 0;
+    for (let i = 0; i < segments.length; i++) {
+      segments[i].x = x;
+      x += segments[i].width;
+      if (i < segments.length - 1) x += SEGMENT_GAP;
+    }
+    const totalWidth = x;
+
+    const title = getCardTitle(targetLabel, process, processDef);
+    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
+
+    const headerUi = createWindowHeader({
+      stage: app?.stage,
+      parent: card,
+      width: totalWidth,
+      height: HEADER_HEIGHT,
+      radius: CARD_RADIUS,
+      background: COLORS.headerBg,
+      title,
+      titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
+      paddingX: HEADER_PAD_X,
+      paddingY: HEADER_PAD_Y,
+      pinOffsetX: 40,
+      closeOffsetX: 20,
+      dragTarget: opts.dragTarget,
+      onPinToggle: () => opts.onPinToggle?.(process, target),
+      onClose: () => opts.onClose?.(process, target),
+    });
+    headerUi.setPinned(!!pinned);
+
+    if (isGrowthGroup && growthEntries) {
+      const batchText = new PIXI.Text(`${growthEntries.length} batches`, {
+        fill: COLORS.headerSub,
+        fontSize: 9,
+      });
+      batchText.x = headerUi.titleText.x + headerUi.titleText.width + 6;
+      batchText.y = HEADER_PAD_Y + 1;
+      headerUi.container.addChild(batchText);
+    } else if (count > 1) {
+      const idxText = new PIXI.Text(`${index + 1}/${count}`, {
+        fill: COLORS.headerSub,
+        fontSize: 9,
+      });
+      idxText.x = headerUi.titleText.x + headerUi.titleText.width + 6;
+      idxText.y = HEADER_PAD_Y + 1;
+      headerUi.container.addChild(idxText);
+    }
+
+    const body = new PIXI.Container();
+    body.y = HEADER_HEIGHT + 6;
+    card.addChild(body);
+
+    const bodyHeightTarget = 70;
+
+    const central = new PIXI.Container();
+    central.x = segments.find((s) => s.key === "central").x;
+    central.y = BODY_PAD;
+    body.addChild(central);
+
+    const variant = getProcessVariant(process, processDef);
+    const outputs = Array.isArray(processDef?.transform?.outputs)
+      ? processDef.transform.outputs
+      : [];
+    const reqs = Array.isArray(processDef?.transform?.requirements)
+      ? processDef.transform.requirements
+      : [];
+
+    const modules = [];
+    if (variant === "growing") {
+      modules.push("progress", "output");
+    } else if (variant === "depositing") {
+      modules.push("prestige", "output");
+    } else if (variant === "building") {
+      modules.push("requirements", "progress");
+    } else if (variant === "cooking" || variant === "crafting") {
+      modules.push("requirements", "progress", "output");
+    } else {
+      modules.push("requirements", "progress", "output");
+    }
+
+    const filteredModules = modules.filter((id) => {
+      if (id === "requirements") return reqs.length > 0;
+      if (id === "output") return isGrowthGroup ? true : outputs.length > 0;
+      return true;
+    });
+
+    const moduleCount = filteredModules.length || 1;
+    const moduleWidth = Math.floor((centralWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount);
+
+    let moduleX = 0;
+    let moduleMaxHeight = 0;
+
+    for (const id of filteredModules) {
+      const mod = new PIXI.Container();
+      mod.x = moduleX;
+      mod.y = 0;
+      central.addChild(mod);
+
+      let height = 0;
+      if (id === "progress") {
+        if (isGrowthGroup) {
+          height = buildGrowthProgressModule({
+            container: mod,
+            width: moduleWidth,
+            entries: growthEntries,
+          });
+        } else {
+          const vertical = processDef?.transform?.mode !== "work";
+          height = buildProgressModule({
+            container: mod,
+            width: moduleWidth,
+            process,
+            processDef,
+            vertical,
+          });
+        }
+      } else if (id === "requirements") {
+        height = buildRequirementsModule({
+          container: mod,
+          width: moduleWidth,
+          reqs,
+        });
+      } else if (id === "output") {
+        if (isGrowthGroup) {
+          const pool = target?.systemState?.growth?.maturedPool || null;
+          height = buildGrowthOutputModule({
+            container: mod,
+            width: moduleWidth,
+            pool,
+          });
+        } else {
+          const primaryPool = outputs.find((out) => out?.kind === "pool");
+          let poolSummary = null;
+          if (primaryPool) {
+            const endpointId = resolveLockedOutputEndpoint(
+              process,
+              processDef,
+              primaryPool
+            );
+            if (endpointId) {
+              const poolTarget = resolveEndpointTarget(state, endpointId);
+              poolSummary = formatPoolSummary(poolTarget);
+            }
+          }
+          height = buildOutputModule({
+            container: mod,
+            width: moduleWidth,
+            outputs,
+            poolSummary,
+          });
+        }
+      } else if (id === "prestige") {
+        height = buildPrestigeModule({
+          container: mod,
+          width: moduleWidth,
+          process,
+        });
+      }
+
+      moduleMaxHeight = Math.max(moduleMaxHeight, height);
+      moduleX += moduleWidth + MODULE_GAP;
+    }
+
+    central.y = BODY_PAD;
+    central.height = moduleMaxHeight;
+
+    let leftDrawer = null;
+    let rightDrawer = null;
+
+    if (inputDrawerVisible) {
+      leftDrawer = buildRoutingDrawer({
+        kind: "inputs",
+        width: leftDrawerWidth,
+        height: bodyHeightTarget,
+        process,
+        processDef,
+        target,
+        state,
+        hideDrop: showBuffer,
+      });
+      leftDrawer.container.x = segments.find((s) => s.key === "left").x;
+      leftDrawer.container.y = BODY_PAD;
+      body.addChild(leftDrawer.container);
+    }
+
+    let buffer = null;
+    if (showBuffer) {
+      buffer = new PIXI.Container();
+      buffer.x = segments.find((s) => s.key === "buffer").x;
+      buffer.y = BODY_PAD;
+      body.addChild(buffer);
+    }
+
+    if (outputDrawerVisible) {
+      rightDrawer = buildRoutingDrawer({
+        kind: "outputs",
+        width: rightDrawerWidth,
+        height: bodyHeightTarget,
+        process,
+        processDef,
+        target,
+        state,
+        hideDrop: false,
+      });
+      rightDrawer.container.x = segments.find((s) => s.key === "right").x;
+      rightDrawer.container.y = BODY_PAD;
+      body.addChild(rightDrawer.container);
+    }
+
+    const leftHeight = leftDrawer?.container?.height || 0;
+    const rightHeight = rightDrawer?.container?.height || 0;
+    const bufferHeight = showBuffer ? BUFFER_SIZE + 18 : 0;
+    const bodyContentHeight = Math.max(
+      moduleMaxHeight,
+      leftHeight,
+      rightHeight,
+      bufferHeight,
+      bodyHeightTarget
+    );
+
+    const bodyHeight = bodyContentHeight + BODY_PAD * 2;
+
+    if (leftDrawer) {
+      drawDrawerBox(leftDrawer.container.children[0], leftDrawerWidth, bodyContentHeight);
+      leftDrawer.container.height = bodyContentHeight;
+    }
+    if (rightDrawer) {
+      drawDrawerBox(rightDrawer.container.children[0], rightDrawerWidth, bodyContentHeight);
+      rightDrawer.container.height = bodyContentHeight;
+    }
+
+    if (showBuffer && buffer) {
+      buildBufferModule({
+        container: buffer,
+        width: BUFFER_SIZE,
+        height: bodyContentHeight,
+        process,
+        dropTargets: opts.dropTargets,
+      });
+    }
+
+    central.y = BODY_PAD;
+    const centralBg = new PIXI.Graphics();
+    centralBg.beginFill(0x000000, 0);
+    centralBg.drawRect(0, 0, centralWidth, bodyContentHeight);
+    centralBg.endFill();
+    central.addChildAt(centralBg, 0);
+
+    const totalHeight = HEADER_HEIGHT + 6 + bodyHeight;
+    drawCardBackground(bg, totalWidth, totalHeight);
+
+    return { card, width: totalWidth, height: totalHeight };
+  }
+
+  function rebuildWidget(state, target, entries, opts = {}) {
+    const content = opts.content;
+    const dropTargets = opts.dropTargets;
+    const cardOpts = opts.cardOpts || {};
+    clearContent(content, dropTargets);
 
     let y = 0;
-    y += addHeader(targetLabel);
-    y += addTabs(y + 4);
-
-    const bodyStart = y + PADDING / 2;
-    y = bodyStart;
     const count = entries.length;
+
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (!entry?.process || !entry?.processDef) continue;
-      y = addProcessSection(y, state, target, entry, entry.processDef, i, count);
+      const built = buildProcessCard(state, target, entry, i, count, cardOpts);
+      built.card.y = y;
+      content.addChild(built.card);
+      y += built.height + CARD_GAP;
     }
-
-    const totalHeight = Math.max(HEADER_HEIGHT + TAB_HEIGHT + PADDING * 2, y + PADDING);
-    drawPanel(totalHeight);
   }
 
-  function update() {
-    const state = getStateSafe();
-    if (!state) {
-      container.visible = false;
-      return;
-    }
-    const target = getHoverTarget(state);
-    if (!target) {
-      container.visible = false;
+  function buildGrowthEmptyCard(state, target, opts = {}) {
+    const card = new PIXI.Container();
+    const bg = new PIXI.Graphics();
+    card.addChild(bg);
+
+    const totalWidth = CORE_WIDTH;
+    const title = `${getTargetLabel(target)} - Growing`;
+    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
+
+    const headerUi = createWindowHeader({
+      stage: app?.stage,
+      parent: card,
+      width: totalWidth,
+      height: HEADER_HEIGHT,
+      radius: CARD_RADIUS,
+      background: COLORS.headerBg,
+      title,
+      titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
+      paddingX: HEADER_PAD_X,
+      paddingY: HEADER_PAD_Y,
+      pinOffsetX: 40,
+      closeOffsetX: 20,
+      dragTarget: opts.dragTarget,
+      onPinToggle: () => opts.onPinToggle?.(null, target),
+      onClose: () => opts.onClose?.(null, target),
+    });
+    headerUi.setPinned(!!pinned);
+
+    const body = new PIXI.Container();
+    body.y = HEADER_HEIGHT + 6;
+    card.addChild(body);
+
+    const central = new PIXI.Container();
+    central.x = 0;
+    central.y = BODY_PAD;
+    body.addChild(central);
+
+    const moduleCount = 2;
+    const moduleWidth = Math.floor(
+      (totalWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount
+    );
+
+    let moduleX = 0;
+    let moduleMaxHeight = 0;
+
+    const progressMod = new PIXI.Container();
+    progressMod.x = moduleX;
+    progressMod.y = 0;
+    central.addChild(progressMod);
+    moduleMaxHeight = Math.max(
+      moduleMaxHeight,
+      buildGrowthProgressModule({
+        container: progressMod,
+        width: moduleWidth,
+        entries: [],
+      })
+    );
+    moduleX += moduleWidth + MODULE_GAP;
+
+    const outputMod = new PIXI.Container();
+    outputMod.x = moduleX;
+    outputMod.y = 0;
+    central.addChild(outputMod);
+    moduleMaxHeight = Math.max(
+      moduleMaxHeight,
+      buildGrowthOutputModule({
+        container: outputMod,
+        width: moduleWidth,
+        pool: target?.systemState?.growth?.maturedPool || null,
+      })
+    );
+
+    central.height = moduleMaxHeight;
+
+    const bodyContentHeight = Math.max(moduleMaxHeight, 70);
+    const bodyHeight = bodyContentHeight + BODY_PAD * 2;
+
+    const centralBg = new PIXI.Graphics();
+    centralBg.beginFill(0x000000, 0);
+    centralBg.drawRect(0, 0, totalWidth, bodyContentHeight);
+    centralBg.endFill();
+    central.addChildAt(centralBg, 0);
+
+    const totalHeight = HEADER_HEIGHT + 6 + bodyHeight;
+    drawCardBackground(bg, totalWidth, totalHeight);
+
+    return { card, width: totalWidth, height: totalHeight };
+  }
+
+  function buildGrowthSignature(targetKey, target, entries) {
+    const growth = target?.systemState?.growth || {};
+    const cropId = growth.selectedCropId || "";
+    const pool = growth.maturedPool || {};
+    const poolSig = `${
+      pool.bronze ?? 0
+    }:${pool.silver ?? 0}:${pool.gold ?? 0}:${pool.diamond ?? 0}`;
+    const baseSig = buildProcessSignature(targetKey, entries) || "empty";
+    return `growth:${targetKey}:${cropId}:${poolSig}:${baseSig}`;
+  }
+
+  function rebuildGrowthWidget(state, target, entries, opts = {}) {
+    const content = opts.content;
+    const dropTargets = opts.dropTargets;
+    const cardOpts = opts.cardOpts || {};
+    clearContent(content, dropTargets);
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      const built = buildGrowthEmptyCard(state, target, cardOpts);
+      built.card.y = 0;
+      content.addChild(built.card);
       return;
     }
 
-    const targetKey = getTargetKey(target);
+    const primary = entries[0];
+    const built = buildProcessCard(state, target, primary, 0, 1, {
+      ...cardOpts,
+      groupMode: "growth",
+      groupEntries: entries,
+    });
+    built.card.y = 0;
+    content.addChild(built.card);
+  }
+
+  function collectProcessEntries(state, target, systemIdFilter) {
     const processes = collectProcesses(target);
-    if (processes.length === 0) {
-      container.visible = false;
-      return;
-    }
-
-    if (activeTargetKey !== targetKey) {
-      activeTargetKey = targetKey;
-      lastSignature = null;
-    }
-
-    const entries = processes
+    const filtered = systemIdFilter
+      ? processes.filter((entry) => entry.systemId === systemIdFilter)
+      : processes;
+    return filtered
       .map((entry) => {
         const processDef = getProcessDefForInstance(
           entry.process,
@@ -955,35 +1690,325 @@ export function createProcessWidgetView({
         return { ...entry, processDef };
       })
       .filter((entry) => entry.processDef);
-    if (entries.length === 0) {
-      container.visible = false;
+  }
+
+  function findProcessEntryById(target, processId) {
+    if (!target || !processId) return null;
+    const processes = collectProcesses(target);
+    for (const entry of processes) {
+      if (entry?.process?.id === processId) return entry;
+    }
+    return null;
+  }
+
+  function positionWindow(win, origin, offsetIndex, force = false) {
+    if (!win || (!force && win.hasPosition)) return;
+    const baseX = Number.isFinite(origin?.x) ? origin.x : position.x;
+    const baseY = Number.isFinite(origin?.y) ? origin.y : position.y;
+    const idx = Number.isFinite(offsetIndex) ? Math.max(0, Math.floor(offsetIndex)) : 0;
+    const offset = 24 * idx;
+    win.container.x = baseX + offset;
+    win.container.y = baseY + offset;
+    win.hasPosition = true;
+  }
+
+  function ensureWindow(windowId, target, systemId, origin, offsetIndex, opts = {}) {
+    if (!windowId) return null;
+    const targetRef = makeTargetRef(target);
+    let win = windows.get(windowId);
+    if (win) {
+      if (targetRef) win.targetRef = targetRef;
+      if (systemId != null) win.systemId = systemId;
+      return win;
+    }
+
+    const container = new PIXI.Container();
+    container.zIndex = 130;
+    layer.addChild(container);
+
+    const content = new PIXI.Container();
+    container.addChild(content);
+
+    win = {
+      windowId,
+      processId: opts.processId || null,
+      group: opts.group === true,
+      targetRef,
+      systemId: systemId || null,
+      container,
+      content,
+      dropTargets: [],
+      lastSignature: null,
+      pinned: false,
+      hovered: false,
+      hasPosition: false,
+    };
+    windows.set(windowId, win);
+    positionWindow(win, origin, offsetIndex, true);
+    return win;
+  }
+
+  function hideWindow(windowId) {
+    const win = windows.get(windowId);
+    if (!win) return;
+    win.pinned = false;
+    win.hovered = false;
+    if (win.container) win.container.visible = false;
+  }
+
+  function destroyWindow(windowId) {
+    const win = windows.get(windowId);
+    if (!win) return;
+    win.container?.parent?.removeChild?.(win.container);
+    win.container?.destroy?.({ children: true });
+    windows.delete(windowId);
+  }
+
+  function setWindowPinned(windowId, pinned) {
+    const win = windows.get(windowId);
+    if (!win) return;
+    win.pinned = !!pinned;
+    if (!win.pinned && !win.hovered) {
+      win.container.visible = false;
+    } else {
+      win.container.visible = true;
+    }
+    win.lastSignature = null;
+  }
+
+  function togglePinnedWindow(windowId) {
+    const win = windows.get(windowId);
+    if (!win) return;
+    setWindowPinned(windowId, !win.pinned);
+  }
+
+  function updateHoverWindows(state) {
+    const hoverIds = new Set();
+    if (hoverContext?.targetRef) {
+      const target = resolveTargetFromRef(state, hoverContext.targetRef);
+      if (target) {
+        if (isGroupedSystem(hoverContext.systemId)) {
+          const windowId = `group:${hoverContext.systemId}:${getTargetKey(target)}`;
+          const win = ensureWindow(
+            windowId,
+            target,
+            hoverContext.systemId,
+            { x: position.x, y: position.y },
+            0,
+            { group: true }
+          );
+          win.hovered = true;
+          hoverIds.add(windowId);
+          if (!win.pinned) win.container.visible = true;
+          if (!win.hasPosition) {
+            positionWindow(win, { x: position.x, y: position.y }, 0, true);
+          }
+        } else {
+          const entries = collectProcessEntries(state, target, hoverContext.systemId);
+          let offsetIndex = 0;
+          for (const entry of entries) {
+            const processId = entry?.process?.id;
+            if (!processId) continue;
+            const win = ensureWindow(
+              processId,
+              target,
+              hoverContext.systemId,
+              { x: position.x, y: position.y },
+              offsetIndex,
+              { processId }
+            );
+            win.hovered = true;
+            hoverIds.add(processId);
+            if (!win.pinned) {
+              win.container.visible = true;
+            }
+            if (!win.hasPosition) {
+              positionWindow(
+                win,
+                { x: position.x, y: position.y },
+                offsetIndex,
+                true
+              );
+            }
+            offsetIndex += 1;
+          }
+        }
+      }
+    }
+
+    for (const [windowId, win] of windows.entries()) {
+      if (!win.hovered) continue;
+      if (hoverIds.has(windowId)) continue;
+      win.hovered = false;
+      if (!win.pinned) win.container.visible = false;
+    }
+  }
+
+  function update() {
+    const state = getStateSafe();
+    if (!state) {
+      for (const win of windows.values()) {
+        if (win?.container) win.container.visible = false;
+      }
       return;
     }
 
-    const signature = buildProcessSignature(targetKey, entries);
-    if (signature !== lastSignature) {
-      lastSignature = signature;
-      rebuildWidget(state, target, entries);
-    }
+    updateHoverWindows(state);
 
-    container.visible = true;
+    for (const [windowId, win] of windows.entries()) {
+      const target = resolveTargetFromRef(state, win.targetRef);
+      if (!target) {
+        destroyWindow(windowId);
+        continue;
+      }
+      if (win.group) {
+        const entries = collectProcessEntries(state, target, win.systemId);
+        const visible = win.pinned || win.hovered;
+        if (!visible) {
+          win.container.visible = false;
+          continue;
+        }
+        const signatureKey = `${windowId}|${getTargetKey(target)}`;
+        const signature = buildGrowthSignature(signatureKey, target, entries);
+        if (signature !== win.lastSignature) {
+          win.lastSignature = signature;
+          rebuildGrowthWidget(state, target, entries, {
+            content: win.content,
+            dropTargets: win.dropTargets,
+            cardOpts: {
+              dragTarget: win.container,
+              pinned: win.pinned,
+              onPinToggle: () => togglePinnedWindow(windowId),
+              onClose: () => hideWindow(windowId),
+            },
+          });
+        }
+        win.container.visible = true;
+        continue;
+      }
+
+      const entry = findProcessEntryById(target, win.processId || windowId);
+      if (!entry) {
+        destroyWindow(windowId);
+        continue;
+      }
+      const processDef = getProcessDefForInstance(
+        entry.process,
+        target,
+        { leaderId: entry.process?.leaderId ?? null }
+      );
+      if (!processDef) {
+        destroyWindow(windowId);
+        continue;
+      }
+
+      const visible = win.pinned || win.hovered;
+      if (!visible) {
+        win.container.visible = false;
+        continue;
+      }
+
+      const entries = [{ ...entry, processDef }];
+      const signatureKey = `${windowId}|${getTargetKey(target)}`;
+      const signature = buildProcessSignature(signatureKey, entries);
+      if (signature !== win.lastSignature) {
+        win.lastSignature = signature;
+        rebuildWidget(state, target, entries, {
+          content: win.content,
+          dropTargets: win.dropTargets,
+          cardOpts: {
+            dragTarget: win.container,
+            pinned: win.pinned,
+            onPinToggle: () => togglePinnedWindow(windowId),
+            onClose: () => hideWindow(windowId),
+          },
+        });
+      }
+      win.container.visible = true;
+    }
   }
 
   function getDropTargetOwnerAtGlobalPos(globalPos) {
-    if (!container.visible || !globalPos) return null;
-    for (const target of dropTargets) {
-      if (!target || !target.getBounds) continue;
-      const bounds = target.getBounds();
-      if (
-        globalPos.x >= bounds.x &&
-        globalPos.x <= bounds.x + bounds.width &&
-        globalPos.y >= bounds.y &&
-        globalPos.y <= bounds.y + bounds.height
-      ) {
-        return target.ownerId;
+    if (!globalPos) return null;
+    for (const win of windows.values()) {
+      if (!win?.container?.visible) continue;
+      for (const target of win.dropTargets || []) {
+        if (!target || !target.getBounds) continue;
+        const bounds = target.getBounds();
+        if (
+          globalPos.x >= bounds.x &&
+          globalPos.x <= bounds.x + bounds.width &&
+          globalPos.y >= bounds.y &&
+          globalPos.y <= bounds.y + bounds.height
+        ) {
+          return target.ownerId;
+        }
       }
     }
     return null;
+  }
+
+  function setHoverTarget(target, systemId) {
+    hoverContext = target
+      ? { targetRef: makeTargetRef(target), systemId: systemId || null }
+      : null;
+    invalidateAllSignatures();
+  }
+
+  function clearHoverTarget() {
+    hoverContext = null;
+    for (const win of windows.values()) {
+      if (!win.hovered) continue;
+      win.hovered = false;
+      if (!win.pinned) win.container.visible = false;
+    }
+    invalidateAllSignatures();
+  }
+
+  function togglePinnedTarget(target, systemId) {
+    const state = getStateSafe();
+    if (!state || !target) return;
+    if (isGroupedSystem(systemId)) {
+      const windowId = `group:${systemId}:${getTargetKey(target)}`;
+      const win = ensureWindow(
+        windowId,
+        target,
+        systemId,
+        { x: position.x, y: position.y },
+        0,
+        { group: true }
+      );
+      const nextPinned = !win?.pinned;
+      setWindowPinned(windowId, nextPinned);
+      return;
+    }
+
+    const entries = collectProcessEntries(state, target, systemId);
+    if (entries.length === 0) return;
+    const ids = entries
+      .map((entry) => entry?.process?.id)
+      .filter((id) => !!id);
+    if (ids.length === 0) return;
+    const anyUnpinned = ids.some((id) => !windows.get(id)?.pinned);
+    let offsetIndex = 0;
+    for (const entry of entries) {
+      const processId = entry?.process?.id;
+      if (!processId) continue;
+      ensureWindow(
+        processId,
+        target,
+        systemId,
+        { x: position.x, y: position.y },
+        offsetIndex,
+        { processId }
+      );
+      if (anyUnpinned) {
+        setWindowPinned(processId, true);
+      } else {
+        setWindowPinned(processId, false);
+      }
+      offsetIndex += 1;
+    }
   }
 
   function init() {}
@@ -992,5 +2017,8 @@ export function createProcessWidgetView({
     init,
     update,
     getDropTargetOwnerAtGlobalPos,
+    setHoverTarget,
+    clearHoverTarget,
+    togglePinnedTarget,
   };
 }

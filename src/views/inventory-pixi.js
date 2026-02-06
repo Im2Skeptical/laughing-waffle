@@ -26,6 +26,7 @@ import {
   HUB_STRUCTURE_ROW_Y,
   getHubColumnCenterX,
 } from "./layout-pixi.js";
+import { createWindowHeader } from "./ui-helpers/window-header.js";
 
 
 
@@ -816,36 +817,43 @@ export function createInventoryView({
     apOverlay.visible = false;
     apOverlay.eventMode = "none";
 
-    // Header (drag handle)
-    const header = new PIXI.Graphics();
-    header.beginFill(0x303048);
-    header.drawRoundedRect(0, 0, w, HEADER_HEIGHT, 8);
-    header.endFill();
-    header.eventMode = "static";
-    header.cursor = "move";
-    c.addChild(header);
+    const headerUi = createWindowHeader({
+      stage,
+      parent: c,
+      width: w,
+      height: HEADER_HEIGHT,
+      radius: 8,
+      background: 0x303048,
+      title: getOwnerLabel(ownerId),
+      titleStyle: { fill: 0xffffff, fontSize: 13 },
+      paddingX: 8,
+      paddingY: 4,
+      pinOffsetX: 40,
+      closeOffsetX: 20,
+      dragTarget: c,
+      canDrag: () => !uiBlocked,
+      onDragStart: () => {
+        dragWindow.active = true;
+        dragWindow.ownerId = ownerId;
+      },
+      onDragEnd: () => {
+        dragWindow.active = false;
+        dragWindow.ownerId = null;
+      },
+      onPinToggle: () => togglePinned(ownerId),
+      onClose: () => hideWindow(ownerId),
+    });
+
+    const header = headerUi.container;
+    const title = headerUi.titleText;
+    const pinText = headerUi.pinText;
+    const closeText = headerUi.closeText;
 
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
     focusOutline.drawRoundedRect(1, 1, w - 2, h - 2, 10);
     focusOutline.visible = false;
     c.addChild(focusOutline);
-
-    const title = new PIXI.Text(getOwnerLabel(ownerId), {
-      fill: 0xffffff,
-      fontSize: 13,
-    });
-    title.x = 8;
-    title.y = 4;
-    c.addChild(title);
-
-    // Pin button
-    const pinText = new PIXI.Text("[ ]", { fill: 0xffffff, fontSize: 12 });
-    pinText.x = w - 40;
-    pinText.y = 4;
-    pinText.eventMode = "static";
-    pinText.cursor = "pointer";
-    c.addChild(pinText);
 
     // Bin (discard) drop target
     const bin = new PIXI.Container();
@@ -872,14 +880,6 @@ export function createInventoryView({
       .moveTo(binSize * 0.42, binSize * 0.26)
       .lineTo(binSize * 0.58, binSize * 0.26);
     bin.addChild(binIcon);
-
-    // Close button
-    const closeText = new PIXI.Text("x", { fill: 0xffffff, fontSize: 12 });
-    closeText.x = w - 20;
-    closeText.y = 4;
-    closeText.eventMode = "static";
-    closeText.cursor = "pointer";
-    c.addChild(closeText);
 
     // Body container (grid + items)
     const body = new PIXI.Container();
@@ -915,30 +915,7 @@ export function createInventoryView({
 
     windows.set(ownerId, win);
 
-    // Header dragging
-    header.on("pointerdown", (ev) => {
-      if (uiBlocked) return;
-      dragWindow.active = true;
-      dragWindow.ownerId = ownerId;
-
-      const g = ev.data.global;
-      dragWindow.offsetX = g.x - c.x;
-      dragWindow.offsetY = g.y - c.y;
-
-      stage.on("pointermove", onWindowDragMove);
-      stage.on("pointerup", onWindowDragEnd);
-      stage.on("pointerupoutside", onWindowDragEnd);
-    });
-
-    // Pin toggle
-    pinText.on("pointertap", () => {
-      togglePinned(ownerId);
-    });
-
-    // Close
-    closeText.on("pointertap", () => {
-      hideWindow(ownerId);
-    });
+    // Header drag is handled by the shared header helper.
 
     // Leader panel (optional)
     if (leader) {
@@ -1221,29 +1198,6 @@ export function createInventoryView({
     rebuildWindow(ownerId);
 
     return win;
-  }
-
-  // ---------------------------------------------------------------------------
-  // WINDOW DRAGGING
-  // ---------------------------------------------------------------------------
-
-  function onWindowDragMove(ev) {
-    if (!dragWindow.active) return;
-    const win = windows.get(dragWindow.ownerId);
-    if (!win) return;
-
-    const g = ev.data.global;
-    win.container.x = g.x - dragWindow.offsetX;
-    win.container.y = g.y - dragWindow.offsetY;
-  }
-
-  function onWindowDragEnd() {
-    dragWindow.active = false;
-    dragWindow.ownerId = null;
-
-    stage.off("pointermove", onWindowDragMove);
-    stage.off("pointerup", onWindowDragEnd);
-    stage.off("pointerupoutside", onWindowDragEnd);
   }
 
   // ---------------------------------------------------------------------------

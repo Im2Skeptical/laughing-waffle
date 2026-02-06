@@ -717,6 +717,17 @@ const boardView = createBoardView({
     actionLogView?.flashGhost?.(spec, status),
   dispatchAction: (kind, payload, opts) =>
     runner.dispatchAction(kind, payload, opts),
+  onSystemIconHover: (view, systemId) => {
+    const target = view?.structure ?? view?.tile ?? null;
+    processWidgetView?.setHoverTarget?.(target, systemId);
+  },
+  onSystemIconOut: () => {
+    processWidgetView?.clearHoverTarget?.();
+  },
+  onSystemIconClick: (view, systemId) => {
+    const target = view?.structure ?? view?.tile ?? null;
+    processWidgetView?.togglePinnedTarget?.(target, systemId);
+  },
 });
 
 const charactersView = createCharactersView({

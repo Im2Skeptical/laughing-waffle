@@ -5,6 +5,7 @@ import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
@@ -71,6 +72,34 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
     if (requires.hasMaturedPool !== hasPool) return false;
   }
 
+  const processSystem =
+    typeof requires.processSystem === "string" ? requires.processSystem : null;
+  const recipeKey =
+    typeof requires.processTypeFromSystemKey === "string"
+      ? requires.processTypeFromSystemKey
+      : "selectedRecipeId";
+  const selectedRecipeId =
+    processSystem && structure?.systemState?.[processSystem]
+      ? structure.systemState[processSystem][recipeKey]
+      : null;
+  const hasSelectedRecipe =
+    typeof selectedRecipeId === "string" && selectedRecipeId.length > 0;
+
+  if (typeof requires.hasSelectedRecipe === "boolean") {
+    if (requires.hasSelectedRecipe !== hasSelectedRecipe) return false;
+  }
+
+  if (requires.hasSelectedProcessType === true) {
+    if (!hasSelectedRecipe) return false;
+    if (!hasProcess(structure, processSystem, selectedRecipeId)) return false;
+  }
+
+  if (requires.noSelectedProcessType === true) {
+    if (hasSelectedRecipe && hasProcess(structure, processSystem, selectedRecipeId)) {
+      return false;
+    }
+  }
+
   const tagReq = requires.hasTag;
   if (tagReq != null) {
     const structureTags = Array.isArray(structure?.tags) ? structure.tags : [];
@@ -85,8 +114,7 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
     }
   }
 
-  const processSystem =
-    typeof requires.processSystem === "string" ? requires.processSystem : null;
+  // processSystem already derived above for recipe checks.
   if (processSystem) {
     if (requires.hasProcessType) {
       const types = Array.isArray(requires.hasProcessType)
@@ -522,6 +550,47 @@ function canProcessOutputsProceed(state, structure, process) {
   return true;
 }
 
+function resolveProcessTypeFromSystem(structure, effect) {
+  if (!effect || typeof effect !== "object") return null;
+  const systemId = typeof effect.system === "string" ? effect.system : null;
+  const key =
+    typeof effect.processTypeFromSystemKey === "string"
+      ? effect.processTypeFromSystemKey
+      : "selectedRecipeId";
+  if (!systemId) return null;
+  const selected = structure?.systemState?.[systemId]?.[key];
+  return typeof selected === "string" && selected.length > 0 ? selected : null;
+}
+
+function resolveIntentEffect(effect, structure) {
+  if (!effect) return null;
+  if (Array.isArray(effect)) {
+    const resolved = effect
+      .map((entry) => resolveIntentEffect(entry, structure))
+      .filter(Boolean);
+    return resolved.length ? resolved : null;
+  }
+  if (typeof effect !== "object") return effect;
+
+  if (!effect.processTypeFromSystemKey) return effect;
+
+  const processType = resolveProcessTypeFromSystem(structure, effect);
+  if (!processType) return null;
+
+  const resolved = { ...effect, processType };
+  if (resolved.op === "CreateWorkProcess") {
+    const durationMissing = !Number.isFinite(resolved.durationSec);
+    if (durationMissing) {
+      const recipe = recipeDefs?.[processType] || null;
+      if (recipe && Number.isFinite(recipe.durationSec)) {
+        resolved.durationSec = recipe.durationSec;
+      }
+    }
+  }
+
+  return resolved;
+}
+
 function canAdvanceWorkEffect(state, structure, effect) {
   if (!state || !structure || !effect) return true;
   if (effect.op !== "AdvanceWorkProcess") return true;
@@ -644,7 +713,9 @@ export function stepHubSecond(state, tSec) {
           ) {
             continue;
           }
-          if (!canExecuteIntentEffect(state, structure, intent.effect)) {
+          const resolvedEffect = resolveIntentEffect(intent.effect, structure);
+          if (!resolvedEffect) continue;
+          if (!canExecuteIntentEffect(state, structure, resolvedEffect)) {
             continue;
           }
           if (intent.cost) {
@@ -653,8 +724,8 @@ export function stepHubSecond(state, tSec) {
             if (!canAffordCosts(resolved, pawnContext)) continue;
             applyCosts(resolved, pawnContext);
           }
-          if (intent.effect) {
-            runEffect(state, intent.effect, { ...pawnContext });
+          if (resolvedEffect) {
+            runEffect(state, resolvedEffect, { ...pawnContext });
           }
           executed = true;
           break;

@@ -75,11 +75,12 @@ export const hubTagDefs = {
     passives: [],
     intents: [
       {
-        id: "roastBarley_work",
-        verb: "Roast Barley",
+        id: "cook_work",
+        verb: "Cook",
         requires: {
           processSystem: "fireplace",
-          hasProcessType: "roastBarley",
+          hasSelectedRecipe: true,
+          hasSelectedProcessType: true,
         },
         cost: {
           charges: [
@@ -97,16 +98,17 @@ export const hubTagDefs = {
           op: "AdvanceWorkProcess",
           system: "fireplace",
           queueKey: "processes",
-          processType: "roastBarley",
+          processTypeFromSystemKey: "selectedRecipeId",
           amount: 1,
         },
       },
       {
-        id: "roastBarley_start",
-        verb: "Start Roast Barley",
+        id: "cook_start",
+        verb: "Start Cooking",
         requires: {
           processSystem: "fireplace",
-          noProcessType: "roastBarley",
+          hasSelectedRecipe: true,
+          noSelectedProcessType: true,
         },
         cost: {
           charges: [
@@ -124,9 +126,8 @@ export const hubTagDefs = {
           op: "CreateWorkProcess",
           system: "fireplace",
           queueKey: "processes",
-          processType: "roastBarley",
+          processTypeFromSystemKey: "selectedRecipeId",
           mode: "work",
-          durationSec: 1,
           uniqueType: true,
         },
       },
@@ -142,11 +143,12 @@ export const hubTagDefs = {
     intents: [
       // Work first, but gated by hasProcessType, so it won't burn stamina unless weaving exists.
       {
-        id: "weaveBasket_work",
-        verb: "Weave Basket",
+        id: "craft_work",
+        verb: "Craft",
         requires: {
           processSystem: "workspace",
-          hasProcessType: "weaveBasket",
+          hasSelectedRecipe: true,
+          hasSelectedProcessType: true,
         },
         cost: {
           charges: [
@@ -164,7 +166,7 @@ export const hubTagDefs = {
           op: "AdvanceWorkProcess",
           system: "workspace",
           queueKey: "processes",
-          processType: "weaveBasket",
+          processTypeFromSystemKey: "selectedRecipeId",
           // IMPORTANT: explicit per-pawn contribution
           amount: 1,
         },
@@ -172,11 +174,12 @@ export const hubTagDefs = {
 
       // Start weaving only if no active weaveBasket exists.
       {
-        id: "weaveBasket_start",
-        verb: "Start Weave Basket",
+        id: "craft_start",
+        verb: "Start Crafting",
         requires: {
           processSystem: "workspace",
-          noProcessType: "weaveBasket",
+          hasSelectedRecipe: true,
+          noSelectedProcessType: true,
         },
         cost: {
           charges: [
@@ -194,9 +197,8 @@ export const hubTagDefs = {
           op: "CreateWorkProcess",
           system: "workspace",
           queueKey: "processes",
-          processType: "weaveBasket",
+          processTypeFromSystemKey: "selectedRecipeId",
           mode: "work",
-          durationSec: 5,
           uniqueType: true,
         },
       },

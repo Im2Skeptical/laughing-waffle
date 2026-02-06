@@ -109,6 +109,9 @@ export function createTagUi(opts) {
     hoverTextResolution,
     requestPauseForAction,
     toggleTag,
+    onSystemIconHover,
+    onSystemIconOut,
+    onSystemIconClick,
   } = opts;
 
   function clamp01(value) {
@@ -453,7 +456,10 @@ export function createTagUi(opts) {
     });
     const icon = new PIXI.Container();
     icon.eventMode = "static";
-    icon.cursor = "help";
+    icon.cursor =
+      onSystemIconClick || onSystemIconHover || onSystemIconOut
+        ? "pointer"
+        : "help";
 
     const iconBg = new PIXI.Graphics()
       .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
@@ -506,10 +512,19 @@ export function createTagUi(opts) {
     container.addChild(flashOverlay);
 
     icon.on("pointerover", () => {
+      onSystemIconHover?.(view, systemId);
       showTooltipForSystem(view.tile, systemId, icon.getBounds());
     });
     icon.on("pointerout", () => {
+      onSystemIconOut?.(view, systemId);
       tooltipView?.hide?.();
+    });
+    icon.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+    });
+    icon.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onSystemIconClick?.(view, systemId);
     });
 
     const row = {
