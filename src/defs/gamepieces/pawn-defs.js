@@ -39,10 +39,11 @@ export const pawnDefs = {
         cost: {
           charges: [
             {
-              kind: "item",
+              kind: "tag",
               target: { ref: "pawnInv" },
-              itemId: "barley",
+              tag: "edible",
               amount: { const: 1 },
+              allowDistributorPools: true,
             },
           ],
         },

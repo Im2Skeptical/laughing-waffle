@@ -2,6 +2,8 @@
 // Per-second pawn intent execution.
 
 import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { ensurePawnSystems } from "./state.js";
@@ -33,6 +35,109 @@ function timingPass(timing, state, tSec) {
   return cadenceMatch || seasonMatch;
 }
 
+function spanDistance(aCol, aSpan, bCol, bSpan) {
+  const aStart = aCol;
+  const aEnd = aCol + Math.max(1, aSpan) - 1;
+  const bStart = bCol;
+  const bEnd = bCol + Math.max(1, bSpan) - 1;
+  if (bStart > aEnd) return bStart - aEnd;
+  if (aStart > bEnd) return aStart - bEnd;
+  return 0;
+}
+
+function resolveDistributorRange(anchor, baseRange) {
+  const base = Number.isFinite(baseRange) ? Math.max(0, Math.floor(baseRange)) : 0;
+  const def = hubSystemDefs?.distribution;
+  const tier =
+    anchor?.systemTiers?.distribution ||
+    def?.defaultTier ||
+    "bronze";
+  const raw = def?.rangeByTier?.[tier];
+  let tierRange = null;
+  if (raw === "global") {
+    tierRange = Number.POSITIVE_INFINITY;
+  } else if (Number.isFinite(raw)) {
+    tierRange = Math.max(0, Math.floor(raw));
+  } else if (typeof raw === "string") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      tierRange = Math.max(0, Math.floor(parsed));
+    }
+  }
+  if (tierRange == null) tierRange = base;
+  return Math.max(base, tierRange);
+}
+
+function isTagDisabled(target, tagId) {
+  if (!target || !tagId) return false;
+  const entry = target.tagStates?.[tagId];
+  return entry?.disabled === true;
+}
+
+function listDistributorPoolsForPawn(state, pawn) {
+  const hubCol = Number.isFinite(pawn?.hubCol) ? Math.floor(pawn.hubCol) : null;
+  if (hubCol == null) return [];
+
+  const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+  const sources = [];
+  const baseRange = 1;
+
+  for (let i = 0; i < anchors.length; i++) {
+    const anchor = anchors[i];
+    if (!anchor) continue;
+    const tags = Array.isArray(anchor.tags) ? anchor.tags : [];
+    if (!tags.includes("distributor") || isTagDisabled(anchor, "distributor")) {
+      continue;
+    }
+
+    const def = hubStructureDefs?.[anchor.defId];
+    const deposit = def?.deposit;
+    if (!deposit || typeof deposit !== "object") continue;
+    const systemId =
+      typeof deposit.systemId === "string" ? deposit.systemId : null;
+    if (!systemId) continue;
+    const poolKey =
+      typeof deposit.poolKey === "string" && deposit.poolKey.length > 0
+        ? deposit.poolKey
+        : "byKindTier";
+
+    const systemState = anchor.systemState?.[systemId];
+    if (!systemState || typeof systemState !== "object") continue;
+    const pool = systemState[poolKey];
+    if (!pool || typeof pool !== "object") continue;
+
+    const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : null;
+    const span = Number.isFinite(anchor.span) ? Math.floor(anchor.span) : 1;
+    if (col == null) continue;
+
+    const dist = spanDistance(hubCol, 1, col, span);
+    const effectiveRange = resolveDistributorRange(anchor, baseRange);
+    if (dist > effectiveRange) continue;
+
+    sources.push({
+      pool,
+      totalByTier:
+        systemState.totalByTier && typeof systemState.totalByTier === "object"
+          ? systemState.totalByTier
+          : null,
+      systemId,
+      poolKey,
+      dist,
+      anchorIndex: i,
+      instanceId: anchor.instanceId ?? 0,
+    });
+  }
+
+  sources.sort((a, b) => {
+    if (a.dist !== b.dist) return a.dist - b.dist;
+    if (a.anchorIndex !== b.anchorIndex) return a.anchorIndex - b.anchorIndex;
+    if (a.instanceId !== b.instanceId) return a.instanceId - b.instanceId;
+    return 0;
+  });
+
+  return sources;
+}
+
 export function stepPawnSecond(state, tSec) {
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   if (!chars.length) return;
@@ -48,6 +153,7 @@ export function stepPawnSecond(state, tSec) {
     const passives = Array.isArray(def?.passives) ? def.passives : [];
 
     const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
+    const distributorPools = listDistributorPoolsForPawn(state, pawn);
     const context = {
       kind: "game",
       state,
@@ -57,6 +163,7 @@ export function stepPawnSecond(state, tSec) {
       ownerId: pawn.id,
       pawn,
       pawnInv,
+      distributorPools,
     };
 
     for (const passive of passives) {

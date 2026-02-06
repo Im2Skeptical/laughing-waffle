@@ -4,6 +4,7 @@
 import { Inventory } from "./inventory-model.js";
 import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 
 function resolveAmountExpr(expr, ctx) {
   if (Number.isFinite(expr)) return expr;
@@ -39,6 +40,14 @@ function resolveItemIdExpr(expr, ctx) {
   return null;
 }
 
+function isTierBucket(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  for (const tier of TIER_ASC) {
+    if (Object.prototype.hasOwnProperty.call(pool, tier)) return true;
+  }
+  return false;
+}
+
 function getInventoryForRef(ctx, ref) {
   if (!ref || typeof ref !== "string") return ctx?.pawnInv ?? null;
   if (ref === "pawnInv") return ctx?.pawnInv ?? null;
@@ -63,6 +72,161 @@ function getResourcesForRef(ctx, ref) {
     return ctx?.resources ?? ctx?.state?.resources ?? null;
   }
   return null;
+}
+
+function getDistributorPools(ctx) {
+  return Array.isArray(ctx?.distributorPools) ? ctx.distributorPools : [];
+}
+
+function itemHasTag(kind, tag) {
+  if (!kind || !tag) return false;
+  const tags = Array.isArray(itemDefs?.[kind]?.baseTags)
+    ? itemDefs[kind].baseTags
+    : [];
+  return tags.includes(tag);
+}
+
+function countPoolUnitsByItem(pools, itemId) {
+  let total = 0;
+  for (const source of pools) {
+    const pool = source?.pool;
+    if (!pool || typeof pool !== "object") continue;
+    if (isTierBucket(pool)) {
+      if (source?.itemKind && source.itemKind !== itemId) continue;
+      for (const tier of TIER_ASC) {
+        total += Math.max(0, Math.floor(pool[tier] ?? 0));
+      }
+      continue;
+    }
+    const bucket = pool[itemId];
+    if (!bucket || typeof bucket !== "object") continue;
+    for (const tier of TIER_ASC) {
+      total += Math.max(0, Math.floor(bucket[tier] ?? 0));
+    }
+  }
+  return total;
+}
+
+function countPoolUnitsByTag(pools, tag) {
+  let total = 0;
+  for (const source of pools) {
+    const pool = source?.pool;
+    if (!pool || typeof pool !== "object") continue;
+    if (isTierBucket(pool)) {
+      if (!source?.itemKind || !itemHasTag(source.itemKind, tag)) continue;
+      for (const tier of TIER_ASC) {
+        total += Math.max(0, Math.floor(pool[tier] ?? 0));
+      }
+      continue;
+    }
+    const kinds = Object.keys(pool).sort((a, b) => a.localeCompare(b));
+    for (const kind of kinds) {
+      if (!itemHasTag(kind, tag)) continue;
+      const bucket = pool[kind];
+      if (!bucket || typeof bucket !== "object") continue;
+      for (const tier of TIER_ASC) {
+        total += Math.max(0, Math.floor(bucket[tier] ?? 0));
+      }
+    }
+  }
+  return total;
+}
+
+function consumeFromPoolByItem(pools, itemId, amount) {
+  let remaining = Math.max(0, Math.floor(amount ?? 0));
+  if (remaining <= 0) return 0;
+
+  let consumed = 0;
+  for (const source of pools) {
+    if (remaining <= 0) break;
+    const pool = source?.pool;
+    if (!pool || typeof pool !== "object") continue;
+    if (isTierBucket(pool)) {
+      if (source?.itemKind && source.itemKind !== itemId) continue;
+      for (const tier of TIER_ASC) {
+        if (remaining <= 0) break;
+        const qty = Math.max(0, Math.floor(pool[tier] ?? 0));
+        if (qty <= 0) continue;
+        const take = Math.min(qty, remaining);
+        pool[tier] = qty - take;
+        if (source?.totalByTier) {
+          const total = Math.max(0, Math.floor(source.totalByTier[tier] ?? 0));
+          source.totalByTier[tier] = Math.max(0, total - take);
+        }
+        consumed += take;
+        remaining -= take;
+      }
+      continue;
+    }
+    const bucket = pool[itemId];
+    if (!bucket || typeof bucket !== "object") continue;
+    for (const tier of TIER_ASC) {
+      if (remaining <= 0) break;
+      const qty = Math.max(0, Math.floor(bucket[tier] ?? 0));
+      if (qty <= 0) continue;
+      const take = Math.min(qty, remaining);
+      bucket[tier] = qty - take;
+      if (source?.totalByTier) {
+        const total = Math.max(0, Math.floor(source.totalByTier[tier] ?? 0));
+        source.totalByTier[tier] = Math.max(0, total - take);
+      }
+      consumed += take;
+      remaining -= take;
+    }
+  }
+
+  return consumed;
+}
+
+function consumeFromPoolByTag(pools, tag, amount) {
+  let remaining = Math.max(0, Math.floor(amount ?? 0));
+  if (remaining <= 0) return 0;
+
+  let consumed = 0;
+  for (const source of pools) {
+    if (remaining <= 0) break;
+    const pool = source?.pool;
+    if (!pool || typeof pool !== "object") continue;
+    if (isTierBucket(pool)) {
+      if (!source?.itemKind || !itemHasTag(source.itemKind, tag)) continue;
+      for (const tier of TIER_ASC) {
+        if (remaining <= 0) break;
+        const qty = Math.max(0, Math.floor(pool[tier] ?? 0));
+        if (qty <= 0) continue;
+        const take = Math.min(qty, remaining);
+        pool[tier] = qty - take;
+        if (source?.totalByTier) {
+          const total = Math.max(0, Math.floor(source.totalByTier[tier] ?? 0));
+          source.totalByTier[tier] = Math.max(0, total - take);
+        }
+        consumed += take;
+        remaining -= take;
+      }
+      continue;
+    }
+    const kinds = Object.keys(pool).sort((a, b) => a.localeCompare(b));
+    for (const kind of kinds) {
+      if (remaining <= 0) break;
+      if (!itemHasTag(kind, tag)) continue;
+      const bucket = pool[kind];
+      if (!bucket || typeof bucket !== "object") continue;
+      for (const tier of TIER_ASC) {
+        if (remaining <= 0) break;
+        const qty = Math.max(0, Math.floor(bucket[tier] ?? 0));
+        if (qty <= 0) continue;
+        const take = Math.min(qty, remaining);
+        bucket[tier] = qty - take;
+        if (source?.totalByTier) {
+          const total = Math.max(0, Math.floor(source.totalByTier[tier] ?? 0));
+          source.totalByTier[tier] = Math.max(0, total - take);
+        }
+        consumed += take;
+        remaining -= take;
+      }
+    }
+  }
+
+  return consumed;
 }
 
 export function resolveCosts(costSpec, ctx) {
@@ -117,12 +281,14 @@ export function resolveCosts(costSpec, ctx) {
       const amountRaw = resolveAmountExpr(charge.amount, ctx);
       if (!Number.isFinite(amountRaw) || amountRaw < 0) return null;
       const amount = Math.floor(amountRaw);
+      const allowDistributorPools = charge.allowDistributorPools === true;
       charges.push({
         kind: charge.kind,
         targetRef,
         itemId,
         tag,
         amount,
+        allowDistributorPools,
       });
     } else if (charge.kind === "resource" || charge.kind === "requireResource") {
       const targetRef = charge.target?.ref || "stateResources";
@@ -193,10 +359,20 @@ export function canAffordCosts(resolvedCosts, ctx) {
       if (charge.amount <= 0) continue;
       if (charge.kind === "item" || charge.kind === "requireItem") {
         const total = countItemUnits(inv, charge.itemId);
-        if (total < charge.amount) return false;
+        if (total < charge.amount) {
+          if (!charge.allowDistributorPools) return false;
+          const pools = getDistributorPools(ctx);
+          const poolTotal = countPoolUnitsByItem(pools, charge.itemId);
+          if (total + poolTotal < charge.amount) return false;
+        }
       } else {
         const total = countItemUnitsByTag(inv, charge.tag);
-        if (total < charge.amount) return false;
+        if (total < charge.amount) {
+          if (!charge.allowDistributorPools) return false;
+          const pools = getDistributorPools(ctx);
+          const poolTotal = countPoolUnitsByTag(pools, charge.tag);
+          if (total + poolTotal < charge.amount) return false;
+        }
       }
     } else if (
       charge.kind === "resource" ||
@@ -312,12 +488,22 @@ export function applyCosts(resolvedCosts, ctx) {
       const inv = getInventoryForRef(ctx, charge.targetRef);
       if (!inv) continue;
       if (charge.amount <= 0) continue;
-      consumeFromInventoryForCost(inv, charge.itemId, charge.amount);
+      let remaining = charge.amount;
+      remaining -= consumeFromInventoryForCost(inv, charge.itemId, remaining);
+      if (remaining > 0 && charge.allowDistributorPools) {
+        const pools = getDistributorPools(ctx);
+        consumeFromPoolByItem(pools, charge.itemId, remaining);
+      }
     } else if (charge.kind === "tag") {
       const inv = getInventoryForRef(ctx, charge.targetRef);
       if (!inv) continue;
       if (charge.amount <= 0) continue;
-      consumeFromInventoryForTag(inv, charge.tag, charge.amount);
+      let remaining = charge.amount;
+      remaining -= consumeFromInventoryForTag(inv, charge.tag, remaining);
+      if (remaining > 0 && charge.allowDistributorPools) {
+        const pools = getDistributorPools(ctx);
+        consumeFromPoolByTag(pools, charge.tag, remaining);
+      }
     } else if (charge.kind === "resource") {
       const resources = getResourcesForRef(ctx, charge.targetRef);
       if (!resources) continue;
