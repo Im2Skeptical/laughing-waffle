@@ -57,6 +57,7 @@ export function createCharactersView(opts) {
     getGameState,
     onDropCharacter,
     getFocusIntent,
+    getExternalFocus,
     getPreviewHubCol,
     getPreviewPlacement,
   } = opts;
@@ -865,10 +866,17 @@ export function createCharactersView(opts) {
   function updateFocus() {
     const intent =
       typeof getFocusIntent === "function" ? getFocusIntent() : null;
+    const external =
+      typeof getExternalFocus === "function" ? getExternalFocus() : null;
+    const externalFocused =
+      external?.kind === "pawn" && Number.isFinite(external?.pawnId)
+        ? Math.floor(external.pawnId)
+        : null;
     const nextFocused =
       intent && intent.kind === "pawnMove" ? intent.charId : null;
-    if (focusedCharId !== nextFocused) {
-      focusedCharId = nextFocused;
+    const resolvedFocused = nextFocused ?? externalFocused;
+    if (focusedCharId !== resolvedFocused) {
+      focusedCharId = resolvedFocused;
     }
 
     for (const [id, view] of viewsById.entries()) {

@@ -286,6 +286,8 @@ export function createEmptyState(seed = 123456789) {
     characters: [],
     nextCharacterId: 101,
     nextFollowerCreationOrderIndex: 1,
+    gameEventFeed: [],
+    nextGameEventFeedId: 1,
 
     rng: { seed, baseSeed: seed },
   };
@@ -767,6 +769,15 @@ export function deserializeGameState(data) {
   if (!state.characters) state.characters = [];
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
+  if (!Array.isArray(state.gameEventFeed)) state.gameEventFeed = [];
+  if (!Number.isFinite(state.nextGameEventFeedId)) {
+    let maxEventId = 0;
+    for (const entry of state.gameEventFeed) {
+      const id = Number.isFinite(entry?.id) ? Math.floor(entry.id) : 0;
+      if (id > maxEventId) maxEventId = id;
+    }
+    state.nextGameEventFeedId = Math.max(1, maxEventId + 1);
+  }
   if (
     state.currentSeasonDeck != null &&
     typeof state.currentSeasonDeck !== "object"

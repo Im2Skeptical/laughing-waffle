@@ -2,13 +2,24 @@
 // Minimal current-second action log UI (planner intents only).
 
 import { createActionLogController } from "../controllers/actionmanagers/action-log-controller.js";
+import {
+  LOG_BG_ALPHA,
+  LOG_BG_FILL,
+  LOG_PANEL_HEADER_HEIGHT as HEADER_HEIGHT,
+  LOG_PANEL_HEIGHT as PANEL_HEIGHT,
+  LOG_PANEL_PADDING as PADDING,
+  LOG_PANEL_RADIUS,
+  LOG_PANEL_WIDTH as PANEL_WIDTH,
+  LOG_ROW_FILL,
+  LOG_ROW_FOCUSED_FILL,
+  LOG_ROW_GAP,
+  LOG_ROW_HEIGHT,
+} from "./ui-helpers/log-panel-theme.js";
+import {
+  drawLogRoundedRect,
+  drawLogStatusOverlay,
+} from "./ui-helpers/log-row-pixi.js";
 
-const PANEL_WIDTH = 280;
-const PANEL_HEIGHT = 720;
-const HEADER_HEIGHT = 64;
-const ROW_HEIGHT = 54;
-const ROW_GAP = 8;
-const PADDING = 16;
 const AP_HOVER_OVERLAY_ALPHA = 0.45;
 const AP_HOVER_FADE_IN = 14;
 const AP_HOVER_FADE_OUT = 8;
@@ -43,9 +54,13 @@ export function createActionLogView({
   });
 
   const bg = new PIXI.Graphics();
-  bg.beginFill(0x151a2a, 0.95);
-  bg.drawRoundedRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 16);
-  bg.endFill();
+  drawLogRoundedRect(bg, {
+    width: PANEL_WIDTH,
+    height: PANEL_HEIGHT,
+    radius: LOG_PANEL_RADIUS,
+    fill: LOG_BG_FILL,
+    fillAlpha: LOG_BG_ALPHA,
+  });
   container.addChild(bg);
 
   const header = new PIXI.Container();
@@ -204,7 +219,7 @@ export function createActionLogView({
       }
       hiddenRowIntentIds.clear();
     }
-    let y = Math.max(0, currentRowCount) * (ROW_HEIGHT + ROW_GAP);
+    let y = Math.max(0, currentRowCount) * (LOG_ROW_HEIGHT + LOG_ROW_GAP);
     for (const id of ghostOrder) {
       const entry = ghostEntries.get(id);
       if (!entry) continue;
@@ -220,7 +235,7 @@ export function createActionLogView({
       }
       if (!placed) {
         entry.container.y = y;
-        y += ROW_HEIGHT + ROW_GAP;
+        y += LOG_ROW_HEIGHT + LOG_ROW_GAP;
       }
     }
   }
@@ -251,20 +266,12 @@ export function createActionLogView({
     entry.container.alpha = 1;
 
     const overlay = entry.overlay;
-    overlay.clear();
-    if (status === "success") {
-      overlay
-        .beginFill(0x1f6a32, 0.3)
-        .lineStyle(2, 0x7dff9e, 1)
-        .drawRoundedRect(0, 0, PANEL_WIDTH - PADDING * 2, ROW_HEIGHT, 12)
-        .endFill();
-    } else {
-      overlay
-        .beginFill(0x8a1f2a, 0.3)
-        .lineStyle(2, 0xff4f5e, 1)
-        .drawRoundedRect(0, 0, PANEL_WIDTH - PADDING * 2, ROW_HEIGHT, 12)
-        .endFill();
-    }
+    drawLogStatusOverlay(
+      overlay,
+      PANEL_WIDTH - PADDING * 2,
+      LOG_ROW_HEIGHT,
+      status
+    );
     overlay.visible = true;
 
     if (entry.timeout) clearTimeout(entry.timeout);
@@ -282,9 +289,12 @@ export function createActionLogView({
 
     const rowWidth = PANEL_WIDTH - PADDING * 2;
     const rowBg = new PIXI.Graphics();
-    rowBg.beginFill(0x2a2f42, 0.8);
-    rowBg.drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 12);
-    rowBg.endFill();
+    drawLogRoundedRect(rowBg, {
+      width: rowWidth,
+      height: LOG_ROW_HEIGHT,
+      fill: LOG_ROW_FILL,
+      fillAlpha: 0.8,
+    });
     row.addChild(rowBg);
 
     const costText = new PIXI.Text(String(spec?.cost ?? 0), {
@@ -377,19 +387,7 @@ export function createActionLogView({
     if (!row) return;
     const rowWidth = PANEL_WIDTH - PADDING * 2;
     const overlay = new PIXI.Graphics();
-    if (status === "success") {
-      overlay
-        .beginFill(0x1f6a32, 0.3)
-        .lineStyle(2, 0x7dff9e, 1)
-        .drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 12)
-        .endFill();
-    } else {
-      overlay
-        .beginFill(0x8a1f2a, 0.3)
-        .lineStyle(2, 0xff4f5e, 1)
-        .drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 12)
-        .endFill();
-    }
+    drawLogStatusOverlay(overlay, rowWidth, LOG_ROW_HEIGHT, status);
     overlay.visible = true;
     row.addChild(overlay);
     setTimeout(() => {
@@ -416,9 +414,11 @@ export function createActionLogView({
       const rowWidth = PANEL_WIDTH - PADDING * 2;
 
       const rowBg = new PIXI.Graphics();
-      rowBg.beginFill(spec.isFocused ? 0x2b3350 : 0x2a2f42, 1);
-      rowBg.drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 12);
-      rowBg.endFill();
+      drawLogRoundedRect(rowBg, {
+        width: rowWidth,
+        height: LOG_ROW_HEIGHT,
+        fill: spec.isFocused ? LOG_ROW_FOCUSED_FILL : LOG_ROW_FILL,
+      });
       row.addChild(rowBg);
 
       const costText = new PIXI.Text(String(spec.cost ?? 0), {
@@ -468,7 +468,7 @@ export function createActionLogView({
       }
 
       rows.addChild(row);
-      y += ROW_HEIGHT + ROW_GAP;
+      y += LOG_ROW_HEIGHT + LOG_ROW_GAP;
 
       const rowId = spec.id ?? `row:${rowIndex}`;
       const sig = `${spec.description ?? ""}|${spec.cost ?? 0}|${

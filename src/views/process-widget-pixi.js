@@ -104,6 +104,7 @@ export function createProcessWidgetView({
   };
 
   let hoverContext = null;
+  let externalFocusContext = null;
 
   const routingDragController = createPillDragController({
     app,
@@ -2387,6 +2388,7 @@ export function createProcessWidgetView({
       lastSignature: null,
       pinned: false,
       hovered: false,
+      externalFocused: false,
       hasPosition: false,
       anchorRect: getTargetAnchorRect(target),
       offsetIndex: Number.isFinite(offsetIndex) ? Math.floor(offsetIndex) : 0,
@@ -2421,7 +2423,7 @@ export function createProcessWidgetView({
     const win = windows.get(windowId);
     if (!win) return;
     win.pinned = !!pinned;
-    if (!win.pinned && !win.hovered) {
+    if (!win.pinned && !win.hovered && !win.externalFocused) {
       win.container.visible = false;
     } else {
       win.container.visible = true;
@@ -2435,54 +2437,77 @@ export function createProcessWidgetView({
     setWindowPinned(windowId, !win.pinned);
   }
 
-  function updateHoverWindows(state) {
-    const hoverIds = new Set();
-    if (hoverContext?.targetRef) {
-      const target = resolveTargetFromRef(state, hoverContext.targetRef);
-      if (target) {
-        if (isGroupedSystem(hoverContext.systemId)) {
-          const windowId = `group:${hoverContext.systemId}:${getTargetKey(target)}`;
-          const win = ensureWindow(
-            windowId,
-            target,
-            hoverContext.systemId,
-            { x: position.x, y: position.y },
-            0,
-            { group: true, groupKind: hoverContext.systemId }
-          );
-          win.hovered = true;
-          hoverIds.add(windowId);
-          if (!win.pinned) win.container.visible = true;
-        } else {
-          const entries = collectProcessEntries(state, target, hoverContext.systemId);
-          let offsetIndex = 0;
-          for (const entry of entries) {
-            const processId = entry?.process?.id;
-            if (!processId) continue;
-            const win = ensureWindow(
-              processId,
-              target,
-              hoverContext.systemId,
-              { x: position.x, y: position.y },
-              offsetIndex,
-              { processId }
-            );
-            win.hovered = true;
-            hoverIds.add(processId);
-            if (!win.pinned) {
-              win.container.visible = true;
-            }
-            offsetIndex += 1;
-          }
-        }
-      }
+  function collectContextWindows(state, context, idSet, flagKey) {
+    if (!context?.targetRef) return;
+    const target = resolveTargetFromRef(state, context.targetRef);
+    if (!target) return;
+
+    if (isGroupedSystem(context.systemId)) {
+      const windowId = `group:${context.systemId}:${getTargetKey(target)}`;
+      const win = ensureWindow(
+        windowId,
+        target,
+        context.systemId,
+        { x: position.x, y: position.y },
+        0,
+        { group: true, groupKind: context.systemId }
+      );
+      win[flagKey] = true;
+      idSet.add(windowId);
+      if (!win.pinned) win.container.visible = true;
+      return;
     }
 
+    const entries = collectProcessEntries(state, target, context.systemId);
+    let offsetIndex = 0;
+    for (const entry of entries) {
+      const processId = entry?.process?.id;
+      if (!processId) continue;
+      const win = ensureWindow(
+        processId,
+        target,
+        context.systemId,
+        { x: position.x, y: position.y },
+        offsetIndex,
+        { processId }
+      );
+      win[flagKey] = true;
+      idSet.add(processId);
+      if (!win.pinned) {
+        win.container.visible = true;
+      }
+      offsetIndex += 1;
+    }
+  }
+
+  function updateHoverWindows(state) {
+    const hoverIds = new Set();
+    const externalIds = new Set();
+    collectContextWindows(state, hoverContext, hoverIds, "hovered");
+    collectContextWindows(
+      state,
+      externalFocusContext,
+      externalIds,
+      "externalFocused"
+    );
+
+    const externalActive = !!externalFocusContext?.targetRef;
     for (const [windowId, win] of windows.entries()) {
-      if (!win.hovered) continue;
-      if (hoverIds.has(windowId)) continue;
-      win.hovered = false;
-      if (!win.pinned) win.container.visible = false;
+      if (win.hovered && !hoverIds.has(windowId)) {
+        win.hovered = false;
+      }
+      if (win.externalFocused && !externalIds.has(windowId)) {
+        win.externalFocused = false;
+      }
+
+      if (externalActive) {
+        win.container.visible = externalIds.has(windowId);
+        continue;
+      }
+
+      if (!win.pinned && !win.hovered && !win.externalFocused) {
+        win.container.visible = false;
+      }
     }
   }
 
@@ -2496,6 +2521,7 @@ export function createProcessWidgetView({
     }
 
     updateHoverWindows(state);
+    const externalActive = !!externalFocusContext?.targetRef;
 
     for (const [windowId, win] of windows.entries()) {
       const target = resolveTargetFromRef(state, win.targetRef);
@@ -2505,7 +2531,9 @@ export function createProcessWidgetView({
       }
       if (win.group) {
         const entries = collectProcessEntries(state, target, win.systemId);
-        const visible = win.pinned || win.hovered;
+        const visible = externalActive
+          ? !!win.externalFocused
+          : !!win.pinned || !!win.hovered;
         if (!visible) {
           win.container.visible = false;
           continue;
@@ -2610,7 +2638,9 @@ export function createProcessWidgetView({
         continue;
       }
 
-      const visible = win.pinned || win.hovered;
+      const visible = externalActive
+        ? !!win.externalFocused
+        : !!win.pinned || !!win.hovered;
       if (!visible) {
         win.container.visible = false;
         continue;
@@ -2669,7 +2699,24 @@ export function createProcessWidgetView({
     for (const win of windows.values()) {
       if (!win.hovered) continue;
       win.hovered = false;
-      if (!win.pinned) win.container.visible = false;
+      if (!win.pinned && !win.externalFocused) win.container.visible = false;
+    }
+    invalidateAllSignatures();
+  }
+
+  function setExternalFocusTarget(target, systemId) {
+    externalFocusContext = target
+      ? { targetRef: makeTargetRef(target), systemId: systemId || null }
+      : null;
+    invalidateAllSignatures();
+  }
+
+  function clearExternalFocusTarget() {
+    externalFocusContext = null;
+    for (const win of windows.values()) {
+      if (!win.externalFocused) continue;
+      win.externalFocused = false;
+      if (!win.pinned && !win.hovered) win.container.visible = false;
     }
     invalidateAllSignatures();
   }
@@ -2729,5 +2776,7 @@ export function createProcessWidgetView({
     setHoverTarget,
     clearHoverTarget,
     togglePinnedTarget,
+    setExternalFocusTarget,
+    clearExternalFocusTarget,
   };
 }

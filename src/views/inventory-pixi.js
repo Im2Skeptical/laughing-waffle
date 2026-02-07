@@ -92,6 +92,7 @@ export function createInventoryView({
   getPreviewVersion,
   getInventoryPreview,
   getFocusIntent,
+  getExternalFocusOwners,
   onGhostClick,
   hasItemTransferIntent,
   getItemTransferAffordability,
@@ -1280,6 +1281,27 @@ export function createInventoryView({
       }
       for (const win of windows.values()) {
         const shouldFocus = focusOwners.has(win.ownerId);
+        win.focusOutline.visible = shouldFocus;
+        win.container.visible = shouldFocus;
+      }
+      return;
+    }
+
+    const externalOwnersRaw =
+      typeof getExternalFocusOwners === "function"
+        ? getExternalFocusOwners()
+        : null;
+    const externalOwners = new Set(
+      Array.isArray(externalOwnersRaw)
+        ? externalOwnersRaw.filter((ownerId) => ownerId != null)
+        : []
+    );
+    if (externalOwners.size > 0) {
+      for (const ownerId of externalOwners) {
+        ensureWindow(ownerId);
+      }
+      for (const win of windows.values()) {
+        const shouldFocus = externalOwners.has(win.ownerId);
         win.focusOutline.visible = shouldFocus;
         win.container.visible = shouldFocus;
       }

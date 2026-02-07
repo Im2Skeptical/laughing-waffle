@@ -31,6 +31,7 @@ import {
 } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
+import { createEventLogView } from "./event-log-pixi.js";
 import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
@@ -50,6 +51,8 @@ document.body.appendChild(app.view);
 
 let flashActionLogAp = null;
 let actionLogView = null;
+let eventLogView = null;
+let externalUiFocus = null;
 
 const runner = createSimRunner({
   onInvalidate: (reason) => {
@@ -187,6 +190,138 @@ function refreshOpenInventoryWindows() {
   for (const ownerId of inventoryView.windows.keys()) {
     inventoryView.rebuildWindow(ownerId);
   }
+}
+
+function getExternalUiFocus() {
+  return externalUiFocus;
+}
+
+function getExternalFocusOwners() {
+  const focus = externalUiFocus;
+  if (!focus) return [];
+  if (Array.isArray(focus.ownerIds)) {
+    return focus.ownerIds.filter((ownerId) => ownerId != null);
+  }
+  if (focus.kind === "pawn" && focus.pawnId != null) {
+    return [focus.pawnId];
+  }
+  if (focus.kind === "hub" && focus.ownerId != null) {
+    return [focus.ownerId];
+  }
+  return [];
+}
+
+function resolveHubFocusTarget(state, focus) {
+  if (!state || !focus || focus.kind !== "hub") return null;
+  const ownerId = focus.ownerId ?? null;
+  if (ownerId != null) {
+    for (const slot of state?.hub?.slots || []) {
+      const structure = slot?.structure;
+      if (!structure) continue;
+      if (String(structure.instanceId) === String(ownerId)) return structure;
+    }
+  }
+  const hubCol = Number.isFinite(focus.hubCol) ? Math.floor(focus.hubCol) : null;
+  if (hubCol == null) return null;
+  return state?.hub?.occ?.[hubCol] ?? state?.hub?.slots?.[hubCol]?.structure ?? null;
+}
+
+function resolveTileFocusTarget(state, focus) {
+  if (!state || !focus) return null;
+  if (focus.kind !== "tile" && focus.kind !== "event") return null;
+  const envCol = Number.isFinite(focus.envCol) ? Math.floor(focus.envCol) : null;
+  if (envCol == null) return null;
+  return state?.board?.occ?.tile?.[envCol] ?? null;
+}
+
+function applyExternalUiFocusToProcessWidgets() {
+  if (!processWidgetView) return;
+  const state = runner.getState?.();
+  const focus = externalUiFocus;
+  if (!state || !focus) {
+    processWidgetView.clearExternalFocusTarget?.();
+    return;
+  }
+
+  const hubTarget = resolveHubFocusTarget(state, focus);
+  if (hubTarget) {
+    processWidgetView.setExternalFocusTarget?.(
+      hubTarget,
+      focus.systemId || "build"
+    );
+    return;
+  }
+
+  const tileTarget = resolveTileFocusTarget(state, focus);
+  if (tileTarget) {
+    processWidgetView.setExternalFocusTarget?.(
+      tileTarget,
+      focus.systemId || null
+    );
+    return;
+  }
+
+  processWidgetView.clearExternalFocusTarget?.();
+}
+
+function setExternalUiFocus(nextFocus) {
+  externalUiFocus = nextFocus || null;
+  applyExternalUiFocusToProcessWidgets();
+}
+
+function clearExternalUiFocus() {
+  if (!externalUiFocus) return;
+  externalUiFocus = null;
+  processWidgetView?.clearExternalFocusTarget?.();
+}
+
+function normalizeEventLogFocus(entry) {
+  const data = entry?.data;
+  if (!data || typeof data !== "object") return null;
+  const focusKind = data.focusKind;
+
+  if (focusKind === "pawn") {
+    const pawnId = Number.isFinite(data.pawnId) ? Math.floor(data.pawnId) : null;
+    if (pawnId == null) return null;
+    return {
+      kind: "pawn",
+      pawnId,
+      ownerIds: [pawnId],
+    };
+  }
+
+  if (focusKind === "hub") {
+    const ownerId = data.ownerId ?? null;
+    const hubCol = Number.isFinite(data.hubCol) ? Math.floor(data.hubCol) : null;
+    return {
+      kind: "hub",
+      ownerId,
+      ownerIds: ownerId != null ? [ownerId] : [],
+      hubCol,
+      systemId: typeof data.systemId === "string" ? data.systemId : "build",
+    };
+  }
+
+  if (focusKind === "tile") {
+    const envCol = Number.isFinite(data.envCol) ? Math.floor(data.envCol) : null;
+    if (envCol == null) return null;
+    return {
+      kind: "tile",
+      envCol,
+      systemId: typeof data.systemId === "string" ? data.systemId : null,
+    };
+  }
+
+  return null;
+}
+
+function handleEventLogSelection(entry) {
+  if (!entry) {
+    clearExternalUiFocus();
+    return;
+  }
+  const focus = normalizeEventLogFocus(entry);
+  setExternalUiFocus(focus);
 }
 
 const interactionController = createInteractionController({
@@ -601,6 +736,7 @@ inventoryView = createInventoryView({
   resolveDragGhost: (status) => actionLogView?.resolveDragGhost?.(status),
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
+  getExternalFocusOwners: () => getExternalFocusOwners(),
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
   hasItemTransferIntent: (itemId) =>
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
@@ -728,6 +864,7 @@ const boardView = createBoardView({
     const target = view?.structure ?? view?.tile ?? null;
     processWidgetView?.togglePinnedTarget?.(target, systemId);
   },
+  getExternalFocus: () => getExternalUiFocus(),
 });
 
 const charactersView = createCharactersView({
@@ -743,6 +880,7 @@ const charactersView = createCharactersView({
   requestPauseForAction,
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
+  getExternalFocus: () => getExternalUiFocus(),
   getPawnMoveAffordability: (spec) =>
     actionPlanner?.getPawnMoveAffordability?.(spec) ?? {
       ok: true,
@@ -975,6 +1113,13 @@ actionLogView = createActionLogView({
   getState: () => runner.getState(),
 });
 
+eventLogView = createEventLogView({
+  layer: uiLayers.controlsLayer,
+  getState: () => runner.getState(),
+  onSelectEntry: (entry) => handleEventLogSelection(entry),
+  position: { x: 20, y: 180 },
+});
+
 flashActionLogAp = () => actionLogView.flashInsufficientAp?.();
 
 runner.init();
@@ -987,6 +1132,7 @@ processWidgetView.init();
 chromeView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
+eventLogView.init();
 apGraphView.open();
 systemGraphView.open();
 
@@ -1032,6 +1178,7 @@ app.ticker.add((delta) => {
   chromeView.update(frameDt);
   sunMoonDisksView.update(frameDt); // NEW
   actionLogView.update(frameDt);
+  eventLogView.update(frameDt);
   debugView.update();
 
   const anyMetricGraphOpen =

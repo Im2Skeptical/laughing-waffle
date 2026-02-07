@@ -77,6 +77,7 @@ export function createBoardView(opts) {
     onSystemIconHover,
     onSystemIconOut,
     onSystemIconClick,
+    getExternalFocus,
   } = opts;
 
   const tileViews = [];
@@ -660,32 +661,45 @@ export function createBoardView(opts) {
       isHubPlan && Number.isFinite(intent.hubCol)
         ? Math.floor(intent.hubCol)
         : null;
+    const externalFocus =
+      typeof getExternalFocus === "function" ? getExternalFocus() : null;
+    const externalTileCol =
+      Number.isFinite(externalFocus?.envCol) &&
+      (externalFocus?.kind === "tile" || externalFocus?.kind === "event")
+        ? Math.floor(externalFocus.envCol)
+        : null;
+    const externalHubCol =
+      Number.isFinite(externalFocus?.hubCol) && externalFocus?.kind === "hub"
+        ? Math.floor(externalFocus.hubCol)
+        : null;
+    const resolvedTileCol = nextTileCol ?? externalTileCol;
+    const resolvedHubCol = nextHubCol ?? externalHubCol;
 
-    if (nextTileCol == null) {
+    if (resolvedTileCol == null) {
       if (focusedTileCol != null) clearAllTileFocus();
     } else {
-      if (focusedTileCol !== nextTileCol) {
+      if (focusedTileCol !== resolvedTileCol) {
         if (focusedTileCol != null) {
           const prev = tileViews[focusedTileCol];
           if (prev) setTileFocus(prev, false);
         }
-        focusedTileCol = nextTileCol;
+        focusedTileCol = resolvedTileCol;
       }
-      const view = tileViews[nextTileCol];
+      const view = tileViews[resolvedTileCol];
       if (view) setTileFocus(view, true);
     }
 
-    if (nextHubCol == null) {
+    if (resolvedHubCol == null) {
       if (focusedHubCol != null) clearAllHubFocus();
     } else {
-      if (focusedHubCol !== nextHubCol) {
+      if (focusedHubCol !== resolvedHubCol) {
         if (focusedHubCol != null) {
           const prev = findHubViewByCol(focusedHubCol);
           if (prev) setHubFocus(prev, false);
         }
-        focusedHubCol = nextHubCol;
+        focusedHubCol = resolvedHubCol;
       }
-      const view = findHubViewByCol(nextHubCol);
+      const view = findHubViewByCol(resolvedHubCol);
       if (view) setHubFocus(view, true);
     }
   }

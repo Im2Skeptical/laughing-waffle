@@ -4,10 +4,13 @@
 import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { HUNGER_THRESHOLD } from "../defs/gamesettings/gamerules-defs.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { ensurePawnSystems } from "./state.js";
 import { applyFollowerHungerDebt } from "./prestige-system.js";
+import { pushGameEvent } from "./event-feed.js";
 
 function requirementsPass(requires, pawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -138,6 +141,88 @@ function listDistributorPoolsForPawn(state, pawn) {
   return sources;
 }
 
+function getPawnLabel(pawn) {
+  if (!pawn) return "Pawn";
+  return pawn.name || `Char ${pawn.id ?? ""}`.trim();
+}
+
+function itemHasTagByKind(kind, tagId) {
+  if (!kind || !tagId) return false;
+  const tags = Array.isArray(itemDefs?.[kind]?.baseTags)
+    ? itemDefs[kind].baseTags
+    : [];
+  return tags.includes(tagId);
+}
+
+function chooseArticle(noun) {
+  if (!noun || typeof noun !== "string") return "a";
+  return /^[aeiou]/i.test(noun.trim()) ? "an" : "a";
+}
+
+function getItemLabel(kind) {
+  if (!kind) return "food";
+  const raw = itemDefs?.[kind]?.name || kind;
+  return String(raw).trim().toLowerCase() || "food";
+}
+
+function snapshotEdibleInventory(inv) {
+  const byKind = new Map();
+  if (!Array.isArray(inv?.items)) return byKind;
+  for (const item of inv.items) {
+    if (!item || !item.kind) continue;
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    if (!tags.includes("edible") && !itemHasTagByKind(item.kind, "edible")) {
+      continue;
+    }
+    const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+    if (qty <= 0) continue;
+    const prev = byKind.get(item.kind) || 0;
+    byKind.set(item.kind, prev + qty);
+  }
+  return byKind;
+}
+
+function snapshotEdibleDistributorPools(distributorPools) {
+  const byKind = new Map();
+  const pools = Array.isArray(distributorPools) ? distributorPools : [];
+  for (const entry of pools) {
+    const pool = entry?.pool;
+    if (!pool || typeof pool !== "object") continue;
+    for (const [kind, tiers] of Object.entries(pool)) {
+      if (!itemHasTagByKind(kind, "edible")) continue;
+      if (!tiers || typeof tiers !== "object") continue;
+      let total = 0;
+      for (const qtyRaw of Object.values(tiers)) {
+        const qty = Math.max(0, Math.floor(qtyRaw ?? 0));
+        total += qty;
+      }
+      if (total <= 0) continue;
+      byKind.set(kind, (byKind.get(kind) || 0) + total);
+    }
+  }
+  return byKind;
+}
+
+function findConsumedKind(before, after) {
+  const keys = new Set([
+    ...Array.from(before?.keys?.() || []),
+    ...Array.from(after?.keys?.() || []),
+  ]);
+  let bestKind = null;
+  let bestDrop = 0;
+  for (const kind of keys) {
+    const prev = before?.get?.(kind) || 0;
+    const next = after?.get?.(kind) || 0;
+    const drop = prev - next;
+    if (drop <= 0) continue;
+    if (drop > bestDrop) {
+      bestDrop = drop;
+      bestKind = kind;
+    }
+  }
+  return bestKind;
+}
+
 export function stepPawnSecond(state, tSec) {
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   if (!chars.length) return;
@@ -165,6 +250,9 @@ export function stepPawnSecond(state, tSec) {
       pawnInv,
       distributorPools,
     };
+    const hungerBefore = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
+    const edibleInvBefore = snapshotEdibleInventory(pawnInv);
+    const ediblePoolsBefore = snapshotEdibleDistributorPools(distributorPools);
 
     for (const passive of passives) {
       if (!passive || typeof passive !== "object") continue;
@@ -175,6 +263,7 @@ export function stepPawnSecond(state, tSec) {
     }
 
     let executed = false;
+    let executedIntentId = null;
     for (const intent of intents) {
       if (!intent || typeof intent !== "object") continue;
       if (intent.requires && !requirementsPass(intent.requires, pawn)) continue;
@@ -188,11 +277,48 @@ export function stepPawnSecond(state, tSec) {
         runEffect(state, intent.effect, { ...context });
       }
       executed = true;
+      executedIntentId =
+        typeof intent.id === "string" && intent.id.length > 0 ? intent.id : null;
       break;
     }
 
     if (pawn.role === "follower") {
       applyFollowerHungerDebt(state, pawn);
+    }
+
+    const hungerAfter = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
+    const threshold = Math.max(0, Math.floor(HUNGER_THRESHOLD ?? 0));
+    if (hungerBefore >= threshold && hungerAfter < threshold) {
+      pushGameEvent(state, {
+        type: "pawnHungry",
+        tSec,
+        text: `${getPawnLabel(pawn)} is hungry`,
+        data: {
+          focusKind: "pawn",
+          pawnId: pawn.id ?? null,
+          ownerIds: pawn.id != null ? [pawn.id] : [],
+        },
+      });
+    }
+
+    if (executedIntentId === "eat") {
+      const edibleInvAfter = snapshotEdibleInventory(state?.ownerInventories?.[pawn.id]);
+      const ediblePoolsAfter = snapshotEdibleDistributorPools(distributorPools);
+      const kindFromInv = findConsumedKind(edibleInvBefore, edibleInvAfter);
+      const kindFromPools = findConsumedKind(ediblePoolsBefore, ediblePoolsAfter);
+      const itemKind = kindFromInv || kindFromPools || null;
+      const itemLabel = getItemLabel(itemKind);
+      pushGameEvent(state, {
+        type: "pawnAte",
+        tSec,
+        text: `${getPawnLabel(pawn)} ate ${chooseArticle(itemLabel)} ${itemLabel}`,
+        data: {
+          focusKind: "pawn",
+          pawnId: pawn.id ?? null,
+          ownerIds: pawn.id != null ? [pawn.id] : [],
+          itemKind,
+        },
+      });
     }
 
     if (executed) continue;

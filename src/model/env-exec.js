@@ -13,8 +13,45 @@ import {
 import { createRng } from "./rng.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
+import { pushGameEvent } from "./event-feed.js";
 
 const EVENT_CADENCE_SEC = 5;
+
+function chooseArticle(noun) {
+  if (!noun || typeof noun !== "string") return "A";
+  return /^[aeiou]/i.test(noun.trim()) ? "An" : "A";
+}
+
+function formatEventAppearanceText(defId) {
+  const def = envEventDefs?.[defId];
+  const rawName =
+    (typeof def?.name === "string" && def.name) ||
+    (typeof def?.ui?.name === "string" && def.ui.name) ||
+    defId ||
+    "event";
+  const label = String(rawName).trim().toLowerCase() || "event";
+  return `${chooseArticle(label)} ${label} appeared`;
+}
+
+function findSpawnedEventAnchor(state, defId, tSec) {
+  const anchors = Array.isArray(state?.board?.layers?.event?.anchors)
+    ? state.board.layers.event.anchors
+    : [];
+  const sec = Number.isFinite(tSec) ? Math.floor(tSec) : 0;
+  const matches = [];
+  for (const anchor of anchors) {
+    if (!anchor || anchor.defId !== defId) continue;
+    if (Math.floor(anchor.createdSec ?? -1) !== sec) continue;
+    matches.push(anchor);
+  }
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => {
+    const ai = Number.isFinite(a?.instanceId) ? Math.floor(a.instanceId) : 0;
+    const bi = Number.isFinite(b?.instanceId) ? Math.floor(b.instanceId) : 0;
+    return ai - bi;
+  });
+  return matches[0];
+}
 
 function requirementsPass(requires, seasonKey, tile, hasPawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -842,6 +879,23 @@ export function stepEnvSecond(state, tSec) {
       if (def) {
         const result = spawnEnvEventFromDef(state, entry.defId, def, tSec);
         if (result?.needsRebuild) needsRebuild = true;
+        if (result?.placedAny) {
+          const spawned = findSpawnedEventAnchor(state, entry.defId, tSec);
+          const envCol = Number.isFinite(spawned?.col)
+            ? Math.floor(spawned.col)
+            : null;
+          pushGameEvent(state, {
+            type: "envEventAppeared",
+            tSec,
+            text: formatEventAppearanceText(entry.defId),
+            data: {
+              focusKind: "tile",
+              envCol,
+              eventDefId: entry.defId,
+              eventInstanceId: spawned?.instanceId ?? null,
+            },
+          });
+        }
 
         const consumePolicy = def.spawn?.consumePolicy;
         if (consumePolicy === "onlyIfAnyPlaced" && !result?.placedAny) {

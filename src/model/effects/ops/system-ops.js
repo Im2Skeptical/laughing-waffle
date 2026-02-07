@@ -30,6 +30,7 @@ import {
 import { Inventory } from "../../inventory-model.js";
 import { canOwnerAcceptItem } from "../../commands.js";
 import { applyPrestigeDeposit } from "../../prestige-system.js";
+import { pushGameEvent } from "../../event-feed.js";
 
 // Process refactor:
 // - CreateWorkProcess: enqueue a process with progress tracking (time or work)
@@ -1322,6 +1323,17 @@ function finalizeBuildProcess(state, target, process) {
   if (target.systemTiers?.build) delete target.systemTiers.build;
 
   initializeInstanceFromDef(target, def);
+  pushGameEvent(state, {
+    type: "hubBuildComplete",
+    text: `${def?.name || defId || "Structure"} finished building`,
+    data: {
+      focusKind: "hub",
+      hubCol: Number.isFinite(target?.col) ? Math.floor(target.col) : null,
+      ownerId: target?.instanceId ?? null,
+      structureDefId: defId,
+      systemId: "build",
+    },
+  });
   return true;
 }
 
