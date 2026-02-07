@@ -9,6 +9,12 @@ import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import {
+  LEADER_EQUIPMENT_SLOT_ORDER,
+  canItemEquipInSlot,
+  createEmptyLeaderEquipment,
+  isLeaderEquipmentSlotId,
+} from "../defs/gamesystems/equipment-slot-defs.js";
+import {
   buildRequirementProgress,
   isStructureUnderConstruction,
   validateHubConstructionPlacement,
@@ -1126,6 +1132,36 @@ export function cmdMoveProcessBufferItem(
 // INVENTORY COMMANDS
 // =============================================================================
 
+function resolveCharacterOwnerId(ownerId) {
+  if (typeof ownerId === "number") return ownerId;
+  if (typeof ownerId === "string" && !ownerId.startsWith("inv:process:")) {
+    const asNum = Number(ownerId);
+    if (Number.isFinite(asNum)) return asNum;
+  }
+  return ownerId;
+}
+
+function getLeaderByOwnerId(state, ownerId) {
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const normalized = resolveCharacterOwnerId(ownerId);
+  const pawn = chars.find((ch) => ch && ch.id === normalized);
+  if (!pawn || pawn.role !== "leader") return null;
+  return pawn;
+}
+
+function ensureLeaderEquipment(leader) {
+  if (!leader || leader.role !== "leader") return;
+  if (!leader.equipment || typeof leader.equipment !== "object") {
+    leader.equipment = createEmptyLeaderEquipment();
+    return;
+  }
+  for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+    if (!Object.prototype.hasOwnProperty.call(leader.equipment, slotId)) {
+      leader.equipment[slotId] = null;
+    }
+  }
+}
+
 export function cmdMoveItemBetweenOwners(
   state,
   { fromOwnerId, toOwnerId, itemId, targetGX, targetGY }
@@ -1158,6 +1194,158 @@ export function cmdMoveItemBetweenOwners(
   );
 
   return ctx.out || { ok: false, reason: "effectFailed" };
+}
+
+export function cmdEquipItemToLeaderSlot(
+  state,
+  { fromOwnerId, toOwnerId, itemId, slotId } = {}
+) {
+  if (!isLeaderEquipmentSlotId(slotId)) {
+    return { ok: false, reason: "badSlot" };
+  }
+
+  const fromInv = state?.ownerInventories?.[fromOwnerId];
+  if (!fromInv) return { ok: false, reason: "noInventory" };
+
+  const leader = getLeaderByOwnerId(state, toOwnerId);
+  if (!leader) return { ok: false, reason: "noLeader" };
+  ensureLeaderEquipment(leader);
+
+  const item =
+    fromInv.itemsById?.[itemId] || fromInv.items?.find((it) => it.id === itemId);
+  if (!item) return { ok: false, reason: "noItem" };
+  if (!canItemEquipInSlot(item, slotId)) {
+    return { ok: false, reason: "slotMismatch" };
+  }
+  if (!canOwnerAcceptItem(state, toOwnerId, item)) {
+    return { ok: false, reason: "rejectedByOwner" };
+  }
+
+  const current = leader.equipment[slotId] ?? null;
+  if (current) return { ok: false, reason: "slotOccupied" };
+
+  Inventory.removeItem(fromInv, item.id);
+  Inventory.rebuildDerived(fromInv);
+  bumpInvVersion(fromInv);
+
+  leader.equipment[slotId] = item;
+
+  return {
+    ok: true,
+    result: "equipped",
+    fromOwnerId,
+    toOwnerId,
+    itemId: item.id,
+    slotId,
+  };
+}
+
+export function cmdMoveLeaderEquipmentToInventory(
+  state,
+  { fromOwnerId, toOwnerId, slotId, targetGX, targetGY } = {}
+) {
+  if (!isLeaderEquipmentSlotId(slotId)) {
+    return { ok: false, reason: "badSlot" };
+  }
+
+  const leader = getLeaderByOwnerId(state, fromOwnerId);
+  if (!leader) return { ok: false, reason: "noLeader" };
+  ensureLeaderEquipment(leader);
+
+  const item = leader.equipment[slotId] ?? null;
+  if (!item) return { ok: false, reason: "emptySlot" };
+
+  const toInv = state?.ownerInventories?.[toOwnerId];
+  if (!toInv) return { ok: false, reason: "noInventory" };
+  if (!canOwnerAcceptItem(state, toOwnerId, item)) {
+    return { ok: false, reason: "rejectedByOwner" };
+  }
+
+  let gx = Number.isFinite(targetGX) ? Math.floor(targetGX) : null;
+  let gy = Number.isFinite(targetGY) ? Math.floor(targetGY) : null;
+
+  if (gx == null || gy == null) {
+    let found = null;
+    outer: for (let y = 0; y <= toInv.rows - item.height; y++) {
+      for (let x = 0; x <= toInv.cols - item.width; x++) {
+        if (Inventory.canPlaceItemAt(toInv, item, x, y)) {
+          found = { gx: x, gy: y };
+          break outer;
+        }
+      }
+    }
+    if (!found) return { ok: false, reason: "noSpace" };
+    gx = found.gx;
+    gy = found.gy;
+  }
+
+  const canPlace = Inventory.canPlaceItemAt(toInv, item, gx, gy);
+  if (!canPlace) return { ok: false, reason: "blocked" };
+
+  leader.equipment[slotId] = null;
+  const attached = Inventory.attachExistingItem(toInv, item, gx, gy);
+  if (!attached) {
+    leader.equipment[slotId] = item;
+    return { ok: false, reason: "attachFailed" };
+  }
+
+  Inventory.rebuildDerived(toInv);
+  bumpInvVersion(toInv);
+
+  return {
+    ok: true,
+    result: "unequipped",
+    fromOwnerId,
+    toOwnerId,
+    itemId: item.id,
+    slotId,
+    gx,
+    gy,
+  };
+}
+
+export function cmdMoveLeaderEquipmentToSlot(
+  state,
+  { fromOwnerId, toOwnerId, fromSlotId, toSlotId } = {}
+) {
+  if (!isLeaderEquipmentSlotId(fromSlotId) || !isLeaderEquipmentSlotId(toSlotId)) {
+    return { ok: false, reason: "badSlot" };
+  }
+
+  const fromLeader = getLeaderByOwnerId(state, fromOwnerId);
+  const toLeader = getLeaderByOwnerId(state, toOwnerId);
+  if (!fromLeader || !toLeader) return { ok: false, reason: "noLeader" };
+  ensureLeaderEquipment(fromLeader);
+  ensureLeaderEquipment(toLeader);
+
+  if (fromOwnerId === toOwnerId && fromSlotId === toSlotId) {
+    return { ok: true, result: "noChange" };
+  }
+
+  const item = fromLeader.equipment[fromSlotId] ?? null;
+  if (!item) return { ok: false, reason: "emptySlot" };
+  if (!canItemEquipInSlot(item, toSlotId)) {
+    return { ok: false, reason: "slotMismatch" };
+  }
+  if (toLeader.equipment[toSlotId] != null) {
+    return { ok: false, reason: "slotOccupied" };
+  }
+  if (!canOwnerAcceptItem(state, toOwnerId, item)) {
+    return { ok: false, reason: "rejectedByOwner" };
+  }
+
+  fromLeader.equipment[fromSlotId] = null;
+  toLeader.equipment[toSlotId] = item;
+
+  return {
+    ok: true,
+    result: "equippedMoved",
+    fromOwnerId,
+    toOwnerId,
+    fromSlotId,
+    toSlotId,
+    itemId: item.id,
+  };
 }
 
 export function cmdSplitStackAndPlace(

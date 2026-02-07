@@ -740,6 +740,36 @@ inventoryView = createInventoryView({
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
   hasItemTransferIntent: (itemId) =>
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
+  equipItemToSlot: ({ fromOwnerId, toOwnerId, itemId, slotId }) =>
+    queueActionWhenPaused(() =>
+      runner.dispatchAction(
+        ActionKinds.EQUIP_ITEM,
+        { fromOwnerId, toOwnerId, itemId, slotId },
+        { apCost: 0 }
+      )
+    ),
+  moveEquippedItemToInventory: ({
+    fromOwnerId,
+    toOwnerId,
+    slotId,
+    targetGX,
+    targetGY,
+  }) =>
+    queueActionWhenPaused(() =>
+      runner.dispatchAction(
+        ActionKinds.UNEQUIP_ITEM,
+        { fromOwnerId, toOwnerId, slotId, targetGX, targetGY },
+        { apCost: 0 }
+      )
+    ),
+  moveEquippedItemToSlot: ({ fromOwnerId, toOwnerId, fromSlotId, toSlotId }) =>
+    queueActionWhenPaused(() =>
+      runner.dispatchAction(
+        ActionKinds.MOVE_EQUIPPED_ITEM,
+        { fromOwnerId, toOwnerId, fromSlotId, toSlotId },
+        { apCost: 0 }
+      )
+    ),
   moveItemBetweenOwners: (spec) =>
     queueActionWhenPaused(() => {
       const isProcessBuffer = (ownerId) =>

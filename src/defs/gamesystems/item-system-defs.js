@@ -20,4 +20,15 @@ export const itemSystemDefs = {
     stateDefaults: {
     },
   },
+  wearable: {
+    id: "wearable",
+    kind: "itemSystem",
+    ui: { name: "Wearable", description: "Defines equipment slot compatibility." },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+      slot: null,
+      slots: [],
+    },
+  },
 };

@@ -13,6 +13,11 @@ import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import {
+  LEADER_EQUIPMENT_SLOT_LABELS,
+  LEADER_EQUIPMENT_SLOT_ORDER,
+  canItemEquipInSlot,
+} from "../defs/gamesystems/equipment-slot-defs.js";
+import {
   PRESTIGE_COST_PER_FOLLOWER,
   HUNGER_THRESHOLD,
   SECONDS_BELOW_HUNGER_THRESHOLD,
@@ -52,6 +57,13 @@ const ITEM_TIER_BORDER_COLORS = {
 const ITEM_GLYPH_COLOR = 0xffffff; //0xffffff
 const ITEM_GLYPH_SHADOW = 0x111111;
 const ITEM_GLYPH_ALPHA = 0.9;
+const EQUIP_PANEL_HEIGHT = 180;
+const EQUIP_PANEL_PADDING = 8;
+const EQUIP_SLOT_SIZE = 42;
+const EQUIP_SLOT_BG = 0x161a2a;
+const EQUIP_SLOT_BG_OCCUPIED = 0x26334a;
+const EQUIP_SLOT_STROKE = 0x44506e;
+const EQUIP_SLOT_STROKE_ACTIVE = 0x6f8dc6;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
 const BUILD_PANEL_HEADER_HEIGHT = 18;
@@ -95,6 +107,9 @@ export function createInventoryView({
   getExternalFocusOwners,
   onGhostClick,
   hasItemTransferIntent,
+  equipItemToSlot,
+  moveEquippedItemToInventory,
+  moveEquippedItemToSlot,
   getItemTransferAffordability,
   getDropTargetOwnerAt,
   setDragGhost,
@@ -147,6 +162,7 @@ export function createInventoryView({
     offsetY: 0,
     view: null,
     sourceOwnerOverride: null,
+    sourceEquipmentSlotId: null,
 
     cellOffsetGX: 0,
     cellOffsetGY: 0,
@@ -218,6 +234,48 @@ export function createInventoryView({
       debt,
       hungryCount,
       hungryDebt,
+    };
+  }
+
+  function getLeaderEquipmentState(leader) {
+    const src =
+      leader?.equipment && typeof leader.equipment === "object"
+        ? leader.equipment
+        : {};
+    const out = {};
+    for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+      out[slotId] = src[slotId] ?? null;
+    }
+    return out;
+  }
+
+  function getEquipmentSlotLayout(panelWidth) {
+    const innerWidth = panelWidth - INNER_PADDING * 2;
+    const size = EQUIP_SLOT_SIZE;
+    const centerX = Math.floor((innerWidth - size) / 2);
+    const leftX = EQUIP_PANEL_PADDING;
+    const rightX = innerWidth - EQUIP_PANEL_PADDING - size;
+    const ringLeftX = Math.max(
+      leftX + 6,
+      centerX - size - EQUIP_PANEL_PADDING - 4
+    );
+    const ringRightX = Math.min(
+      rightX - 6,
+      centerX + size + EQUIP_PANEL_PADDING + 4
+    );
+
+    const headY = 24;
+    const chestY = headY + size + 10;
+    const ringY = chestY + size + 10;
+
+    return {
+      head: { x: centerX, y: headY, size },
+      chest: { x: centerX, y: chestY, size },
+      mainHand: { x: leftX, y: chestY, size },
+      offHand: { x: rightX, y: chestY, size },
+      ring1: { x: ringLeftX, y: ringY, size },
+      ring2: { x: ringRightX, y: ringY, size },
+      amulet: { x: ringRightX, y: headY, size },
     };
   }
 
@@ -768,8 +826,9 @@ export function createInventoryView({
     const gridWidth = cols * cellSize;
     const binSize = cellSize * BIN_CELL_SIZE;
     const w = gridWidth + INNER_PADDING * 3 + binSize;
-    const baseHeight =
-      HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
+    const equipmentPanelHeight = leader ? EQUIP_PANEL_HEIGHT + INNER_PADDING : 0;
+    const bodyY = HEADER_HEIGHT + INNER_PADDING + equipmentPanelHeight;
+    const baseHeight = bodyY + rows * cellSize + INNER_PADDING;
     const buildOptions = leader
       ? computeBuildOptions(getStateSafe(), leader)
       : [];
@@ -859,7 +918,7 @@ export function createInventoryView({
     // Bin (discard) drop target
     const bin = new PIXI.Container();
     bin.x = INNER_PADDING + gridWidth + INNER_PADDING;
-    bin.y = HEADER_HEIGHT + INNER_PADDING;
+    bin.y = bodyY;
     bin.eventMode = "static";
     bin.cursor = "default";
     c.addChild(bin);
@@ -885,7 +944,7 @@ export function createInventoryView({
     // Body container (grid + items)
     const body = new PIXI.Container();
     body.x = INNER_PADDING;
-    body.y = HEADER_HEIGHT + INNER_PADDING;
+    body.y = bodyY;
     c.addChild(body);
 
     const win = {
@@ -907,6 +966,7 @@ export function createInventoryView({
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      equipmentPanel: null,
       leaderPanel: null,
       bin: {
         container: bin,
@@ -920,9 +980,78 @@ export function createInventoryView({
 
     // Leader panel (optional)
     if (leader) {
+      const equipPanel = new PIXI.Container();
+      equipPanel.x = INNER_PADDING;
+      equipPanel.y = HEADER_HEIGHT + INNER_PADDING;
+      c.addChild(equipPanel);
+
+      const equipBg = new PIXI.Graphics();
+      equipBg.beginFill(0x1b1b28, 0.95);
+      equipBg.drawRoundedRect(0, 0, w - INNER_PADDING * 2, EQUIP_PANEL_HEIGHT, 6);
+      equipBg.endFill();
+      equipPanel.addChild(equipBg);
+
+      const equipTitle = new PIXI.Text("Equipment", {
+        fill: 0xffffff,
+        fontSize: 12,
+        fontWeight: "bold",
+      });
+      equipTitle.x = EQUIP_PANEL_PADDING;
+      equipTitle.y = 6;
+      equipPanel.addChild(equipTitle);
+
+      const slotLayout = getEquipmentSlotLayout(w);
+      const equipSlots = {};
+      for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+        const layout = slotLayout[slotId];
+        if (!layout) continue;
+
+        const slot = new PIXI.Container();
+        slot.x = layout.x;
+        slot.y = layout.y;
+        slot.eventMode = "none";
+        slot.cursor = "default";
+        equipPanel.addChild(slot);
+
+        const slotBg = new PIXI.Graphics();
+        slotBg
+          .lineStyle(1, EQUIP_SLOT_STROKE, 1)
+          .beginFill(EQUIP_SLOT_BG, 0.9)
+          .drawRoundedRect(0, 0, layout.size, layout.size, 6)
+          .endFill();
+        slot.addChild(slotBg);
+
+        const itemLayer = new PIXI.Container();
+        slot.addChild(itemLayer);
+
+        const slotLabel = new PIXI.Text(LEADER_EQUIPMENT_SLOT_LABELS[slotId] || slotId, {
+          fill: 0xaeb8d6,
+          fontSize: 9,
+        });
+        slotLabel.anchor.set(0.5, 0);
+        slotLabel.x = Math.floor(layout.size / 2);
+        slotLabel.y = layout.size + 2;
+        slot.addChild(slotLabel);
+
+        equipSlots[slotId] = {
+          slot,
+          slotBg,
+          itemLayer,
+          size: layout.size,
+          label: slotLabel,
+        };
+      }
+
+      win.equipmentPanel = {
+        container: equipPanel,
+        bg: equipBg,
+        title: equipTitle,
+        slots: equipSlots,
+      };
+
       const panel = new PIXI.Container();
       panel.x = INNER_PADDING;
-      panel.y = HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
+      panel.y = bodyY + rows * cellSize + INNER_PADDING;
       c.addChild(panel);
 
       const panelBg = new PIXI.Graphics();
@@ -1466,6 +1595,7 @@ export function createInventoryView({
     drawItems(win, inv, preview);
 
     win.title.text = getOwnerLabel(ownerId);
+    updateEquipmentPanel(win);
     updateLeaderPanel(win);
 
     lastVersionByOwner.set(ownerId, inv.version ?? 0);
@@ -1492,7 +1622,9 @@ export function createInventoryView({
   }
 
   function buildItemView(win, item, opts = {}) {
-    const { cellSize } = win;
+    const cellSize = Number.isFinite(opts.cellSize)
+      ? Math.max(1, Math.floor(opts.cellSize))
+      : win.cellSize;
     const c = new PIXI.Container();
     const ownerId = opts.ownerId ?? win.ownerId;
 
@@ -1503,6 +1635,7 @@ export function createInventoryView({
     c.itemData = item;
     c.ownerId = ownerId;
     c.sourceOwnerId = item?.sourceOwnerId ?? null;
+    c.sourceEquipmentSlotId = opts.sourceEquipmentSlotId ?? null;
 
     if (interactive && !opts.isGhost) {
       c.on("pointerover", () => {
@@ -1591,10 +1724,15 @@ export function createInventoryView({
       c.addChild(t);
     }
 
-    const gx = opts.gridX ?? item.gridX;
-    const gy = opts.gridY ?? item.gridY;
-    c.x = gx * cellSize + 1;
-    c.y = gy * cellSize + 1;
+    if (Number.isFinite(opts.pixelX) && Number.isFinite(opts.pixelY)) {
+      c.x = Math.floor(opts.pixelX);
+      c.y = Math.floor(opts.pixelY);
+    } else {
+      const gx = opts.gridX ?? item.gridX;
+      const gy = opts.gridY ?? item.gridY;
+      c.x = gx * cellSize + 1;
+      c.y = gy * cellSize + 1;
+    }
 
     if (opts.isGhost) {
       c.alpha = 0.4;
@@ -1615,7 +1753,8 @@ export function createInventoryView({
       c.bg.tint = 0xffff66;
     }
 
-    win.body.addChild(c);
+    const parent = opts.parent || win.body;
+    parent.addChild(c);
     return c;
   }
 
@@ -1683,6 +1822,46 @@ export function createInventoryView({
     win.hovered = true;
     win.container.visible = true;
     return { ok: true };
+  }
+
+  function redrawEquipmentSlot(slotBg, occupied) {
+    slotBg.clear();
+    slotBg
+      .lineStyle(1, occupied ? EQUIP_SLOT_STROKE_ACTIVE : EQUIP_SLOT_STROKE, 1)
+      .beginFill(occupied ? EQUIP_SLOT_BG_OCCUPIED : EQUIP_SLOT_BG, 0.92)
+      .drawRoundedRect(0, 0, EQUIP_SLOT_SIZE, EQUIP_SLOT_SIZE, 6)
+      .endFill();
+  }
+
+  function updateEquipmentPanel(win) {
+    if (!win?.equipmentPanel) return;
+    const leader = getLeaderForOwner(win.ownerId);
+    if (!leader) {
+      win.equipmentPanel.container.visible = false;
+      return;
+    }
+    win.equipmentPanel.container.visible = true;
+    const equipment = getLeaderEquipmentState(leader);
+    for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+      const slot = win.equipmentPanel.slots?.[slotId];
+      if (!slot) continue;
+      const item = equipment[slotId] ?? null;
+      redrawEquipmentSlot(slot.slotBg, !!item);
+      slot.itemLayer.removeChildren();
+      if (!item) continue;
+      buildItemView(win, item, {
+        ownerId: win.ownerId,
+        interactive: true,
+        enableDrag: true,
+        parent: slot.itemLayer,
+        cellSize: EQUIP_SLOT_SIZE - 2,
+        gridX: 0,
+        gridY: 0,
+        pixelX: 1,
+        pixelY: 1,
+        sourceEquipmentSlotId: slotId,
+      });
+    }
   }
 
   function updateLeaderPanel(win) {
@@ -1848,7 +2027,7 @@ export function createInventoryView({
   function onItemPointerDown(ev, win, item, view) {
     if (uiBlocked) return;
 
-    if (ev.data.originalEvent.shiftKey) {
+    if (ev.data.originalEvent.shiftKey && !view?.sourceEquipmentSlotId) {
       const transferLocked =
         typeof hasItemTransferIntent === "function" &&
         hasItemTransferIntent(item.id);
@@ -1868,17 +2047,22 @@ export function createInventoryView({
   function beginItemDrag(ev, win, item, view) {
     requestPauseForAction?.();
     const g = ev.data.global;
+    const sourceSlotId = view?.sourceEquipmentSlotId ?? null;
 
     dragItem.lastGlobalPos = { x: g.x, y: g.y };
-    const localInBody = win.body.toLocal(g);
-    const clickGX = Math.floor(localInBody.x / win.cellSize);
-    const clickGY = Math.floor(localInBody.y / win.cellSize);
+    let cellOffsetGX = 0;
+    let cellOffsetGY = 0;
+    if (!sourceSlotId) {
+      const localInBody = win.body.toLocal(g);
+      const clickGX = Math.floor(localInBody.x / win.cellSize);
+      const clickGY = Math.floor(localInBody.y / win.cellSize);
 
-    let cellOffsetGX = clickGX - item.gridX;
-    let cellOffsetGY = clickGY - item.gridY;
+      cellOffsetGX = clickGX - item.gridX;
+      cellOffsetGY = clickGY - item.gridY;
 
-    cellOffsetGX = Math.max(0, Math.min(item.width - 1, cellOffsetGX));
-    cellOffsetGY = Math.max(0, Math.min(item.height - 1, cellOffsetGY));
+      cellOffsetGX = Math.max(0, Math.min(item.width - 1, cellOffsetGX));
+      cellOffsetGY = Math.max(0, Math.min(item.height - 1, cellOffsetGY));
+    }
 
     dragItem.cellOffsetGX = cellOffsetGX;
     dragItem.cellOffsetGY = cellOffsetGY;
@@ -1888,10 +2072,11 @@ export function createInventoryView({
     dragItem.item = item;
     dragItem.view = view;
     dragItem.sourceOwnerOverride = view?.sourceOwnerId ?? null;
+    dragItem.sourceEquipmentSlotId = sourceSlotId;
 
     grayItemView(view);
 
-    const sprite = makeDragSprite(win, item);
+    const sprite = makeDragSprite(win, item, view, g);
     dragItem.sprite = sprite;
     dragLayer.addChild(sprite);
 
@@ -1905,7 +2090,7 @@ export function createInventoryView({
     stage.on("pointerupoutside", onItemDragEnd);
   }
 
-  function makeDragSprite(win, item) {
+  function makeDragSprite(win, item, view, globalStart) {
     const { cellSize } = win;
     const w = item.width * cellSize;
     const h = item.height * cellSize;
@@ -1926,13 +2111,23 @@ export function createInventoryView({
     border.drawRoundedRect(0, 0, w - 2, h - 2, 5);
     c.addChild(border);
 
-    const global = win.body.toGlobal({
-      x: item.gridX * cellSize,
-      y: item.gridY * cellSize,
-    });
+    if (view?.sourceEquipmentSlotId) {
+      const bounds = view.getBounds();
+      c.x = bounds.x;
+      c.y = bounds.y;
+    } else {
+      const global = win.body.toGlobal({
+        x: item.gridX * cellSize,
+        y: item.gridY * cellSize,
+      });
+      c.x = global.x;
+      c.y = global.y;
+    }
 
-    c.x = global.x;
-    c.y = global.y;
+    if (Number.isFinite(globalStart?.x) && Number.isFinite(globalStart?.y)) {
+      c.x = Math.round(c.x);
+      c.y = Math.round(c.y);
+    }
 
     if (item.quantity > 1) {
       const t = new PIXI.Text(String(item.quantity), {
@@ -1984,6 +2179,7 @@ export function createInventoryView({
       dragItem.sourceOwnerOverride != null
         ? dragItem.sourceOwnerOverride
         : dragItem.ownerId;
+    const sourceEquipmentSlotId = dragItem.sourceEquipmentSlotId ?? null;
     const view = dragItem.view;
     const g = ev.data.global;
 
@@ -1995,6 +2191,7 @@ export function createInventoryView({
       restoreItemView(view);
       dragItem.view = null;
       dragItem.sourceOwnerOverride = null;
+      dragItem.sourceEquipmentSlotId = null;
       if (typeof setApDragWarning === "function") {
         setApDragWarning(false);
       }
@@ -2017,6 +2214,11 @@ export function createInventoryView({
 
     const binTarget = findBinAt(g);
     if (binTarget) {
+      if (sourceEquipmentSlotId) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
       const discard =
         typeof discardItemFromOwner === "function"
           ? discardItemFromOwner
@@ -2031,6 +2233,74 @@ export function createInventoryView({
         return;
       }
       rebuildWindow(sourceOwner);
+      finish("success");
+      return;
+    }
+
+    const slotDrop = findEquipmentSlotAt(g);
+    if (slotDrop) {
+      const targetOwner = slotDrop.ownerId;
+      const targetSlotId = slotDrop.slotId;
+
+      if (view?.sourceOwnerId != null) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      if (sourceEquipmentSlotId) {
+        const moveEquipped =
+          typeof moveEquippedItemToSlot === "function"
+            ? moveEquippedItemToSlot
+            : null;
+        const result = moveEquipped
+          ? moveEquipped({
+              fromOwnerId: sourceOwner,
+              toOwnerId: targetOwner,
+              fromSlotId: sourceEquipmentSlotId,
+              toSlotId: targetSlotId,
+            })
+          : { ok: false, reason: "noMoveEquippedItemToSlotHandler" };
+
+        if (!result?.ok) {
+          flashWindowError(targetOwner);
+          flashItemError(view, sourceOwner);
+          finish("fail");
+          return;
+        }
+
+        rebuildWindow(sourceOwner);
+        if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+        finish("success");
+        return;
+      }
+
+      if (!canItemEquipInSlot(item, targetSlotId)) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      const equip =
+        typeof equipItemToSlot === "function" ? equipItemToSlot : null;
+      const result = equip
+        ? equip({
+            fromOwnerId: sourceOwner,
+            toOwnerId: targetOwner,
+            itemId: item.id,
+            slotId: targetSlotId,
+          })
+        : { ok: false, reason: "noEquipItemToSlotHandler" };
+
+      if (!result?.ok) {
+        flashWindowError(targetOwner);
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      rebuildWindow(sourceOwner);
+      if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
       finish("success");
       return;
     }
@@ -2063,19 +2333,36 @@ export function createInventoryView({
         }
 
         const handler =
-          typeof moveItemBetweenOwners === "function"
-            ? moveItemBetweenOwners
-            : null;
+          sourceEquipmentSlotId
+            ? typeof moveEquippedItemToInventory === "function"
+              ? moveEquippedItemToInventory
+              : null
+            : typeof moveItemBetweenOwners === "function"
+              ? moveItemBetweenOwners
+              : null;
 
         const result = handler
-          ? handler({
-              fromOwnerId: sourceOwner,
-              toOwnerId: targetOwner,
-              itemId: item.id,
-              targetGX: placement.gx,
-              targetGY: placement.gy,
-            })
-          : { ok: false, reason: "noMoveItemBetweenOwnersHandler" };
+          ? sourceEquipmentSlotId
+            ? handler({
+                fromOwnerId: sourceOwner,
+                toOwnerId: targetOwner,
+                slotId: sourceEquipmentSlotId,
+                targetGX: placement.gx,
+                targetGY: placement.gy,
+              })
+            : handler({
+                fromOwnerId: sourceOwner,
+                toOwnerId: targetOwner,
+                itemId: item.id,
+                targetGX: placement.gx,
+                targetGY: placement.gy,
+              })
+          : {
+              ok: false,
+              reason: sourceEquipmentSlotId
+                ? "noMoveEquippedItemToInventoryHandler"
+                : "noMoveItemBetweenOwnersHandler",
+            };
 
         if (!result.ok) {
           console.warn("inventoryMove failed:", result.reason, result);
@@ -2129,6 +2416,51 @@ export function createInventoryView({
       finish();
       return;
     }
+
+    if (sourceEquipmentSlotId) {
+      const targetInv = getInventoryForOwner(targetOwner);
+      const preview =
+        typeof getInventoryPreview === "function"
+          ? getInventoryPreview(targetOwner)
+          : null;
+
+      if (isPreviewAreaReserved(item, gx, gy, preview, item?.id)) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+      if (!canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id)) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      const moveEquipped =
+        typeof moveEquippedItemToInventory === "function"
+          ? moveEquippedItemToInventory
+          : null;
+      const result = moveEquipped
+        ? moveEquipped({
+            fromOwnerId: sourceOwner,
+            toOwnerId: targetOwner,
+            slotId: sourceEquipmentSlotId,
+            targetGX: gx,
+            targetGY: gy,
+          })
+        : { ok: false, reason: "noMoveEquippedItemToInventoryHandler" };
+
+      if (!result?.ok) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      rebuildWindow(sourceOwner);
+      if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+      finish("success");
+      return;
+    }
+
     const isCrossOwner = sourceOwner !== targetOwner;
     const targetInv = getInventoryForOwner(targetOwner);
     const preview =
@@ -2227,6 +2559,28 @@ export function createInventoryView({
         globalPos.y <= bounds.y + bounds.height
       ) {
         return win;
+      }
+    }
+    return null;
+  }
+
+  function findEquipmentSlotAt(globalPos) {
+    for (const win of windows.values()) {
+      if (!win?.container?.visible) continue;
+      const equip = win.equipmentPanel;
+      if (!equip?.slots) continue;
+      for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+        const slot = equip.slots?.[slotId]?.slot;
+        if (!slot) continue;
+        const bounds = slot.getBounds();
+        if (
+          globalPos.x >= bounds.x &&
+          globalPos.x <= bounds.x + bounds.width &&
+          globalPos.y >= bounds.y &&
+          globalPos.y <= bounds.y + bounds.height
+        ) {
+          return { win, ownerId: win.ownerId, slotId };
+        }
       }
     }
     return null;
@@ -2370,16 +2724,24 @@ export function createInventoryView({
     let targetOwner = null;
     let targetGX = null;
     let targetGY = null;
+    let targetSlotId = null;
 
-    const win = findWindowAt(globalPos);
-    if (win) {
-      targetOwner = win.ownerId;
-      let { gx, gy } = getGridCoords(win, globalPos);
-      gx -= dragItem.cellOffsetGX || 0;
-      gy -= dragItem.cellOffsetGY || 0;
-      targetGX = gx;
-      targetGY = gy;
-    } else if (typeof getDropTargetOwnerAt === "function") {
+    const slotDrop = findEquipmentSlotAt(globalPos);
+    if (slotDrop) {
+      targetOwner = slotDrop.ownerId;
+      targetSlotId = slotDrop.slotId;
+    } else {
+      const win = findWindowAt(globalPos);
+      if (win) {
+        targetOwner = win.ownerId;
+        let { gx, gy } = getGridCoords(win, globalPos);
+        gx -= dragItem.cellOffsetGX || 0;
+        gy -= dragItem.cellOffsetGY || 0;
+        targetGX = gx;
+        targetGY = gy;
+      }
+    }
+    if (targetOwner == null && typeof getDropTargetOwnerAt === "function") {
       targetOwner = getDropTargetOwnerAt(globalPos);
       if (targetOwner != null) {
         const targetInv = getInventoryForOwner(targetOwner);
@@ -2403,14 +2765,21 @@ export function createInventoryView({
     const targetLabel =
       targetOwner != null ? getOwnerLabel?.(targetOwner) : null;
 
+    const slotLabel =
+      targetSlotId != null
+        ? LEADER_EQUIPMENT_SLOT_LABELS[targetSlotId] || targetSlotId
+        : null;
     const description = targetLabel
-      ? `${itemLabel} > ${targetLabel}`
+      ? slotLabel
+        ? `${itemLabel} > ${targetLabel} (${slotLabel})`
+        : `${itemLabel} > ${targetLabel}`
       : itemLabel;
     const intentId =
       dragItem?.item?.id != null ? `item:${dragItem.item.id}` : null;
 
     let cost = 0;
     if (
+      targetSlotId == null &&
       targetOwner != null &&
       targetOwner !== sourceOwner &&
       typeof getItemTransferAffordability === "function"
@@ -2687,6 +3056,7 @@ export function createInventoryView({
       if (v !== last || previewChanged) {
         rebuildWindow(ownerId);
       } else {
+        updateEquipmentPanel(win);
         updateLeaderPanel(win);
       }
     }

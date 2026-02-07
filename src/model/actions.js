@@ -9,6 +9,9 @@ import {
   cmdStackItemsInOwner,
   cmdDiscardItemFromOwner,
   cmdMoveProcessBufferItem,
+  cmdEquipItemToLeaderSlot,
+  cmdMoveLeaderEquipmentToInventory,
+  cmdMoveLeaderEquipmentToSlot,
   cmdDebugSetCap,
   cmdSetTileTagOrder,
   cmdSetHubTagOrder,
@@ -35,6 +38,9 @@ export const ActionKinds = {
   INVENTORY_STACK: "inventoryStack",
   INVENTORY_DISCARD: "inventoryDiscard",
   PROCESS_BUFFER_MOVE: "processBufferMove",
+  EQUIP_ITEM: "equipItem",
+  UNEQUIP_ITEM: "unequipItem",
+  MOVE_EQUIPPED_ITEM: "moveEquippedItem",
   BUILD_DESIGNATE: "buildDesignate",
   BUILD_CANCEL: "buildCancel",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
@@ -71,6 +77,9 @@ function getActionApCost(action) {
     kind === ActionKinds.INVENTORY_MOVE ||
     kind === ActionKinds.INVENTORY_SPLIT ||
     kind === ActionKinds.INVENTORY_STACK ||
+    kind === ActionKinds.EQUIP_ITEM ||
+    kind === ActionKinds.UNEQUIP_ITEM ||
+    kind === ActionKinds.MOVE_EQUIPPED_ITEM ||
     kind === ActionKinds.BUILD_DESIGNATE ||
     kind === ActionKinds.BUILD_CANCEL ||
     kind === ActionKinds.SET_TILE_CROP_SELECTION
@@ -153,6 +162,18 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.PROCESS_BUFFER_MOVE:
       result = cmdMoveProcessBufferItem(state, payload);
+      break;
+
+    case ActionKinds.EQUIP_ITEM:
+      result = cmdEquipItemToLeaderSlot(state, payload);
+      break;
+
+    case ActionKinds.UNEQUIP_ITEM:
+      result = cmdMoveLeaderEquipmentToInventory(state, payload);
+      break;
+
+    case ActionKinds.MOVE_EQUIPPED_ITEM:
+      result = cmdMoveLeaderEquipmentToSlot(state, payload);
       break;
 
     case ActionKinds.INVENTORY_SPLIT:

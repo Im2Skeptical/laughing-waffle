@@ -77,4 +77,12 @@ export const itemTagDefs = {
     passives: [],
     intents: [],
   },
+  wearable: {
+    id: "wearable",
+    kind: "itemTag",
+    ui: { name: "Wearable", description: "Can be equipped by leaders." },
+    systems: ["wearable"],
+    passives: [],
+    intents: [],
+  },
 };

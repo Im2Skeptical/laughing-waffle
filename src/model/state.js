@@ -8,6 +8,10 @@ import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
+import {
+  LEADER_EQUIPMENT_SLOT_ORDER,
+  createEmptyLeaderEquipment,
+} from "../defs/gamesystems/equipment-slot-defs.js";
 import { attachRngHelpers, createRng } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 import { Inventory } from "./inventory-model.js";
@@ -189,6 +193,16 @@ function ensureLeaderPrestigeFields(pawn) {
   pawn.prestigeCapBase = base;
   pawn.prestigeCapDebt = debt;
   pawn.prestigeCapEffective = Math.max(0, base - Math.min(debt, base));
+
+  if (!pawn.equipment || typeof pawn.equipment !== "object") {
+    pawn.equipment = createEmptyLeaderEquipment();
+    return;
+  }
+  for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+    if (!Object.prototype.hasOwnProperty.call(pawn.equipment, slotId)) {
+      pawn.equipment[slotId] = null;
+    }
+  }
 }
 
 function ensureFollowerFields(pawn, fallbackOrderIndex = null) {

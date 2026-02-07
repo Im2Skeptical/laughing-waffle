@@ -3,6 +3,7 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
+import { createEmptyLeaderEquipment } from "../defs/gamesystems/equipment-slot-defs.js";
 
 import {
   createEmptyState,
@@ -107,6 +108,7 @@ export function createInitialState(scenario = "testing", seed = null) {
       pawn.prestigeCapDebt = 0;
       pawn.prestigeCapEffective = 0;
       pawn.prestigeDebtByFollowerId = {};
+      pawn.equipment = createEmptyLeaderEquipment();
     }
     created.push(pawn);
   }
