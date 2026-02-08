@@ -322,9 +322,16 @@ export function getProcessDefForInstance(process, target, context) {
     }
   }
   if (kind === "cropGrowth" && cropDef) {
+    const skipAutoSeedRequirement =
+      process?.skipAutoCropSeedRequirement === true;
     const seedItem = normalizeString(cropDef.cropId || process?.defId);
     const seedAmount = Math.max(0, safeFloor(process?.inputAmount ?? 0, 0));
-    if (seedItem && seedAmount > 0 && transform.requirements.length === 0) {
+    if (
+      !skipAutoSeedRequirement &&
+      seedItem &&
+      seedAmount > 0 &&
+      transform.requirements.length === 0
+    ) {
       transform.requirements = [
         {
           kind: "item",

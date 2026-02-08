@@ -1363,16 +1363,20 @@ export function handleCreateWorkProcess(state, effect, context) {
 
     const { defId, def } = resolveEffectDef(effect, target, context);
 
-    // Allow defless processes (crafting). If def exists, inputAmount can be derived from amount expression;
-    // otherwise allow explicit inputAmount or default to 1.
+    // Input amount defaults to 1 only when omitted.
+    // If an amount expression/input is explicitly provided and resolves to 0,
+    // skip process creation (used by data-driven gating like ConsumeItem -> amountVar).
     let inputAmount = 1;
-    if (def) {
-      const amountRaw = resolveAmount(effect, systemState, def, context);
-      inputAmount = Math.max(0, Math.floor(amountRaw ?? 0));
+    let hasExplicitInputAmount = false;
+    const amountRaw = resolveAmount(effect, systemState, def, context);
+    if (Number.isFinite(amountRaw)) {
+      inputAmount = Math.max(0, Math.floor(amountRaw));
+      hasExplicitInputAmount = true;
     } else if (Number.isFinite(effect.inputAmount)) {
       inputAmount = Math.max(0, Math.floor(effect.inputAmount));
+      hasExplicitInputAmount = true;
     }
-    if (inputAmount <= 0) inputAmount = 1;
+    if (hasExplicitInputAmount && inputAmount <= 0) continue;
 
     const durationRaw = Number.isFinite(effect.durationSec)
       ? effect.durationSec

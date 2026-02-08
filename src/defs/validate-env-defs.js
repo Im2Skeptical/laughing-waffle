@@ -2,7 +2,14 @@
 // Dev-only integrity checks for env defs.
 
 const EFFECT_OPS = new Set([
+  "moveItem",
+  "stackItem",
+  "splitStack",
   "AddResource",
+  "TransformItem",
+  "RemoveItem",
+  "ExpireItemChance",
+  "ExpireStoredPerishables",
   "AddTag",
   "RemoveTag",
   "DisableTag",
@@ -22,8 +29,10 @@ const EFFECT_OPS = new Set([
   "TransferUnits",
   "SpawnItem",
   "SpawnFromDropTable",
-  "CreateProcess",
-  "FinalizeProcess",
+  "CreateWorkProcess",
+  "AdvanceWorkProcess",
+  "SetProp",
+  "AddProp",
 ]);
 
 const TARGETING_KEYS = new Set([
@@ -127,8 +136,8 @@ function validateEffectSpec(effectSpec, contextLabel, tagIds, systemIds, eventId
       op === "ClampSystemState" ||
       op === "AccumulateRatio" ||
       op === "AdjustSystemState" ||
-      op === "CreateProcess" ||
-      op === "FinalizeProcess" ||
+      op === "CreateWorkProcess" ||
+      op === "AdvanceWorkProcess" ||
       op === "TransferUnits"
     ) {
       if (!effect.system || typeof effect.system !== "string") {

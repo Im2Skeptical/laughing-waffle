@@ -21,17 +21,21 @@ export function resolveOwnerTargets(state, targetSpec, context) {
   }
 
   if (targetSpec.kind === "tileOccupants") {
-    if (context?.pawn && typeof context.pawn === "object") {
-      return [context.pawn];
-    }
-    const directId =
-      context?.pawnId != null ? context.pawnId : context?.ownerId;
-    if (directId != null) {
-      const chars = Array.isArray(state?.characters) ? state.characters : [];
-      for (const ch of chars) {
-        if (ch?.id === directId) return [ch];
+    const allOccupants =
+      targetSpec.scope === "all" || targetSpec.all === true;
+    if (!allOccupants) {
+      if (context?.pawn && typeof context.pawn === "object") {
+        return [context.pawn];
       }
-      return [];
+      const directId =
+        context?.pawnId != null ? context.pawnId : context?.ownerId;
+      if (directId != null) {
+        const chars = Array.isArray(state?.characters) ? state.characters : [];
+        for (const ch of chars) {
+          if (ch?.id === directId) return [ch];
+        }
+        return [];
+      }
     }
     const col =
       Number.isFinite(targetSpec.envCol)
