@@ -5,6 +5,7 @@ import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { LEADER_EQUIPMENT_SLOT_ORDER } from "../defs/gamesystems/equipment-slot-defs.js";
 import { HUNGER_THRESHOLD } from "../defs/gamesettings/gamerules-defs.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
@@ -165,6 +166,47 @@ function getItemLabel(kind) {
   return String(raw).trim().toLowerCase() || "food";
 }
 
+function getEquippedItemsInOrder(pawn) {
+  const equipment =
+    pawn?.equipment && typeof pawn.equipment === "object" ? pawn.equipment : null;
+  if (!equipment) return [];
+  const entries = [];
+  for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+    const item = equipment[slotId];
+    if (!item || typeof item !== "object") continue;
+    entries.push({ slotId, item });
+  }
+  return entries;
+}
+
+function runEquippedItemPassives(state, pawn, tSec, baseContext) {
+  const equipped = getEquippedItemsInOrder(pawn);
+  if (!equipped.length) return;
+
+  for (const entry of equipped) {
+    const item = entry.item;
+    const itemDef = itemDefs[item.kind];
+    const passives = Array.isArray(itemDef?.passives) ? itemDef.passives : [];
+    if (!passives.length) continue;
+
+    const itemContext = {
+      ...baseContext,
+      source: item,
+      item,
+      equippedItem: item,
+      equippedSlotId: entry.slotId,
+    };
+
+    for (const passive of passives) {
+      if (!passive || typeof passive !== "object") continue;
+      if (!timingPass(passive.timing, state, tSec)) continue;
+      if (passive.effect) {
+        runEffect(state, passive.effect, { ...itemContext });
+      }
+    }
+  }
+}
+
 function snapshotEdibleInventory(inv) {
   const byKind = new Map();
   if (!Array.isArray(inv?.items)) return byKind;
@@ -253,6 +295,8 @@ export function stepPawnSecond(state, tSec) {
     const hungerBefore = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
     const edibleInvBefore = snapshotEdibleInventory(pawnInv);
     const ediblePoolsBefore = snapshotEdibleDistributorPools(distributorPools);
+
+    runEquippedItemPassives(state, pawn, tSec, context);
 
     for (const passive of passives) {
       if (!passive || typeof passive !== "object") continue;

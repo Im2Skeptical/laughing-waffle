@@ -459,6 +459,51 @@ export const itemDefs = {
       ],
     },
   },
+  staminaRing: {
+    id: "staminaRing",
+    name: "Stamina Ring",
+    color: 0xc3a23d,
+    maxStack: 1,
+    baseTags: ["wearable"],
+    baseSystemTiers: { wearable: "bronze" },
+    baseSystemState: { wearable: { slot: "ring" } },
+    passives: [
+      {
+        id: "staminaRegenEquipped",
+        timing: { cadenceSec: 1 },
+        effect: [
+          {
+            op: "AddToSystemState",
+            target: { ref: "pawn" },
+            system: "stamina",
+            key: "cur",
+            amount: 10,
+          },
+          {
+            op: "ClampSystemState",
+            target: { ref: "pawn" },
+            system: "stamina",
+            key: "cur",
+            min: 0,
+            maxKey: "max",
+          },
+        ],
+      },
+    ],
+    defaultWidth: 1,
+    defaultHeight: 1,
+    ui: {
+      shortLabel: "S",
+      title: "Stamina Ring",
+      lines: [
+        "Item id: {id}",
+        "Owner: {ownerLabel}",
+        "Quantity: {quantity}",
+        "Slot: Ring",
+        "Passive: +10 stamina regen while equipped.",
+      ],
+    },
+  },
   testAmulet: {
     id: "testAmulet",
     name: "Test Amulet",

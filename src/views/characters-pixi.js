@@ -70,6 +70,34 @@ export function createCharactersView(opts) {
   let focusGhost = null;
   let focusedCharId = null;
 
+  function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    if (value <= 0) return 0;
+    if (value >= 1) return 1;
+    return value;
+  }
+
+  function dimColor(color, factor = 0.35) {
+    const rgb = Number.isFinite(color) ? color : 0;
+    const r = (rgb >> 16) & 0xff;
+    const g = (rgb >> 8) & 0xff;
+    const b = rgb & 0xff;
+    const nextR = Math.max(0, Math.min(255, Math.round(r * factor)));
+    const nextG = Math.max(0, Math.min(255, Math.round(g * factor)));
+    const nextB = Math.max(0, Math.min(255, Math.round(b * factor)));
+    return (nextR << 16) | (nextG << 8) | nextB;
+  }
+
+  function getStaminaRatio(char) {
+    const stamina = char?.systemState?.stamina;
+    const cur = Number.isFinite(stamina?.cur) ? stamina.cur : null;
+    const max = Number.isFinite(stamina?.max) ? stamina.max : null;
+    if (max != null && max <= 0) return 0;
+    if (cur == null && max == null) return 1;
+    if (max == null) return cur > 0 ? 1 : 0;
+    return clamp01(cur / max);
+  }
+
   if (layer) layer.sortableChildren = true;
   if (hoverLayer) hoverLayer.sortableChildren = true;
 
@@ -468,6 +496,38 @@ export function createCharactersView(opts) {
     return char?.name || "";
   }
 
+  function drawPawnShape(gfx, { isLeader, radius }) {
+    if (isLeader) {
+      gfx.drawPolygon([0, -radius, radius, 0, 0, radius, -radius, 0]);
+      return;
+    }
+    gfx.drawCircle(0, 0, radius);
+  }
+
+  function updateStaminaVisual(view, char) {
+    if (!view?.staminaMask || !Number.isFinite(view?.shapeRadius)) return;
+    const ratio = getStaminaRatio(char);
+    if (view.staminaRatio === ratio) {
+      view.redGlow.visible = ratio <= 0;
+      return;
+    }
+
+    const radius = view.shapeRadius;
+    const diameter = radius * 2;
+    const filledHeight = diameter * ratio;
+    const yTop = radius - filledHeight;
+
+    view.staminaMask.clear();
+    if (filledHeight > 0.0001) {
+      view.staminaMask.beginFill(0xffffff, 1);
+      view.staminaMask.drawRect(-radius - 2, yTop, diameter + 4, filledHeight + 1);
+      view.staminaMask.endFill();
+    }
+
+    view.redGlow.visible = ratio <= 0;
+    view.staminaRatio = ratio;
+  }
+
   // ---------------------------------------------------------------------------
   // Layout helper: fan characters when multiple occupy a slot
   // ---------------------------------------------------------------------------
@@ -574,10 +634,7 @@ export function createCharactersView(opts) {
     const fillColor = typeof char.color === "number" ? char.color : 0xaa66ff;
     const isLeader = char?.role === "leader";
     const leaderRadius = Math.round(RADIUS * LEADER_DIAMOND_SCALE);
-
-    function drawDiamond(gfx, radius) {
-      gfx.drawPolygon([0, -radius, radius, 0, 0, radius, -radius, 0]);
-    }
+    const shapeRadius = isLeader ? leaderRadius : RADIUS;
 
     const shadow = new PIXI.Graphics().beginFill(
       GAMEPIECE_SHADOW_COLOR,
@@ -606,21 +663,28 @@ export function createCharactersView(opts) {
     shadow.visible = false;
     container.addChild(shadow);
 
-    const gfx = new PIXI.Graphics().beginFill(fillColor);
-    if (isLeader) {
-      drawDiamond(gfx, leaderRadius);
-    } else {
-      gfx.drawCircle(0, 0, RADIUS);
-    }
-    gfx.endFill();
-    container.addChild(gfx);
+    const redGlow = new PIXI.Graphics().beginFill(0xff2f3a, 0.28);
+    drawPawnShape(redGlow, { isLeader, radius: shapeRadius + 6 });
+    redGlow.endFill();
+    redGlow.visible = false;
+    container.addChild(redGlow);
+
+    const dimBg = new PIXI.Graphics().beginFill(dimColor(fillColor), 1);
+    drawPawnShape(dimBg, { isLeader, radius: shapeRadius });
+    dimBg.endFill();
+    container.addChild(dimBg);
+
+    const staminaFill = new PIXI.Graphics().beginFill(fillColor, 1);
+    drawPawnShape(staminaFill, { isLeader, radius: shapeRadius });
+    staminaFill.endFill();
+    container.addChild(staminaFill);
+
+    const staminaMask = new PIXI.Graphics();
+    container.addChild(staminaMask);
+    staminaFill.mask = staminaMask;
 
     const outline = new PIXI.Graphics().lineStyle(2, 0x000000, 1);
-    if (isLeader) {
-      drawDiamond(outline, leaderRadius + 1);
-    } else {
-      outline.drawCircle(0, 0, RADIUS + 1);
-    }
+    drawPawnShape(outline, { isLeader, radius: shapeRadius + 1 });
     container.addChild(outline);
 
     const label = new PIXI.Text(getLabelForChar(char), {
@@ -643,6 +707,7 @@ export function createCharactersView(opts) {
       char,
       outline,
       shadow,
+      redGlow,
       flashRing,
       flashTimeout: null,
       selfHover: false,
@@ -650,6 +715,9 @@ export function createCharactersView(opts) {
       hoverParent: null,
       hoverIndex: null,
       label,
+      staminaMask,
+      shapeRadius,
+      staminaRatio: null,
     };
 
     // -----------------------------------------------------------------------
@@ -830,6 +898,7 @@ export function createCharactersView(opts) {
     }
 
     applyCharacterScale(view);
+    updateStaminaVisual(view, char);
     viewsById.set(char.id, view);
   }
 
@@ -914,11 +983,17 @@ export function createCharactersView(opts) {
 
   function update() {
     layoutAllCharacters();
+    const charsById = new Map(
+      getCharsSafe().map((char) => [char?.id, char]).filter((entry) => entry[0] != null)
+    );
     for (const view of viewsById.values()) {
+      const latestChar = charsById.get(view?.char?.id);
+      if (latestChar) view.char = latestChar;
       const nextLabel = getLabelForChar(view.char);
       if (view.label && view.label.text !== nextLabel) {
         view.label.text = nextLabel;
       }
+      updateStaminaVisual(view, view.char);
     }
     updateFocus();
   }

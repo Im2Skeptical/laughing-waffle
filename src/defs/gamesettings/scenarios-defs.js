@@ -72,6 +72,7 @@ export const setupDefs = {
           { kind: "testRing", gridX: 8, gridY: 3 },
           { kind: "testRing", gridX: 10, gridY: 3 },
           { kind: "testAmulet", gridX: 12, gridY: 3 },
+          { kind: "staminaRing", gridX: 14, gridY: 3 },
         ],
       },
       {
@@ -177,6 +178,7 @@ export const setupDefs = {
           { kind: "testRing", gridX: 8, gridY: 3 },
           { kind: "testRing", gridX: 10, gridY: 3 },
           { kind: "testAmulet", gridX: 12, gridY: 3 },
+          { kind: "staminaRing", gridX: 14, gridY: 3 },
         ],
       },
       {
