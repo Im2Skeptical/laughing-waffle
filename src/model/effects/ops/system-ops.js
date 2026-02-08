@@ -752,6 +752,21 @@ function recordProcessConsumption(process, consumed) {
   }
   const bucket = process.consumedByKindTier[consumed.kind];
   bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + 1;
+
+  const tags = Array.isArray(consumed.tags) ? consumed.tags : [];
+  if (tags.includes("prestiged")) return;
+
+  if (
+    !process.prestigeConsumedByKindTier ||
+    typeof process.prestigeConsumedByKindTier !== "object"
+  ) {
+    process.prestigeConsumedByKindTier = {};
+  }
+  if (!process.prestigeConsumedByKindTier[consumed.kind]) {
+    process.prestigeConsumedByKindTier[consumed.kind] = {};
+  }
+  const prestigeBucket = process.prestigeConsumedByKindTier[consumed.kind];
+  prestigeBucket[tier] = Math.max(0, Math.floor(prestigeBucket[tier] ?? 0)) + 1;
 }
 
 function ensureProcessBufferInventory(state, process, processDef) {
@@ -1058,8 +1073,11 @@ function applyPrestigeOutput(state, target, process, output, endpointId) {
   const leaderId = parseLeaderIdFromEndpoint(endpointId);
   if (!leaderId) return false;
   const ledger =
-    process?.consumedByKindTier && typeof process.consumedByKindTier === "object"
-      ? process.consumedByKindTier
+    process?.prestigeConsumedByKindTier &&
+    typeof process.prestigeConsumedByKindTier === "object"
+      ? process.prestigeConsumedByKindTier
+      : process?.consumedByKindTier && typeof process.consumedByKindTier === "object"
+        ? process.consumedByKindTier
       : null;
   if (ledger && Object.keys(ledger).length > 0) {
     return applyPrestigeDeposit(state, leaderId, target, ledger);

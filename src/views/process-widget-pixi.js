@@ -14,8 +14,10 @@ import {
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
+import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
+import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import {
@@ -62,6 +64,8 @@ const GROUP_SYSTEM_IDS = new Set([
   "build",
 ]);
 
+const WITHDRAWABLE_POOL_SYSTEM_IDS = new Set(["granaryStore", "storehouseStore"]);
+
 const COLORS = {
   panel: 0x151a2a,
   panelBorder: 0x2a3146,
@@ -92,16 +96,20 @@ export function createProcessWidgetView({
   layer,
   getGameState,
   interaction,
+  actionPlanner,
   dispatchAction,
   queueActionWhenPaused,
   inventoryView,
+  flashActionGhost,
   position = { x: 1180, y: 640 },
 }) {
   const windows = new Map();
+  const withdrawUiStateByTarget = new Map();
   const drawerExpanded = {
     inputs: new Set(),
     outputs: new Set(),
   };
+  const selectionDropdown = createSelectionDropdown(layer, app);
 
   let hoverContext = null;
   let externalFocusContext = null;
@@ -296,6 +304,109 @@ export function createProcessWidgetView({
   function isRecipeSystem(systemId) {
     return systemId === "fireplace" || systemId === "workspace";
   }
+
+  function getTilePlanCost() {
+    return Math.max(
+      0,
+      Math.floor(INTENT_AP_COSTS?.tilePlan ?? INTENT_AP_COSTS?.tileCropSelect ?? 0)
+    );
+  }
+
+  function getHubPlanCost() {
+    return Math.max(
+      0,
+      Math.floor(
+        INTENT_AP_COSTS?.hubPlan ??
+          INTENT_AP_COSTS?.hubRecipeSelect ??
+          INTENT_AP_COSTS?.hubTagOrder ??
+          0
+      )
+    );
+  }
+
+  function formatCropName(cropId) {
+    if (!cropId) return "Select crop";
+    return cropDefs?.[cropId]?.name || cropId;
+  }
+
+  function formatRecipeName(recipeId) {
+    if (!recipeId) return "Select recipe";
+    return recipeDefs?.[recipeId]?.name || recipeId;
+  }
+
+  function getCropOptions() {
+    const crops = Object.entries(cropDefs || {})
+      .map(([key, crop]) => ({ key, crop }))
+      .filter((entry) => !!entry.crop);
+    return [
+      { value: null, label: "Pause planting", detail: "Planting paused" },
+      ...crops.map(({ key, crop }) => {
+        const cropId =
+          (typeof crop?.cropId === "string" && crop.cropId.length > 0
+            ? crop.cropId
+            : typeof crop?.id === "string" && crop.id.length > 0
+              ? crop.id
+              : key) || null;
+        const seasons = Array.isArray(crop?.plantSeasons)
+          ? crop.plantSeasons.join(", ")
+          : "any";
+        const maturity = Number.isFinite(crop?.maturitySec)
+          ? `${Math.floor(crop.maturitySec)}s`
+          : "?";
+        return {
+          value: cropId,
+          label: crop.name || cropId,
+          detail: `Seasons: ${seasons} | ${maturity}`,
+        };
+      }),
+    ];
+  }
+
+  function getRecipeOptions(systemId) {
+    const kind = systemId === "workspace" ? "craft" : systemId === "fireplace" ? "cook" : null;
+    if (!kind) return [];
+    const list = Object.entries(recipeDefs || {})
+      .map(([key, recipe]) => ({ key, recipe }))
+      .filter((entry) => !!entry.recipe)
+      .filter((entry) => entry.recipe.kind === kind)
+      .sort((a, b) =>
+        String(a?.recipe?.name || a?.recipe?.id || a?.key || "").localeCompare(
+          String(b?.recipe?.name || b?.recipe?.id || b?.key || "")
+        )
+      );
+    return [
+      {
+        value: null,
+        label: kind === "craft" ? "Pause crafting" : "Pause cooking",
+        detail: "No recipe selected",
+      },
+      ...list.map(({ key, recipe }) => {
+        const recipeId =
+          (typeof recipe?.id === "string" && recipe.id.length > 0
+            ? recipe.id
+            : key) || null;
+        return {
+          value: recipeId,
+          label: recipe.name || recipeId,
+          detail: formatRecipeDetails(recipe),
+        };
+      }),
+    ];
+  }
+
+  function getHubCol(target) {
+    if (!target) return null;
+    if (Number.isFinite(target.col)) return Math.floor(target.col);
+    if (Number.isFinite(target.hubCol)) return Math.floor(target.hubCol);
+    return null;
+  }
+
+  function getEnvCol(target) {
+    if (!target) return null;
+    if (Number.isFinite(target.col)) return Math.floor(target.col);
+    if (Number.isFinite(target.envCol)) return Math.floor(target.envCol);
+    return null;
+  }
   function getProcessVariant(process, processDef) {
     if (!processDef) return "generic";
     const kind = processDef.processKind;
@@ -356,6 +467,41 @@ export function createProcessWidgetView({
       return `${out.system || "System"}:${out.key || ""}`;
     }
     return "Output";
+  }
+
+  function formatRecipeItemName(kind) {
+    if (kind && itemDefs?.[kind]) return itemDefs[kind].name || kind;
+    return kind || "";
+  }
+
+  function formatRecipeItemList(items) {
+    const list = Array.isArray(items) ? items : [];
+    return list
+      .filter((entry) => entry && entry.kind)
+      .map((entry) => {
+        const name = formatRecipeItemName(entry.kind);
+        const qty = Number.isFinite(entry.qty) ? Math.floor(entry.qty) : 1;
+        return `${name} x${qty}`;
+      })
+      .join(", ");
+  }
+
+  function formatRecipeDetails(recipe) {
+    if (!recipe) return "";
+    const inputs = formatRecipeItemList(recipe.inputs);
+    const tools = formatRecipeItemList(recipe.toolRequirements);
+    const outputs = formatRecipeItemList(recipe.outputs);
+    const duration = Number.isFinite(recipe.durationSec)
+      ? recipe.durationSec <= 0
+        ? "Instant"
+        : `${Math.floor(recipe.durationSec)}s`
+      : "?";
+    const parts = [];
+    if (inputs) parts.push(`Inputs: ${inputs}`);
+    if (tools) parts.push(`Tools: ${tools}`);
+    if (outputs) parts.push(`Output: ${outputs}`);
+    parts.push(`Time: ${duration}`);
+    return parts.join(" | ");
   }
 
   function getEndpointLabel(state, endpointId) {
@@ -1095,7 +1241,13 @@ export function createProcessWidgetView({
     return height;
   }
 
-  function buildOutputModule({ container, width, outputs, poolSummary }) {
+  function buildOutputModule({
+    container,
+    width,
+    outputs,
+    poolSummary,
+    selectionControl = null,
+  }) {
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
@@ -1107,6 +1259,52 @@ export function createProcessWidgetView({
     title.x = MODULE_PAD;
     title.y = MODULE_PAD;
     container.addChild(title);
+
+    if (selectionControl?.label) {
+      const btnPadX = 6;
+      const btnPadY = 2;
+      const btnHeight = 14;
+      const btnWidth = Math.max(64, Math.floor(width * 0.42));
+      const btn = new PIXI.Container();
+      btn.x = Math.max(
+        MODULE_PAD,
+        width - MODULE_PAD - btnWidth
+      );
+      btn.y = MODULE_PAD - 1;
+      btn.eventMode = selectionControl?.enabled === false ? "none" : "static";
+      btn.cursor = selectionControl?.enabled === false ? "default" : "pointer";
+
+      const btnBg = new PIXI.Graphics();
+      btnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+      btnBg.beginFill(0x2c3348, 0.98);
+      btnBg.drawRoundedRect(0, 0, btnWidth, btnHeight, 6);
+      btnBg.endFill();
+      btn.addChild(btnBg);
+
+      const label = new PIXI.Text(String(selectionControl.label), {
+        fill: COLORS.moduleText,
+        fontSize: 9,
+        fontWeight: "bold",
+      });
+      label.x = btnPadX;
+      label.y = btnPadY;
+      btn.addChild(label);
+
+      const chevron = new PIXI.Text("v", {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      chevron.x = btnWidth - chevron.width - btnPadX;
+      chevron.y = btnPadY;
+      btn.addChild(chevron);
+
+      btn.on("pointertap", () => {
+        if (selectionControl?.enabled === false) return;
+        selectionControl?.onOpen?.(btn.getBounds());
+      });
+
+      container.addChild(btn);
+    }
 
     let y = title.y + 14;
     if (!Array.isArray(outputs) || outputs.length === 0) {
@@ -1165,7 +1363,12 @@ export function createProcessWidgetView({
     return height;
   }
 
-  function buildGrowthOutputModule({ container, width, pool }) {
+  function buildGrowthOutputModule({
+    container,
+    width,
+    pool,
+    selectionControl = null,
+  }) {
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
@@ -1177,6 +1380,52 @@ export function createProcessWidgetView({
     title.x = MODULE_PAD;
     title.y = MODULE_PAD;
     container.addChild(title);
+
+    if (selectionControl?.label) {
+      const btnPadX = 6;
+      const btnPadY = 2;
+      const btnHeight = 14;
+      const btnWidth = Math.max(64, Math.floor(width * 0.42));
+      const btn = new PIXI.Container();
+      btn.x = Math.max(
+        MODULE_PAD,
+        width - MODULE_PAD - btnWidth
+      );
+      btn.y = MODULE_PAD - 1;
+      btn.eventMode = selectionControl?.enabled === false ? "none" : "static";
+      btn.cursor = selectionControl?.enabled === false ? "default" : "pointer";
+
+      const btnBg = new PIXI.Graphics();
+      btnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+      btnBg.beginFill(0x2c3348, 0.98);
+      btnBg.drawRoundedRect(0, 0, btnWidth, btnHeight, 6);
+      btnBg.endFill();
+      btn.addChild(btnBg);
+
+      const label = new PIXI.Text(String(selectionControl.label), {
+        fill: COLORS.moduleText,
+        fontSize: 9,
+        fontWeight: "bold",
+      });
+      label.x = btnPadX;
+      label.y = btnPadY;
+      btn.addChild(label);
+
+      const chevron = new PIXI.Text("v", {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      chevron.x = btnWidth - chevron.width - btnPadX;
+      chevron.y = btnPadY;
+      btn.addChild(chevron);
+
+      btn.on("pointertap", () => {
+        if (selectionControl?.enabled === false) return;
+        selectionControl?.onOpen?.(btn.getBounds());
+      });
+
+      container.addChild(btn);
+    }
 
     let y = title.y + 14;
     const summary = formatPoolSummary({ kind: "pool", target: pool });
@@ -1261,6 +1510,240 @@ export function createProcessWidgetView({
     }
 
     const height = Math.max(52, y + MODULE_PAD - 2);
+    drawModuleBox(bg, width, height);
+    return height;
+  }
+
+  function buildWithdrawModule({
+    container,
+    width,
+    pool,
+    withdrawState,
+    onOpenItemDropdown,
+    onWithdraw,
+  }) {
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const title = new PIXI.Text("Withdraw", {
+      fill: COLORS.moduleText,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    title.x = MODULE_PAD;
+    title.y = MODULE_PAD;
+    container.addChild(title);
+
+    const options = getPoolItemOptions(pool);
+    const selectedItemId = normalizeWithdrawSelection(withdrawState, options);
+    const totals = getPoolItemTotals(pool, selectedItemId);
+    const selectedLabel = selectedItemId
+      ? itemDefs?.[selectedItemId]?.name || selectedItemId
+      : "No stored items";
+    const maxAmount = Math.max(1, totals.total);
+    const amount = Math.max(1, Math.min(maxAmount, Math.floor(withdrawState?.amount ?? 1)));
+    if (withdrawState) withdrawState.amount = amount;
+
+    const selectBtnY = title.y + 14;
+    const selectBtnW = width - MODULE_PAD * 2;
+    const selectBtnH = 16;
+    const selectBtn = new PIXI.Container();
+    selectBtn.x = MODULE_PAD;
+    selectBtn.y = selectBtnY;
+    selectBtn.eventMode = options.length > 0 ? "static" : "none";
+    selectBtn.cursor = options.length > 0 ? "pointer" : "default";
+    container.addChild(selectBtn);
+
+    const selectBg = new PIXI.Graphics();
+    selectBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+    selectBg.beginFill(0x2c3348, 0.98);
+    selectBg.drawRoundedRect(0, 0, selectBtnW, selectBtnH, 6);
+    selectBg.endFill();
+    selectBtn.addChild(selectBg);
+
+    const selectText = new PIXI.Text(selectedLabel, {
+      fill: options.length > 0 ? COLORS.moduleText : COLORS.moduleSub,
+      fontSize: 9,
+      fontWeight: "bold",
+    });
+    selectText.x = 6;
+    selectText.y = 2;
+    selectBtn.addChild(selectText);
+
+    const selectChevron = new PIXI.Text("v", {
+      fill: COLORS.moduleSub,
+      fontSize: 9,
+    });
+    selectChevron.x = selectBtnW - selectChevron.width - 6;
+    selectChevron.y = 2;
+    selectBtn.addChild(selectChevron);
+
+    if (options.length > 0) {
+      selectBtn.on("pointertap", () => {
+        onOpenItemDropdown?.(selectBtn.getBounds());
+      });
+    }
+
+    let y = selectBtnY + selectBtnH + 6;
+    const tierRows = [
+      { label: "B", key: "bronze" },
+      { label: "S", key: "silver" },
+      { label: "G", key: "gold" },
+      { label: "D", key: "diamond" },
+    ];
+    for (const row of tierRows) {
+      const value = Math.max(0, Math.floor(totals.byTier?.[row.key] ?? 0));
+      const text = new PIXI.Text(`${row.label} ${value}`, {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      text.x = MODULE_PAD;
+      text.y = y;
+      container.addChild(text);
+      y += 10;
+    }
+
+    const controlsY = y + 2;
+    const controlsW = width - MODULE_PAD * 2;
+    const amountW = 34;
+    const btnW = 16;
+    const btnH = 16;
+    const gap = 4;
+    const amountX = MODULE_PAD + Math.floor((controlsW - (btnW * 2 + amountW + gap * 2)) / 2);
+
+    const minusBtn = new PIXI.Container();
+    minusBtn.x = amountX;
+    minusBtn.y = controlsY;
+    minusBtn.eventMode = "static";
+    minusBtn.cursor = "pointer";
+    container.addChild(minusBtn);
+    const minusBg = new PIXI.Graphics();
+    minusBtn.addChild(minusBg);
+    const minusText = new PIXI.Text("-", {
+      fill: COLORS.moduleText,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    minusText.x = 6;
+    minusText.y = 1;
+    minusBtn.addChild(minusText);
+
+    const amountBg = new PIXI.Graphics();
+    amountBg.x = amountX + btnW + gap;
+    amountBg.y = controlsY;
+    container.addChild(amountBg);
+    const amountText = new PIXI.Text(String(amount), {
+      fill: COLORS.moduleText,
+      fontSize: 9,
+      fontWeight: "bold",
+    });
+    container.addChild(amountText);
+
+    const plusBtn = new PIXI.Container();
+    plusBtn.x = amountX + btnW + gap + amountW + gap;
+    plusBtn.y = controlsY;
+    plusBtn.eventMode = "static";
+    plusBtn.cursor = "pointer";
+    container.addChild(plusBtn);
+    const plusBg = new PIXI.Graphics();
+    plusBtn.addChild(plusBg);
+    const plusText = new PIXI.Text("+", {
+      fill: COLORS.moduleText,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    plusText.x = 4;
+    plusText.y = 1;
+    plusBtn.addChild(plusText);
+
+    const spawnBtn = new PIXI.Container();
+    spawnBtn.x = MODULE_PAD;
+    spawnBtn.y = controlsY + btnH + 6;
+    spawnBtn.eventMode = "static";
+    spawnBtn.cursor = "pointer";
+    container.addChild(spawnBtn);
+    const spawnBg = new PIXI.Graphics();
+    spawnBtn.addChild(spawnBg);
+    const spawnText = new PIXI.Text("Spawn To Cursor", {
+      fill: COLORS.moduleText,
+      fontSize: 9,
+      fontWeight: "bold",
+    });
+    spawnBtn.addChild(spawnText);
+
+    function drawSmallButton(nodeBg, enabled) {
+      nodeBg.clear();
+      nodeBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+      nodeBg.beginFill(enabled ? 0x2f3f60 : 0x252b39, 0.98);
+      nodeBg.drawRoundedRect(0, 0, btnW, btnH, 5);
+      nodeBg.endFill();
+    }
+
+    function refreshControls() {
+      const current = Math.max(
+        1,
+        Math.min(
+          Math.max(1, Math.floor(totals.total ?? 0)),
+          Math.floor(withdrawState?.amount ?? 1)
+        )
+      );
+      if (withdrawState) withdrawState.amount = current;
+      amountText.text = String(current);
+      amountText.x = amountBg.x + Math.floor((amountW - amountText.width) / 2);
+      amountText.y = amountBg.y + 2;
+      amountBg.clear();
+      amountBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+      amountBg.beginFill(0x1c2234, 0.98);
+      amountBg.drawRoundedRect(0, 0, amountW, btnH, 5);
+      amountBg.endFill();
+
+      const canMinus = current > 1;
+      const canPlus = totals.total > 0 && current < totals.total;
+      const canSpawn = totals.total > 0 && !!selectedItemId;
+
+      drawSmallButton(minusBg, canMinus);
+      drawSmallButton(plusBg, canPlus);
+      minusBtn.alpha = canMinus ? 1 : 0.55;
+      plusBtn.alpha = canPlus ? 1 : 0.55;
+      minusBtn.cursor = canMinus ? "pointer" : "default";
+      plusBtn.cursor = canPlus ? "pointer" : "default";
+
+      spawnBg.clear();
+      spawnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+      spawnBg.beginFill(canSpawn ? 0x2f5a3d : 0x27303f, 0.98);
+      spawnBg.drawRoundedRect(0, 0, selectBtnW, 18, 6);
+      spawnBg.endFill();
+      spawnText.x = Math.floor((selectBtnW - spawnText.width) / 2);
+      spawnText.y = 3;
+      spawnBtn.alpha = canSpawn ? 1 : 0.65;
+      spawnBtn.cursor = canSpawn ? "pointer" : "default";
+    }
+
+    minusBtn.on("pointertap", () => {
+      if (withdrawState?.amount > 1) {
+        withdrawState.amount -= 1;
+        refreshControls();
+      }
+    });
+
+    plusBtn.on("pointertap", () => {
+      const cur = Math.floor(withdrawState?.amount ?? 1);
+      if (totals.total > 0 && cur < totals.total) {
+        withdrawState.amount = cur + 1;
+        refreshControls();
+      }
+    });
+
+    spawnBtn.on("pointertap", () => {
+      if (!selectedItemId) return;
+      if (totals.total <= 0) return;
+      const qty = Math.max(1, Math.min(totals.total, Math.floor(withdrawState?.amount ?? 1)));
+      onWithdraw?.(selectedItemId, qty);
+    });
+
+    refreshControls();
+
+    const height = Math.max(88, spawnBtn.y + 24);
     drawModuleBox(bg, width, height);
     return height;
   }
@@ -1547,6 +2030,7 @@ export function createProcessWidgetView({
     body.addChild(central);
 
     const variant = variantOverride || getProcessVariant(process, processDef);
+    const processSystemId = entry?.systemId || routingSystemId || null;
     const outputs = Array.isArray(processDef?.transform?.outputs)
       ? processDef.transform.outputs
       : [];
@@ -1554,11 +2038,30 @@ export function createProcessWidgetView({
       ? processDef.transform.requirements
       : [];
 
+    let outputSelectionControl = null;
+    if (variant === "growing") {
+      const cropId = target?.systemState?.growth?.selectedCropId ?? null;
+      outputSelectionControl = {
+        label: formatCropName(cropId),
+        enabled: true,
+        onOpen: (bounds) => openGrowthSelectionDropdown(target, bounds),
+      };
+    } else if (isRecipeSystem(processSystemId)) {
+      const recipeId = getSelectedRecipeId(target, processSystemId);
+      outputSelectionControl = {
+        label: formatRecipeName(recipeId),
+        enabled: true,
+        onOpen: (bounds) =>
+          openRecipeSelectionDropdown(target, processSystemId, bounds),
+      };
+    }
+
     const modules = [];
     if (variant === "growing") {
       modules.push("progress", "output");
     } else if (variant === "depositing") {
-      modules.push("prestige", "output");
+      if (canWithdrawFromTarget(target)) modules.push("prestige", "withdraw");
+      else modules.push("prestige", "output");
     } else if (variant === "building") {
       modules.push("requirements", "progress");
     } else if (variant === "cooking" || variant === "crafting") {
@@ -1619,6 +2122,7 @@ export function createProcessWidgetView({
             container: mod,
             width: moduleWidth,
             pool,
+            selectionControl: outputSelectionControl,
           });
         } else {
           const primaryPool = outputs.find((out) => out?.kind === "pool");
@@ -1639,6 +2143,7 @@ export function createProcessWidgetView({
             width: moduleWidth,
             outputs,
             poolSummary,
+            selectionControl: outputSelectionControl,
           });
         }
       } else if (id === "prestige") {
@@ -1646,6 +2151,19 @@ export function createProcessWidgetView({
           container: mod,
           width: moduleWidth,
           process,
+        });
+      } else if (id === "withdraw") {
+        const depositInfo = getDepositPoolTarget(target);
+        const pool = depositInfo?.pool ?? null;
+        const withdrawState = getWithdrawState(target);
+        height = buildWithdrawModule({
+          container: mod,
+          width: moduleWidth,
+          pool,
+          withdrawState,
+          onOpenItemDropdown: (bounds) =>
+            openWithdrawItemDropdown(target, bounds),
+          onWithdraw: (itemId, qty) => requestPoolWithdraw(target, itemId, qty),
         });
       }
 
@@ -2004,6 +2522,249 @@ export function createProcessWidgetView({
     return { systemId, poolKey, pool };
   }
 
+  function getWithdrawState(target) {
+    const key = getTargetKey(target) || "target";
+    if (!withdrawUiStateByTarget.has(key)) {
+      withdrawUiStateByTarget.set(key, {
+        selectedItemId: null,
+        amount: 1,
+      });
+    }
+    return withdrawUiStateByTarget.get(key);
+  }
+
+  function canWithdrawFromTarget(target) {
+    const info = getDepositPoolTarget(target);
+    if (!info) return false;
+    return WITHDRAWABLE_POOL_SYSTEM_IDS.has(info.systemId);
+  }
+
+  function getPoolItemTotals(pool, itemId) {
+    const empty = {
+      total: 0,
+      byTier: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+    };
+    if (!pool || typeof pool !== "object" || !itemId) return empty;
+    const bucket = pool[itemId];
+    if (!bucket || typeof bucket !== "object") return empty;
+    const byTier = {
+      bronze: Math.max(0, Math.floor(bucket.bronze ?? 0)),
+      silver: Math.max(0, Math.floor(bucket.silver ?? 0)),
+      gold: Math.max(0, Math.floor(bucket.gold ?? 0)),
+      diamond: Math.max(0, Math.floor(bucket.diamond ?? 0)),
+    };
+    const total = byTier.bronze + byTier.silver + byTier.gold + byTier.diamond;
+    return { total, byTier };
+  }
+
+  function getPoolItemOptions(pool) {
+    if (!pool || typeof pool !== "object") return [];
+    const keys = Object.keys(pool).sort((a, b) => a.localeCompare(b));
+    const out = [];
+    for (const itemId of keys) {
+      const totals = getPoolItemTotals(pool, itemId);
+      if (totals.total <= 0) continue;
+      const itemName = itemDefs?.[itemId]?.name || itemId;
+      out.push({
+        value: itemId,
+        label: `${itemName} (${totals.total})`,
+        detail: `B ${totals.byTier.bronze}  S ${totals.byTier.silver}  G ${totals.byTier.gold}  D ${totals.byTier.diamond}`,
+      });
+    }
+    return out;
+  }
+
+  function normalizeWithdrawSelection(withdrawState, options) {
+    if (!withdrawState) return null;
+    const validIds = new Set((options || []).map((entry) => entry.value));
+    if (!withdrawState.selectedItemId || !validIds.has(withdrawState.selectedItemId)) {
+      withdrawState.selectedItemId = options?.[0]?.value ?? null;
+    }
+    if (!Number.isFinite(withdrawState.amount) || withdrawState.amount <= 0) {
+      withdrawState.amount = 1;
+    }
+    return withdrawState.selectedItemId;
+  }
+
+  function openSelectionDropdown({
+    options,
+    selectedValue,
+    anchorBounds,
+    onSelect,
+    width,
+  }) {
+    selectionDropdown?.show?.({
+      options,
+      selectedValue,
+      anchor: anchorBounds,
+      width: Number.isFinite(width) ? width : 210,
+      onSelect,
+    });
+  }
+
+  function openGrowthSelectionDropdown(target, anchorBounds) {
+    if (!target) return;
+    const growth = target?.systemState?.growth || {};
+    const selectedId = growth?.selectedCropId ?? null;
+    const envCol = getEnvCol(target);
+    const tileDef = target?.defId ? envTileDefs?.[target.defId] : null;
+    const tileName =
+      tileDef?.name || target?.defId || (Number.isFinite(envCol) ? `Tile ${envCol}` : "Tile");
+    openSelectionDropdown({
+      options: getCropOptions(),
+      selectedValue: selectedId,
+      anchorBounds,
+      width: 196,
+      onSelect: (cropId) => {
+        const nextCrop = cropId ?? null;
+        const cropName =
+          cropId != null ? cropDefs?.[cropId]?.name || cropId : "None";
+        const ghostSpec = {
+          description: `Crop > ${tileName}: ${cropName}`,
+          cost: getTilePlanCost(),
+        };
+        const run = () => {
+          if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+          if (actionPlanner?.setTileCropSelectionIntent) {
+            const res = actionPlanner.setTileCropSelectionIntent({
+              envCol,
+              cropId: nextCrop,
+            });
+            if (
+              res?.ok === false &&
+              res?.reason === "insufficientAP" &&
+              typeof flashActionGhost === "function"
+            ) {
+              flashActionGhost(ghostSpec, "fail");
+            }
+            return res;
+          }
+          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+          dispatchAction(
+            ActionKinds.SET_TILE_CROP_SELECTION,
+            { envCol, cropId: nextCrop },
+            { apCost: 10 }
+          );
+          return { ok: true };
+        };
+        if (typeof queueActionWhenPaused === "function") {
+          queueActionWhenPaused(run);
+          return;
+        }
+        run();
+      },
+    });
+  }
+
+  function openRecipeSelectionDropdown(target, systemId, anchorBounds) {
+    if (!target || !isRecipeSystem(systemId)) return;
+    const selectedId = getSelectedRecipeId(target, systemId);
+    const hubCol = getHubCol(target);
+    const def = target?.defId ? hubStructureDefs?.[target.defId] : null;
+    const hubName = def?.name || target?.defId || (Number.isFinite(hubCol) ? `Hub ${hubCol}` : "Hub");
+    openSelectionDropdown({
+      options: getRecipeOptions(systemId),
+      selectedValue: selectedId,
+      anchorBounds,
+      width: 232,
+      onSelect: (recipeId) => {
+        const nextRecipe = recipeId ?? null;
+        const recipeName = recipeId
+          ? recipeDefs?.[recipeId]?.name || recipeId
+          : "None";
+        const ghostSpec = {
+          description: `Recipe > ${hubName}: ${recipeName}`,
+          cost: getHubPlanCost(),
+        };
+        const run = () => {
+          if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+          if (actionPlanner?.setHubRecipeSelectionIntent) {
+            const res = actionPlanner.setHubRecipeSelectionIntent({
+              hubCol,
+              systemId,
+              recipeId: nextRecipe,
+            });
+            if (
+              res?.ok === false &&
+              res?.reason === "insufficientAP" &&
+              typeof flashActionGhost === "function"
+            ) {
+              flashActionGhost(ghostSpec, "fail");
+            }
+            return res;
+          }
+          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+          dispatchAction(
+            ActionKinds.SET_HUB_RECIPE_SELECTION,
+            { hubCol, systemId, recipeId: nextRecipe },
+            { apCost: getHubPlanCost() }
+          );
+          return { ok: true };
+        };
+        if (typeof queueActionWhenPaused === "function") {
+          queueActionWhenPaused(run);
+          return;
+        }
+        run();
+      },
+    });
+  }
+
+  function openWithdrawItemDropdown(target, anchorBounds) {
+    const info = getDepositPoolTarget(target);
+    if (!info?.pool || typeof info.pool !== "object") return;
+    const options = getPoolItemOptions(info.pool);
+    const withdrawState = getWithdrawState(target);
+    const selectedId = normalizeWithdrawSelection(withdrawState, options);
+    openSelectionDropdown({
+      options,
+      selectedValue: selectedId,
+      anchorBounds,
+      width: 212,
+      onSelect: (itemId) => {
+        withdrawState.selectedItemId = itemId ?? null;
+        withdrawState.amount = 1;
+        invalidateAllSignatures();
+      },
+    });
+  }
+
+  function requestPoolWithdraw(target, itemId, amount) {
+    if (!target || !itemId) return;
+    const hubCol = getHubCol(target);
+    if (!Number.isFinite(hubCol)) return;
+    queueActionWhenPaused?.(() => {
+      const result = dispatchAction?.(
+        ActionKinds.WITHDRAW_HUB_POOL_ITEM,
+        {
+          hubCol,
+          itemId,
+          amount,
+        },
+        { apCost: 0 }
+      );
+      if (!result?.ok) {
+        inventoryView?.flashWindowError?.(target.instanceId);
+        return result;
+      }
+      const ownerId = result.ownerId ?? target.instanceId;
+      if (ownerId != null) {
+        inventoryView?.revealWindow?.(ownerId, { pinned: true });
+        inventoryView?.rebuildWindow?.(ownerId);
+      }
+      if (
+        ownerId != null &&
+        result.spawnItemId != null &&
+        typeof inventoryView?.beginDragItemFromOwner === "function"
+      ) {
+        inventoryView.beginDragItemFromOwner(ownerId, result.spawnItemId, {
+          pinned: true,
+        });
+      }
+      return result;
+    });
+  }
+
   function buildPoolSignature(pool) {
     if (!pool || typeof pool !== "object") return "none";
     if (
@@ -2094,19 +2855,35 @@ export function createProcessWidgetView({
     outputMod.y = 0;
     central.addChild(outputMod);
     const depositInfo = getDepositPoolTarget(target);
-    const poolSummary = formatPoolSummary({
-      kind: "pool",
-      target: depositInfo?.pool ?? null,
-    });
-    moduleMaxHeight = Math.max(
-      moduleMaxHeight,
-      buildOutputModule({
-        container: outputMod,
-        width: moduleWidth,
-        outputs: [{ kind: "pool", fromLedger: true }],
-        poolSummary,
-      })
-    );
+    const canWithdraw = canWithdrawFromTarget(target);
+    if (canWithdraw) {
+      const withdrawState = getWithdrawState(target);
+      moduleMaxHeight = Math.max(
+        moduleMaxHeight,
+        buildWithdrawModule({
+          container: outputMod,
+          width: moduleWidth,
+          pool: depositInfo?.pool ?? null,
+          withdrawState,
+          onOpenItemDropdown: (bounds) => openWithdrawItemDropdown(target, bounds),
+          onWithdraw: (itemId, qty) => requestPoolWithdraw(target, itemId, qty),
+        })
+      );
+    } else {
+      const poolSummary = formatPoolSummary({
+        kind: "pool",
+        target: depositInfo?.pool ?? null,
+      });
+      moduleMaxHeight = Math.max(
+        moduleMaxHeight,
+        buildOutputModule({
+          container: outputMod,
+          width: moduleWidth,
+          outputs: [{ kind: "pool", fromLedger: true }],
+          poolSummary,
+        })
+      );
+    }
 
     central.height = moduleMaxHeight;
 
@@ -2778,5 +3555,159 @@ export function createProcessWidgetView({
     togglePinnedTarget,
     setExternalFocusTarget,
     clearExternalFocusTarget,
+  };
+}
+
+function createSelectionDropdown(layer, app) {
+  if (!layer || !app?.stage) return null;
+  const container = new PIXI.Container();
+  container.visible = false;
+  container.zIndex = 180;
+  container.eventMode = "static";
+  container.interactiveChildren = true;
+  container.on("pointerdown", (ev) => {
+    ev?.stopPropagation?.();
+  });
+  layer.addChild(container);
+
+  let outsideHandler = null;
+  let onPick = null;
+  let hoverHideTimeout = null;
+
+  function clearHoverHide() {
+    if (hoverHideTimeout == null) return;
+    clearTimeout(hoverHideTimeout);
+    hoverHideTimeout = null;
+  }
+
+  function scheduleHoverHide() {
+    clearHoverHide();
+    hoverHideTimeout = setTimeout(() => {
+      if (container.visible) hide();
+    }, 150);
+  }
+
+  container.on("pointerover", clearHoverHide);
+  container.on("pointerout", scheduleHoverHide);
+
+  function buildRow(entry, y, width, selected) {
+    const hasDetail = !!entry?.detail;
+    const rowHeight = hasDetail ? 36 : 22;
+    const row = new PIXI.Container();
+    row.x = 0;
+    row.y = y;
+    row.eventMode = "static";
+    row.hitArea = new PIXI.Rectangle(0, 0, width, rowHeight);
+    row.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(selected ? 0x303a55 : 0x1f263d, 0.95);
+    bg.drawRoundedRect(0, 0, width, rowHeight, 6);
+    bg.endFill();
+    row.addChild(bg);
+
+    const name = new PIXI.Text(String(entry?.label ?? entry?.value ?? ""), {
+      fill: 0xffffff,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    name.x = 8;
+    name.y = 4;
+    row.addChild(name);
+
+    if (hasDetail) {
+      const detail = new PIXI.Text(String(entry.detail), {
+        fill: 0xc7d2ee,
+        fontSize: 9,
+        wordWrap: true,
+        wordWrapWidth: width - 12,
+      });
+      detail.x = 8;
+      detail.y = 18;
+      row.addChild(detail);
+    }
+
+    row.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+      onPick?.(entry?.value ?? null);
+    });
+
+    return { row, rowHeight };
+  }
+
+  function show({ options, selectedValue, anchor, onSelect, width = 210 }) {
+    // controlsLayer does not sort children by zIndex; ensure dropdown is topmost.
+    if (container.parent) {
+      container.parent.addChild(container);
+    }
+
+    container.removeChildren();
+    onPick = (value) => {
+      onSelect?.(value);
+      hide();
+    };
+
+    const list = Array.isArray(options) ? options : [];
+    if (!list.length) return;
+
+    let y = 0;
+    const safeWidth = Math.max(160, Math.floor(width));
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    for (const entry of list) {
+      const built = buildRow(entry, y, safeWidth, entry?.value === selectedValue);
+      container.addChild(built.row);
+      y += built.rowHeight + 4;
+    }
+    if (y > 0) y -= 4;
+
+    const height = Math.max(1, y);
+    bg.beginFill(0x141b2b, 0.96);
+    bg.drawRoundedRect(0, 0, safeWidth, height, 8);
+    bg.endFill();
+    container.setChildIndex(bg, 0);
+    container.hitArea = new PIXI.Rectangle(0, 0, safeWidth, height);
+
+    const bounds = anchor || { x: 0, y: 0, width: 0, height: 0 };
+    container.x = bounds.x;
+    container.y = bounds.y + bounds.height + 6;
+    container.visible = true;
+    clearHoverHide();
+
+    if (outsideHandler) {
+      app.stage.off("pointerdown", outsideHandler);
+    }
+    outsideHandler = (ev) => {
+      const p = ev?.data?.global;
+      if (!p) return;
+      const b = container.getBounds();
+      if (
+        p.x < b.x ||
+        p.x > b.x + b.width ||
+        p.y < b.y ||
+        p.y > b.y + b.height
+      ) {
+        hide();
+      }
+    };
+    app.stage.on("pointerdown", outsideHandler);
+  }
+
+  function hide() {
+    if (!container.visible) return;
+    clearHoverHide();
+    container.visible = false;
+    container.removeChildren();
+    if (outsideHandler) {
+      app.stage.off("pointerdown", outsideHandler);
+      outsideHandler = null;
+    }
+    onPick = null;
+  }
+
+  return {
+    show,
+    hide,
   };
 }

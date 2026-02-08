@@ -876,7 +876,7 @@ export function createSimRunner({
       onRebuildViews?.();
       onInvalidate?.("actionDispatched");
 
-      return { ok: true };
+      return exec && typeof exec === "object" ? exec : { ok: true };
     },
 
     commitCursorSecond(tSec, stateData) {

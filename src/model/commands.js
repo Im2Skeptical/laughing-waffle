@@ -3,6 +3,7 @@
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
@@ -41,12 +42,19 @@ import {
   processSecondChangeForItems,
 } from "./effects.js";
 
-import { Inventory } from "./inventory-model.js";
+import {
+  Inventory,
+  initializeItemFromDef,
+  getItemMaxStack,
+  canStackItems,
+  mergeItemSystemStateForStacking,
+} from "./inventory-model.js";
 import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { stepPawnSecond } from "./pawn-exec.js";
 import { stepEnvSecond } from "./env-exec.js";
 import { stepHubSecond } from "./hub-exec.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
+import { TIER_ASC } from "./effects/core/tiers.js";
 import { adjustFollowerCount, enforcePrestigeFollowerCap } from "./prestige-system.js";
 import {
   getProcessDefForInstance,
@@ -675,6 +683,247 @@ export function cmdSetHubRecipeSelection(
     hubCol: col,
     systemId,
     recipeId: nextRecipeId,
+  };
+}
+
+// =============================================================================
+// HUB POOL WITHDRAWAL
+// =============================================================================
+
+function isTierBucket(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  for (const tier of TIER_ASC) {
+    if (Object.prototype.hasOwnProperty.call(pool, tier)) return true;
+  }
+  return false;
+}
+
+function ensureInventoryForHubStructure(state, structure) {
+  if (!state || !structure) return null;
+  if (!state.ownerInventories || typeof state.ownerInventories !== "object") {
+    state.ownerInventories = {};
+  }
+  const ownerId = structure.instanceId;
+  if (ownerId == null) return null;
+  if (!state.ownerInventories[ownerId]) {
+    const def = hubStructureDefs?.[structure.defId] || null;
+    const invSpec = def?.inventory ?? {};
+    const cols = Number.isFinite(invSpec.cols) ? Math.floor(invSpec.cols) : 5;
+    const rows = Number.isFinite(invSpec.rows) ? Math.floor(invSpec.rows) : 10;
+    const inv = Inventory.create(cols, rows);
+    Inventory.init(inv);
+    inv.version = 0;
+    state.ownerInventories[ownerId] = inv;
+  }
+  return state.ownerInventories[ownerId] || null;
+}
+
+function addItemUnitsToInventoryWithTags(
+  state,
+  inv,
+  itemId,
+  tier,
+  qty,
+  extraTags = []
+) {
+  if (!state || !inv || !itemId) return { added: 0, firstItemId: null };
+  const targetQty = Math.max(0, Math.floor(qty ?? 0));
+  if (targetQty <= 0) return { added: 0, firstItemId: null };
+
+  const def = itemDefs?.[itemId] || null;
+  const dummy = {
+    kind: itemId,
+    tier: tier ?? def?.defaultTier ?? "bronze",
+    seasonsToExpire: null,
+    tags: Array.isArray(extraTags) ? extraTags.slice() : [],
+    systemTiers: {},
+    systemState: {},
+  };
+  initializeItemFromDef(state, dummy, { reset: true });
+  if (Array.isArray(extraTags) && extraTags.length > 0) {
+    const merged = new Set(Array.isArray(dummy.tags) ? dummy.tags : []);
+    for (const tag of extraTags) {
+      if (typeof tag !== "string" || !tag.length) continue;
+      merged.add(tag);
+    }
+    dummy.tags = Array.from(merged);
+  }
+
+  const maxStack = Math.max(1, Math.floor(getItemMaxStack(dummy) || 1));
+  let remaining = targetQty;
+  let added = 0;
+  let firstItemId = null;
+
+  for (const stack of inv.items || []) {
+    if (remaining <= 0) break;
+    if (!canStackItems(stack, dummy)) continue;
+    const current = Math.max(0, Math.floor(stack.quantity ?? 0));
+    const space = Math.max(0, maxStack - current);
+    if (space <= 0) continue;
+    const moved = Math.min(space, remaining);
+    if (moved <= 0) continue;
+    stack.quantity = current + moved;
+    mergeItemSystemStateForStacking(stack, dummy, current, moved);
+    if (firstItemId == null) firstItemId = stack.id;
+    remaining -= moved;
+    added += moved;
+  }
+
+  while (remaining > 0) {
+    const moved = Math.min(remaining, maxStack);
+    const created = Inventory.addNewItem(state, inv, {
+      kind: itemId,
+      quantity: moved,
+      width: def?.defaultWidth ?? 1,
+      height: def?.defaultHeight ?? 1,
+      tier: dummy.tier,
+      seasonsToExpire: dummy.seasonsToExpire ?? null,
+      tags: cloneSerializable(dummy.tags ?? []),
+      systemTiers: cloneSerializable(dummy.systemTiers ?? {}),
+      systemState: cloneSerializable(dummy.systemState ?? {}),
+    });
+    if (!created) break;
+    if (firstItemId == null) firstItemId = created.id;
+    remaining -= moved;
+    added += moved;
+  }
+
+  return { added, firstItemId };
+}
+
+function itemHasBaseTag(itemId, tag) {
+  if (!itemId || !tag) return false;
+  const tags = Array.isArray(itemDefs?.[itemId]?.baseTags)
+    ? itemDefs[itemId].baseTags
+    : [];
+  return tags.includes(tag);
+}
+
+export function cmdWithdrawHubPoolItem(
+  state,
+  { hubCol, itemId, amount, systemId, poolKey } = {}
+) {
+  if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+  if (typeof itemId !== "string" || itemId.length === 0) {
+    return { ok: false, reason: "badItemId" };
+  }
+  const requested = Math.max(1, Math.floor(amount ?? 1));
+  if (requested <= 0) return { ok: false, reason: "badAmount" };
+
+  const col = Math.floor(hubCol);
+  const structure =
+    state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
+  if (!structure) return { ok: false, reason: "noHubStructure" };
+
+  const def = structure?.defId ? hubStructureDefs?.[structure.defId] : null;
+  const deposit = def?.deposit;
+  if (!deposit || typeof deposit !== "object") {
+    return { ok: false, reason: "noDepositPool" };
+  }
+
+  const resolvedSystemId =
+    typeof deposit.systemId === "string" ? deposit.systemId : null;
+  if (!resolvedSystemId) return { ok: false, reason: "badPoolSystem" };
+  const resolvedPoolKey =
+    typeof deposit.poolKey === "string" && deposit.poolKey.length > 0
+      ? deposit.poolKey
+      : "byKindTier";
+
+  if (
+    typeof systemId === "string" &&
+    systemId.length > 0 &&
+    systemId !== resolvedSystemId
+  ) {
+    return { ok: false, reason: "mismatchedSystemId" };
+  }
+  if (
+    typeof poolKey === "string" &&
+    poolKey.length > 0 &&
+    poolKey !== resolvedPoolKey
+  ) {
+    return { ok: false, reason: "mismatchedPoolKey" };
+  }
+
+  // First implementation scope: withdraw only from granary/storehouse pools.
+  if (
+    resolvedSystemId !== "granaryStore" &&
+    resolvedSystemId !== "storehouseStore"
+  ) {
+    return { ok: false, reason: "unsupportedPool" };
+  }
+
+  const sysState = ensureHubSystemState(structure, resolvedSystemId);
+  if (!sysState || typeof sysState !== "object") {
+    return { ok: false, reason: "noSystemState" };
+  }
+  const pool = sysState?.[resolvedPoolKey];
+  if (!pool || typeof pool !== "object") return { ok: false, reason: "noPool" };
+  if (isTierBucket(pool)) return { ok: false, reason: "unsupportedPoolShape" };
+
+  const bucket = pool[itemId];
+  if (!bucket || typeof bucket !== "object") {
+    return { ok: false, reason: "missingItemPool" };
+  }
+
+  const inv = ensureInventoryForHubStructure(state, structure);
+  if (!inv) return { ok: false, reason: "noInventory" };
+
+  let remaining = requested;
+  let moved = 0;
+  let spawnItemId = null;
+  const applyPrestigedTag = itemHasBaseTag(itemId, "grain");
+  const extraTags = applyPrestigedTag ? ["prestiged"] : [];
+
+  for (const tier of TIER_ASC) {
+    if (remaining <= 0) break;
+    const available = Math.max(0, Math.floor(bucket[tier] ?? 0));
+    if (available <= 0) continue;
+    const want = Math.min(remaining, available);
+    const addRes = addItemUnitsToInventoryWithTags(
+      state,
+      inv,
+      itemId,
+      tier,
+      want,
+      extraTags
+    );
+    const added = Math.max(0, Math.floor(addRes?.added ?? 0));
+    if (added <= 0) break;
+
+    bucket[tier] = available - added;
+    if (sysState.totalByTier && typeof sysState.totalByTier === "object") {
+      const total = Math.max(0, Math.floor(sysState.totalByTier[tier] ?? 0));
+      sysState.totalByTier[tier] = Math.max(0, total - added);
+    }
+    if (spawnItemId == null && addRes?.firstItemId != null) {
+      spawnItemId = addRes.firstItemId;
+    }
+
+    moved += added;
+    remaining -= added;
+    if (added < want) break;
+  }
+
+  if (moved <= 0) {
+    return { ok: false, reason: "noSpaceForWithdraw" };
+  }
+
+  const empty = TIER_ASC.every((tier) => Math.max(0, Math.floor(bucket[tier] ?? 0)) <= 0);
+  if (empty) delete pool[itemId];
+
+  bumpInvVersion(inv);
+
+  const anchorCol = Number.isFinite(structure.col) ? Math.floor(structure.col) : col;
+  return {
+    ok: true,
+    result: "poolWithdrawn",
+    hubCol: anchorCol,
+    ownerId: structure.instanceId,
+    itemKind: itemId,
+    requested,
+    moved,
+    spawnItemId,
+    taggedPrestiged: applyPrestigedTag,
   };
 }
 

@@ -984,11 +984,14 @@ processWidgetView = createProcessWidgetView({
   layer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
   interaction: interactionController,
+  actionPlanner,
   dispatchAction: (kind, payload, opts) =>
     runner.dispatchAction(kind, payload, opts),
   queueActionWhenPaused,
   requestPauseForAction,
   inventoryView,
+  flashActionGhost: (spec, status) =>
+    actionLogView?.flashGhost?.(spec, status),
 });
 
 let goldGraphView = createMetricGraphView({

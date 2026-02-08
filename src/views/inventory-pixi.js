@@ -1853,6 +1853,53 @@ export function createInventoryView({
     return { ok: true };
   }
 
+  function findItemViewInWindow(win, itemId) {
+    if (!win?.body || itemId == null) return null;
+    const children = Array.isArray(win.body.children) ? win.body.children : [];
+    for (const child of children) {
+      if (!child || !child.itemData) continue;
+      if (child.itemData.id === itemId) return child;
+    }
+    return null;
+  }
+
+  function beginDragItemFromOwner(ownerId, itemId, opts = {}) {
+    if (ownerId == null || itemId == null) {
+      return { ok: false, reason: "badArgs" };
+    }
+    if (uiBlocked) return { ok: false, reason: "uiBlocked" };
+    if (dragItem.active || dragWindow.active || activeSplit) {
+      return { ok: false, reason: "busy" };
+    }
+
+    const win = ensureWindow(ownerId);
+    if (!win) return { ok: false, reason: "noWindow" };
+    revealWindow(ownerId, { pinned: opts.pinned !== false });
+    rebuildWindow(ownerId);
+
+    const inv = getInventoryForOwner(ownerId);
+    const item = inv?.itemsById?.[itemId] ?? inv?.items?.find((it) => it?.id === itemId);
+    if (!item) return { ok: false, reason: "noItem" };
+
+    const view = findItemViewInWindow(win, itemId);
+    let global = null;
+    if (view?.getBounds) {
+      const bounds = view.getBounds();
+      global = {
+        x: bounds.x + Math.max(4, Math.floor(bounds.width / 2)),
+        y: bounds.y + Math.max(4, Math.floor(bounds.height / 2)),
+      };
+    } else {
+      global = win.body.toGlobal({
+        x: Math.max(1, item.gridX * win.cellSize + 2),
+        y: Math.max(1, item.gridY * win.cellSize + 2),
+      });
+    }
+
+    beginItemDragAtGlobal(win, item, view, global);
+    return { ok: true };
+  }
+
   function redrawEquipmentSlot(slotBg, width, height, occupied) {
     slotBg.clear();
     slotBg
@@ -2080,7 +2127,15 @@ export function createInventoryView({
 
   function beginItemDrag(ev, win, item, view) {
     requestPauseForAction?.();
-    const g = ev.data.global;
+    const g = ev?.data?.global;
+    if (!g) return;
+    beginItemDragAtGlobal(win, item, view, g);
+  }
+
+  function beginItemDragAtGlobal(win, item, view, globalPos) {
+    requestPauseForAction?.();
+    const g = globalPos;
+    if (!g) return;
     const sourceSlotId = view?.sourceEquipmentSlotId ?? null;
 
     dragItem.lastGlobalPos = { x: g.x, y: g.y };
@@ -3105,6 +3160,7 @@ export function createInventoryView({
     hideWindow,
     togglePinned,
     revealWindow,
+    beginDragItemFromOwner,
     flashWindowError,
 
     rebuildWindow,

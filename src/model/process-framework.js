@@ -1297,11 +1297,12 @@ export function consumeRequirementUnit(inv, requirement) {
     const item = candidates[0];
     item.quantity = Math.max(0, Math.floor(item.quantity ?? 0) - 1);
     const tier = item.tier ?? itemDefs?.[item.kind]?.defaultTier ?? "bronze";
+    const tags = Array.isArray(item.tags) ? item.tags.slice() : [];
     if (item.quantity <= 0) {
       Inventory.removeItem(inv, item.id);
     }
     bumpInvVersion(inv);
-    return { kind: item.kind, tier };
+    return { kind: item.kind, tier, tags };
   }
   if (requirement.kind === "tag" && requirement.tag) {
     const candidates = inv.items.filter((it) => {
@@ -1314,11 +1315,12 @@ export function consumeRequirementUnit(inv, requirement) {
     const item = candidates[0];
     item.quantity = Math.max(0, Math.floor(item.quantity ?? 0) - 1);
     const tier = item.tier ?? itemDefs?.[item.kind]?.defaultTier ?? "bronze";
+    const tags = Array.isArray(item.tags) ? item.tags.slice() : [];
     if (item.quantity <= 0) {
       Inventory.removeItem(inv, item.id);
     }
     bumpInvVersion(inv);
-    return { kind: item.kind, tier };
+    return { kind: item.kind, tier, tags };
   }
   return null;
 }

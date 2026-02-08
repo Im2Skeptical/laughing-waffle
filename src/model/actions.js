@@ -19,6 +19,7 @@ import {
   cmdToggleHubTag,
   cmdSetTileCropSelection,
   cmdSetHubRecipeSelection,
+  cmdWithdrawHubPoolItem,
   cmdSetProcessRouting,
   cmdReorderProcessRoutingEndpoint,
   cmdToggleProcessRoutingEndpoint,
@@ -49,6 +50,7 @@ export const ActionKinds = {
   TOGGLE_HUB_TAG: "toggleHubTag",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
   SET_HUB_RECIPE_SELECTION: "setHubRecipeSelection",
+  WITHDRAW_HUB_POOL_ITEM: "withdrawHubPoolItem",
   SET_PROCESS_ROUTING: "setProcessRouting",
   REORDER_PROCESS_ROUTING_ENDPOINT: "reorderProcessRoutingEndpoint",
   TOGGLE_PROCESS_ROUTING_ENDPOINT: "toggleProcessRoutingEndpoint",
@@ -225,6 +227,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.SET_HUB_RECIPE_SELECTION:
       result = cmdSetHubRecipeSelection(state, payload);
+      break;
+
+    case ActionKinds.WITHDRAW_HUB_POOL_ITEM:
+      result = cmdWithdrawHubPoolItem(state, payload);
       break;
 
     case ActionKinds.SET_PROCESS_ROUTING:

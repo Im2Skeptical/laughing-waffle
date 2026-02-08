@@ -77,6 +77,18 @@ export const itemTagDefs = {
     passives: [],
     intents: [],
   },
+  prestiged: {
+    id: "prestiged",
+    kind: "itemTag",
+    ui: {
+      name: "Prestiged",
+      description:
+        "Withdrawn from communal storage; does not count for prestige when redeposited.",
+    },
+    systems: [],
+    passives: [],
+    intents: [],
+  },
   wearable: {
     id: "wearable",
     kind: "itemTag",
