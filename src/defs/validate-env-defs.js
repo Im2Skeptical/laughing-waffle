@@ -306,10 +306,10 @@ export function validateEnvDefs({ tags, systems, tiles, events }) {
                 `envTiles: "${def.id}" season "${season}" event "${entry.defId}" not found.`
               );
             }
-            if (!Number.isFinite(entry.weight) || entry.weight <= 0) {
+            if (!Number.isFinite(entry.weight) || entry.weight < 0) {
               addIssue(
                 errors,
-                `envTiles: "${def.id}" season "${season}" weight must be > 0.`
+                `envTiles: "${def.id}" season "${season}" weight must be >= 0.`
               );
             }
           }

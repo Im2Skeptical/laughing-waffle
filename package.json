@@ -2,9 +2,13 @@
   "name": "html-css",
   "version": "1.0.0",
   "description": "A template for HTML and CSS",
+  "type": "module",
   "main": "index.html",
   "scripts": {
-    "start": "serve"
+    "start": "serve",
+    "build": "node scripts/build-check.mjs",
+    "test": "node scripts/test-defs.mjs",
+    "verify": "npm run test && npm run build"
   },
   "keywords": [
     "html",
@@ -13,6 +17,7 @@
   "author": "Ives van Hoorne",
   "license": "MIT",
   "devDependencies": {
+    "esbuild": "^0.25.9",
     "serve": "11.2.0"
   }
 }
