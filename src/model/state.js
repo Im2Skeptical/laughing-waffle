@@ -10,8 +10,8 @@ import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import {
   LEADER_EQUIPMENT_SLOT_ORDER,
-  createEmptyLeaderEquipment,
 } from "../defs/gamesystems/equipment-slot-defs.js";
+import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 import { attachRngHelpers, createRng } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 import { Inventory } from "./inventory-model.js";

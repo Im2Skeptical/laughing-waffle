@@ -3,7 +3,7 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
-import { createEmptyLeaderEquipment } from "../defs/gamesystems/equipment-slot-defs.js";
+import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 
 import {
   createEmptyState,

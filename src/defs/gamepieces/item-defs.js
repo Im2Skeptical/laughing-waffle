@@ -383,8 +383,8 @@ export const itemDefs = {
     baseTags: ["wearable"],
     baseSystemTiers: { wearable: "bronze" },
     baseSystemState: { wearable: { slot: "chest" } },
-    defaultWidth: 1,
-    defaultHeight: 1,
+    defaultWidth: 2,
+    defaultHeight: 3,
     ui: {
       shortLabel: "C",
       title: "Test Clothes",

@@ -15,7 +15,6 @@ import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import {
   LEADER_EQUIPMENT_SLOT_LABELS,
   LEADER_EQUIPMENT_SLOT_ORDER,
-  canItemEquipInSlot,
 } from "../defs/gamesystems/equipment-slot-defs.js";
 import {
   PRESTIGE_COST_PER_FOLLOWER,
@@ -2214,11 +2213,6 @@ export function createInventoryView({
 
     const binTarget = findBinAt(g);
     if (binTarget) {
-      if (sourceEquipmentSlotId) {
-        flashItemError(view, sourceOwner);
-        finish("fail");
-        return;
-      }
       const discard =
         typeof discardItemFromOwner === "function"
           ? discardItemFromOwner
@@ -2272,12 +2266,6 @@ export function createInventoryView({
         rebuildWindow(sourceOwner);
         if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
         finish("success");
-        return;
-      }
-
-      if (!canItemEquipInSlot(item, targetSlotId)) {
-        flashItemError(view, sourceOwner);
-        finish("fail");
         return;
       }
 

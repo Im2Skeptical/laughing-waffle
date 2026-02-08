@@ -10,10 +10,12 @@ import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import {
   LEADER_EQUIPMENT_SLOT_ORDER,
+} from "../defs/gamesystems/equipment-slot-defs.js";
+import {
   canItemEquipInSlot,
   createEmptyLeaderEquipment,
   isLeaderEquipmentSlotId,
-} from "../defs/gamesystems/equipment-slot-defs.js";
+} from "./equipment-rules.js";
 import {
   buildRequirementProgress,
   isStructureUnderConstruction,
