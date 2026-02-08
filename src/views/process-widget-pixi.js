@@ -3908,9 +3908,57 @@ export function createProcessWidgetView({
     if (win?.container?.parent) {
       win.container.parent.addChild(win.container);
     }
+    positionBasketWindowNearInventory(win, ownerId);
     setWindowPinned(windowId, true);
     invalidateAllSignatures();
     return { ok: true, windowId };
+  }
+
+  function getInventoryWindowForOwner(ownerId) {
+    const map = inventoryView?.windows;
+    if (!map || typeof map.get !== "function") return null;
+    const direct = map.get(ownerId);
+    if (direct) return direct;
+    if (ownerId == null || typeof map.entries !== "function") return null;
+    const ownerKey = String(ownerId);
+    for (const [key, value] of map.entries()) {
+      if (String(key) === ownerKey) return value;
+    }
+    return null;
+  }
+
+  function positionBasketWindowNearInventory(win, ownerId) {
+    if (!win?.container) return false;
+    const invWin = getInventoryWindowForOwner(ownerId);
+    const invContainer = invWin?.container;
+    if (!invContainer || typeof invContainer.getBounds !== "function") return false;
+
+    const invBounds = invContainer.getBounds();
+    if (!invBounds) return false;
+
+    const localBounds = win.container.getLocalBounds?.() ?? null;
+    const width = Math.max(1, Math.floor(localBounds?.width ?? CORE_WIDTH));
+    const height = Math.max(1, Math.floor(localBounds?.height ?? 140));
+    const gap = 12;
+
+    let x = invBounds.x + invBounds.width + gap;
+    let y = invBounds.y;
+
+    const screen = getScreenSize();
+    const maxX = Math.max(8, screen.width - width - 8);
+    const maxY = Math.max(8, screen.height - height - 8);
+
+    if (x > maxX) {
+      x = invBounds.x - width - gap;
+    }
+
+    x = Math.max(8, Math.min(maxX, x));
+    y = Math.max(8, Math.min(maxY, y));
+
+    win.container.x = Math.round(x);
+    win.container.y = Math.round(y);
+    win.hasPosition = true;
+    return true;
   }
 
   function init() {}
