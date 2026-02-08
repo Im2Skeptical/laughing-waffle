@@ -2,6 +2,7 @@
 // Transient gameplay event log panel.
 
 import { createEventLogController } from "../controllers/eventmanagers/event-log-controller.js";
+import { getEventLogTypeDef } from "../defs/gamesettings/event-log-types-defs.js";
 import {
   LOG_BG_ALPHA,
   LOG_BG_FILL,
@@ -54,10 +55,33 @@ function buildRowsSignature(rowSpecs, selectedId, state) {
   const parts = [String(selectedId ?? "none"), String(seasonDuration), seasons];
   for (const row of rowSpecs) {
     parts.push(
-      `${row.id}:${row.tSec}:${Math.round((row.alpha ?? 1) * 100)}:${row.text}`
+      `${row.id}:${row.tSec}:${Math.round((row.alpha ?? 1) * 100)}:${row.type}:${row.text}`
     );
   }
   return parts.join("|");
+}
+
+function clamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function blendHexColor(baseColor, tintColor, mix = 0.15) {
+  const t = clamp01(mix);
+  const br = (baseColor >> 16) & 0xff;
+  const bg = (baseColor >> 8) & 0xff;
+  const bb = baseColor & 0xff;
+  const tr = (tintColor >> 16) & 0xff;
+  const tg = (tintColor >> 8) & 0xff;
+  const tb = tintColor & 0xff;
+
+  const rr = Math.round(br + (tr - br) * t);
+  const rg = Math.round(bg + (tg - bg) * t);
+  const rb = Math.round(bb + (tb - bb) * t);
+
+  return ((rr & 0xff) << 16) | ((rg & 0xff) << 8) | (rb & 0xff);
 }
 
 function getRowsCapacity() {
@@ -126,6 +150,10 @@ export function createEventLogView({
     rows.removeChildren();
     let y = 0;
     for (const spec of rowSpecs) {
+      const typeDef = getEventLogTypeDef(spec.type);
+      const typeColor = Number.isFinite(typeDef?.color) ? typeDef.color : 0x9aa0b5;
+      const typeLabel = typeDef?.label || spec.type || "Event";
+
       const row = new PIXI.Container();
       row.x = 0;
       row.y = y;
@@ -133,10 +161,20 @@ export function createEventLogView({
 
       const rowWidth = PANEL_WIDTH - PADDING * 2;
       const rowBg = new PIXI.Graphics();
+      const baseFill =
+        selectedEntryId === spec.id ? LOG_ROW_FOCUSED_FILL : LOG_ROW_FILL;
+      const rowFill = blendHexColor(
+        baseFill,
+        typeColor,
+        selectedEntryId === spec.id ? 0.26 : 0.16
+      );
       drawLogRoundedRect(rowBg, {
         width: rowWidth,
         height: LOG_ROW_HEIGHT,
-        fill: selectedEntryId === spec.id ? LOG_ROW_FOCUSED_FILL : LOG_ROW_FILL,
+        fill: rowFill,
+        strokeColor: typeColor,
+        strokeAlpha: selectedEntryId === spec.id ? 1 : 0.75,
+        strokeWidth: selectedEntryId === spec.id ? 2 : 1,
       });
       row.addChild(rowBg);
 
@@ -151,13 +189,22 @@ export function createEventLogView({
       row.addChild(text);
 
       const age = new PIXI.Text(`${Math.max(0, spec.ageSec ?? 0)}s`, {
-        fill: 0x9aa0b5,
+        fill: typeColor,
         fontSize: 11,
       });
       age.anchor.set(1, 0);
       age.x = rowWidth - 8;
       age.y = 8;
       row.addChild(age);
+
+      const typeText = new PIXI.Text(typeLabel, {
+        fill: typeColor,
+        fontSize: 10,
+        fontWeight: "bold",
+      });
+      typeText.x = 12;
+      typeText.y = LOG_ROW_HEIGHT - typeText.height - 4;
+      row.addChild(typeText);
 
       const timestamp = new PIXI.Text(formatCalendarTimestamp(spec.tSec, state), {
         fill: 0x9aa0b5,
