@@ -74,7 +74,6 @@ const EQUIP_SLOT_STROKE = 0x44506e;
 const EQUIP_SLOT_STROKE_ACTIVE = 0x6f8dc6;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
-const BUILD_PANEL_HEADER_HEIGHT = 18;
 const BUILD_PANEL_ROW_HEIGHT = 24;
 const BUILD_PANEL_ROW_GAP = 4;
 const BUILD_PANEL_PADDING = 6;
@@ -85,6 +84,12 @@ const BUILD_PANEL_ROW_BG = 0x2a2f45;
 const BUILD_PANEL_ROW_BG_ACTIVE = 0x303a55;
 const BUILD_PANEL_TEXT = 0xffffff;
 const BUILD_PANEL_TEXT_MUTED = 0xb4bfd6;
+const SECTION_HEADER_HEIGHT = 22;
+const SECTION_HEADER_RADIUS = 9;
+const SECTION_HEADER_BG = 0x2c3450;
+const SECTION_HEADER_BG_ACTIVE = 0x364061;
+const SECTION_HEADER_TEXT = 0xe8efff;
+const SECTION_HEADER_ARROW = 0x9eb3d8;
 const BUILD_GHOST_SCALE_IDLE = 1.2;
 const BUILD_GHOST_SCALE_PLACE = 0.85;
 const BUILD_GHOST_PANEL_WIDTH = 140;
@@ -387,6 +392,196 @@ export function createInventoryView({
 
     options.sort((a, b) => a.name.localeCompare(b.name));
     return options;
+  }
+
+  function computeBuildContentHeight(optionCount) {
+    const rows = Math.max(0, Math.floor(optionCount ?? 0));
+    const rowsHeight = rows
+      ? rows * BUILD_PANEL_ROW_HEIGHT + Math.max(0, rows - 1) * BUILD_PANEL_ROW_GAP
+      : 0;
+    const rowGap = rows > 0 ? BUILD_PANEL_ROW_GAP : 0;
+    return BUILD_PANEL_PADDING * 2 + rowsHeight + rowGap + BUILD_PANEL_HINT_HEIGHT;
+  }
+
+  function ensureSectionState(win) {
+    if (!win) return { equipment: false, prestige: false, build: false };
+    if (!win.sectionState || typeof win.sectionState !== "object") {
+      win.sectionState = { equipment: false, prestige: false, build: false };
+    }
+    if (typeof win.sectionState.equipment !== "boolean") win.sectionState.equipment = false;
+    if (typeof win.sectionState.prestige !== "boolean") win.sectionState.prestige = false;
+    if (typeof win.sectionState.build !== "boolean") win.sectionState.build = false;
+    return win.sectionState;
+  }
+
+  function createSectionLozenge(labelText, onToggle) {
+    const container = new PIXI.Container();
+    container.eventMode = "static";
+    container.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const arrow = new PIXI.Text("v", {
+      fill: SECTION_HEADER_ARROW,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    arrow.x = 8;
+    arrow.y = 4;
+    container.addChild(arrow);
+
+    const label = new PIXI.Text(labelText, {
+      fill: SECTION_HEADER_TEXT,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    label.x = 20;
+    label.y = 4;
+    container.addChild(label);
+
+    const setExpanded = (expanded, active = false, overrideLabel = null) => {
+      if (typeof overrideLabel === "string" && overrideLabel.length > 0) {
+        label.text = overrideLabel;
+      }
+      const width = Math.max(72, Math.ceil(label.width) + 28);
+      bg.clear();
+      bg.beginFill(active ? SECTION_HEADER_BG_ACTIVE : SECTION_HEADER_BG, 0.98);
+      bg.drawRoundedRect(0, 0, width, SECTION_HEADER_HEIGHT, SECTION_HEADER_RADIUS);
+      bg.endFill();
+      arrow.text = expanded ? "v" : ">";
+      return width;
+    };
+
+    setExpanded(true, false, labelText);
+
+    container.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onToggle?.();
+    });
+
+    return { container, bg, arrow, label, setExpanded };
+  }
+
+  function resizeWindowFrame(win, height) {
+    if (!win) return;
+    const h = Math.max(HEADER_HEIGHT + INNER_PADDING * 2, Math.floor(height));
+    win.panelHeight = h;
+
+    if (win.bg) {
+      win.bg.clear();
+      win.bg.beginFill(0x101018, 0.95);
+      win.bg.drawRoundedRect(0, 0, win.panelWidth, h, 8);
+      win.bg.endFill();
+    }
+
+    if (win.focusOutline) {
+      win.focusOutline.clear();
+      win.focusOutline.lineStyle(2, 0x7fd0ff, 1);
+      win.focusOutline.drawRoundedRect(1, 1, win.panelWidth - 2, h - 2, 10);
+    }
+
+    if (win.apOverlay) {
+      win.apOverlay.clear();
+      win.apOverlay
+        .beginFill(AP_OVERLAY_FILL, 0.5)
+        .lineStyle(2, AP_OVERLAY_STROKE, 1)
+        .drawRoundedRect(1, 1, win.panelWidth - 2, h - 2, 10)
+        .endFill();
+      win.apOverlay.alpha = win.apOverlayAlpha || 0;
+      win.apOverlay.visible = (win.apOverlayAlpha || 0) > 0.01;
+    }
+  }
+
+  function layoutLeaderSections(win, leader, buildOptionCount = null) {
+    if (!win || !leader) return;
+    const state = ensureSectionState(win);
+    const panel = win.leaderPanel;
+    const equip = win.equipmentPanel;
+    if (!panel || !equip) return;
+
+    const sectionWidth = win.panelWidth - INNER_PADDING * 2;
+    const optionsCount =
+      buildOptionCount == null
+        ? computeBuildOptions(getStateSafe(), leader).length
+        : Math.max(0, Math.floor(buildOptionCount));
+
+    const equipExpanded = state.equipment !== false;
+    const prestigeExpanded = state.prestige !== false;
+    const buildExpanded = state.build !== false;
+
+    const equipHeight = equipExpanded ? EQUIP_PANEL_HEIGHT : SECTION_HEADER_HEIGHT;
+    equip.container.y = HEADER_HEIGHT + INNER_PADDING;
+    equip.header?.setExpanded?.(equipExpanded, false, "Equipment");
+    if (equip.bg) {
+      equip.bg.clear();
+      equip.bg.beginFill(0x1b1b28, 0.95);
+      equip.bg.drawRoundedRect(0, 0, sectionWidth, equipHeight, 6);
+      equip.bg.endFill();
+    }
+    if (equip.header?.container) {
+      equip.header.container.x = EQUIP_PANEL_PADDING;
+      equip.header.container.y = 4;
+    }
+
+    const bodyY = HEADER_HEIGHT + INNER_PADDING + equipHeight + INNER_PADDING;
+    win.body.y = bodyY;
+    if (win.bin?.container) {
+      win.bin.container.y = bodyY;
+    }
+
+    const buildContentHeight = computeBuildContentHeight(optionsCount);
+    panel.buildPanelHeight = buildContentHeight;
+
+    const prestigeContentHeight = prestigeExpanded ? LEADER_PANEL_HEIGHT : 0;
+    const buildContentShownHeight = buildExpanded ? buildContentHeight : 0;
+
+    panel.prestigeHeader?.setExpanded?.(prestigeExpanded, false, "Prestige");
+    if (panel.prestigeHeader?.container) {
+      panel.prestigeHeader.container.x = LEADER_PANEL_PADDING;
+      panel.prestigeHeader.container.y = LEADER_PANEL_PADDING;
+    }
+    if (panel.prestigeContent) {
+      panel.prestigeContent.visible = prestigeExpanded;
+      panel.prestigeContent.x = LEADER_PANEL_PADDING;
+      panel.prestigeContent.y = LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT;
+    }
+
+    const buildHeaderY =
+      LEADER_PANEL_PADDING +
+      SECTION_HEADER_HEIGHT +
+      prestigeContentHeight +
+      BUILD_PANEL_GAP;
+    panel.buildHeader?.setExpanded?.(buildExpanded, false, "Build");
+    if (panel.buildHeader?.container) {
+      panel.buildHeader.container.x = LEADER_PANEL_PADDING;
+      panel.buildHeader.container.y = buildHeaderY;
+    }
+    if (panel.buildPanel) {
+      panel.buildPanel.visible = buildExpanded;
+      panel.buildPanel.x = 0;
+      panel.buildPanel.y = buildHeaderY + SECTION_HEADER_HEIGHT;
+    }
+
+    const leaderInnerHeight =
+      LEADER_PANEL_PADDING +
+      SECTION_HEADER_HEIGHT +
+      prestigeContentHeight +
+      BUILD_PANEL_GAP +
+      SECTION_HEADER_HEIGHT +
+      buildContentShownHeight +
+      LEADER_PANEL_PADDING;
+
+    panel.container.y = bodyY + win.rows * win.cellSize + INNER_PADDING;
+    if (panel.bg) {
+      panel.bg.clear();
+      panel.bg.beginFill(0x1b1b28, 0.95);
+      panel.bg.drawRoundedRect(0, 0, sectionWidth, leaderInnerHeight, 6);
+      panel.bg.endFill();
+    }
+
+    const totalHeight = panel.container.y + leaderInnerHeight + INNER_PADDING;
+    resizeWindowFrame(win, totalHeight);
   }
 
   function formatBuildRequirementLabel(req) {
@@ -886,20 +1081,15 @@ export function createInventoryView({
     const buildOptions = leader
       ? computeBuildOptions(getStateSafe(), leader)
       : [];
-    const buildRowsHeight = buildOptions.length
-      ? buildOptions.length * BUILD_PANEL_ROW_HEIGHT +
-        Math.max(0, buildOptions.length - 1) * BUILD_PANEL_ROW_GAP
-      : 0;
-    const buildPanelHeight = buildOptions.length
-      ? BUILD_PANEL_HEADER_HEIGHT +
-        BUILD_PANEL_PADDING * 2 +
-        buildRowsHeight +
-        BUILD_PANEL_HINT_HEIGHT +
-        BUILD_PANEL_ROW_GAP
-      : 0;
+    const buildPanelHeight = computeBuildContentHeight(buildOptions.length);
     const leaderPanelHeight = leader
-      ? LEADER_PANEL_HEIGHT +
-        (buildPanelHeight > 0 ? BUILD_PANEL_GAP + buildPanelHeight : 0) +
+      ? LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        LEADER_PANEL_HEIGHT +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        buildPanelHeight +
+        LEADER_PANEL_PADDING +
         INNER_PADDING
       : 0;
     const h = baseHeight + leaderPanelHeight;
@@ -1004,6 +1194,7 @@ export function createInventoryView({
     const win = {
       ownerId,
       container: c,
+      bg,
       header,
       focusOutline,
       title,
@@ -1022,6 +1213,7 @@ export function createInventoryView({
       apOverlayTarget: 0,
       equipmentPanel: null,
       leaderPanel: null,
+      sectionState: { equipment: false, prestige: false, build: false },
       bin: {
         container: bin,
         bg: binBg,
@@ -1045,15 +1237,15 @@ export function createInventoryView({
       equipBg.drawRoundedRect(0, 0, w - INNER_PADDING * 2, EQUIP_PANEL_HEIGHT, 6);
       equipBg.endFill();
       equipPanel.addChild(equipBg);
-
-      const equipTitle = new PIXI.Text("Equipment", {
-        fill: 0xffffff,
-        fontSize: 12,
-        fontWeight: "bold",
+      const equipHeader = createSectionLozenge("Equipment", () => {
+        const sectionState = ensureSectionState(win);
+        sectionState.equipment = !sectionState.equipment;
+        updateEquipmentPanel(win);
+        updateLeaderPanel(win);
       });
-      equipTitle.x = EQUIP_PANEL_PADDING;
-      equipTitle.y = 6;
-      equipPanel.addChild(equipTitle);
+      equipHeader.container.x = EQUIP_PANEL_PADDING;
+      equipHeader.container.y = 4;
+      equipPanel.addChild(equipHeader.container);
 
       const slotLayout = getEquipmentSlotLayout(w);
       const equipSlots = {};
@@ -1103,7 +1295,7 @@ export function createInventoryView({
       win.equipmentPanel = {
         container: equipPanel,
         bg: equipBg,
-        title: equipTitle,
+        header: equipHeader,
         slots: equipSlots,
       };
 
@@ -1114,8 +1306,13 @@ export function createInventoryView({
 
       const panelBg = new PIXI.Graphics();
       const leaderPanelInnerHeight =
+        LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
         LEADER_PANEL_HEIGHT +
-        (buildPanelHeight > 0 ? BUILD_PANEL_GAP + buildPanelHeight : 0);
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        buildPanelHeight +
+        LEADER_PANEL_PADDING;
       panelBg.beginFill(0x1b1b28, 0.95);
       panelBg.drawRoundedRect(
         0,
@@ -1127,37 +1324,51 @@ export function createInventoryView({
       panelBg.endFill();
       panel.addChild(panelBg);
 
+      const prestigeHeader = createSectionLozenge("Prestige", () => {
+        const sectionState = ensureSectionState(win);
+        sectionState.prestige = !sectionState.prestige;
+        updateLeaderPanel(win);
+      });
+      prestigeHeader.container.x = LEADER_PANEL_PADDING;
+      prestigeHeader.container.y = LEADER_PANEL_PADDING;
+      panel.addChild(prestigeHeader.container);
+
+      const prestigeContent = new PIXI.Container();
+      prestigeContent.x = LEADER_PANEL_PADDING;
+      prestigeContent.y = LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT;
+      panel.addChild(prestigeContent);
+
       const prestigeText = new PIXI.Text("", {
         fill: 0xffffff,
         fontSize: 12,
       });
-      prestigeText.x = LEADER_PANEL_PADDING;
-      prestigeText.y = LEADER_PANEL_PADDING;
-      panel.addChild(prestigeText);
+      prestigeText.x = 0;
+      prestigeText.y = 0;
+      prestigeContent.addChild(prestigeText);
 
       const reservedText = new PIXI.Text("", {
         fill: 0xffffff,
         fontSize: 12,
       });
-      reservedText.x = LEADER_PANEL_PADDING;
+      reservedText.x = 0;
       reservedText.y = prestigeText.y + 16;
-      panel.addChild(reservedText);
+      prestigeContent.addChild(reservedText);
 
       const hungryText = new PIXI.Text("", {
         fill: 0xff9999,
         fontSize: 11,
       });
-      hungryText.x = LEADER_PANEL_PADDING;
+      hungryText.x = 0;
       hungryText.y = reservedText.y + 16;
-      panel.addChild(hungryText);
+      prestigeContent.addChild(hungryText);
 
       const followerLabel = new PIXI.Text("Followers:", {
         fill: 0xffffff,
         fontSize: 12,
       });
-      followerLabel.x = LEADER_PANEL_PADDING;
+      followerLabel.x = 0;
       followerLabel.y = hungryText.y + 18;
-      panel.addChild(followerLabel);
+      prestigeContent.addChild(followerLabel);
 
       const followerCountText = new PIXI.Text("0", {
         fill: 0xffffaa,
@@ -1166,14 +1377,14 @@ export function createInventoryView({
       });
       followerCountText.x = followerLabel.x + 78;
       followerCountText.y = followerLabel.y - 1;
-      panel.addChild(followerCountText);
+      prestigeContent.addChild(followerCountText);
 
       const minusBtn = new PIXI.Container();
-      minusBtn.x = w - INNER_PADDING * 2 - 46;
+      minusBtn.x = w - INNER_PADDING * 2 - LEADER_PANEL_PADDING - 46;
       minusBtn.y = followerLabel.y - 4;
       minusBtn.eventMode = "static";
       minusBtn.cursor = "pointer";
-      panel.addChild(minusBtn);
+      prestigeContent.addChild(minusBtn);
 
       const minusBg = new PIXI.Graphics();
       minusBg.beginFill(0x333355);
@@ -1190,11 +1401,11 @@ export function createInventoryView({
       minusBtn.addChild(minusText);
 
       const plusBtn = new PIXI.Container();
-      plusBtn.x = w - INNER_PADDING * 2 - 22;
+      plusBtn.x = w - INNER_PADDING * 2 - LEADER_PANEL_PADDING - 22;
       plusBtn.y = followerLabel.y - 4;
       plusBtn.eventMode = "static";
       plusBtn.cursor = "pointer";
-      panel.addChild(plusBtn);
+      prestigeContent.addChild(plusBtn);
 
       const plusBg = new PIXI.Graphics();
       plusBg.beginFill(0x333355);
@@ -1224,143 +1435,64 @@ export function createInventoryView({
         }
       });
 
+      const buildHeader = createSectionLozenge("Build", () => {
+        const sectionState = ensureSectionState(win);
+        sectionState.build = !sectionState.build;
+        updateLeaderPanel(win);
+      });
+      buildHeader.container.x = LEADER_PANEL_PADDING;
+      buildHeader.container.y =
+        LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT + LEADER_PANEL_HEIGHT + BUILD_PANEL_GAP;
+      panel.addChild(buildHeader.container);
+
       const buildPanel = new PIXI.Container();
       buildPanel.x = 0;
-      buildPanel.y = LEADER_PANEL_HEIGHT + (buildPanelHeight > 0 ? BUILD_PANEL_GAP : 0);
+      buildPanel.y = buildHeader.container.y + SECTION_HEADER_HEIGHT;
       buildPanel.eventMode = "static";
       buildPanel.cursor = "pointer";
       panel.addChild(buildPanel);
 
-      let buildPanelBg = null;
-      let buildTitleText = null;
-      let buildHintText = null;
-      let buildListContainer = null;
+      const buildPanelBg = new PIXI.Graphics();
+      buildPanelBg.beginFill(BUILD_PANEL_BG, 0.95);
+      buildPanelBg.drawRoundedRect(
+        0,
+        0,
+        w - INNER_PADDING * 2,
+        buildPanelHeight,
+        6
+      );
+      buildPanelBg.endFill();
+      buildPanel.addChild(buildPanelBg);
+
+      const buildListContainer = new PIXI.Container();
+      buildListContainer.x = BUILD_PANEL_PADDING;
+      buildListContainer.y = BUILD_PANEL_PADDING;
+      buildPanel.addChild(buildListContainer);
+
+      const buildHintText = new PIXI.Text("", {
+        fill: BUILD_PANEL_TEXT_MUTED,
+        fontSize: 10,
+      });
+      buildHintText.x = BUILD_PANEL_PADDING;
+      buildHintText.y =
+        buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
+      buildPanel.addChild(buildHintText);
+
       let buildRows = [];
 
-      if (buildPanelHeight > 0) {
-        buildPanelBg = new PIXI.Graphics();
-        buildPanelBg.beginFill(BUILD_PANEL_BG, 0.95);
-        buildPanelBg.drawRoundedRect(
-          0,
-          0,
-          w - INNER_PADDING * 2,
-          buildPanelHeight,
-          6
-        );
-        buildPanelBg.endFill();
-        buildPanel.addChild(buildPanelBg);
-
-        buildTitleText = new PIXI.Text("Build", {
-          fill: BUILD_PANEL_TEXT,
-          fontSize: 12,
-          fontWeight: "bold",
-        });
-        buildTitleText.x = BUILD_PANEL_PADDING;
-        buildTitleText.y = BUILD_PANEL_PADDING - 1;
-        buildPanel.addChild(buildTitleText);
-
-        buildListContainer = new PIXI.Container();
-        buildListContainer.x = BUILD_PANEL_PADDING;
-        buildListContainer.y =
-          BUILD_PANEL_PADDING + BUILD_PANEL_HEADER_HEIGHT - 6;
-        buildPanel.addChild(buildListContainer);
-
-        buildHintText = new PIXI.Text("", {
-          fill: BUILD_PANEL_TEXT_MUTED,
-          fontSize: 10,
-        });
-        buildHintText.x = BUILD_PANEL_PADDING;
-        buildHintText.y =
-          buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
-        buildPanel.addChild(buildHintText);
-
-        const rowWidth = w - INNER_PADDING * 2 - BUILD_PANEL_PADDING * 2;
-        let rowY = 0;
-        for (const entry of buildOptions) {
-          const row = new PIXI.Container();
-          row.y = rowY;
-          row.eventMode = "static";
-          row.cursor = entry.available ? "pointer" : "default";
-
-          const isActive =
-            activeBuildSpec &&
-            activeBuildSpec.ownerId === ownerId &&
-            activeBuildSpec.defId === entry.id;
-          const fill = isActive ? BUILD_PANEL_ROW_BG_ACTIVE : BUILD_PANEL_ROW_BG;
-          const alpha = entry.available ? 0.95 : 0.5;
-
-          const rowBg = new PIXI.Graphics()
-            .beginFill(fill, alpha)
-            .drawRoundedRect(0, 0, rowWidth, BUILD_PANEL_ROW_HEIGHT, 6)
-            .endFill();
-          row.addChild(rowBg);
-
-          const label = new PIXI.Text(entry.name, {
-            fill: BUILD_PANEL_TEXT,
-            fontSize: 11,
-          });
-          label.x = 6;
-          label.y = 4;
-          row.addChild(label);
-
-          const cost = INTENT_AP_COSTS?.buildDesignate ?? 0;
-          const costText = new PIXI.Text(String(cost), {
-            fill: 0x7fd0ff,
-            fontSize: 10,
-          });
-          costText.x = rowWidth - 18;
-          costText.y = 5;
-          row.addChild(costText);
-
-          let limitText = null;
-          if (!entry.available) {
-            limitText = new PIXI.Text("Limit", {
-              fill: 0xffc2c2,
-              fontSize: 9,
-            });
-            limitText.x = rowWidth - 60;
-            limitText.y = 6;
-            row.addChild(limitText);
-          }
-
-          row.on("pointertap", (ev) => {
-            ev?.stopPropagation?.();
-            if (
-              activeBuildSpec &&
-              activeBuildSpec.ownerId === ownerId
-            ) {
-              clearActiveBuildForOwner(ownerId);
-              updateLeaderPanel(win);
-              return;
-            }
-            if (!entry.available) return;
-            setActiveBuild(ownerId, entry.id);
-            updateLeaderPanel(win);
-          });
-
-          buildListContainer.addChild(row);
-          buildRows.push({
-            id: entry.id,
-            row,
-            rowBg,
-            label,
-            costText,
-            limitText,
-          });
-
-          rowY += BUILD_PANEL_ROW_HEIGHT + BUILD_PANEL_ROW_GAP;
-        }
-
-        buildPanel.on("pointertap", (ev) => {
-          if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
-          ev?.stopPropagation?.();
-          clearActiveBuildForOwner(ownerId);
-          updateLeaderPanel(win);
-        });
-      }
+      buildPanel.on("pointertap", (ev) => {
+        if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
+        ev?.stopPropagation?.();
+        clearActiveBuildForOwner(ownerId);
+        updateLeaderPanel(win);
+      });
 
       win.leaderPanel = {
         container: panel,
+        bg: panelBg,
+        prestigeHeader,
+        prestigeContent,
+        buildHeader,
         prestigeText,
         reservedText,
         hungryText,
@@ -1369,7 +1501,6 @@ export function createInventoryView({
         plusBtn,
         buildPanel,
         buildPanelBg,
-        buildTitleText,
         buildHintText,
         buildListContainer,
         buildRows,
@@ -1945,11 +2076,19 @@ export function createInventoryView({
       win.equipmentPanel.container.visible = false;
       return;
     }
+    const sectionState = ensureSectionState(win);
+    const expanded = sectionState.equipment !== false;
     win.equipmentPanel.container.visible = true;
+    win.equipmentPanel.header?.setExpanded?.(expanded, false, "Equipment");
     const equipment = getLeaderEquipmentState(leader);
     for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
       const slot = win.equipmentPanel.slots?.[slotId];
       if (!slot) continue;
+      slot.slot.visible = expanded;
+      if (!expanded) {
+        slot.itemLayer.removeChildren();
+        continue;
+      }
       const item = equipment[slotId] ?? null;
       redrawEquipmentSlot(slot.slotBg, slot.width, slot.height, !!item);
       slot.itemLayer.removeChildren();
@@ -1983,6 +2122,8 @@ export function createInventoryView({
       return;
     }
     const data = computeLeaderPanelData(leader);
+    const options = computeBuildOptions(getStateSafe(), leader);
+    layoutLeaderSections(win, leader, options.length);
     win.leaderPanel.container.visible = true;
     win.leaderPanel.prestigeText.text = `Prestige: ${data.effective}/${data.base}`;
     win.leaderPanel.reservedText.text = `Reserved: ${data.reserved} (Debt ${data.debt})`;
@@ -2000,7 +2141,6 @@ export function createInventoryView({
 
     const panel = win.leaderPanel;
     if (panel.buildListContainer) {
-      const options = computeBuildOptions(getStateSafe(), leader);
       let activeDefId =
         activeBuildSpec && activeBuildSpec.ownerId === win.ownerId
           ? activeBuildSpec.defId
@@ -2097,6 +2237,8 @@ export function createInventoryView({
           activeDefId != null
             ? "Drop here to cancel."
             : "Select a building to place.";
+        panel.buildHintText.y =
+          panel.buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
       }
 
       if (panel.buildPanelBg) {
@@ -2112,12 +2254,11 @@ export function createInventoryView({
         );
         panel.buildPanelBg.endFill();
       }
-
-      if (panel.buildTitleText) {
-        panel.buildTitleText.text = activeDefId != null ? "Cancel Build" : "Build";
-        panel.buildTitleText.style.fill =
-          activeDefId != null ? 0xffc2c2 : BUILD_PANEL_TEXT;
-      }
+      panel.buildHeader?.setExpanded?.(
+        ensureSectionState(win).build !== false,
+        activeDefId != null,
+        activeDefId != null ? "Cancel Build" : "Build"
+      );
 
       if (panel.buildListContainer) {
         panel.buildListContainer.alpha = activeDefId != null ? 0.35 : 1;
@@ -2721,6 +2862,9 @@ export function createInventoryView({
       if (!win?.container?.visible) continue;
       const equip = win.equipmentPanel;
       if (!equip?.slots) continue;
+      const sectionState = ensureSectionState(win);
+      if (sectionState.equipment === false) continue;
+      if (equip.container?.visible === false) continue;
       for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
         const slot = equip.slots?.[slotId]?.slot;
         if (!slot) continue;

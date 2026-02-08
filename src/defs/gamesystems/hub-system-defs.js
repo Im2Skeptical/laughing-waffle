@@ -2,6 +2,15 @@
 // Hub system registry (data only).
 
 export const hubSystemDefs = {
+  residents: {
+    id: "residents",
+    kind: "hubSystem",
+    ui: { name: "Residents", description: "Resident population in this hub." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      processes: [],
+    },
+  },
   deposit: {
     id: "deposit",
     kind: "hubSystem",

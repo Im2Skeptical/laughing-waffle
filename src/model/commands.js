@@ -445,37 +445,87 @@ export function cmdSetHubTagOrder(state, { hubCol, tagIds }) {
 // TAG TOGGLES
 // =============================================================================
 
-function setTagDisabled(target, tagId, disabled) {
-  if (!target || !tagId) return { changed: false, disabled: false };
-  const entry =
-    target.tagStates && typeof target.tagStates === "object"
-      ? target.tagStates[tagId]
-      : null;
-  const wasDisabled = entry?.disabled === true;
-  const nextDisabled = disabled === true;
+function readTagDisableState(entry, source = "player") {
+  const isObj = entry && typeof entry === "object";
+  const disabledBy = isObj && entry.disabledBy && typeof entry.disabledBy === "object"
+    ? entry.disabledBy
+    : null;
+
+  let playerDisabled = disabledBy?.player === true;
+  let eventDisabledCount = Number.isFinite(disabledBy?.eventCount)
+    ? Math.max(0, Math.floor(disabledBy.eventCount))
+    : 0;
+
+  // Legacy migration: old saves only had `disabled: true` with no source metadata.
+  if (!disabledBy && isObj && entry.disabled === true) {
+    if (source === "event") eventDisabledCount = 1;
+    else playerDisabled = true;
+  }
+
+  const disabled = playerDisabled || eventDisabledCount > 0;
+  return { playerDisabled, eventDisabledCount, disabled };
+}
+
+function setTagDisabled(target, tagId, disabled, source = "player") {
+  if (!target || !tagId) {
+    return {
+      changed: false,
+      disabled: false,
+      lockedByEvent: false,
+      playerDisabled: false,
+      eventDisabledCount: 0,
+    };
+  }
+
+  const hasStates =
+    target.tagStates && typeof target.tagStates === "object";
+  const entry = hasStates ? target.tagStates[tagId] : null;
+  const prev = readTagDisableState(entry, source);
+
+  let playerDisabled = prev.playerDisabled;
+  let eventDisabledCount = prev.eventDisabledCount;
+  const nextDisabledFlag = disabled === true;
+
+  if (source === "event") {
+    if (nextDisabledFlag) {
+      eventDisabledCount += 1;
+    } else {
+      eventDisabledCount = Math.max(0, eventDisabledCount - 1);
+    }
+  } else {
+    playerDisabled = nextDisabledFlag;
+  }
+
+  const nextDisabled = playerDisabled || eventDisabledCount > 0;
+  const mutatedMeta =
+    playerDisabled !== prev.playerDisabled ||
+    eventDisabledCount !== prev.eventDisabledCount;
+  const changed = mutatedMeta || nextDisabled !== prev.disabled;
 
   if (nextDisabled) {
-    if (wasDisabled) return { changed: false, disabled: true };
     if (!target.tagStates || typeof target.tagStates !== "object") {
       target.tagStates = {};
     }
-    if (entry && typeof entry === "object") {
-      entry.disabled = true;
-    } else {
-      target.tagStates[tagId] = { disabled: true };
-    }
-    return { changed: true, disabled: true };
-  }
-
-  if (!entry) return { changed: false, disabled: false };
-  if (entry && typeof entry === "object") {
+    const nextEntry =
+      entry && typeof entry === "object" ? entry : {};
+    nextEntry.disabledBy = {
+      player: playerDisabled === true,
+      eventCount: eventDisabledCount,
+    };
+    nextEntry.disabled = true;
+    target.tagStates[tagId] = nextEntry;
+  } else if (entry && typeof entry === "object") {
     if (entry.disabled) delete entry.disabled;
+    if (entry.disabledBy) delete entry.disabledBy;
     if (Object.keys(entry).length === 0) {
       delete target.tagStates[tagId];
+    } else if (target.tagStates && typeof target.tagStates === "object") {
+      target.tagStates[tagId] = entry;
     }
-  } else {
+  } else if (target.tagStates && typeof target.tagStates === "object") {
     delete target.tagStates[tagId];
   }
+
   if (
     target.tagStates &&
     typeof target.tagStates === "object" &&
@@ -483,7 +533,14 @@ function setTagDisabled(target, tagId, disabled) {
   ) {
     delete target.tagStates;
   }
-  return { changed: wasDisabled, disabled: false };
+
+  return {
+    changed,
+    disabled: nextDisabled,
+    lockedByEvent: eventDisabledCount > 0,
+    playerDisabled: playerDisabled === true,
+    eventDisabledCount,
+  };
 }
 
 export function cmdToggleTileTag(state, { envCol, tagId, disabled } = {}) {
@@ -498,10 +555,20 @@ export function cmdToggleTileTag(state, { envCol, tagId, disabled } = {}) {
   const tags = Array.isArray(tile.tags) ? tile.tags : [];
   if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnTile" };
 
-  const currentDisabled = tile?.tagStates?.[tagId]?.disabled === true;
+  const currentState = readTagDisableState(tile?.tagStates?.[tagId], "player");
+  const currentDisabled = currentState.disabled === true;
   const nextDisabled =
     typeof disabled === "boolean" ? disabled : !currentDisabled;
-  const result = setTagDisabled(tile, tagId, nextDisabled);
+  if (!nextDisabled && currentState.eventDisabledCount > 0) {
+    return {
+      ok: false,
+      reason: "tagLockedByEvent",
+      envCol: col,
+      tagId,
+      disabled: true,
+    };
+  }
+  const result = setTagDisabled(tile, tagId, nextDisabled, "player");
 
   return {
     ok: true,
@@ -525,10 +592,23 @@ export function cmdToggleHubTag(state, { hubCol, tagId, disabled } = {}) {
   const tags = Array.isArray(structure.tags) ? structure.tags : [];
   if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnHub" };
 
-  const currentDisabled = structure?.tagStates?.[tagId]?.disabled === true;
+  const currentState = readTagDisableState(
+    structure?.tagStates?.[tagId],
+    "player"
+  );
+  const currentDisabled = currentState.disabled === true;
   const nextDisabled =
     typeof disabled === "boolean" ? disabled : !currentDisabled;
-  const result = setTagDisabled(structure, tagId, nextDisabled);
+  if (!nextDisabled && currentState.eventDisabledCount > 0) {
+    return {
+      ok: false,
+      reason: "tagLockedByEvent",
+      hubCol: col,
+      tagId,
+      disabled: true,
+    };
+  }
+  const result = setTagDisabled(structure, tagId, nextDisabled, "player");
 
   const anchorCol = Number.isFinite(structure.col) ? structure.col : col;
   return {

@@ -283,4 +283,17 @@ export const hubTagDefs = {
     ],
     intents: [],
   },
+
+  canHouse: {
+    id: "canHouse",
+    kind: "hubTag",
+    ui: {
+      name: "Housing",
+      description: "Provides housing for residents.",
+
+    },
+    systems: ["residents"],
+    passives: [],
+    intents: [],
+  },
 };

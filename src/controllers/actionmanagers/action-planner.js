@@ -50,10 +50,29 @@ function normalizeTagList(tags) {
   return tags.filter((tag) => typeof tag === "string");
 }
 
-function isTagDisabled(target, tagId) {
-  if (!target || !tagId) return false;
+function getTagDisableState(target, tagId) {
+  if (!target || !tagId) {
+    return { disabled: false, playerDisabled: false, eventDisabledCount: 0 };
+  }
   const entry = target.tagStates?.[tagId];
-  return entry?.disabled === true;
+  if (!entry || typeof entry !== "object") {
+    return { disabled: false, playerDisabled: false, eventDisabledCount: 0 };
+  }
+  const disabledBy =
+    entry.disabledBy && typeof entry.disabledBy === "object"
+      ? entry.disabledBy
+      : null;
+  const playerDisabled = disabledBy?.player === true;
+  const eventDisabledCount = Number.isFinite(disabledBy?.eventCount)
+    ? Math.max(0, Math.floor(disabledBy.eventCount))
+    : 0;
+  const legacyDisabled = entry.disabled === true && !disabledBy;
+  const disabled = legacyDisabled || playerDisabled || eventDisabledCount > 0;
+  return { disabled, playerDisabled, eventDisabledCount };
+}
+
+function isTagDisabled(target, tagId) {
+  return getTagDisableState(target, tagId).disabled === true;
 }
 
 function tagListsEqual(a, b) {
@@ -1292,10 +1311,14 @@ export function createActionPlanner({
 
     const subjectKey = `tileTagToggle:${col}:${tagId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const currentState = getTagDisableState(tile, tagId);
     const baselineDisabled =
-      existing?.baselineDisabled ?? isTagDisabled(tile, tagId);
+      existing?.baselineDisabled ?? currentState.disabled;
     const nextDisabled =
       typeof disabled === "boolean" ? disabled : !baselineDisabled;
+    if (!nextDisabled && currentState.eventDisabledCount > 0) {
+      return { ok: false, reason: "tagLockedByEvent" };
+    }
 
     const intent = makeTileTagToggleIntent({
       id: subjectKey,
@@ -1334,10 +1357,14 @@ export function createActionPlanner({
 
     const subjectKey = `hubTagToggle:${col}:${tagId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const currentState = getTagDisableState(structure, tagId);
     const baselineDisabled =
-      existing?.baselineDisabled ?? isTagDisabled(structure, tagId);
+      existing?.baselineDisabled ?? currentState.disabled;
     const nextDisabled =
       typeof disabled === "boolean" ? disabled : !baselineDisabled;
+    if (!nextDisabled && currentState.eventDisabledCount > 0) {
+      return { ok: false, reason: "tagLockedByEvent" };
+    }
 
     const intent = makeHubTagToggleIntent({
       id: subjectKey,
