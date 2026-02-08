@@ -7,6 +7,11 @@ import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 import {
+  findEquippedPoolProviderEntry,
+  ownerHasEquippedPoolProvider,
+  poolProviderRequiresEquipped,
+} from "./item-def-rules.js";
+import {
   Inventory,
   canStackItems,
   getItemMaxStack,
@@ -367,6 +372,12 @@ export function getProcessDefForInstance(process, target, context) {
       includePool: [
         { systemId: "granaryStore", poolKey: "byKindTier" },
         { systemId: "storehouseStore", poolKey: "byKindTier" },
+        {
+          ownerKind: "pawn",
+          source: "occupants",
+          systemId: "storage",
+          poolKey: "byKindTier",
+        },
       ],
     };
     outputRule = {
@@ -384,6 +395,12 @@ export function getProcessDefForInstance(process, target, context) {
       tag: "distributor",
       store: "inv",
       includeOccupants: true,
+      includePool: {
+        ownerKind: "pawn",
+        source: "occupants",
+        systemId: "storage",
+        poolKey: "byKindTier",
+      },
     };
   }
 
@@ -927,7 +944,7 @@ function buildEndpointIdForStore(kind, store, target, systemId, poolKey) {
   return kind === "hub" ? `inv:hub:${instanceId}` : `inv:${instanceId}`;
 }
 
-function listOccupyingPawnEndpoints(state, anchorInfo) {
+function listOccupyingPawnIds(state, anchorInfo) {
   if (!state || !anchorInfo) return [];
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   const start = anchorInfo.col;
@@ -957,7 +974,12 @@ function listOccupyingPawnEndpoints(state, anchorInfo) {
     return String(a).localeCompare(String(b));
   });
 
-  return occupants.map((id) => `inv:pawn:${id}`);
+  return occupants;
+}
+
+function listOccupyingPawnEndpoints(state, anchorInfo) {
+  const ids = listOccupyingPawnIds(state, anchorInfo);
+  return ids.map((id) => `inv:pawn:${id}`);
 }
 
 function appendUnique(list, additions) {
@@ -1032,8 +1054,10 @@ export function listCandidateEndpoints(state, process, slotDef, target, context)
     : null;
 
   const anchorInfo = getAnchorInfo(state, target);
+  const occupantIds =
+    includeOccupants && anchorInfo ? listOccupyingPawnIds(state, anchorInfo) : [];
   const occupantEndpoints =
-    includeOccupants && anchorInfo ? listOccupyingPawnEndpoints(state, anchorInfo) : [];
+    occupantIds.length > 0 ? occupantIds.map((id) => `inv:pawn:${id}`) : [];
 
   if (rule.kind !== "adjacentDistributors" && rule.kind !== "adjacentStructures") {
     const base = [];
@@ -1074,6 +1098,8 @@ export function listCandidateEndpoints(state, process, slotDef, target, context)
       if (poolSpecs.length > 0) {
         for (let p = 0; p < poolSpecs.length; p++) {
           const spec = poolSpecs[p];
+          const specOwnerKind = normalizeString(spec?.ownerKind);
+          if (specOwnerKind && specOwnerKind !== anchorInfo.kind) continue;
           const poolSystemId = normalizeString(spec?.systemId || spec?.system);
           const poolKey = normalizeString(spec?.poolKey);
           if (!poolSystemId || !poolKey) continue;
@@ -1109,6 +1135,54 @@ export function listCandidateEndpoints(state, process, slotDef, target, context)
         anchorIndex: i,
         instanceId: anchor.instanceId ?? 0,
       });
+    }
+  }
+
+  if (anchorInfo && poolSpecs.length > 0 && occupantIds.length > 0) {
+    for (let p = 0; p < poolSpecs.length; p++) {
+      const spec = poolSpecs[p];
+      const specOwnerKind = normalizeString(spec?.ownerKind);
+      if (specOwnerKind !== "pawn") continue;
+      const source = normalizeString(spec?.source || "occupants");
+      if (source !== "occupants") continue;
+      const poolSystemId = normalizeString(spec?.systemId || spec?.system);
+      const poolKey = normalizeString(spec?.poolKey);
+      if (!poolSystemId || !poolKey) continue;
+      const requiresEquippedFromSpec =
+        spec?.requires?.equipped === true ||
+        spec?.requiresEquipped === true ||
+        spec?.requiresEquippedKind != null;
+      const requiresEquippedProvider = requiresEquippedFromSpec
+        ? true
+        : poolProviderRequiresEquipped(poolSystemId, poolKey);
+
+      for (let o = 0; o < occupantIds.length; o++) {
+        const pawnId = occupantIds[o];
+        const owner = resolvePoolOwner(state, "pawn", pawnId);
+        if (!owner) continue;
+        if (
+          requiresEquippedProvider &&
+          !ownerHasEquippedPoolProvider(owner, poolSystemId, poolKey)
+        ) {
+          continue;
+        }
+        const poolState = resolvePawnPoolState(owner, poolSystemId, poolKey);
+        if (!poolState || typeof poolState !== "object") continue;
+        const poolEndpointId = buildPoolEndpointId(
+          "pawn",
+          pawnId,
+          poolSystemId,
+          poolKey
+        );
+        if (!poolEndpointId) continue;
+        poolCandidates.push({
+          endpointId: poolEndpointId,
+          dist: 0,
+          anchorIndex: o,
+          instanceId: Number.isFinite(pawnId) ? pawnId : Number(pawnId) || 0,
+          specIndex: p,
+        });
+      }
     }
   }
 
@@ -1183,6 +1257,14 @@ function resolvePoolState(owner, systemId, poolKey) {
   return pool;
 }
 
+function resolvePawnPoolState(owner, systemId, poolKey) {
+  if (!owner || !systemId || !poolKey) return null;
+  const entry = findEquippedPoolProviderEntry(owner, systemId, poolKey);
+  const fromItem = entry?.item?.systemState?.[systemId]?.[poolKey];
+  if (fromItem && typeof fromItem === "object") return fromItem;
+  return resolvePoolState(owner, systemId, poolKey);
+}
+
 export function resolveEndpointTarget(state, endpointId) {
   if (!endpointId || typeof endpointId !== "string") return null;
   if (endpointId === "res:state") {
@@ -1235,7 +1317,10 @@ export function resolveEndpointTarget(state, endpointId) {
     if (!parsed) return null;
     const owner = resolvePoolOwner(state, parsed.ownerKind, parsed.ownerId);
     if (!owner) return null;
-    const pool = resolvePoolState(owner, parsed.systemId, parsed.poolKey);
+    const pool =
+      parsed.ownerKind === "pawn"
+        ? resolvePawnPoolState(owner, parsed.systemId, parsed.poolKey)
+        : resolvePoolState(owner, parsed.systemId, parsed.poolKey);
     if (!pool) return null;
     let itemId = null;
     if (parsed.systemId === "growth" && parsed.poolKey === "maturedPool") {

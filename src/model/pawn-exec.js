@@ -12,6 +12,10 @@ import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { ensurePawnSystems } from "./state.js";
 import { applyFollowerHungerDebt } from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
+import {
+  findEquippedPoolProviderEntry,
+  ownerHasEquippedPoolProvider,
+} from "./item-def-rules.js";
 
 function requirementsPass(requires, pawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -78,9 +82,77 @@ function isTagDisabled(target, tagId) {
   return entry?.disabled === true;
 }
 
+function itemPassiveRequirementsPass(requires, ctx = {}) {
+  if (!requires || typeof requires !== "object") return true;
+  if (typeof requires.equipped === "boolean") {
+    const isEquipped = ctx?.equipped === true;
+    if (requires.equipped !== isEquipped) return false;
+  }
+  return true;
+}
+
+function arePawnsOnSameLocation(a, b) {
+  if (!a || !b) return false;
+  const aHub = Number.isFinite(a.hubCol) ? Math.floor(a.hubCol) : null;
+  const bHub = Number.isFinite(b.hubCol) ? Math.floor(b.hubCol) : null;
+  const aEnv = Number.isFinite(a.envCol) ? Math.floor(a.envCol) : null;
+  const bEnv = Number.isFinite(b.envCol) ? Math.floor(b.envCol) : null;
+  if (aHub != null || bHub != null) {
+    return aHub != null && bHub != null && aHub === bHub;
+  }
+  if (aEnv != null || bEnv != null) {
+    return aEnv != null && bEnv != null && aEnv === bEnv;
+  }
+  return false;
+}
+
+function listEquippedBasketPoolsForPawn(state, pawn) {
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const out = [];
+  let order = 0;
+  for (const carrier of chars) {
+    if (!carrier || carrier.id == null) continue;
+    if (!arePawnsOnSameLocation(pawn, carrier)) continue;
+    if (!ownerHasEquippedPoolProvider(carrier, "storage", "byKindTier")) {
+      continue;
+    }
+    const providerEntry = findEquippedPoolProviderEntry(
+      carrier,
+      "storage",
+      "byKindTier"
+    );
+    const store =
+      providerEntry?.item?.systemState?.storage &&
+      typeof providerEntry.item.systemState.storage === "object"
+        ? providerEntry.item.systemState.storage
+        : carrier?.systemState?.basketStore &&
+            typeof carrier.systemState.basketStore === "object"
+          ? carrier.systemState.basketStore
+          : null;
+    if (!store || typeof store !== "object") continue;
+    const pool = store.byKindTier;
+    if (!pool || typeof pool !== "object") continue;
+    out.push({
+      pool,
+      totalByTier:
+        store.totalByTier && typeof store.totalByTier === "object"
+          ? store.totalByTier
+          : null,
+      systemId: "storage",
+      poolKey: "byKindTier",
+      dist: 0,
+      anchorIndex: -1000 + order,
+      instanceId: carrier.id ?? 0,
+    });
+    order += 1;
+  }
+  return out;
+}
+
 function listDistributorPoolsForPawn(state, pawn) {
   const hubCol = Number.isFinite(pawn?.hubCol) ? Math.floor(pawn.hubCol) : null;
-  if (hubCol == null) return [];
+  const basketPools = listEquippedBasketPoolsForPawn(state, pawn);
+  if (hubCol == null) return basketPools;
 
   const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
   const sources = [];
@@ -139,7 +211,7 @@ function listDistributorPoolsForPawn(state, pawn) {
     return 0;
   });
 
-  return sources;
+  return basketPools.concat(sources);
 }
 
 function getPawnLabel(pawn) {
@@ -200,6 +272,9 @@ function runEquippedItemPassives(state, pawn, tSec, baseContext) {
     for (const passive of passives) {
       if (!passive || typeof passive !== "object") continue;
       if (!timingPass(passive.timing, state, tSec)) continue;
+      if (!itemPassiveRequirementsPass(passive.requires, { equipped: true })) {
+        continue;
+      }
       if (passive.effect) {
         runEffect(state, passive.effect, { ...itemContext });
       }

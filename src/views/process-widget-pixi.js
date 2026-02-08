@@ -62,9 +62,14 @@ const GROUP_SYSTEM_IDS = new Set([
   "workspace",
   "deposit",
   "build",
+  "basket",
 ]);
 
-const WITHDRAWABLE_POOL_SYSTEM_IDS = new Set(["granaryStore", "storehouseStore"]);
+const WITHDRAWABLE_POOL_SYSTEM_IDS = new Set([
+  "granaryStore",
+  "storehouseStore",
+  "storage",
+]);
 
 const COLORS = {
   panel: 0x151a2a,
@@ -190,6 +195,7 @@ export function createProcessWidgetView({
 
   function getTargetAnchorRect(target) {
     if (!target) return null;
+    if (target?.refKind === "basket") return null;
     const { width: screenWidth } = getScreenSize();
     if (hubStructureDefs[target.defId]) {
       const col = Number.isFinite(target.col)
@@ -253,6 +259,11 @@ export function createProcessWidgetView({
 
   function getTargetKey(target) {
     if (!target) return null;
+    if (target?.refKind === "basket") {
+      const ownerId = target?.ownerId ?? null;
+      if (ownerId == null) return null;
+      return `basket:${ownerId}`;
+    }
     const id = target.instanceId ?? target.id ?? null;
     if (id == null) return null;
     const isHub = !!hubStructureDefs[target.defId];
@@ -261,6 +272,7 @@ export function createProcessWidgetView({
   }
 
   function collectProcesses(target) {
+    if (target?.refKind === "basket") return [];
     if (!target || !target.systemState) return [];
     const list = [];
     const entries = Object.entries(target.systemState);
@@ -289,6 +301,9 @@ export function createProcessWidgetView({
 
   function getTargetLabel(target) {
     if (!target) return "Process";
+    if (target?.refKind === "basket") {
+      return target?.basketOwnerName || "Basket";
+    }
     if (hubStructureDefs[target.defId]) {
       const def = hubStructureDefs[target.defId];
       return def?.name || target.defId || "Structure";
@@ -607,6 +622,79 @@ export function createProcessWidgetView({
     return null;
   }
 
+  function itemProvidesPortableStorage(item) {
+    if (!item || typeof item !== "object") return false;
+    const kind =
+      typeof item.kind === "string" && item.kind.length > 0 ? item.kind : null;
+    if (!kind) return false;
+    const def = itemDefs?.[kind];
+    if (!def || typeof def !== "object") return false;
+    const specs = Array.isArray(def.poolProviders)
+      ? def.poolProviders
+      : def.poolProviders && typeof def.poolProviders === "object"
+        ? [def.poolProviders]
+        : [];
+    return specs.some((spec) => {
+      const systemId =
+        typeof spec?.systemId === "string" ? spec.systemId : spec?.system;
+      const poolKey = typeof spec?.poolKey === "string" ? spec.poolKey : null;
+      return systemId === "storage" && poolKey === "byKindTier";
+    });
+  }
+
+  function getEquippedBasketInfoForPawn(pawn) {
+    if (!pawn) return null;
+    const equipment =
+      pawn?.equipment && typeof pawn.equipment === "object" ? pawn.equipment : null;
+    if (!equipment) return null;
+    for (const [slotId, item] of Object.entries(equipment)) {
+      if (!item || typeof item !== "object") continue;
+      if (!itemProvidesPortableStorage(item)) continue;
+      return { slotId, item };
+    }
+    return null;
+  }
+
+  function buildBasketTarget(state, ownerId) {
+    const pawn = findPawnById(state, ownerId);
+    if (!pawn) return null;
+    const basketInfo = getEquippedBasketInfoForPawn(pawn);
+    if (!basketInfo?.item) return null;
+    const store =
+      basketInfo?.item?.systemState?.storage &&
+      typeof basketInfo.item.systemState.storage === "object"
+        ? basketInfo.item.systemState.storage
+        : pawn?.systemState?.basketStore &&
+            typeof pawn.systemState.basketStore === "object"
+          ? pawn.systemState.basketStore
+          : null;
+    const byKindTier =
+      store?.byKindTier && typeof store.byKindTier === "object"
+        ? store.byKindTier
+        : {};
+    const totalByTier =
+      store?.totalByTier && typeof store.totalByTier === "object"
+        ? store.totalByTier
+        : null;
+    return {
+      refKind: "basket",
+      defId: basketInfo.item.kind || "basket",
+      ownerKind: "pawn",
+      ownerId: String(pawn.id),
+      id: `basket:${pawn.id}`,
+      instanceId: `basket:${pawn.id}`,
+      basketSlotId: basketInfo.slotId,
+      basketItemId: basketInfo.item.id ?? null,
+      basketOwnerName: pawn.name || `Pawn ${pawn.id}`,
+      systemState: {
+        storage: {
+          byKindTier,
+          totalByTier,
+        },
+      },
+    };
+  }
+
   function findTileById(state, id) {
     const anchors = Array.isArray(state?.board?.layers?.tile?.anchors)
       ? state.board.layers.tile.anchors
@@ -620,6 +708,10 @@ export function createProcessWidgetView({
 
   function makeTargetRef(target) {
     if (!target) return null;
+    if (target?.refKind === "basket") {
+      if (target?.ownerId == null) return null;
+      return { kind: "basket", ownerId: String(target.ownerId) };
+    }
     const id = target.instanceId ?? target.id ?? null;
     if (id == null) return null;
     const isHub = !!hubStructureDefs[target.defId];
@@ -629,11 +721,15 @@ export function createProcessWidgetView({
 
   function sameTargetRef(a, b) {
     if (!a || !b) return false;
+    if (a.kind === "basket" || b.kind === "basket") {
+      return a.kind === "basket" && b.kind === "basket" && String(a.ownerId) === String(b.ownerId);
+    }
     return a.kind === b.kind && String(a.id) === String(b.id);
   }
 
   function resolveTargetFromRef(state, ref) {
     if (!ref || !state) return null;
+    if (ref.kind === "basket") return buildBasketTarget(state, ref.ownerId);
     if (ref.kind === "hub") return findStructureById(state, ref.id);
     if (ref.kind === "env") return findTileById(state, ref.id);
     return null;
@@ -2507,6 +2603,18 @@ export function createProcessWidgetView({
   }
 
   function getDepositPoolTarget(target) {
+    if (target?.refKind === "basket") {
+      const systemId = "storage";
+      const poolKey = "byKindTier";
+      const pool = target?.systemState?.storage?.byKindTier ?? null;
+      return {
+        systemId,
+        poolKey,
+        pool,
+        ownerKind: "pawn",
+        ownerId: target?.ownerId ?? null,
+      };
+    }
     if (!target?.defId) return null;
     const def = hubStructureDefs?.[target.defId];
     const deposit = def?.deposit;
@@ -2731,9 +2839,43 @@ export function createProcessWidgetView({
 
   function requestPoolWithdraw(target, itemId, amount) {
     if (!target || !itemId) return;
-    const hubCol = getHubCol(target);
-    if (!Number.isFinite(hubCol)) return;
     queueActionWhenPaused?.(() => {
+      if (target?.refKind === "basket") {
+        const result = dispatchAction?.(
+          ActionKinds.WITHDRAW_PAWN_BASKET_POOL_ITEM,
+          {
+            ownerId: target?.ownerId ?? null,
+            itemId,
+            amount,
+            slotId: target?.basketSlotId ?? null,
+          },
+          { apCost: 0 }
+        );
+        if (!result?.ok) {
+          if (target?.ownerId != null) {
+            inventoryView?.flashWindowError?.(target.ownerId);
+          }
+          return result;
+        }
+        const ownerId = result.ownerId ?? target?.ownerId ?? null;
+        if (ownerId != null) {
+          inventoryView?.revealWindow?.(ownerId, { pinned: true });
+          inventoryView?.rebuildWindow?.(ownerId);
+        }
+        if (
+          ownerId != null &&
+          result.spawnItemId != null &&
+          typeof inventoryView?.beginDragItemFromOwner === "function"
+        ) {
+          inventoryView.beginDragItemFromOwner(ownerId, result.spawnItemId, {
+            pinned: true,
+          });
+        }
+        return result;
+      }
+
+      const hubCol = getHubCol(target);
+      if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
       const result = dispatchAction?.(
         ActionKinds.WITHDRAW_HUB_POOL_ITEM,
         {
@@ -2928,6 +3070,124 @@ export function createProcessWidgetView({
     const templateSig = buildRoutingTemplateSignature(target, "deposit");
     const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
     return `deposit:${targetKey}:${poolSig}:${templateSig}:${baseSig}`;
+  }
+
+  function buildBasketCard(state, target, opts = {}) {
+    const card = new PIXI.Container();
+    const bg = new PIXI.Graphics();
+    card.addChild(bg);
+
+    const totalWidth = CORE_WIDTH;
+    const ownerLabel = target?.basketOwnerName || "Basket";
+    const title = `${ownerLabel} - Basket`;
+    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
+
+    const headerUi = createWindowHeader({
+      stage: app?.stage,
+      parent: card,
+      width: totalWidth,
+      height: HEADER_HEIGHT,
+      radius: CARD_RADIUS,
+      background: COLORS.headerBg,
+      title,
+      titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
+      paddingX: HEADER_PAD_X,
+      paddingY: HEADER_PAD_Y,
+      pinOffsetX: 40,
+      closeOffsetX: 20,
+      dragTarget: opts.dragTarget,
+      onPinToggle: () => opts.onPinToggle?.(null, target),
+      onClose: () => opts.onClose?.(null, target),
+    });
+    headerUi.setPinned(!!pinned);
+
+    const body = new PIXI.Container();
+    body.y = HEADER_HEIGHT + 6;
+    card.addChild(body);
+
+    const central = new PIXI.Container();
+    central.x = 0;
+    central.y = BODY_PAD;
+    body.addChild(central);
+
+    const moduleCount = 2;
+    const moduleWidth = Math.floor(
+      (totalWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount
+    );
+
+    let moduleX = 0;
+    let moduleMaxHeight = 0;
+
+    const storageMod = new PIXI.Container();
+    storageMod.x = moduleX;
+    storageMod.y = 0;
+    central.addChild(storageMod);
+    const depositInfo = getDepositPoolTarget(target);
+    const poolSummary = formatPoolSummary({
+      kind: "pool",
+      target: depositInfo?.pool ?? null,
+    });
+    moduleMaxHeight = Math.max(
+      moduleMaxHeight,
+      buildOutputModule({
+        container: storageMod,
+        width: moduleWidth,
+        outputs: [{ kind: "pool", fromLedger: true }],
+        poolSummary,
+      })
+    );
+    moduleX += moduleWidth + MODULE_GAP;
+
+    const withdrawMod = new PIXI.Container();
+    withdrawMod.x = moduleX;
+    withdrawMod.y = 0;
+    central.addChild(withdrawMod);
+    const withdrawState = getWithdrawState(target);
+    moduleMaxHeight = Math.max(
+      moduleMaxHeight,
+      buildWithdrawModule({
+        container: withdrawMod,
+        width: moduleWidth,
+        pool: depositInfo?.pool ?? null,
+        withdrawState,
+        onOpenItemDropdown: (bounds) => openWithdrawItemDropdown(target, bounds),
+        onWithdraw: (itemId, qty) => requestPoolWithdraw(target, itemId, qty),
+      })
+    );
+
+    central.height = moduleMaxHeight;
+
+    const bodyContentHeight = Math.max(moduleMaxHeight, 70);
+    const bodyHeight = bodyContentHeight + BODY_PAD * 2;
+
+    const centralBg = new PIXI.Graphics();
+    centralBg.beginFill(0x000000, 0);
+    centralBg.drawRect(0, 0, totalWidth, bodyContentHeight);
+    centralBg.endFill();
+    central.addChildAt(centralBg, 0);
+
+    const totalHeight = HEADER_HEIGHT + 6 + bodyHeight;
+    drawCardBackground(bg, totalWidth, totalHeight);
+
+    return { card, width: totalWidth, height: totalHeight };
+  }
+
+  function rebuildBasketWidget(state, target, opts = {}) {
+    const content = opts.content;
+    const dropTargets = opts.dropTargets;
+    const cardOpts = opts.cardOpts || {};
+    clearContent(content, dropTargets);
+
+    const built = buildBasketCard(state, target, cardOpts);
+    built.card.y = 0;
+    content.addChild(built.card);
+  }
+
+  function buildBasketSignature(state, targetKey, target) {
+    const depositInfo = getDepositPoolTarget(target);
+    const poolSig = buildPoolSignature(depositInfo?.pool);
+    const itemSig = target?.basketItemId != null ? String(target.basketItemId) : "none";
+    return `basket:${targetKey}:${itemSig}:${poolSig}`;
   }
 
   function getSelectedRecipeId(target, systemId) {
@@ -3324,6 +3584,8 @@ export function createProcessWidgetView({
           signature = buildBuildSignature(state, signatureKey, target, entries);
         } else if (win.groupKind === "deposit") {
           signature = buildDepositSignature(state, signatureKey, target, entries);
+        } else if (win.groupKind === "basket") {
+          signature = buildBasketSignature(state, signatureKey, target);
         } else if (isRecipeSystem(win.groupKind)) {
           signature = buildRecipeSystemSignature(
             state,
@@ -3362,6 +3624,17 @@ export function createProcessWidgetView({
             });
           } else if (win.groupKind === "deposit") {
             rebuildDepositWidget(state, target, entries, {
+              content: win.content,
+              dropTargets: win.dropTargets,
+              cardOpts: {
+                dragTarget: win.container,
+                pinned: win.pinned,
+                onPinToggle: () => togglePinnedWindow(windowId),
+                onClose: () => hideWindow(windowId),
+              },
+            });
+          } else if (win.groupKind === "basket") {
+            rebuildBasketWidget(state, target, {
               content: win.content,
               dropTargets: win.dropTargets,
               cardOpts: {
@@ -3544,6 +3817,28 @@ export function createProcessWidgetView({
     }
   }
 
+  function showBasketWidgetForOwner(ownerId) {
+    const state = getStateSafe();
+    if (!state || ownerId == null) return { ok: false, reason: "badOwner" };
+    const target = buildBasketTarget(state, ownerId);
+    if (!target) return { ok: false, reason: "noEquippedBasket" };
+    const windowId = `group:basket:${String(ownerId)}`;
+    const win = ensureWindow(
+      windowId,
+      target,
+      "basket",
+      { x: position.x, y: position.y },
+      0,
+      { group: true, groupKind: "basket" }
+    );
+    if (win?.container?.parent) {
+      win.container.parent.addChild(win.container);
+    }
+    setWindowPinned(windowId, true);
+    invalidateAllSignatures();
+    return { ok: true, windowId };
+  }
+
   function init() {}
 
   return {
@@ -3555,6 +3850,7 @@ export function createProcessWidgetView({
     togglePinnedTarget,
     setExternalFocusTarget,
     clearExternalFocusTarget,
+    showBasketWidgetForOwner,
   };
 }
 

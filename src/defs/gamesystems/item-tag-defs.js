@@ -97,4 +97,15 @@ export const itemTagDefs = {
     passives: [],
     intents: [],
   },
+  portableStorage: {
+    id: "portableStorage",
+    kind: "itemTag",
+    ui: {
+      name: "Portable Storage",
+      description: "Provides a portable storage pool when equipped.",
+    },
+    systems: ["storage"],
+    passives: [],
+    intents: [],
+  },
 };

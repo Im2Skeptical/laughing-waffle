@@ -31,4 +31,23 @@ export const itemSystemDefs = {
       slots: [],
     },
   },
+  storage: {
+    id: "storage",
+    kind: "itemSystem",
+    ui: {
+      name: "Storage",
+      description: "Tiered storage pool for portable storage items.",
+    },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+      byKindTier: {},
+      totalByTier: {
+        bronze: 0,
+        silver: 0,
+        gold: 0,
+        diamond: 0,
+      },
+    },
+  },
 };

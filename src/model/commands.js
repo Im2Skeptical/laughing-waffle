@@ -53,6 +53,10 @@ import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { stepPawnSecond } from "./pawn-exec.js";
 import { stepEnvSecond } from "./env-exec.js";
 import { stepHubSecond } from "./hub-exec.js";
+import {
+  findEquippedPoolProviderEntry,
+  itemProvidesPool,
+} from "./item-def-rules.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "./moon.js";
 import { TIER_ASC } from "./effects/core/tiers.js";
 import { adjustFollowerCount, enforcePrestigeFollowerCap } from "./prestige-system.js";
@@ -1413,6 +1417,215 @@ function ensureLeaderEquipment(leader) {
   }
 }
 
+function ensurePortableStorageState(owner, storageItem) {
+  if (!storageItem || typeof storageItem !== "object") return null;
+  if (!storageItem.systemState || typeof storageItem.systemState !== "object") {
+    storageItem.systemState = {};
+  }
+  if (
+    !storageItem.systemState.storage ||
+    typeof storageItem.systemState.storage !== "object"
+  ) {
+    storageItem.systemState.storage = {};
+  }
+  const store = storageItem.systemState.storage;
+  if (!store.byKindTier || typeof store.byKindTier !== "object") {
+    store.byKindTier = {};
+  }
+  if (!store.totalByTier || typeof store.totalByTier !== "object") {
+    store.totalByTier = {};
+  }
+  for (const tier of TIER_ASC) {
+    if (!Number.isFinite(store.totalByTier[tier])) {
+      store.totalByTier[tier] = 0;
+    }
+  }
+  // Legacy save migration: move old leader-level basket store into item storage.
+  const legacy =
+    owner?.systemState?.basketStore && typeof owner.systemState.basketStore === "object"
+      ? owner.systemState.basketStore
+      : null;
+  if (legacy && typeof legacy.byKindTier === "object") {
+    const isStoreEmpty = Object.keys(store.byKindTier).length === 0;
+    if (isStoreEmpty) {
+      for (const [kind, rawBucket] of Object.entries(legacy.byKindTier)) {
+        if (!rawBucket || typeof rawBucket !== "object") continue;
+        if (!store.byKindTier[kind] || typeof store.byKindTier[kind] !== "object") {
+          store.byKindTier[kind] = {};
+        }
+        const bucket = store.byKindTier[kind];
+        for (const tier of TIER_ASC) {
+          const qty = Math.max(0, Math.floor(rawBucket[tier] ?? 0));
+          bucket[tier] = qty;
+          store.totalByTier[tier] = Math.max(0, Math.floor(store.totalByTier[tier] ?? 0)) + qty;
+        }
+      }
+    }
+    delete owner.systemState.basketStore;
+  }
+  return store;
+}
+
+function getEquippedBasketEntry(leader, preferredSlotId = null) {
+  if (!leader || leader.role !== "leader") return null;
+  ensureLeaderEquipment(leader);
+  return findEquippedPoolProviderEntry(
+    leader,
+    "storage",
+    "byKindTier",
+    preferredSlotId
+  );
+}
+
+export function cmdDepositItemToEquippedBasket(
+  state,
+  { fromOwnerId, toOwnerId, itemId, slotId } = {}
+) {
+  if (fromOwnerId == null) return { ok: false, reason: "badFromOwner" };
+  if (toOwnerId == null) return { ok: false, reason: "badToOwner" };
+  if (itemId == null) return { ok: false, reason: "badItemId" };
+
+  const fromInv = state?.ownerInventories?.[fromOwnerId];
+  if (!fromInv) return { ok: false, reason: "noInventory" };
+
+  const leader = getLeaderByOwnerId(state, toOwnerId);
+  if (!leader) return { ok: false, reason: "noLeader" };
+  const basketEntry = getEquippedBasketEntry(leader, slotId);
+  if (!basketEntry?.item) return { ok: false, reason: "noEquippedBasket" };
+
+  const item =
+    fromInv.itemsById?.[itemId] || fromInv.items?.find((it) => it.id === itemId);
+  if (!item) return { ok: false, reason: "noItem" };
+  if (
+    item.id === basketEntry.item.id ||
+    itemProvidesPool(item, "storage", "byKindTier")
+  ) {
+    return { ok: false, reason: "cannotDepositBasket" };
+  }
+
+  const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+  if (qty <= 0) return { ok: false, reason: "emptyStack" };
+
+  const store = ensurePortableStorageState(leader, basketEntry.item);
+  if (!store) return { ok: false, reason: "noBasketStore" };
+  const pool = store.byKindTier;
+  if (!pool || typeof pool !== "object") return { ok: false, reason: "noPool" };
+
+  if (!pool[item.kind] || typeof pool[item.kind] !== "object") {
+    pool[item.kind] = {};
+  }
+  const bucket = pool[item.kind];
+  for (const tier of TIER_ASC) {
+    if (!Number.isFinite(bucket[tier])) bucket[tier] = 0;
+  }
+
+  const tierRaw =
+    typeof item.tier === "string" && item.tier.length > 0
+      ? item.tier
+      : itemDefs?.[item.kind]?.defaultTier || "bronze";
+  const tier = TIER_ASC.includes(tierRaw) ? tierRaw : "bronze";
+  bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + qty;
+  store.totalByTier[tier] =
+    Math.max(0, Math.floor(store.totalByTier[tier] ?? 0)) + qty;
+
+  Inventory.removeItem(fromInv, item.id);
+  Inventory.rebuildDerived(fromInv);
+  bumpInvVersion(fromInv);
+
+  return {
+    ok: true,
+    result: "basketDeposited",
+    fromOwnerId,
+    toOwnerId: leader.id,
+    itemKind: item.kind,
+    moved: qty,
+    basketSlotId: basketEntry.slotId,
+  };
+}
+
+export function cmdWithdrawPawnBasketPoolItem(
+  state,
+  { ownerId, itemId, amount, slotId } = {}
+) {
+  if (ownerId == null) return { ok: false, reason: "badOwner" };
+  if (typeof itemId !== "string" || itemId.length === 0) {
+    return { ok: false, reason: "badItemId" };
+  }
+  const requested = Math.max(1, Math.floor(amount ?? 1));
+  if (requested <= 0) return { ok: false, reason: "badAmount" };
+
+  const leader = getLeaderByOwnerId(state, ownerId);
+  if (!leader) return { ok: false, reason: "noLeader" };
+  const basketEntry = getEquippedBasketEntry(leader, slotId);
+  if (!basketEntry?.item) return { ok: false, reason: "noEquippedBasket" };
+
+  const store = ensurePortableStorageState(leader, basketEntry.item);
+  if (!store) return { ok: false, reason: "noBasketStore" };
+  const pool = store.byKindTier;
+  if (!pool || typeof pool !== "object") return { ok: false, reason: "noPool" };
+  if (isTierBucket(pool)) return { ok: false, reason: "unsupportedPoolShape" };
+
+  const bucket = pool[itemId];
+  if (!bucket || typeof bucket !== "object") {
+    return { ok: false, reason: "missingItemPool" };
+  }
+
+  const inv = state?.ownerInventories?.[leader.id];
+  if (!inv) return { ok: false, reason: "noInventory" };
+
+  let remaining = requested;
+  let moved = 0;
+  let spawnItemId = null;
+  for (const tier of TIER_ASC) {
+    if (remaining <= 0) break;
+    const available = Math.max(0, Math.floor(bucket[tier] ?? 0));
+    if (available <= 0) continue;
+    const want = Math.min(remaining, available);
+    const addRes = addItemUnitsToInventoryWithTags(
+      state,
+      inv,
+      itemId,
+      tier,
+      want,
+      []
+    );
+    const added = Math.max(0, Math.floor(addRes?.added ?? 0));
+    if (added <= 0) break;
+
+    bucket[tier] = available - added;
+    const total = Math.max(0, Math.floor(store.totalByTier[tier] ?? 0));
+    store.totalByTier[tier] = Math.max(0, total - added);
+    if (spawnItemId == null && addRes?.firstItemId != null) {
+      spawnItemId = addRes.firstItemId;
+    }
+    moved += added;
+    remaining -= added;
+    if (added < want) break;
+  }
+
+  if (moved <= 0) {
+    return { ok: false, reason: "noSpaceForWithdraw" };
+  }
+
+  const empty = TIER_ASC.every(
+    (tier) => Math.max(0, Math.floor(bucket[tier] ?? 0)) <= 0
+  );
+  if (empty) delete pool[itemId];
+
+  bumpInvVersion(inv);
+
+  return {
+    ok: true,
+    result: "basketPoolWithdrawn",
+    ownerId: leader.id,
+    itemKind: itemId,
+    requested,
+    moved,
+    spawnItemId,
+    basketSlotId: basketEntry.slotId,
+  };
+}
+
 export function cmdMoveItemBetweenOwners(
   state,
   { fromOwnerId, toOwnerId, itemId, targetGX, targetGY }
@@ -1480,6 +1693,9 @@ export function cmdEquipItemToLeaderSlot(
   bumpInvVersion(fromInv);
 
   leader.equipment[slotId] = item;
+  if (itemProvidesPool(item, "storage", "byKindTier")) {
+    ensurePortableStorageState(leader, item);
+  }
 
   return {
     ok: true,
@@ -1587,6 +1803,9 @@ export function cmdMoveLeaderEquipmentToSlot(
 
   fromLeader.equipment[fromSlotId] = null;
   toLeader.equipment[toSlotId] = item;
+  if (itemProvidesPool(item, "storage", "byKindTier")) {
+    ensurePortableStorageState(toLeader, item);
+  }
 
   return {
     ok: true,

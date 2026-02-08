@@ -116,6 +116,8 @@ export function createInventoryView({
   onGhostClick,
   hasItemTransferIntent,
   equipItemToSlot,
+  depositItemToBasket,
+  openBasketWidget,
   moveEquippedItemToInventory,
   moveEquippedItemToSlot,
   getItemTransferAffordability,
@@ -255,6 +257,33 @@ export function createInventoryView({
       out[slotId] = src[slotId] ?? null;
     }
     return out;
+  }
+
+  function getLeaderEquippedItem(ownerId, slotId) {
+    const leader = getLeaderForOwner(ownerId);
+    if (!leader || !slotId) return null;
+    const equipment = getLeaderEquipmentState(leader);
+    return equipment?.[slotId] ?? null;
+  }
+
+  function itemProvidesBasketPool(item) {
+    if (!item || typeof item !== "object") return false;
+    const kind =
+      typeof item.kind === "string" && item.kind.length > 0 ? item.kind : null;
+    if (!kind) return false;
+    const def = itemDefs?.[kind];
+    if (!def || typeof def !== "object") return false;
+    const specs = Array.isArray(def.poolProviders)
+      ? def.poolProviders
+      : def.poolProviders && typeof def.poolProviders === "object"
+        ? [def.poolProviders]
+        : [];
+    return specs.some((spec) => {
+      const systemId =
+        typeof spec?.systemId === "string" ? spec.systemId : spec?.system;
+      const poolKey = typeof spec?.poolKey === "string" ? spec.poolKey : null;
+      return systemId === "storage" && poolKey === "byKindTier";
+    });
   }
 
   function getEquipmentSlotLayout(panelWidth) {
@@ -2332,6 +2361,40 @@ export function createInventoryView({
         return;
       }
 
+      if (!sourceEquipmentSlotId) {
+        const equippedTarget = getLeaderEquippedItem(targetOwner, targetSlotId);
+        const isBasketTarget = itemProvidesBasketPool(equippedTarget);
+        if (isBasketTarget) {
+          const deposit =
+            typeof depositItemToBasket === "function" ? depositItemToBasket : null;
+          const result = deposit
+            ? deposit({
+                fromOwnerId: sourceOwner,
+                toOwnerId: targetOwner,
+                itemId: item.id,
+                slotId: targetSlotId,
+              })
+            : { ok: false, reason: "noDepositItemToBasketHandler" };
+
+          if (!result?.ok) {
+            flashWindowError(targetOwner);
+            flashItemError(view, sourceOwner);
+            finish("fail");
+            return;
+          }
+
+          rebuildWindow(sourceOwner);
+          if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+          openBasketWidget?.({
+            ownerId: targetOwner,
+            itemId: equippedTarget?.id ?? null,
+            slotId: targetSlotId,
+          });
+          finish("success");
+          return;
+        }
+      }
+
       if (sourceEquipmentSlotId) {
         const moveEquipped =
           typeof moveEquippedItemToSlot === "function"
@@ -2355,6 +2418,13 @@ export function createInventoryView({
 
         rebuildWindow(sourceOwner);
         if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+        if (item?.kind === "basket" && result?.result === "noChange") {
+          openBasketWidget?.({
+            ownerId: targetOwner,
+            itemId: item.id,
+            slotId: targetSlotId,
+          });
+        }
         finish("success");
         return;
       }

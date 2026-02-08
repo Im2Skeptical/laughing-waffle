@@ -232,7 +232,16 @@ export const itemDefs = {
     name: "Basket",
     color: 0x9b7a4a,
     maxStack: 1,
-    baseTags: [],
+    baseTags: ["wearable", "portableStorage"],
+    baseSystemTiers: { wearable: "bronze", storage: "bronze" },
+    baseSystemState: { wearable: { slot: "offHand" } },
+    poolProviders: [
+      {
+        systemId: "storage",
+        poolKey: "byKindTier",
+        requires: { equipped: true },
+      },
+    ],
     defaultWidth: 2,
     defaultHeight: 2,
     defaultTier: "bronze",
@@ -243,6 +252,7 @@ export const itemDefs = {
         "Owner: {ownerLabel}",
         "Quantity: {quantity}",
         "Size: {width}x{height}",
+        "Slot: Off Hand",
       ],
     },
   },
@@ -471,6 +481,7 @@ export const itemDefs = {
       {
         id: "staminaRegenEquipped",
         timing: { cadenceSec: 1 },
+        requires: { equipped: true },
         effect: [
           {
             op: "AddToSystemState",

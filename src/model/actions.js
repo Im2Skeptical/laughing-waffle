@@ -9,6 +9,7 @@ import {
   cmdStackItemsInOwner,
   cmdDiscardItemFromOwner,
   cmdMoveProcessBufferItem,
+  cmdDepositItemToEquippedBasket,
   cmdEquipItemToLeaderSlot,
   cmdMoveLeaderEquipmentToInventory,
   cmdMoveLeaderEquipmentToSlot,
@@ -20,6 +21,7 @@ import {
   cmdSetTileCropSelection,
   cmdSetHubRecipeSelection,
   cmdWithdrawHubPoolItem,
+  cmdWithdrawPawnBasketPoolItem,
   cmdSetProcessRouting,
   cmdReorderProcessRoutingEndpoint,
   cmdToggleProcessRoutingEndpoint,
@@ -39,6 +41,7 @@ export const ActionKinds = {
   INVENTORY_STACK: "inventoryStack",
   INVENTORY_DISCARD: "inventoryDiscard",
   PROCESS_BUFFER_MOVE: "processBufferMove",
+  DEPOSIT_ITEM_TO_BASKET: "depositItemToBasket",
   EQUIP_ITEM: "equipItem",
   UNEQUIP_ITEM: "unequipItem",
   MOVE_EQUIPPED_ITEM: "moveEquippedItem",
@@ -51,6 +54,7 @@ export const ActionKinds = {
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
   SET_HUB_RECIPE_SELECTION: "setHubRecipeSelection",
   WITHDRAW_HUB_POOL_ITEM: "withdrawHubPoolItem",
+  WITHDRAW_PAWN_BASKET_POOL_ITEM: "withdrawPawnBasketPoolItem",
   SET_PROCESS_ROUTING: "setProcessRouting",
   REORDER_PROCESS_ROUTING_ENDPOINT: "reorderProcessRoutingEndpoint",
   TOGGLE_PROCESS_ROUTING_ENDPOINT: "toggleProcessRoutingEndpoint",
@@ -166,6 +170,10 @@ export function applyAction(state, action, context = {}) {
       result = cmdMoveProcessBufferItem(state, payload);
       break;
 
+    case ActionKinds.DEPOSIT_ITEM_TO_BASKET:
+      result = cmdDepositItemToEquippedBasket(state, payload);
+      break;
+
     case ActionKinds.EQUIP_ITEM:
       result = cmdEquipItemToLeaderSlot(state, payload);
       break;
@@ -231,6 +239,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.WITHDRAW_HUB_POOL_ITEM:
       result = cmdWithdrawHubPoolItem(state, payload);
+      break;
+
+    case ActionKinds.WITHDRAW_PAWN_BASKET_POOL_ITEM:
+      result = cmdWithdrawPawnBasketPoolItem(state, payload);
       break;
 
     case ActionKinds.SET_PROCESS_ROUTING:

@@ -770,6 +770,19 @@ inventoryView = createInventoryView({
         { apCost: 0 }
       )
     ),
+  depositItemToBasket: ({ fromOwnerId, toOwnerId, itemId, slotId }) =>
+    queueActionWhenPaused(() =>
+      runner.dispatchAction(
+        ActionKinds.DEPOSIT_ITEM_TO_BASKET,
+        { fromOwnerId, toOwnerId, itemId, slotId },
+        { apCost: 0 }
+      )
+    ),
+  openBasketWidget: ({ ownerId }) =>
+    processWidgetView?.showBasketWidgetForOwner?.(ownerId) ?? {
+      ok: false,
+      reason: "noProcessWidget",
+    },
   moveItemBetweenOwners: (spec) =>
     queueActionWhenPaused(() => {
       const isProcessBuffer = (ownerId) =>
