@@ -170,6 +170,7 @@ function getProcessDisplayName(process, recipeDef) {
   if (recipeDef?.name) return recipeDef.name;
   const kind = normalizeString(process?.type) || "Process";
   if (kind === "depositItems") return "Deposit";
+  if (kind === "residentConsume") return "Residents";
   return kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
@@ -228,6 +229,24 @@ function buildInputSlotsForProcess(kind, opts = {}) {
     });
     return base;
   }
+  if (kind === "residentConsume") {
+    base.push({
+      slotId: "food",
+      label: "Food",
+      locked: false,
+      mode: "consume",
+      candidateRule: opts.inputRule || {
+        kind: "adjacentDistributors",
+        range: 1,
+        tag: "distributor",
+        store: "inv",
+        includeSelfInv: true,
+        includeOccupants: true,
+      },
+      default: { ordered: [] },
+    });
+    return base;
+  }
   const inputRule =
     opts.inputRule || { kind: "adjacentDistributors", range: 1, tag: "distributor", store: "inv" };
   base.push({
@@ -263,6 +282,9 @@ function buildOutputSlotsForProcess(kind, opts = {}) {
       candidateRule: { kind: "fixed", endpointId: null },
       default: { ordered: [] },
     });
+    return base;
+  }
+  if (kind === "residentConsume") {
     return base;
   }
   const outputRule =
@@ -325,6 +347,22 @@ export function getProcessDefForInstance(process, target, context) {
     if (!transform.outputs.length) {
       transform.outputs = [];
     }
+  }
+  if (kind === "residentConsume") {
+    if (!transform.requirements.length) {
+      const amount = Math.max(1, safeFloor(process?.inputAmount, 1));
+      transform.requirements = [
+        {
+          kind: "tag",
+          tag: "edible",
+          amount,
+          progress: 0,
+          consume: true,
+          slotId: "food",
+        },
+      ];
+    }
+    transform.outputs = [];
   }
   if (kind === "cropGrowth" && cropDef) {
     const skipAutoSeedRequirement =
@@ -401,6 +439,15 @@ export function getProcessDefForInstance(process, target, context) {
         systemId: "storage",
         poolKey: "byKindTier",
       },
+    };
+  } else if (kind === "residentConsume") {
+    inputRule = {
+      kind: "adjacentDistributors",
+      range: 1,
+      tag: "distributor",
+      store: "inv",
+      includeSelfInv: true,
+      includeOccupants: true,
     };
   }
 
@@ -539,6 +586,16 @@ export function getTemplateProcessForSystem(target, systemId, context = {}) {
       durationSec: 1,
       ownerKind: "pawn",
       ownerId: context?.ownerId ?? base.ownerId,
+    };
+  }
+
+  if (systemId === "residents") {
+    return {
+      ...base,
+      type: "residentConsume",
+      mode: "time",
+      durationSec: 1,
+      inputAmount: 1,
     };
   }
 

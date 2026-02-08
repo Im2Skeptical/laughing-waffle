@@ -6,16 +6,27 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
+import {
+  INITIAL_POPULATION_DEFAULT,
+  POPULATION_GROWTH_FULL_FEED_RATE,
+  POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER,
+  SEASON_DISPLAY,
+} from "../defs/gamesettings/gamerules-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { PAWN_ROLE_LEADER, getLeaderById } from "./prestige-system.js";
+import { pushGameEvent } from "./event-feed.js";
 import {
   getProcessDefForInstance,
+  getTemplateProcessForSystem,
   ensureProcessRoutingState,
+  ensureSystemRoutingTemplate,
   listCandidateEndpoints,
   resolveEndpointTarget,
   resolveFixedEndpointId,
+  canConsumeRequirementUnit,
+  consumeRequirementUnit,
   isDropEndpoint,
 } from "./process-framework.js";
 import { canOwnerAcceptItem } from "./commands.js";
@@ -552,6 +563,269 @@ function canProcessOutputsProceed(state, structure, process, systemId) {
   return true;
 }
 
+function normalizePopulationCount(value, fallback = 0) {
+  if (!Number.isFinite(value)) return Math.max(0, Math.floor(fallback));
+  return Math.max(0, Math.floor(value));
+}
+
+function getPopulationCount(state) {
+  return normalizePopulationCount(
+    state?.resources?.population,
+    INITIAL_POPULATION_DEFAULT
+  );
+}
+
+function setPopulationCount(state, population) {
+  if (!state || typeof state !== "object") return;
+  if (!state.resources || typeof state.resources !== "object") {
+    state.resources = { gold: 0, food: 0, population: 0 };
+  }
+  state.resources.population = normalizePopulationCount(population, 0);
+}
+
+function ensurePopulationTrackerState(state) {
+  if (!state || typeof state !== "object") return null;
+  const currentYear = Number.isFinite(state.year)
+    ? Math.max(1, Math.floor(state.year))
+    : 1;
+  if (
+    !state.populationTracker ||
+    typeof state.populationTracker !== "object"
+  ) {
+    state.populationTracker = {
+      year: currentYear,
+      mealAttempts: 0,
+      mealSuccesses: 0,
+    };
+  }
+  const tracker = state.populationTracker;
+  tracker.year = Number.isFinite(tracker.year)
+    ? Math.max(1, Math.floor(tracker.year))
+    : currentYear;
+  tracker.mealAttempts = normalizePopulationCount(tracker.mealAttempts, 0);
+  tracker.mealSuccesses = normalizePopulationCount(tracker.mealSuccesses, 0);
+  if (tracker.mealSuccesses > tracker.mealAttempts) {
+    tracker.mealSuccesses = tracker.mealAttempts;
+  }
+  return tracker;
+}
+
+function getStructureLabel(structure) {
+  if (!structure) return "Housing";
+  const def = hubStructureDefs?.[structure.defId];
+  return def?.name || structure.defId || "Housing";
+}
+
+function getResidentsHousingStructure(anchors) {
+  const list = Array.isArray(anchors) ? anchors : [];
+  for (const structure of list) {
+    if (!structure) continue;
+    const tags = Array.isArray(structure.tags) ? structure.tags : [];
+    if (!tags.includes("canHouse")) continue;
+    if (isTagDisabled(structure, "canHouse")) continue;
+    return structure;
+  }
+  return null;
+}
+
+function ensureRoutingTemplateSlotWithCandidates(slotState, candidates) {
+  if (!slotState || typeof slotState !== "object") return;
+  if (!Array.isArray(slotState.ordered)) slotState.ordered = [];
+  if (!slotState.enabled || typeof slotState.enabled !== "object") {
+    slotState.enabled = {};
+  }
+  if (slotState.ordered.length === 0 && Array.isArray(candidates)) {
+    slotState.ordered = candidates.slice();
+  }
+  for (const endpointId of slotState.ordered) {
+    if (!endpointId || typeof endpointId !== "string") continue;
+    if (slotState.enabled[endpointId] === undefined) {
+      slotState.enabled[endpointId] = true;
+    }
+  }
+}
+
+function tryConsumeResidentMeal(endpoint) {
+  if (!endpoint || endpoint.kind !== "inventory") return false;
+  const requirement = {
+    kind: "tag",
+    tag: "edible",
+    consume: true,
+  };
+  if (!canConsumeRequirementUnit(endpoint.target, requirement)) return false;
+  const consumed = consumeRequirementUnit(endpoint.target, requirement);
+  return !!consumed;
+}
+
+function consumeResidentsMealsOnSeasonChange(state, structure) {
+  const attempts = getPopulationCount(state);
+  if (!structure || attempts <= 0) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+
+  const process = getTemplateProcessForSystem(structure, "residents", {});
+  if (!process) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+  const context = { target: structure, systemId: "residents" };
+  const processDef = getProcessDefForInstance(process, structure, context);
+  if (!processDef) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+
+  ensureProcessRoutingState(process, processDef, context);
+  const template = ensureSystemRoutingTemplate(structure, "residents", processDef);
+  if (!template) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+
+  const slotDef = resolveSlotDef(processDef, "inputs", "food");
+  if (!slotDef) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+  if (!template.inputs || typeof template.inputs !== "object") {
+    template.inputs = {};
+  }
+  if (!template.inputs[slotDef.slotId] || typeof template.inputs[slotDef.slotId] !== "object") {
+    template.inputs[slotDef.slotId] = { ordered: [], enabled: {} };
+  }
+  const slotState = template.inputs[slotDef.slotId];
+
+  const candidates = listCandidateEndpoints(
+    state,
+    process,
+    slotDef,
+    structure,
+    context
+  );
+  ensureRoutingTemplateSlotWithCandidates(slotState, candidates);
+
+  const ordered =
+    Array.isArray(slotState.ordered) && slotState.ordered.length > 0
+      ? slotState.ordered
+      : candidates;
+  let successes = 0;
+
+  for (let i = 0; i < attempts; i++) {
+    let consumed = false;
+    for (const endpointRaw of ordered) {
+      if (!endpointRaw || typeof endpointRaw !== "string") continue;
+      if (slotState.enabled?.[endpointRaw] === false) continue;
+      const endpointId = resolveEndpointIdForRouting(endpointRaw, process, context);
+      if (!endpointId) continue;
+      if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+      const endpoint = resolveEndpointTarget(state, endpointId);
+      if (!endpoint) continue;
+      if (!tryConsumeResidentMeal(endpoint)) continue;
+      consumed = true;
+      successes += 1;
+      break;
+    }
+    if (!consumed) continue;
+  }
+
+  const misses = Math.max(0, attempts - successes);
+  return { attempts, successes, misses };
+}
+
+function maybeApplyYearlyPopulationChange(state, tSec) {
+  const tracker = ensurePopulationTrackerState(state);
+  if (!tracker) return false;
+
+  const currentYear = Number.isFinite(state?.year)
+    ? Math.max(1, Math.floor(state.year))
+    : 1;
+  if (tracker.year >= currentYear) return false;
+
+  const previousPopulation = getPopulationCount(state);
+  const attempts = normalizePopulationCount(tracker.mealAttempts, 0);
+  const successes = normalizePopulationCount(tracker.mealSuccesses, 0);
+  const misses = Math.max(0, attempts - successes);
+
+  let nextPopulation = previousPopulation;
+  let outcomeText = "population held steady";
+  if (attempts > 0 && misses === 0) {
+    const growthRate = Number.isFinite(POPULATION_GROWTH_FULL_FEED_RATE)
+      ? Math.max(0, POPULATION_GROWTH_FULL_FEED_RATE)
+      : 0;
+    const growth = Math.max(1, Math.floor(previousPopulation * growthRate));
+    nextPopulation = previousPopulation + growth;
+    outcomeText = `full feeding growth (+${growth})`;
+  } else if (attempts > 0 && successes === 0) {
+    const collapseMultiplier = Number.isFinite(POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
+      ? Math.max(0, POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
+      : 0.5;
+    nextPopulation = Math.floor(previousPopulation * collapseMultiplier);
+    outcomeText = "complete starvation collapse";
+  } else if (attempts === 0) {
+    outcomeText = "no seasonal meal attempts";
+  } else {
+    outcomeText = "partial feeding";
+  }
+  nextPopulation = normalizePopulationCount(nextPopulation, previousPopulation);
+  setPopulationCount(state, nextPopulation);
+
+  const priorYear = Math.max(1, currentYear - 1);
+  pushGameEvent(state, {
+    type: "populationYearlyUpdate",
+    tSec,
+    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})`,
+    data: {
+      year: priorYear,
+      previousPopulation,
+      nextPopulation,
+      mealAttempts: attempts,
+      mealSuccesses: successes,
+    },
+  });
+
+  tracker.year = currentYear;
+  tracker.mealAttempts = 0;
+  tracker.mealSuccesses = 0;
+  return true;
+}
+
+function runPopulationSeasonTick(state, tSec, anchors) {
+  if (!state || state._seasonChanged !== true) return false;
+
+  maybeApplyYearlyPopulationChange(state, tSec);
+
+  const tracker = ensurePopulationTrackerState(state);
+  if (!tracker) return false;
+
+  const structure = getResidentsHousingStructure(anchors);
+  const result = consumeResidentsMealsOnSeasonChange(state, structure);
+  const attempts = normalizePopulationCount(result.attempts, 0);
+  const successes = normalizePopulationCount(result.successes, 0);
+  const misses = Math.max(0, attempts - successes);
+
+  tracker.mealAttempts += attempts;
+  tracker.mealSuccesses += successes;
+
+  if (attempts <= 0) return true;
+
+  const seasonKey = getCurrentSeasonKey(state);
+  const seasonLabel = SEASON_DISPLAY?.[seasonKey] || seasonKey || "Season";
+  const structureLabel = structure ? getStructureLabel(structure) : "Housing";
+  const text = structure
+    ? `${structureLabel} residents consumed ${successes}/${attempts} meals in ${seasonLabel}`
+    : `Residents consumed ${successes}/${attempts} meals in ${seasonLabel} (no active housing)`;
+  pushGameEvent(state, {
+    type: "populationSeasonMeal",
+    tSec,
+    text,
+    data: {
+      focusKind: "hubStructure",
+      hubStructureId: structure?.instanceId ?? null,
+      mealAttempts: attempts,
+      mealSuccesses: successes,
+      mealMisses: misses,
+      seasonKey,
+    },
+  });
+  return true;
+}
+
 function resolveProcessTypeFromSystem(structure, effect) {
   if (!effect || typeof effect !== "object") return null;
   const systemId = typeof effect.system === "string" ? effect.system : null;
@@ -631,6 +905,8 @@ export function stepHubSecond(state, tSec) {
   if (!state || !state.hub) return;
 
   const anchors = Array.isArray(state.hub.anchors) ? state.hub.anchors : [];
+
+  runPopulationSeasonTick(state, tSec, anchors);
   if (!anchors.length) return;
 
   const seasonKey = getCurrentSeasonKey(state);

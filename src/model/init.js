@@ -4,6 +4,7 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createEmptyLeaderEquipment } from "./equipment-rules.js";
+import { INITIAL_POPULATION_DEFAULT } from "../defs/gamesettings/gamerules-defs.js";
 
 import {
   createEmptyState,
@@ -45,7 +46,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.resources = {
     gold: 0,
     food: 0,
-    population: 0,
+    population: INITIAL_POPULATION_DEFAULT,
     ...(setup.resources || {}),
   };
 

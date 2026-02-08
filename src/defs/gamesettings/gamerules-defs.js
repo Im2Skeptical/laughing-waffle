@@ -37,6 +37,11 @@ export const PRESTIGE_CURVE_A_BY_TIER = {
   diamond: 12,
 };
 
+// --- Population ---
+export const INITIAL_POPULATION_DEFAULT = 8;
+export const POPULATION_GROWTH_FULL_FEED_RATE = 0.2;
+export const POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER = 0.5;
+
 // --- Perishability ---
 export const PERISHABLE_ROT_CHANCE_PER_SEC = 0.005;
 export const PERISHABILITY_ROT_MULTIPLIER_BY_TIER = {

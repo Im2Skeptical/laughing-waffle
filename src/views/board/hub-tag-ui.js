@@ -44,6 +44,7 @@ const HUB_SYSTEM_UI_MAP = {
   build: { label: "Build", icon: "B", color: 0x8f8f8f },
   fireplace: { label: "Fireplace", icon: "F", color: 0xd9793a },
   workspace: { label: "Workspace", icon: "W", color: 0x7a9a5f },
+  residents: { label: "Residents", icon: "R", color: 0x8f9ab8 },
   granaryStore: { label: "Granary", icon: "G", color: 0xc2a16a },
   storage: { label: "Storage", icon: "S", color: 0x6a8fbf },
 };

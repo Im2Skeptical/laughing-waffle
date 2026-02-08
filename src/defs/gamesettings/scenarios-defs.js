@@ -1,10 +1,11 @@
 // scenarios-defs.js - human-authored start scenarios (pure data)
+import { INITIAL_POPULATION_DEFAULT } from "./gamerules-defs.js";
 
 export const setupDefs = {
   testing: {
     rngSeed: 123,
 
-    resources: { gold: 0, food: 0, population: 0 },
+    resources: { gold: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
     board: {
       cols: 12,
@@ -83,6 +84,7 @@ export const setupDefs = {
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 2, gridY: 0 },
           { kind: "barley", quantity: 15, gridX: 0, gridY: 2 },
+          { kind: "roastedBarley", quantity: 25, gridX: 2, gridY: 3 },
           { kind: "barleyPorridge", gridX: 0, gridY: 9 },
           { kind: "barleyPorridge", gridX: 2, gridY: 9 },
           { kind: "barleyPorridge", gridX: 0, gridY: 8 },
@@ -111,7 +113,7 @@ export const setupDefs = {
   devZoo01: {
     rngSeed: 123,
 
-    resources: { gold: 0, food: 0, population: 0 },
+    resources: { gold: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
     board: {
       cols: 12,
@@ -218,7 +220,7 @@ export const setupDefs = {
   devPlaytesting01: {
     rngSeed: 123,
 
-    resources: { gold: 0, food: 0, population: 0 },
+    resources: { gold: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
     board: {
       cols: 12,

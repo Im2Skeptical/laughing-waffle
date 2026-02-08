@@ -60,6 +60,7 @@ const GROUP_SYSTEM_IDS = new Set([
   "growth",
   "fireplace",
   "workspace",
+  "residents",
   "deposit",
   "build",
   "basket",
@@ -2602,6 +2603,66 @@ export function createProcessWidgetView({
     });
   }
 
+  function buildResidentsSignature(state, targetKey, target, entries) {
+    const population = Math.max(
+      0,
+      Math.floor(state?.resources?.population ?? 0)
+    );
+    const templateSig = buildRoutingTemplateSignature(target, "residents");
+    const candidateSig = buildTemplateCandidateSignature(state, target, "residents");
+    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
+    return `residents:${targetKey}:${population}:${templateSig}:${candidateSig}:${baseSig}`;
+  }
+
+  function rebuildResidentsWidget(state, target, entries, opts = {}) {
+    const content = opts.content;
+    const dropTargets = opts.dropTargets;
+    const cardOpts = opts.cardOpts || {};
+    clearContent(content, dropTargets);
+
+    if (Array.isArray(entries) && entries.length > 0) {
+      rebuildWidget(state, target, entries, {
+        content,
+        dropTargets,
+        cardOpts,
+      });
+      return;
+    }
+
+    const templateProcess = getTemplateProcessForSystem(target, "residents", {});
+    const templateDef = templateProcess
+      ? getProcessDefForInstance(templateProcess, target, {})
+      : null;
+    if (!templateDef) return;
+
+    const routingState =
+      target?.systemState?.residents?.routingTemplate || { inputs: {}, outputs: {} };
+    const forceModules = new Set(["requirements", "progress"]);
+    const built = buildProcessCard(
+      state,
+      target,
+      { process: templateProcess, processDef: templateDef },
+      0,
+      1,
+      {
+        ...cardOpts,
+        preview: true,
+        forceModules,
+        routingMode: "template",
+        routingState,
+        routingProcess: templateProcess,
+        routingProcessDef: templateDef,
+        routingTargetRef: makeTargetRef(target),
+        routingSystemId: "residents",
+        drawerKey: `template:residents:${getTargetKey(target) || "target"}`,
+        allowRouting: true,
+        allowBuffer: false,
+      }
+    );
+    built.card.y = 0;
+    content.addChild(built.card);
+  }
+
   function getDepositPoolTarget(target) {
     if (target?.refKind === "basket") {
       const systemId = "storage";
@@ -3582,6 +3643,8 @@ export function createProcessWidgetView({
           signature = buildGrowthSignature(state, signatureKey, target, entries);
         } else if (win.groupKind === "build") {
           signature = buildBuildSignature(state, signatureKey, target, entries);
+        } else if (win.groupKind === "residents") {
+          signature = buildResidentsSignature(state, signatureKey, target, entries);
         } else if (win.groupKind === "deposit") {
           signature = buildDepositSignature(state, signatureKey, target, entries);
         } else if (win.groupKind === "basket") {
@@ -3613,6 +3676,17 @@ export function createProcessWidgetView({
             });
           } else if (win.groupKind === "build") {
             rebuildBuildWidget(state, target, entries, {
+              content: win.content,
+              dropTargets: win.dropTargets,
+              cardOpts: {
+                dragTarget: win.container,
+                pinned: win.pinned,
+                onPinToggle: () => togglePinnedWindow(windowId),
+                onClose: () => hideWindow(windowId),
+              },
+            });
+          } else if (win.groupKind === "residents") {
+            rebuildResidentsWidget(state, target, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
               cardOpts: {

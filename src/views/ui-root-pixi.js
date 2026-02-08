@@ -59,10 +59,12 @@ const runner = createSimRunner({
     goldGraphController.handleInvalidate(reason);
     foodGraphController.handleInvalidate(reason);
     apGraphController.handleInvalidate(reason);
+    popGraphController.handleInvalidate(reason);
     systemGraphController.handleInvalidate(reason);
     if (goldGraphView?.isOpen()) goldGraphView.render();
     if (foodGraphView?.isOpen()) foodGraphView.render();
     if (apGraphView?.isOpen()) apGraphView.render();
+    if (popGraphView?.isOpen()) popGraphView.render();
     if (systemGraphView?.isOpen()) systemGraphView.render();
     // Force a check on inventory UI in case state changed
     inventoryView?.update?.();
@@ -131,6 +133,12 @@ const apGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.ap,
+});
+
+const popGraphController = createTimeGraphController({
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  metric: GRAPH_METRICS.population,
 });
 
 function resizeCanvas() {
@@ -1068,6 +1076,19 @@ let apGraphView = createMetricGraphView({
   openPosition: { x: 350, y: 80 },
 });
 
+let popGraphView = createMetricGraphView({
+  app,
+  layer: uiLayers.controlsLayer,
+  controller: popGraphController,
+  metric: GRAPH_METRICS.population,
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  setPreviewState: (s) => runner.setPreviewState(s),
+  clearPreviewState: () => runner.clearPreviewState(),
+  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
+  openPosition: { x: 350, y: 640 },
+});
+
 let lastSystemGraphTargetKey = null;
 
 function updateSystemGraphTarget() {
@@ -1115,6 +1136,11 @@ const chromeView = createChromeView({
     runner.clearPreviewState();
     if (!apGraphView.isOpen()) apGraphView.open();
     else apGraphView.close();
+  },
+  onPopClick: () => {
+    runner.clearPreviewState();
+    if (!popGraphView.isOpen()) popGraphView.open();
+    else popGraphView.close();
   },
   getTimeScale: () => runner.getTimeScale?.(),
   setTimeScaleTarget: (speed, opts) => runner.setTimeScaleTarget?.(speed, opts),
@@ -1230,10 +1256,12 @@ app.ticker.add((delta) => {
   const anyMetricGraphOpen =
     goldGraphView.isOpen() ||
     foodGraphView.isOpen() ||
-    apGraphView.isOpen();
+    apGraphView.isOpen() ||
+    popGraphView.isOpen();
   goldGraphController.setActive?.(goldGraphView.isOpen());
   foodGraphController.setActive?.(foodGraphView.isOpen());
   apGraphController.setActive?.(apGraphView.isOpen());
+  popGraphController.setActive?.(popGraphView.isOpen());
   if (anyMetricGraphOpen) {
     if (goldGraphView.isOpen()) {
       goldGraphController.update();
@@ -1246,6 +1274,10 @@ app.ticker.add((delta) => {
     if (apGraphView.isOpen()) {
       apGraphController.update();
       apGraphView.render();
+    }
+    if (popGraphView.isOpen()) {
+      popGraphController.update();
+      popGraphView.render();
     }
   }
 

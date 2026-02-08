@@ -1,7 +1,11 @@
 // state.js — core GameState shape + RNG helpers + season decks + serialize/deserialize
 // Model-only. No view imports.
 
-import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import {
+  SEASONS,
+  SEASON_DURATION_SEC,
+  INITIAL_POPULATION_DEFAULT,
+} from "../defs/gamesettings/gamerules-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
@@ -284,7 +288,11 @@ export function createEmptyState(seed = 123456789) {
     actionPointCap: 100,
     apCapOverride: null,
 
-    resources: { gold: 0, food: 0, population: 0 },
+    resources: {
+      gold: 0,
+      food: 0,
+      population: INITIAL_POPULATION_DEFAULT,
+    },
 
     board: createBoardState(),
     hub: createHubState(),
@@ -776,7 +784,18 @@ export function deserializeGameState(data) {
   if (!Number.isFinite(state.rng.baseSeed)) {
     state.rng.baseSeed = Math.floor(state.rng.seed ?? 123456789);
   }
-  if (!state.resources) state.resources = { gold: 0, food: 0, population: 0 };
+  if (!state.resources) {
+    state.resources = {
+      gold: 0,
+      food: 0,
+      population: INITIAL_POPULATION_DEFAULT,
+    };
+  }
+  if (!Number.isFinite(state.resources.gold)) state.resources.gold = 0;
+  if (!Number.isFinite(state.resources.food)) state.resources.food = 0;
+  if (!Number.isFinite(state.resources.population)) {
+    state.resources.population = INITIAL_POPULATION_DEFAULT;
+  }
   if (state.envSlots) delete state.envSlots;
   if (state.envSlotsEnabled != null) delete state.envSlotsEnabled;
   if (!state.hub || typeof state.hub !== "object") state.hub = createHubState();
