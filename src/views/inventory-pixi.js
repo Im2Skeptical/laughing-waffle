@@ -56,9 +56,18 @@ const ITEM_TIER_BORDER_COLORS = {
 const ITEM_GLYPH_COLOR = 0xffffff; //0xffffff
 const ITEM_GLYPH_SHADOW = 0x111111;
 const ITEM_GLYPH_ALPHA = 0.9;
-const EQUIP_PANEL_HEIGHT = 180;
+const EQUIP_PANEL_HEIGHT = 164;
 const EQUIP_PANEL_PADDING = 8;
-const EQUIP_SLOT_SIZE = 42;
+const EQUIP_SLOT_VISUAL_CELL_SIZE = 18;
+const EQUIP_SLOT_VISUAL_CELLS = {
+  head: { w: 2, h: 2 },
+  chest: { w: 2, h: 3 },
+  mainHand: { w: 2, h: 3 },
+  offHand: { w: 2, h: 3 },
+  ring1: { w: 1, h: 1 },
+  ring2: { w: 1, h: 1 },
+  amulet: { w: 1, h: 1 },
+};
 const EQUIP_SLOT_BG = 0x161a2a;
 const EQUIP_SLOT_BG_OCCUPIED = 0x26334a;
 const EQUIP_SLOT_STROKE = 0x44506e;
@@ -249,32 +258,49 @@ export function createInventoryView({
   }
 
   function getEquipmentSlotLayout(panelWidth) {
-    const innerWidth = panelWidth - INNER_PADDING * 2;
-    const size = EQUIP_SLOT_SIZE;
-    const centerX = Math.floor((innerWidth - size) / 2);
-    const leftX = EQUIP_PANEL_PADDING;
-    const rightX = innerWidth - EQUIP_PANEL_PADDING - size;
-    const ringLeftX = Math.max(
-      leftX + 6,
-      centerX - size - EQUIP_PANEL_PADDING - 4
-    );
-    const ringRightX = Math.min(
-      rightX - 6,
-      centerX + size + EQUIP_PANEL_PADDING + 4
-    );
+    const getSlotSize = (slotId) => {
+      const dims = EQUIP_SLOT_VISUAL_CELLS[slotId] || { w: 1, h: 1 };
+      return {
+        width: Math.max(12, dims.w * EQUIP_SLOT_VISUAL_CELL_SIZE),
+        height: Math.max(12, dims.h * EQUIP_SLOT_VISUAL_CELL_SIZE),
+      };
+    };
 
-    const headY = 24;
-    const chestY = headY + size + 10;
-    const ringY = chestY + size + 10;
+    const innerWidth = panelWidth - INNER_PADDING * 2;
+    const sideInset = EQUIP_PANEL_PADDING + 2;
+    const head = getSlotSize("head");
+    const chest = getSlotSize("chest");
+    const mainHand = getSlotSize("mainHand");
+    const offHand = getSlotSize("offHand");
+    const ring1 = getSlotSize("ring1");
+    const ring2 = getSlotSize("ring2");
+    const amulet = getSlotSize("amulet");
+
+    const centerX = Math.floor((innerWidth - chest.width) / 2);
+    const leftX = sideInset;
+    const rightX = innerWidth - sideInset - offHand.width;
+    const headY = 16;
+    const chestY = headY + head.height + 10;
+    const ringY = chestY + chest.height - 2;
+    const ringLeftX = centerX - ring1.width - 8;
+    const ringRightX = centerX + chest.width + 8;
 
     return {
-      head: { x: centerX, y: headY, size },
-      chest: { x: centerX, y: chestY, size },
-      mainHand: { x: leftX, y: chestY, size },
-      offHand: { x: rightX, y: chestY, size },
-      ring1: { x: ringLeftX, y: ringY, size },
-      ring2: { x: ringRightX, y: ringY, size },
-      amulet: { x: ringRightX, y: headY, size },
+      head: {
+        x: Math.floor((innerWidth - head.width) / 2),
+        y: headY,
+        ...head,
+      },
+      chest: { x: centerX, y: chestY, ...chest },
+      mainHand: { x: leftX, y: chestY, ...mainHand },
+      offHand: { x: rightX, y: chestY, ...offHand },
+      ring1: { x: ringLeftX, y: ringY, ...ring1 },
+      ring2: { x: ringRightX, y: ringY, ...ring2 },
+      amulet: {
+        x: ringRightX,
+        y: headY + head.height + 6,
+        ...amulet,
+      },
     };
   }
 
@@ -982,6 +1008,7 @@ export function createInventoryView({
       const equipPanel = new PIXI.Container();
       equipPanel.x = INNER_PADDING;
       equipPanel.y = HEADER_HEIGHT + INNER_PADDING;
+      equipPanel.eventMode = "passive";
       c.addChild(equipPanel);
 
       const equipBg = new PIXI.Graphics();
@@ -1008,7 +1035,7 @@ export function createInventoryView({
         const slot = new PIXI.Container();
         slot.x = layout.x;
         slot.y = layout.y;
-        slot.eventMode = "none";
+        slot.eventMode = "passive";
         slot.cursor = "default";
         equipPanel.addChild(slot);
 
@@ -1016,11 +1043,12 @@ export function createInventoryView({
         slotBg
           .lineStyle(1, EQUIP_SLOT_STROKE, 1)
           .beginFill(EQUIP_SLOT_BG, 0.9)
-          .drawRoundedRect(0, 0, layout.size, layout.size, 6)
+          .drawRoundedRect(0, 0, layout.width, layout.height, 6)
           .endFill();
         slot.addChild(slotBg);
 
         const itemLayer = new PIXI.Container();
+        itemLayer.eventMode = "passive";
         slot.addChild(itemLayer);
 
         const slotLabel = new PIXI.Text(LEADER_EQUIPMENT_SLOT_LABELS[slotId] || slotId, {
@@ -1028,15 +1056,17 @@ export function createInventoryView({
           fontSize: 9,
         });
         slotLabel.anchor.set(0.5, 0);
-        slotLabel.x = Math.floor(layout.size / 2);
-        slotLabel.y = layout.size + 2;
+        slotLabel.x = Math.floor(layout.width / 2);
+        slotLabel.y = layout.height + 2;
         slot.addChild(slotLabel);
 
         equipSlots[slotId] = {
           slot,
           slotBg,
           itemLayer,
-          size: layout.size,
+          width: layout.width,
+          height: layout.height,
+          cellSize: EQUIP_SLOT_VISUAL_CELL_SIZE,
           label: slotLabel,
         };
       }
@@ -1823,12 +1853,12 @@ export function createInventoryView({
     return { ok: true };
   }
 
-  function redrawEquipmentSlot(slotBg, occupied) {
+  function redrawEquipmentSlot(slotBg, width, height, occupied) {
     slotBg.clear();
     slotBg
       .lineStyle(1, occupied ? EQUIP_SLOT_STROKE_ACTIVE : EQUIP_SLOT_STROKE, 1)
       .beginFill(occupied ? EQUIP_SLOT_BG_OCCUPIED : EQUIP_SLOT_BG, 0.92)
-      .drawRoundedRect(0, 0, EQUIP_SLOT_SIZE, EQUIP_SLOT_SIZE, 6)
+      .drawRoundedRect(0, 0, width, height, 6)
       .endFill();
   }
 
@@ -1845,19 +1875,24 @@ export function createInventoryView({
       const slot = win.equipmentPanel.slots?.[slotId];
       if (!slot) continue;
       const item = equipment[slotId] ?? null;
-      redrawEquipmentSlot(slot.slotBg, !!item);
+      redrawEquipmentSlot(slot.slotBg, slot.width, slot.height, !!item);
       slot.itemLayer.removeChildren();
       if (!item) continue;
+      const cellSize = Math.max(1, Math.floor(slot.cellSize || 1));
+      const renderW = Math.max(1, item.width * cellSize - 2);
+      const renderH = Math.max(1, item.height * cellSize - 2);
+      const pixelX = Math.floor((slot.width - renderW) / 2);
+      const pixelY = Math.floor((slot.height - renderH) / 2);
       buildItemView(win, item, {
         ownerId: win.ownerId,
         interactive: true,
         enableDrag: true,
         parent: slot.itemLayer,
-        cellSize: EQUIP_SLOT_SIZE - 2,
+        cellSize,
         gridX: 0,
         gridY: 0,
-        pixelX: 1,
-        pixelY: 1,
+        pixelX,
+        pixelY,
         sourceEquipmentSlotId: slotId,
       });
     }
@@ -2411,16 +2446,20 @@ export function createInventoryView({
         typeof getInventoryPreview === "function"
           ? getInventoryPreview(targetOwner)
           : null;
-
-      if (isPreviewAreaReserved(item, gx, gy, preview, item?.id)) {
-        flashItemError(view, sourceOwner);
-        finish("fail");
-        return;
-      }
-      if (!canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id)) {
-        flashItemError(view, sourceOwner);
-        finish("fail");
-        return;
+      let placeGX = gx;
+      let placeGY = gy;
+      const canPlaceAtCursor =
+        !isPreviewAreaReserved(item, gx, gy, preview, item?.id) &&
+        canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id);
+      if (!canPlaceAtCursor) {
+        const fallback = findItemPlacement(targetInv, item, preview, item?.id);
+        if (!fallback) {
+          flashItemError(view, sourceOwner);
+          finish("fail");
+          return;
+        }
+        placeGX = fallback.gx;
+        placeGY = fallback.gy;
       }
 
       const moveEquipped =
@@ -2432,8 +2471,8 @@ export function createInventoryView({
             fromOwnerId: sourceOwner,
             toOwnerId: targetOwner,
             slotId: sourceEquipmentSlotId,
-            targetGX: gx,
-            targetGY: gy,
+            targetGX: placeGX,
+            targetGY: placeGY,
           })
         : { ok: false, reason: "noMoveEquippedItemToInventoryHandler" };
 
