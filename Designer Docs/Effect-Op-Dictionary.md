@@ -1,219 +1,220 @@
 # Effect Op Dictionary
 
-Reference for `effects.js` EffectOps. All ops are data-only specs and must be executed via `runEffect`. Arrays of ops are allowed. `kind` is accepted as an alias for `op`.
+Reference for all currently registered effect ops in `src/model/effects/index.js`.
 
-## Common Conventions
-- `target`: board target spec used by board ops and system ops.
-  - `{ ref: "self" }` (defaults to `context.source`)
-  - `{ ref: "self", layer: "tile" }` or `{ ref: "self", layer: "event" }`
-  - `{ at: { layer: "tile", col: 3 } }`
-  - `{ all: true, layer: "tile" }`
-  - `{ ref: "pawn" }` (resolves the interacting pawn from context)
-- Owner targets (for `ConsumeItem`, `TransferUnits`, `SpawnItem`) use the owner targeting spec (see Targeting Dictionary), e.g. `{ ref: "selfInv" }`.
-- `context.kind`:
-  - `"game"` for env tags/passives/intents, hub tags/passives/intents, pawn defs, and env events.
-  - `"item"` for item passives.
-  - `"inventoryMove"`, `"inventoryStack"`, `"inventorySplit"` for inventory commands.
-- `defRegistry` resolution:
-  - `defRegistry`: `"crops"`, `"items"`, `"envSystems"`
-  - `defId`: explicit def id
-  - `defIdFromSystemKey`: pull `tile.systemState[system].<key>` (e.g., `selectedCropId`)
-  - `defIdFromVar`: pull `context.vars[<key>]`
-- Amount resolution (where supported):
-  - `amount`, `delta`
-  - `amountVar` (context var)
-  - `amountFromKey` (system state key)
-  - `amountFromDefKey` (def field)
-  - `amountScale` (multiplier)
+## Core Rules
+- Effects are data specs executed via `runEffect(state, effect, context)`.
+- An effect can be a single object or an array of effect objects.
+- `kind` is accepted as an alias for `op`.
+- Unknown ops are ignored (return `false`).
+
+## Shared Conventions
+
+### Context kinds in use
+- `game`: env events, env tag passives/intents, hub tag passives/intents, pawn passives/intents.
+- `item`: item-tag passives and equipped-item passives.
+- `inventoryMove`, `inventoryStack`, `inventorySplit`: inventory command contexts.
+- Other kinds may exist (for example `build`) but only ops that explicitly check `context.kind` are restricted.
+
+### Def lookup (`resolveEffectDef`)
+- `defRegistry` or `registry`: `"crops" | "cropDefs" | "items" | "itemDefs" | "envSystems" | "envSystemDefs"`.
+- `defId`: explicit id.
+- `defIdFromVar`: from `context.vars[key]`.
+- `defIdFromSystemKey`: from `target.systemState[effect.system][key]`.
+
+### Amount lookup (`resolveAmount`)
+- `amount`, else `delta`.
+- `amountVar` from `context.vars`.
+- `amountFromKey` from current system state.
+- `amountFromDefKey` from resolved def.
+- `amountScale` multiplier (default `1`).
+
+### Target defaults
+- Many system ops default to `context.source` when `effect.target` is omitted.
+- Tag/event/prop ops require explicit `effect.target`.
+- Owner-targeting ops (`ConsumeItem`, `TransferUnits`, `SpawnItem`, `SpawnFromDropTable`) use owner target specs (see Targeting Dictionary).
 
 ## Inventory Ops
-### moveItem
-- Purpose: move an item between owners or within the same owner grid.
-- Context: `context.kind = "inventoryMove"`.
-- Required: `fromOwnerId`, `toOwnerId`, `itemId`.
-- Optional: `targetGX`, `targetGY` (grid destination).
-- Notes: handles stacking when possible; validates placement.
 
-### stackItem
-- Purpose: stack two items within the same owner inventory.
-- Context: `context.kind = "inventoryStack"`.
+### `moveItem`
+- Context: `inventoryMove`.
+- Required: `fromOwnerId`, `toOwnerId`, `itemId`, `targetGX`, `targetGY`.
+- Behavior: move in-grid, cross-owner move, or same-owner stack if dropping onto stack target.
+- Notes: cross-owner stacking is rejected.
+
+### `stackItem`
+- Context: `inventoryStack`.
 - Required: `ownerId`, `sourceItemId`, `targetItemId`.
 - Optional: `amount`.
 
-### splitStack
-- Purpose: split an item stack into a new item.
-- Context: `context.kind = "inventorySplit"`.
+### `splitStack`
+- Context: `inventorySplit`.
 - Required: `ownerId`, `itemId`, `amount`.
-- Optional: `targetGX`, `targetGY`.
+- Optional: `targetGX`, `targetGY` (otherwise first fit search).
 
 ## Game Ops
-### AddResource
-- Purpose: add a numeric resource to `state.resources`.
+
+### `AddResource`
 - Required: `resource`, `amount`.
+- Behavior: `state.resources[resource] += amount`.
+
+### `ConsumeItem`
+- Context: `game` or `item`.
+- Required: `target` (owner target spec).
+- Item resolution: `itemKind` or `kind`, otherwise resolved def id / `def.cropId`.
+- Amount: shared amount lookup.
+- Optional: `perOwner`, `tierOrder` (`asc` default, `desc`), `outVar`.
+- Output: writes consumed total to `context.vars[outVar]` when provided.
+
+### `TransferUnits`
+- Context: `game`.
+- Required: `system`, `target`.
+- Source pool: `context.source.systemState[system][poolKey]`, `poolKey` default `maturedPool`.
+- Item resolution and amount: same pattern as `ConsumeItem`.
+- Optional: `perOwner`, `tierOrder` (`desc` default).
+
+### `SpawnItem`
+- Context: `game` or `item`.
+- Required: `target`.
+- Item resolution: same pattern as `ConsumeItem`.
+- Amount: shared amount lookup.
+- Optional: `tier` (default resolved item default tier or `bronze`), `perOwner`.
+
+### `SpawnFromDropTable`
+- Context: `game`.
+- Required runtime: `state.rngNextFloat`.
+- Optional: `tableKey` (default `forageDrops`), `target`, `tier`, `debug`.
+- Table resolution: by tile def (`context.source.defId`) using `forageDropTables[tableKey]`.
+- Miss behavior: weighted null entries and failed `chance` rolls are considered resolved misses (op returns `true`).
+- Item spawn target fallback:
+  - explicit `effect.target`, else
+  - `{ ownerId: context.pawnId ?? context.ownerId }`, else
+  - `{ kind: "tileOccupants" }`.
 
 ## Item Ops
-### TransformItem
-- Purpose: transform an item into another kind (keeps quantity).
-- Context: `context.kind = "item"`.
+
+### `TransformItem`
+- Context: `item`.
 - Required: `targetKind`.
+- Behavior: re-initializes tags/system state from target item def.
 
-### RemoveItem
-- Purpose: remove an item from its inventory.
-- Context: `context.kind = "item"`.
+### `RemoveItem`
+- Context: `item`.
 
-### ExpireItemChance
-- Purpose: remove a random quantity from an item stack using a per-unit chance.
-- Context: `context.kind = "item"`.
-- Required: `chance` (0..1).
-- Optional: `chanceFromDefKey`, `targetKind` (spawn result kind).
-- Notes: uses deterministic RNG via `state.rng`.
-
-### TickItemSeasonExpiry
-- Purpose: decrement `item.seasonsToExpire` and transform/remove when it reaches 0.
-- Context: `context.kind = "item"`.
-- Optional: `targetKind` (transform); if omitted, item is removed.
+### `ExpireItemChance`
+- Context: `item`.
+- Chance: `chance` or `chanceFromDefKey`.
+- Optional tier scaling: `tierSystemId` with `tierMultiplierByTier` or `multiplierByTier`.
+- Optional output transform: `targetKind`.
+- Behavior: binomial expiry over stack quantity; deterministic via state RNG.
 
 ## System Ops
-### AddToSystemState
-- Purpose: add a numeric delta to `target.systemState[system][key]`.
-- Required: `system`, `key`.
-- Amount: supports common amount resolution.
-- Targeting: if `target` is omitted, defaults to `context.source` (tile, hub structure, or pawn).
 
-### ClampSystemState
-- Purpose: clamp a numeric system state value.
+### `AddToSystemState`
 - Required: `system`, `key`.
-- Optional: `min`, `max`, or `minKey` / `maxKey` from system state.
-- Targeting: if `target` is omitted, defaults to `context.source`.
+- Amount: shared amount lookup.
+- Target: explicit `target` or default `context.source`.
 
-### AccumulateRatio
-- Purpose: accumulate a ratio into a system state key (e.g., hydration sumRatio).
+### `ClampSystemState`
+- Required: `system`, `key`.
+- Bounds: `min` / `max` or `minKey` / `maxKey`.
+- Target: explicit `target` or default `context.source`.
+
+### `AccumulateRatio`
 - Required: `system`, `numeratorKey`, `denominatorKey`.
 - Optional: `targetKey` (default `sumRatio`), `min`, `max`.
-- Targeting: if `target` is omitted, defaults to `context.source`.
+- Target: explicit `target` or default `context.source`.
 
-### ResetSystemState
-- Purpose: reset a system state to its def `stateDefaults`.
+### `ResetSystemState`
 - Required: `system`.
-- Notes: uses `envSystemDefs[system].stateDefaults` and deep clones (env systems only).
-- Targeting: if `target` is omitted, defaults to `context.source`.
+- Behavior: resets to `stateDefaults` from env/pawn/hub/item system defs.
+- Target: explicit `target` or default `context.source`.
 
-### AdjustSystemState
-- Purpose: adjust a numeric system state value by flat and/or percentage.
+### `AdjustSystemState`
 - Required: `system`, `key`.
-- Optional: `percent` (fractional, e.g. `0.1` = +10%), `delta`/`amount`, `min`, `max`.
-- Optional sources: `percentFromKey`, `percentFromDefKey`, `percentVar`.
-- Notes: formula is `next = current + delta + current * percent`, then clamped.
-- Targeting: if `target` is omitted, defaults to `context.source`.
+- Flat amount: shared amount lookup.
+- Percent sources: `percent`, `percentFromKey`, `percentFromDefKey`, `percentVar`.
+- Optional clamp: `min` / `max` or `minKey` / `maxKey`.
+- Formula: `next = clamp(current + delta + current * percent)`.
+- Target: explicit `target` or default `context.source`.
 
-### ConsumeItem
-- Purpose: consume items from owners (e.g., planting seeds).
-- Context: `context.kind = "game"`.
-- Required: `target`.
-- Optional: `itemKind` (explicit), or def-based resolution via `defRegistry` + def fields.
-- Amount: supports def/system/var resolution, `perOwner` for per-target usage.
-- Output: `outVar` stores total consumed.
-- Notes: supports `tierOrder` (`"asc"` or `"desc"`). Owner order follows the target resolver (tile occupants use `state.characters` order; `ownerIds` uses provided order).
+### `ExpireStoredPerishables`
+- Target: explicit `target` or default `context.source`.
+- Required: `chance > 0`.
+- Intended target type: hub structures with a `deposit` config and pool.
+- Optional:
+  - `perishableTag` (default `perishable`)
+  - `rotPoolKey` (default `rotByKindTier`)
+  - `rotKind` (default `rot`)
+  - `preserveTierBonusProp` (default `perishabilityTierBonus`)
+  - `preserveTag`
+  - `tierMultiplierByTier` or `multiplierByTier`
+  - `itemKind` / `itemId` for tier-bucket pools
 
-### TransferUnits
-- Purpose: move units from a system pool to owner inventories (e.g., harvesting).
-- Context: `context.kind = "game"`.
-- Required: `system`, `target`.
-- Optional: `poolKey` (default `maturedPool`), `itemKind` or def-based resolution, `perOwner`, `tierOrder`.
-- Amount: supports def/system/var resolution.
-- Notes: deterministic owner and tier ordering; owner order follows the target resolver.
-
-### SpawnItem
-- Purpose: add items directly to inventories.
-- Context: `context.kind = "game"`.
-- Required: `target`.
-- Optional: `itemKind` or def-based resolution, `tier`, `perOwner`.
-- Amount: supports def/system/var resolution.
-
-### CreateProcess
-- Purpose: append a process entry to a system queue (e.g., crop growth).
+### `CreateWorkProcess`
 - Required: `system`.
-- Optional: `queueKey` (default `processes`), `processType`, def resolution fields.
-- Amount: supports def/system/var resolution; stored as `inputAmount`.
-- Duration: `durationSec` or `durationFromDefKey`.
-- Capture: `captureSystem`, `captureKey`, `captureAs` (e.g., hydration sumRatio).
+- Target: explicit `target` or default `context.source`.
+- Queue: `queueKey` default `processes`.
+- Type: `processType` (or `type`, default `process`), optional `uniqueType`.
+- Duration: `durationSec` or `durationFromDefKey` (required after resolution).
+- Mode: `time` (default) or `work`.
+- Amount: if def-resolved, shared amount lookup into `inputAmount`; otherwise `inputAmount` fallback.
+- Completion: `completionPolicy` (`cropGrowth`, `build`, `none`), default inferred by type.
+- Optional process fields: `poolKey`, `requirements`, `processMeta`, `outputs`.
+- Optional captured value: `captureSystem`, `captureKey`, `captureAs`.
 
-### FinalizeProcess
-- Purpose: finalize ready processes and deposit output into a pool.
+### `AdvanceWorkProcess`
 - Required: `system`.
-- Optional: `queueKey` (default `processes`), `poolKey` (default `maturedPool`), `processType`.
-- Notes: implementation uses growth hydration curve + fertility tables when available.
+- Target: explicit `target` or default `context.source`.
+- Optional filters: `queueKey` (default `processes`), `processType`.
+- Optional time/work advance:
+  - `deltaSec` for base increment (default `1`)
+  - `workersFrom: "envCol" | "hubAnchor" | <other>`
+  - `amount` when mode is `work` and `workersFrom` is not used
+  - `workerCost` for hub worker spend on progress ticks
+- Optional `poolKey` (default `maturedPool`) for crop-growth completion.
 
-## Board Target Ops
-### AddTag
-- Purpose: add a tag to board targets and initialize system tiers/state defaults.
-- Required: `tag`.
-- Optional: `target`.
-- Notes: uses `envTagDefs` and `envSystemDefs` (env tags only; not for hub tags).
+## Tag / Event / Prop Ops
 
-### RemoveTag
-- Purpose: remove a tag from board targets.
-- Required: `tag`.
-- Optional: `target`.
+### `AddTag`
+- Required: `tag`, `target`.
+- Notes: initializes systems from `envTagDefs` + `envSystemDefs` only.
 
-### DisableTag / EnableTag
-- Purpose: disable or re-enable a tag without removing it from `target.tags`.
-- Required: `tag`.
-- Optional: `target`.
-- Notes: disabled tags are skipped by env/hub execution; state stored under `target.tagStates[tagId].disabled`.
+### `RemoveTag`
+- Required: `tag`, `target`.
 
-### SetSystemTier
-- Purpose: set a system tier on a target.
-- Required: `system`, `tier` (or `value` as tier).
-- Optional: `target`.
+### `DisableTag` / `EnableTag`
+- Required: `tag`, `target`.
+- Notes: toggles `target.tagStates[tag].disabled`; does not remove from `target.tags`.
 
-### UpgradeSystemTier
-- Purpose: move a system tier up or down.
-- Required: `system`, `delta`.
-- Optional: `target`.
+### `SetSystemTier`
+- Required: `system`, `target`, and `tier` (or string `value`).
+- Notes: system must exist in `envSystemDefs` tier map.
 
-### SetSystemState
-- Purpose: replace the full system state object (or merge into it).
-- Required: `system`, `value` (or `state`).
-- Optional: `target`, `merge`.
-- Notes: when `merge: true`, shallow-merge object fields into the existing system state; arrays are replaced, not merged. When omitted or `false`, the system state is replaced.
+### `UpgradeSystemTier`
+- Required: `system`, `delta`, `target`.
+- Notes: system must exist in `envSystemDefs`.
 
-### ClearSystemState
-- Purpose: delete system state entries (or clear all).
-- Optional: `systems` array, `target`.
+### `SetSystemState`
+- Required: `system`, `target`, and `value` (or `state`).
+- Optional: `merge: true` for shallow object merge.
 
-### RemoveEvent
-- Purpose: remove env event anchors from the board.
+### `ClearSystemState`
 - Required: `target`.
+- Optional: `systems` list; omitted means clear all system state on each target.
 
-### TransformEvent
-- Purpose: change an env event anchor to a new def.
+### `RemoveEvent`
+- Required: `target`.
+- Notes: removes event anchors from `board.layers.event.anchors` and marks board dirty.
+
+### `TransformEvent`
 - Required: `defId`, `target`.
+- Notes: resets event lifetime (`createdSec`, `expiresSec`) and clears `entered`.
 
-## Generic Prop Ops
-### SetProp
-- Purpose: set a numeric prop on a target (e.g., hub structure props).
-- Required: `prop`, `value`.
-- Optional: `min`, `max`, `target`.
+### `SetProp`
+- Required: `prop`, numeric `value`, `target`.
+- Optional clamp: `min`, `max`.
 
-### AddProp
-- Purpose: add a numeric delta to a prop.
-- Required: `prop`, `amount`.
-- Optional: `min`, `max`, `target`.
-
-## Execution Notes (Env Tags)
-- Passives run per tile regardless of pawn occupancy and may include `timing`.
-- Intents run only when a pawn is present and only the first eligible intent per pawn executes each second (tag order priority).
-- Gating belongs in `env-exec` via `requires` (never inside ops).
-- Deterministic order: tiles in col order, pawns in `state.characters` order, tags/intents in def order.
-
-## Execution Notes (Hub Tags)
-- Passives run per hub structure regardless of pawn occupancy and may include `timing`.
-- Intents run per pawn on the hub slot, once per second. The first payable intent per pawn executes (tag order priority).
-- Costs are resolved and applied per pawn, atomically, before effects.
-- Deterministic order: hub slots in index order, pawns in `state.characters` order, tags/intents in def order.
-
-## Execution Notes (Items)
-- Item defs can declare `passives` with `timing` (cadence or season change).
-- Passives run via `processSecondChangeForItems` and `processSeasonChangeForItems`.
-- Item passives run with `context.kind = "item"` and receive `{ inv, item, ownerId, tSec }`.
+### `AddProp`
+- Required: `prop`, numeric `amount`, `target`.
+- Optional clamp: `min`, `max`.

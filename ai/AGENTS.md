@@ -14,6 +14,7 @@ Local instructions for Codex agents working in this repo.
 - Replay: `rebuildStateAtSecond(tSec)` must be authoritative and deterministic.
 - Time: `tSec` is the authoritative axis; time only advances via simulation ticks.
 - Layering: Model has no UI imports; Views are render/input only; Controllers orchestrate.
+- DSL-first gamepiece behaviors: when creating or updating gamepieces, first express behavior with existing DSL ops; if not possible, add a generalized DSL capability and then implement the behavior as data using that capability (avoid bespoke one-off model logic when a reusable DSL affordance can cover it).
 
 ## AI workflow
 - Before coding, do an impact analysis (determinism, serialization, replay, layering).

@@ -93,6 +93,25 @@ A fully deterministic simulation supporting:
 - No gameplay logic
 - Dispatch intent as actions to the model
 
+### D. DSL-First Behavior Authoring (Gamepiece Work)
+
+When implementing behavior for gamepieces (tiles, events, hub structures, pawns, items, tags, systems, processes):
+
+1. Prefer existing DSL affordances first
+   - Attempt to express requested behavior using existing effect ops, targeting, timing, requires gates, and defs data.
+   - Favor declarative composition over new imperative logic.
+
+2. If existing DSL is insufficient, extend DSL in a generalized way
+   - Add or expand ops/targeting/trigger affordances as reusable primitives.
+   - Design the extension to cover a class of similar behaviors, not a single content case.
+
+3. Implement the requested behavior as data using the new affordance
+   - After extending the DSL, express the actual feature in defs/content.
+   - Avoid bespoke one-off execution paths when the behavior can be represented by reusable DSL primitives.
+
+Practical guardrail:
+- New imperative model logic should usually be engine-level DSL infrastructure, not content-specific behavior.
+
 ---
 
 ## 3. Time, Simulation, and Phases
