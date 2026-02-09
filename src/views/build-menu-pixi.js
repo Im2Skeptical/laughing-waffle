@@ -4,6 +4,7 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
+import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import {
   HUB_COLS,
   HUB_STRUCTURE_HEIGHT,
@@ -137,6 +138,7 @@ export function createBuildMenuView(opts) {
 
   function computeOptions(state) {
     const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const availability = computeAvailableRecipesAndBuildings(state);
     const leaders = chars.filter((c) => c?.role === "leader");
     const buildable = new Set();
     for (const leader of leaders) {
@@ -149,6 +151,7 @@ export function createBuildMenuView(opts) {
     const options = [];
 
     for (const id of buildable.values()) {
+      if (!availability.hubStructureIds?.has(id)) continue;
       const def = hubStructureDefs[id];
       if (!def) continue;
       const maxInstances = Number.isFinite(def.maxInstances)

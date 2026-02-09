@@ -2,6 +2,7 @@
 // Gameplay rules and tuning constants.
 
 import "../env-defs-dev.js";
+import "../skill-defs-dev.js";
 
 export const BASE_PROJECTION_HORIZON_SEC = 350;
 

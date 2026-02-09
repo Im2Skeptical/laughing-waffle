@@ -139,6 +139,7 @@ export function createBoardView(opts) {
     dispatchAction,
     dropdownLayer: cropDropdownLayer,
     flashActionGhost,
+    getGameState,
   });
   let tagUi = null;
   let tileTagDragController = null;

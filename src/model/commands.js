@@ -72,6 +72,11 @@ import {
   getTemplateProcessForSystem,
   listCandidateEndpoints,
 } from "./process-framework.js";
+import {
+  computeAvailableRecipesAndBuildings,
+  computeGlobalSkillMods,
+  evaluateSkillNodeUnlock,
+} from "./skills.js";
 
 const TICKS_PER_SEC = 60;
 
@@ -93,7 +98,12 @@ function getApCapForSecond(state, tSec) {
         : Math.max(0, Math.floor(state.actionPointCap ?? 0));
     return cap;
   }
-  return getActionPointCapAtSecond(tSec);
+  const baseCap = getActionPointCapAtSecond(tSec);
+  const globalMods = computeGlobalSkillMods(state);
+  const bonus = Number.isFinite(globalMods?.apCapBonus)
+    ? Math.floor(globalMods.apCapBonus)
+    : 0;
+  return Math.max(0, baseCap + bonus);
 }
 
 function getApIncomePerSecond(state, tSec) {
@@ -742,6 +752,10 @@ export function cmdSetHubRecipeSelection(
   if (nextRecipeId) {
     const def = recipeDefs[nextRecipeId];
     if (!def) return { ok: false, reason: "badRecipeId" };
+    const availability = computeAvailableRecipesAndBuildings(state);
+    if (!availability.recipeIds?.has(nextRecipeId)) {
+      return { ok: false, reason: "recipeLocked" };
+    }
     const expectedKind = getRecipeKindForHubSystem(systemId);
     if (expectedKind && def.kind !== expectedKind) {
       return { ok: false, reason: "badRecipeKind" };
@@ -1321,7 +1335,7 @@ export function cmdSetRoutingTemplate(
   const target = findTargetByRef(state, targetRef);
   if (!target) return { ok: false, reason: "noTarget" };
 
-  const process = getTemplateProcessForSystem(target, systemId, {});
+  const process = getTemplateProcessForSystem(target, systemId, { state });
   if (!process) return { ok: false, reason: "noTemplateProcess" };
   const processDef = getProcessDefForInstance(process, target, {});
   if (!processDef) return { ok: false, reason: "noProcessDef" };
@@ -1361,7 +1375,7 @@ export function cmdReorderRoutingTemplateEndpoint(
   const target = findTargetByRef(state, targetRef);
   if (!target) return { ok: false, reason: "noTarget" };
 
-  const process = getTemplateProcessForSystem(target, systemId, {});
+  const process = getTemplateProcessForSystem(target, systemId, { state });
   if (!process) return { ok: false, reason: "noTemplateProcess" };
   const processDef = getProcessDefForInstance(process, target, {});
   if (!processDef) return { ok: false, reason: "noProcessDef" };
@@ -1410,7 +1424,7 @@ export function cmdToggleRoutingTemplateEndpoint(
   const target = findTargetByRef(state, targetRef);
   if (!target) return { ok: false, reason: "noTarget" };
 
-  const process = getTemplateProcessForSystem(target, systemId, {});
+  const process = getTemplateProcessForSystem(target, systemId, { state });
   if (!process) return { ok: false, reason: "noTemplateProcess" };
   const processDef = getProcessDefForInstance(process, target, {});
   if (!processDef) return { ok: false, reason: "noProcessDef" };
@@ -1484,6 +1498,12 @@ function getLeaderByOwnerId(state, ownerId) {
   const pawn = chars.find((ch) => ch && ch.id === normalized);
   if (!pawn || pawn.role !== "leader") return null;
   return pawn;
+}
+
+function getCharacterById(state, ownerId) {
+  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const normalized = resolveCharacterOwnerId(ownerId);
+  return chars.find((ch) => ch && ch.id === normalized) || null;
 }
 
 function ensureLeaderEquipment(leader) {
@@ -1982,6 +2002,69 @@ export function cmdDiscardItemFromOwner(state, { ownerId, itemId } = {}) {
 }
 
 // =============================================================================
+// SKILL TREE
+// =============================================================================
+
+export function cmdUnlockSkillNode(
+  state,
+  { characterId, pawnId, nodeId } = {}
+) {
+  const resolvedCharacterId =
+    characterId != null ? characterId : pawnId != null ? pawnId : null;
+  if (resolvedCharacterId == null) {
+    return { ok: false, reason: "badCharacterId" };
+  }
+  if (typeof nodeId !== "string" || nodeId.length === 0) {
+    return { ok: false, reason: "badNodeId" };
+  }
+
+  const character = getCharacterById(state, resolvedCharacterId);
+  if (!character) return { ok: false, reason: "noCharacter" };
+
+  const evaluation = evaluateSkillNodeUnlock(state, character.id, nodeId);
+  if (!evaluation?.ok) {
+    return { ok: false, reason: evaluation?.reason || "notUnlockable" };
+  }
+
+  const cost = Number.isFinite(evaluation.cost)
+    ? Math.max(0, Math.floor(evaluation.cost))
+    : 0;
+  const currentPoints = Number.isFinite(character.skillPoints)
+    ? Math.max(0, Math.floor(character.skillPoints))
+    : 0;
+  if (currentPoints < cost) {
+    return { ok: false, reason: "insufficientSkillPoints" };
+  }
+
+  const nextUnlocked = Array.isArray(character.unlockedSkillNodeIds)
+    ? character.unlockedSkillNodeIds.slice()
+    : [];
+  if (!nextUnlocked.includes(nodeId)) {
+    nextUnlocked.push(nodeId);
+  }
+  nextUnlocked.sort((a, b) => String(a).localeCompare(String(b)));
+
+  character.skillPoints = currentPoints - cost;
+  character.unlockedSkillNodeIds = nextUnlocked;
+
+  const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+  state.actionPointCap = getApCapForSecond(state, nowSec);
+  state.actionPoints = Math.min(
+    Math.max(0, Math.floor(state.actionPoints ?? 0)),
+    state.actionPointCap
+  );
+
+  return {
+    ok: true,
+    result: "skillNodeUnlocked",
+    characterId: character.id,
+    nodeId,
+    spent: cost,
+    remainingSkillPoints: character.skillPoints,
+  };
+}
+
+// =============================================================================
 // FOLLOWER COMMANDS
 // =============================================================================
 
@@ -2173,7 +2256,7 @@ export function cmdDebugSetCap(state, { cap, points, enabled } = {}) {
     );
   } else {
     state.apCapOverride = null;
-    state.actionPointCap = getActionPointCapAtSecond(state.tSec ?? 0);
+    state.actionPointCap = getApCapForSecond(state, state.tSec ?? 0);
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
   }
 

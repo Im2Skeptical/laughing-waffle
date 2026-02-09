@@ -981,10 +981,14 @@ export function stepEnvSecond(state, tSec) {
             continue;
           }
           if (intent.cost) {
-            const resolved = resolveCosts(intent.cost, pawnContext);
+            const intentContext = {
+              ...pawnContext,
+              intentId: intent.id ?? null,
+            };
+            const resolved = resolveCosts(intent.cost, intentContext);
             if (!resolved) continue;
-            if (!canAffordCosts(resolved, pawnContext)) continue;
-            applyCosts(resolved, pawnContext);
+            if (!canAffordCosts(resolved, intentContext)) continue;
+            applyCosts(resolved, intentContext);
           }
           if (intent.effect) {
             runEffect(state, intent.effect, { ...pawnContext });

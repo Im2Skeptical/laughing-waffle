@@ -14,6 +14,7 @@ import { GRAPH_METRICS } from "./graph-metrics.js";
 import { serializeGameState, deserializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import { computeGlobalSkillMods } from "./skills.js";
 
 const DEFAULT_PROJECTION_CACHE_MAX_SECS = 4096;
 const MAX_HISTORY_POINTS = 2000;
@@ -525,6 +526,24 @@ export function createTimeGraphController({
     return Number.isFinite(n) && n > 0 ? n : fallback;
   }
 
+  function resolveDynamicHorizonSec() {
+    const base = clampStride(horizonSec, 1200);
+    const state = getCursorState?.() ?? null;
+    const globalMods = computeGlobalSkillMods(state);
+    const bonus = Number.isFinite(globalMods?.projectionHorizonBonusSec)
+      ? Math.floor(globalMods.projectionHorizonBonusSec)
+      : 0;
+    return clampStride(base + bonus, 1200);
+  }
+
+  function syncDynamicHorizon() {
+    const next = resolveDynamicHorizonSec();
+    if (next === horizonSecCur) return false;
+    horizonSecCur = next;
+    windowDirty = true;
+    return true;
+  }
+
   function resolveHistoryStride(historyEndSec) {
     const maxPts = Number.isFinite(MAX_HISTORY_POINTS)
       ? Math.max(256, Math.floor(MAX_HISTORY_POINTS))
@@ -547,6 +566,7 @@ export function createTimeGraphController({
     }
 
     projection.ensureSignature(tl);
+    syncDynamicHorizon();
     historyStrideSecCur = clampStride(historyStrideSecCur, 5);
     forecastStepSecCur = clampStride(forecastStepSecCur, 5);
     horizonSecCur = clampStride(horizonSecCur, 1200);
@@ -1070,7 +1090,9 @@ export function createTimeGraphController({
       return { ok: false, reason: "no state" };
     }
 
-  if (!isActive && reason !== "open" && reason !== "active") {
+    syncDynamicHorizon();
+
+    if (!isActive && reason !== "open" && reason !== "active") {
       // Defer rebuilds while inactive, but ensure a full refresh on next open.
       stateDirty = true;
       windowDirty = true;
@@ -1142,6 +1164,7 @@ export function createTimeGraphController({
 
   function update() {
     if (!isActive) return;
+    syncDynamicHorizon();
     if (stateDirty || windowDirty || seriesDirty || valuesDirty) {
       handleInvalidate("active");
       return;
@@ -1194,6 +1217,7 @@ export function createTimeGraphController({
   }
 
   function ensureCache() {
+    syncDynamicHorizon();
     if (!graphCache || stateDirty || windowDirty || seriesDirty) {
       if (stateDirty || windowDirty) return rebuildGraphCache();
       if (seriesDirty) return rebuildSeriesValues();

@@ -18,6 +18,7 @@ import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
+import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import {
@@ -381,10 +382,13 @@ export function createProcessWidgetView({
   function getRecipeOptions(systemId) {
     const kind = systemId === "workspace" ? "craft" : systemId === "fireplace" ? "cook" : null;
     if (!kind) return [];
+    const state = getStateSafe();
+    const availability = computeAvailableRecipesAndBuildings(state);
     const list = Object.entries(recipeDefs || {})
       .map(([key, recipe]) => ({ key, recipe }))
       .filter((entry) => !!entry.recipe)
       .filter((entry) => entry.recipe.kind === kind)
+      .filter((entry) => availability.recipeIds?.has(entry.recipe.id))
       .sort((a, b) =>
         String(a?.recipe?.name || a?.recipe?.id || a?.key || "").localeCompare(
           String(b?.recipe?.name || b?.recipe?.id || b?.key || "")
@@ -760,7 +764,9 @@ export function createProcessWidgetView({
 
   function buildTemplateCandidateSignature(state, target, systemId) {
     if (!state || !target || !systemId) return "none";
-    const templateProcess = getTemplateProcessForSystem(target, systemId, {});
+    const templateProcess = getTemplateProcessForSystem(target, systemId, {
+      state,
+    });
     if (!templateProcess) return "none";
     const templateDef = getProcessDefForInstance(templateProcess, target, {});
     if (!templateDef) return "none";
@@ -2501,7 +2507,9 @@ export function createProcessWidgetView({
     clearContent(content, dropTargets);
 
     if (!Array.isArray(entries) || entries.length === 0) {
-      const templateProcess = getTemplateProcessForSystem(target, "growth", {});
+      const templateProcess = getTemplateProcessForSystem(target, "growth", {
+        state,
+      });
       const templateDef = templateProcess
         ? getProcessDefForInstance(templateProcess, target, {})
         : null;
@@ -2562,7 +2570,9 @@ export function createProcessWidgetView({
     clearContent(content, dropTargets);
 
     if (!Array.isArray(entries) || entries.length === 0) {
-      const templateProcess = getTemplateProcessForSystem(target, "build", {});
+      const templateProcess = getTemplateProcessForSystem(target, "build", {
+        state,
+      });
       const templateDef = templateProcess
         ? getProcessDefForInstance(templateProcess, target, {})
         : null;
@@ -2629,7 +2639,9 @@ export function createProcessWidgetView({
       return;
     }
 
-    const templateProcess = getTemplateProcessForSystem(target, "residents", {});
+    const templateProcess = getTemplateProcessForSystem(target, "residents", {
+      state,
+    });
     const templateDef = templateProcess
       ? getProcessDefForInstance(templateProcess, target, {})
       : null;
@@ -3350,7 +3362,9 @@ export function createProcessWidgetView({
       ownerId: target?.instanceId ?? null,
     };
     const processDef = buildIdleProcessDef(systemId);
-    const templateProcess = getTemplateProcessForSystem(target, systemId, {});
+    const templateProcess = getTemplateProcessForSystem(target, systemId, {
+      state,
+    });
     const templateDef = templateProcess
       ? getProcessDefForInstance(templateProcess, target, {})
       : processDef;

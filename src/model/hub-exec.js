@@ -31,6 +31,7 @@ import {
   isDropEndpoint,
 } from "./process-framework.js";
 import { canOwnerAcceptItem } from "./commands.js";
+import { computeGlobalSkillMods } from "./skills.js";
 
 function hasProcess(structure, systemId, type) {
   const sys = structure?.systemState?.[systemId];
@@ -748,12 +749,20 @@ function tryConsumeResidentMeal(endpoint) {
 }
 
 function consumeResidentsMealsOnSeasonChange(state, structure) {
-  const attempts = getPopulationCount(state);
+  const population = getPopulationCount(state);
+  const globalSkillMods = computeGlobalSkillMods(state);
+  const populationFoodMult = Number.isFinite(globalSkillMods?.populationFoodMult)
+    ? Math.max(0, globalSkillMods.populationFoodMult)
+    : 1;
+  const attempts = normalizePopulationCount(
+    Math.floor(population * populationFoodMult),
+    population
+  );
   if (!structure || attempts <= 0) {
     return { attempts, successes: 0, misses: attempts };
   }
 
-  const process = getTemplateProcessForSystem(structure, "residents", {});
+  const process = getTemplateProcessForSystem(structure, "residents", { state });
   if (!process) {
     return { attempts, successes: 0, misses: attempts };
   }
@@ -1087,10 +1096,14 @@ export function stepHubSecond(state, tSec) {
             continue;
           }
           if (intent.cost) {
-            const resolved = resolveCosts(intent.cost, pawnContext);
+            const intentContext = {
+              ...pawnContext,
+              intentId: intent.id ?? null,
+            };
+            const resolved = resolveCosts(intent.cost, intentContext);
             if (!resolved) continue;
-            if (!canAffordCosts(resolved, pawnContext)) continue;
-            applyCosts(resolved, pawnContext);
+            if (!canAffordCosts(resolved, intentContext)) continue;
+            applyCosts(resolved, intentContext);
           }
           if (resolvedEffect) {
             runEffect(state, resolvedEffect, { ...pawnContext });

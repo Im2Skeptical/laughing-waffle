@@ -19,6 +19,7 @@ import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 import { attachRngHelpers, createRng } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 import { Inventory } from "./inventory-model.js";
+import { computeGlobalSkillMods } from "./skills.js";
 
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event"];
@@ -197,6 +198,30 @@ export function ensurePawnAI(pawn) {
   pawn.ai = ai;
 }
 
+function normalizeSkillNodeIdList(value) {
+  const raw = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string" || entry.length === 0) continue;
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+  }
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+}
+
+export function ensurePawnSkillFields(pawn) {
+  if (!pawn || typeof pawn !== "object") return;
+  pawn.skillPoints = Number.isFinite(pawn.skillPoints)
+    ? Math.max(0, Math.floor(pawn.skillPoints))
+    : 0;
+  pawn.unlockedSkillNodeIds = normalizeSkillNodeIdList(
+    pawn.unlockedSkillNodeIds
+  );
+}
+
 function ensureLeaderPrestigeFields(pawn) {
   if (!pawn || pawn.role !== "leader") return;
   if (!pawn.totalDepositedAmountByTier || typeof pawn.totalDepositedAmountByTier !== "object") {
@@ -242,6 +267,7 @@ function ensureFollowerFields(pawn, fallbackOrderIndex = null) {
 
 function ensurePawnRoleFields(state, pawn, fallbackFollowerOrderIndex = null) {
   if (!pawn || typeof pawn !== "object") return;
+  ensurePawnSkillFields(pawn);
   if (pawn.role !== "leader" && pawn.role !== "follower") {
     pawn.role = "leader";
   }
@@ -921,7 +947,12 @@ export function deserializeGameState(data) {
       Math.max(0, overridePoints)
     );
   } else {
-    state.actionPointCap = getActionPointCapAtSecond(state.tSec ?? 0);
+    const baseCap = getActionPointCapAtSecond(state.tSec ?? 0);
+    const globalSkillMods = computeGlobalSkillMods(state);
+    const skillCapBonus = Number.isFinite(globalSkillMods?.apCapBonus)
+      ? Math.floor(globalSkillMods.apCapBonus)
+      : 0;
+    state.actionPointCap = Math.max(0, baseCap + skillCapBonus);
     // Enforce Cap Clamp immediately on load (in case save data is over-cap)
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
   }

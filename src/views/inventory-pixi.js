@@ -22,6 +22,7 @@ import {
   SECONDS_BELOW_HUNGER_THRESHOLD,
 } from "../defs/gamesettings/gamerules-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
+import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import {
   HUB_COLS,
   HUB_COL_GAP,
@@ -118,6 +119,7 @@ export function createInventoryView({
   getInventoryPreview,
   getFocusIntent,
   getExternalFocusOwners,
+  openSkillTree,
   onGhostClick,
   hasItemTransferIntent,
   equipItemToSlot,
@@ -201,6 +203,13 @@ export function createInventoryView({
     if (!Array.isArray(chars)) return null;
     const ch = chars.find((c) => c?.id === ownerId);
     return ch && ch.role === "leader" ? ch : null;
+  }
+
+  function getCharacterForOwner(ownerId) {
+    const state = getStateSafe();
+    const chars = state?.characters;
+    if (!Array.isArray(chars)) return null;
+    return chars.find((c) => c?.id === ownerId) || null;
   }
 
   function getFollowersForLeader(state, leaderId) {
@@ -364,6 +373,7 @@ export function createInventoryView({
 
   function computeBuildOptions(state, leader) {
     if (!state || !leader) return [];
+    const availability = computeAvailableRecipesAndBuildings(state);
     const buildable = new Set();
     for (const id of getBuildableIdsFromPawn(leader)) {
       if (typeof id === "string" && id.length) buildable.add(id);
@@ -373,6 +383,7 @@ export function createInventoryView({
     const options = [];
 
     for (const id of buildable.values()) {
+      if (!availability.hubStructureIds?.has(id)) continue;
       const def = hubStructureDefs[id];
       if (!def) continue;
       const maxInstances = Number.isFinite(def.maxInstances)
@@ -461,6 +472,44 @@ export function createInventoryView({
     });
 
     return { container, bg, arrow, label, setExpanded };
+  }
+
+  function createSkillsButton(ownerId, panelWidth) {
+    const root = new PIXI.Container();
+    root.eventMode = "static";
+    root.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    root.addChild(bg);
+
+    const text = new PIXI.Text("Skills", {
+      fill: 0xeaf3ff,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    text.x = 10;
+    text.y = 4;
+    root.addChild(text);
+
+    const buttonWidth = 58;
+    bg.beginFill(0x39456b, 0.98);
+    bg.drawRoundedRect(0, 0, buttonWidth, 18, 5);
+    bg.endFill();
+
+    root.x = panelWidth - 108;
+    root.y = 3;
+
+    root.on("pointerdown", (ev) => ev?.stopPropagation?.());
+    root.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      if (uiBlocked) return;
+      if (typeof openSkillTree !== "function") return;
+      const ch = getCharacterForOwner(ownerId);
+      if (!ch || !Number.isFinite(ch.id)) return;
+      openSkillTree({ characterId: Math.floor(ch.id), ownerId });
+    });
+
+    return { root, bg, text };
   }
 
   function resizeWindowFrame(win, height) {
@@ -1071,6 +1120,7 @@ export function createInventoryView({
     const rows = inv?.rows ?? DEFAULT_ROWS;
     const cellSize = DEFAULT_CELL_SIZE;
     const leader = getLeaderForOwner(ownerId);
+    const ownerCharacter = getCharacterForOwner(ownerId);
 
     const gridWidth = cols * cellSize;
     const binSize = cellSize * BIN_CELL_SIZE;
@@ -1152,6 +1202,13 @@ export function createInventoryView({
     const title = headerUi.titleText;
     const pinText = headerUi.pinText;
     const closeText = headerUi.closeText;
+    const skillsButton =
+      ownerCharacter && typeof openSkillTree === "function"
+        ? createSkillsButton(ownerId, w)
+        : null;
+    if (skillsButton?.root) {
+      c.addChild(skillsButton.root);
+    }
 
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
@@ -1200,6 +1257,7 @@ export function createInventoryView({
       title,
       pinText,
       body,
+      skillsButton,
       cols,
       rows,
       cellSize,

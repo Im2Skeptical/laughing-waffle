@@ -32,6 +32,7 @@ import {
   cmdAdjustFollowerCount,
   cmdBuildDesignate,
   cmdCancelBuild,
+  cmdUnlockSkillNode,
 } from "./commands.js";
 
 export const ActionKinds = {
@@ -62,6 +63,7 @@ export const ActionKinds = {
   REORDER_ROUTING_TEMPLATE_ENDPOINT: "reorderRoutingTemplateEndpoint",
   TOGGLE_ROUTING_TEMPLATE_ENDPOINT: "toggleRoutingTemplateEndpoint",
   ADJUST_FOLLOWER_COUNT: "adjustFollowerCount",
+  UNLOCK_SKILL_NODE: "unlockSkillNode",
   DEBUG_SET_CAP: "debugSetCap",
   DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
 };
@@ -271,6 +273,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.ADJUST_FOLLOWER_COUNT:
       result = cmdAdjustFollowerCount(state, payload);
+      break;
+
+    case ActionKinds.UNLOCK_SKILL_NODE:
+      result = cmdUnlockSkillNode(state, payload);
       break;
 
     case ActionKinds.DEBUG_SET_CAP:

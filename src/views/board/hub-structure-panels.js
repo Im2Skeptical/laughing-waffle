@@ -6,6 +6,7 @@ import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import { ActionKinds } from "../../model/actions.js";
+import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
 
 const SYSTEM_RECIPE_KIND = {
   fireplace: { kind: "cook", pauseLabel: "Pause cooking" },
@@ -20,6 +21,7 @@ export function createHubPanels(opts) {
     dispatchAction,
     dropdownLayer,
     flashActionGhost,
+    getGameState,
   } = opts;
 
   const recipeDropdown = createRecipeDropdown(dropdownLayer, app);
@@ -28,9 +30,12 @@ export function createHubPanels(opts) {
     const config = SYSTEM_RECIPE_KIND[systemId];
     if (!config) return [];
     const { kind, pauseLabel } = config;
+    const state = typeof getGameState === "function" ? getGameState() : null;
+    const availability = computeAvailableRecipesAndBuildings(state);
     const list = Object.values(recipeDefs || {})
       .filter(Boolean)
-      .filter((recipe) => recipe.kind === kind);
+      .filter((recipe) => recipe.kind === kind)
+      .filter((recipe) => availability.recipeIds?.has(recipe.id));
     return [
       {
         recipeId: null,

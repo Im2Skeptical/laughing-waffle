@@ -8,6 +8,7 @@ import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
+import { skillNodes } from "../../defs/gamepieces/skill-tree-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { IntentKinds } from "./action-intents.js";
 import {
@@ -102,6 +103,11 @@ function isHubPlanAction(action) {
     kind === ActionKinds.TOGGLE_HUB_TAG ||
     kind === ActionKinds.SET_HUB_RECIPE_SELECTION
   );
+}
+
+function formatSkillNodeName(nodeId) {
+  if (!nodeId) return "Skill";
+  return skillNodes?.[nodeId]?.name || nodeId;
 }
 
 function formatTilePlanLabel(envCol, state) {
@@ -644,6 +650,12 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       const hubName = formatHubName(payload.hubCol, state);
       const recipeName = formatRecipeName(payload.recipeId);
       desc = `Recipe > ${hubName}: ${recipeName}`;
+    } else if (kind === ActionKinds.UNLOCK_SKILL_NODE) {
+      const characterId =
+        payload.characterId != null ? payload.characterId : payload.pawnId;
+      const pawnName = formatPawnName(characterId, state);
+      const skillName = formatSkillNodeName(payload.nodeId);
+      desc = `Skill > ${pawnName}: ${skillName}`;
     }
 
     if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
@@ -682,6 +694,7 @@ function isLogAction(action) {
   if (kind === ActionKinds.TOGGLE_HUB_TAG) return true;
   if (kind === ActionKinds.SET_TILE_CROP_SELECTION) return true;
   if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) return true;
+  if (kind === ActionKinds.UNLOCK_SKILL_NODE) return true;
   return false;
 }
 

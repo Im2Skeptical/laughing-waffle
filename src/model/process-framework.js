@@ -6,6 +6,7 @@ import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
+import { computeAvailableRecipesAndBuildings } from "./skills.js";
 import {
   findEquippedPoolProviderEntry,
   ownerHasEquippedPoolProvider,
@@ -174,19 +175,29 @@ function getProcessDisplayName(process, recipeDef) {
   return kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
-function listRecipeIdsByKind(kind) {
+function listRecipeIdsByKind(kind, state = null) {
   const ids = Object.keys(recipeDefs || {});
   ids.sort((a, b) => a.localeCompare(b));
-  return ids.filter((id) => recipeDefs?.[id]?.kind === kind);
+  const availability = state ? computeAvailableRecipesAndBuildings(state) : null;
+  return ids
+    .filter((id) => recipeDefs?.[id]?.kind === kind)
+    .filter((id) => !availability || availability.recipeIds?.has(id));
 }
 
-function getRecipeIdForSystem(target, systemId) {
+function getRecipeIdForSystem(target, systemId, state = null) {
   if (!target || !systemId) return null;
   if (systemId !== "fireplace" && systemId !== "workspace") return null;
   const desiredKind = systemId === "fireplace" ? "cook" : "craft";
   const selected = target?.systemState?.[systemId]?.selectedRecipeId;
-  if (selected && recipeDefs?.[selected]?.kind === desiredKind) return selected;
-  const ids = listRecipeIdsByKind(desiredKind);
+  const availability = state ? computeAvailableRecipesAndBuildings(state) : null;
+  if (
+    selected &&
+    recipeDefs?.[selected]?.kind === desiredKind &&
+    (!availability || availability.recipeIds?.has(selected))
+  ) {
+    return selected;
+  }
+  const ids = listRecipeIdsByKind(desiredKind, state);
   return ids.length > 0 ? ids[0] : null;
 }
 
@@ -571,7 +582,7 @@ export function getTemplateProcessForSystem(target, systemId, context = {}) {
   }
 
   if (systemId === "fireplace" || systemId === "workspace") {
-    const recipeId = getRecipeIdForSystem(target, systemId);
+    const recipeId = getRecipeIdForSystem(target, systemId, context?.state ?? null);
     if (recipeId) {
       const recipe = recipeDefs?.[recipeId] || null;
       const durationSec = Number.isFinite(recipe?.durationSec)

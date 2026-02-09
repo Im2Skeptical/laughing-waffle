@@ -7,6 +7,14 @@ export const setupDefs = {
 
     resources: { gold: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
+    // Optional dev-time UI bootstrap:
+    // - openInventories: owner selectors opened/pinned on boot
+    // - openSkillTree: false | true | character selector ({ type: "character", index })
+    devUi: {
+      //openInventories: [{ type: "hubStructure", hubCol: 0 }],
+      openSkillTree: true,
+    },
+
     board: {
       cols: 12,
       tiles: [

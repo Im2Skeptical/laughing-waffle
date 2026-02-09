@@ -2,6 +2,7 @@
 // Shared helpers for hub construction validation (pure, no mutation).
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { computeAvailableRecipesAndBuildings } from "./skills.js";
 
 export function normalizeHubCol(value) {
   return Number.isFinite(value) ? Math.floor(value) : null;
@@ -117,6 +118,11 @@ export function validateHubConstructionPlacement(state, defId, hubCol) {
   }
   const def = hubStructureDefs[defId];
   if (!def) return { ok: false, reason: "unknownDef" };
+
+  const availability = computeAvailableRecipesAndBuildings(state);
+  if (!availability.hubStructureIds?.has(defId)) {
+    return { ok: false, reason: "structureLocked" };
+  }
 
   const col = normalizeHubCol(hubCol);
   if (col == null) return { ok: false, reason: "badHubCol" };

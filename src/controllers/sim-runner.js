@@ -40,6 +40,7 @@ export function createSimRunner({
   onInvalidate,
   onRebuildViews,
   onPlannerApReject,
+  setupId = "testing",
 }) {
   // State
   let timeline = null;
@@ -658,7 +659,7 @@ export function createSimRunner({
   // API
   return {
     init() {
-      initGameState(gameState, "testing");
+      initGameState(gameState, setupId);
       cursorState = gameState;
 
       syncPhaseToPaused(cursorState);
@@ -971,6 +972,7 @@ export function createSimRunner({
     saveToSlot,
     loadFromSlot,
     getSaveSlotMeta,
+    getSetupId: () => setupId,
     getSaveSlotCount: () => saveSlotCount,
   };
 }

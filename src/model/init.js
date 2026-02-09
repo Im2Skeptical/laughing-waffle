@@ -14,10 +14,25 @@ import {
   rebuildBoardOccupancy,
   buildPawnSystemDefaults,
 } from "./state.js";
+import { getDefaultSkillPointsForPawnDefId } from "./skills.js";
 
 import { Inventory } from "./inventory-model.js";
 
 const HUB_COLS = 10;
+
+function normalizeUnlockedSkillNodeIds(value) {
+  const raw = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string" || entry.length === 0) continue;
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+  }
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+}
 
 // Create a fully-initialized GameState snapshot
 // - scenario can be a setupId string OR a raw setup object (from scenarios-defs style)
@@ -84,15 +99,23 @@ export function createInitialState(scenario = "testing", seed = null) {
       : getColIndex({ hubCol: c.hubCol }, index, hubCols);
     const { systemTiers, systemState } = buildPawnSystemDefaults();
     const role = c?.role === "follower" ? "follower" : "leader";
+    const pawnDefId =
+      typeof c?.pawnDefId === "string" ? c.pawnDefId : "default";
     const pawn = {
       id: state.nextCharacterId++,
-      pawnDefId: typeof c?.pawnDefId === "string" ? c.pawnDefId : "default",
+      pawnDefId,
       name: c.name,
       color: c.color,
       hubCol,
       envCol,
       systemTiers,
       systemState,
+      skillPoints: Number.isFinite(c?.skillPoints)
+        ? Math.max(0, Math.floor(c.skillPoints))
+        : getDefaultSkillPointsForPawnDefId(pawnDefId),
+      unlockedSkillNodeIds: normalizeUnlockedSkillNodeIds(
+        c?.unlockedSkillNodeIds
+      ),
       props: {},
       role,
       leaderId: null,

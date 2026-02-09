@@ -4,6 +4,7 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
+import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
@@ -19,6 +20,7 @@ import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
 import { createProcessWidgetView } from "./process-widget-pixi.js";
+import { createSkillTreeView } from "./skill-tree-pixi.js";
 import {
   BOARD_COLS,
   HUB_COLS,
@@ -39,6 +41,7 @@ import {
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
+const BOOT_SETUP_ID = "testing";
 
 export const app = new PIXI.Application({
   width: DESIGN_WIDTH,
@@ -53,8 +56,11 @@ let flashActionLogAp = null;
 let actionLogView = null;
 let eventLogView = null;
 let externalUiFocus = null;
+let skillTreeView = null;
+let mainUiHiddenBySkillTree = false;
 
 const runner = createSimRunner({
+  setupId: BOOT_SETUP_ID,
   onInvalidate: (reason) => {
     goldGraphController.handleInvalidate(reason);
     foodGraphController.handleInvalidate(reason);
@@ -161,6 +167,7 @@ function resizeCanvas() {
   document.body.style.overflow = "hidden";
   document.documentElement.style.backgroundColor = "black";
   document.documentElement.style.height = "100%";
+  skillTreeView?.resize?.();
 }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
@@ -176,6 +183,7 @@ const uiLayers = {
   tooltipLayer: new PIXI.Container(),
   dragLayer: new PIXI.Container(),
   debugLayer: new PIXI.Container(),
+  skillTreeLayer: new PIXI.Container(),
 };
 
 app.stage.eventMode = "static";
@@ -190,7 +198,8 @@ app.stage.addChild(
   uiLayers.inventoryLayer,
   uiLayers.tooltipLayer,
   uiLayers.dragLayer,
-  uiLayers.debugLayer
+  uiLayers.debugLayer,
+  uiLayers.skillTreeLayer
 );
 
 function refreshOpenInventoryWindows() {
@@ -281,6 +290,144 @@ function clearExternalUiFocus() {
   if (!externalUiFocus) return;
   externalUiFocus = null;
   processWidgetView?.clearExternalFocusTarget?.();
+}
+
+function setMainUiVisible(visible) {
+  uiLayers.tileLayer.visible = visible;
+  uiLayers.eventLayer.visible = visible;
+  uiLayers.hubStructuresLayer.visible = visible;
+  uiLayers.characterLayer.visible = visible;
+  uiLayers.controlsLayer.visible = visible;
+  uiLayers.hoverLayer.visible = visible;
+  uiLayers.inventoryLayer.visible = visible;
+  uiLayers.tooltipLayer.visible = visible;
+  uiLayers.dragLayer.visible = visible;
+  uiLayers.debugLayer.visible = visible;
+}
+
+function restoreMainUiAfterSkillTree() {
+  if (!mainUiHiddenBySkillTree) return;
+  mainUiHiddenBySkillTree = false;
+  setMainUiVisible(true);
+  tooltipView?.hide?.();
+}
+
+function openSkillTreeForCharacter(characterId) {
+  if (!skillTreeView) return { ok: false, reason: "noSkillTreeView" };
+  if (skillTreeView.isOpen?.()) return { ok: false, reason: "alreadyOpen" };
+  if (!Number.isFinite(characterId)) {
+    return { ok: false, reason: "badCharacterId" };
+  }
+
+  requestPauseForAction();
+  const openRes = skillTreeView.open({
+    characterId: Math.floor(characterId),
+    onExit: () => {
+      restoreMainUiAfterSkillTree();
+    },
+  });
+  if (!openRes?.ok) return openRes;
+
+  mainUiHiddenBySkillTree = true;
+  setMainUiVisible(false);
+  clearExternalUiFocus();
+  tooltipView?.hide?.();
+  return { ok: true };
+}
+
+function toSafeIndex(raw, fallback = 0) {
+  if (!Number.isFinite(raw)) return Math.max(0, Math.floor(fallback));
+  return Math.max(0, Math.floor(raw));
+}
+
+function toSafeNumericId(value) {
+  if (Number.isFinite(value)) return Math.floor(value);
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!/^-?\d+$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : null;
+}
+
+function resolveOwnerIdFromScenarioSelector(state, selector) {
+  if (!state || selector == null) return null;
+
+  const directNumeric = toSafeNumericId(selector);
+  if (directNumeric != null) return directNumeric;
+  if (typeof selector === "string" && selector.length > 0) return selector;
+  if (typeof selector !== "object") return null;
+
+  const type =
+    typeof selector.type === "string" ? selector.type : typeof selector.kind === "string" ? selector.kind : null;
+  if (type === "character") {
+    if (Number.isFinite(selector.id)) return Math.floor(selector.id);
+    const chars = Array.isArray(state.characters) ? state.characters : [];
+    const idx = toSafeIndex(selector.index ?? 0, 0);
+    return chars[idx]?.id ?? null;
+  }
+
+  if (type === "hubStructure" || type === "hubSlot") {
+    const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+    const idx = Number.isFinite(selector.hubCol)
+      ? toSafeIndex(selector.hubCol, 0)
+      : Number.isFinite(selector.col)
+        ? toSafeIndex(selector.col, 0)
+        : toSafeIndex(selector.index ?? 0, 0);
+    const structure = slots[idx]?.structure;
+    return structure?.instanceId ?? null;
+  }
+
+  return null;
+}
+
+function resolveCharacterIdFromScenarioSelector(state, selector) {
+  if (!state || selector == null) return null;
+  const direct = toSafeNumericId(selector);
+  if (direct != null) return direct;
+  if (typeof selector !== "object") return null;
+
+  if (Number.isFinite(selector.id)) return Math.floor(selector.id);
+  if (
+    selector.type === "character" ||
+    selector.kind === "character" ||
+    Number.isFinite(selector.index)
+  ) {
+    const chars = Array.isArray(state.characters) ? state.characters : [];
+    const idx = toSafeIndex(selector.index ?? 0, 0);
+    return chars[idx]?.id ?? null;
+  }
+  return null;
+}
+
+function applyScenarioDevUiBootstrap() {
+  const setupId = runner.getSetupId?.() ?? BOOT_SETUP_ID;
+  const setup = setupDefs?.[setupId];
+  const devUi =
+    setup?.devUi && typeof setup.devUi === "object" ? setup.devUi : null;
+  if (!devUi) return;
+
+  const state = runner.getState?.();
+  if (!state) return;
+
+  const inventorySelectors = Array.isArray(devUi.openInventories)
+    ? devUi.openInventories
+    : Array.isArray(devUi.openInventoryOwners)
+      ? devUi.openInventoryOwners
+      : [];
+  for (const selector of inventorySelectors) {
+    const ownerId = resolveOwnerIdFromScenarioSelector(state, selector);
+    if (ownerId == null) continue;
+    inventoryView?.revealWindow?.(ownerId, { pinned: true });
+    inventoryView?.rebuildWindow?.(ownerId);
+  }
+
+  if (devUi.openSkillTree != null && devUi.openSkillTree !== false) {
+    const selector = devUi.openSkillTree === true ? { type: "character", index: 0 } : devUi.openSkillTree;
+    const characterId = resolveCharacterIdFromScenarioSelector(state, selector);
+    if (characterId != null) {
+      openSkillTreeForCharacter(characterId);
+    }
+  }
 }
 
 function normalizeEventLogFocus(entry) {
@@ -745,6 +892,7 @@ inventoryView = createInventoryView({
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
   getExternalFocusOwners: () => getExternalFocusOwners(),
+  openSkillTree: ({ characterId }) => openSkillTreeForCharacter(characterId),
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
   hasItemTransferIntent: (itemId) =>
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
@@ -1192,6 +1340,12 @@ eventLogView = createEventLogView({
   position: { x: 20, y: 180 },
 });
 
+skillTreeView = createSkillTreeView({
+  app,
+  layer: uiLayers.skillTreeLayer,
+  runner,
+});
+
 flashActionLogAp = () => actionLogView.flashInsufficientAp?.();
 
 runner.init();
@@ -1205,6 +1359,7 @@ chromeView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
 eventLogView.init();
+applyScenarioDevUiBootstrap();
 apGraphView.open();
 systemGraphView.open();
 
@@ -1251,6 +1406,7 @@ app.ticker.add((delta) => {
   sunMoonDisksView.update(frameDt); // NEW
   actionLogView.update(frameDt);
   eventLogView.update(frameDt);
+  skillTreeView?.update?.(frameDt);
   debugView.update();
 
   const anyMetricGraphOpen =

@@ -24,6 +24,7 @@ import {
 } from "./action-costs.js";
 import { placementEquals } from "./action-placement-utils.js";
 import { validateHubConstructionPlacement } from "../../model/build-helpers.js";
+import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
 
 function clonePlacement(p) {
   return p ? { ...p } : null;
@@ -1483,6 +1484,12 @@ export function createActionPlanner({
     const nextRecipeId = normalizeRecipeId(recipeId);
     if (nextRecipeId && !recipeDefs[nextRecipeId]) {
       return { ok: false, reason: "badRecipeId" };
+    }
+    if (nextRecipeId) {
+      const availability = computeAvailableRecipesAndBuildings(state);
+      if (!availability.recipeIds?.has(nextRecipeId)) {
+        return { ok: false, reason: "recipeLocked" };
+      }
     }
     if (nextRecipeId) {
       const expectedKind = getRecipeKindForHubSystem(systemId);

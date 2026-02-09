@@ -7,6 +7,7 @@ import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { PAWN_AI_STAMINA_WARNING } from "../defs/gamesettings/gamerules-defs.js";
 import { pushGameEvent } from "./event-feed.js";
+import { computeCharacterSkillMods } from "./skills.js";
 
 function resolveAmountExpr(expr, ctx) {
   if (Number.isFinite(expr)) return expr;
@@ -118,6 +119,37 @@ function isPawnLikeTarget(target, fallbackPawn) {
     pawn.role === "leader" ||
     pawn.role === "follower"
   );
+}
+
+function applySkillCostModifiers(baseAmount, charge, ctx) {
+  if (!Number.isFinite(baseAmount)) return baseAmount;
+  if (charge?.kind !== "system") return baseAmount;
+  if (charge.system !== "stamina" || charge.key !== "cur") return baseAmount;
+
+  const pawnId = Number.isFinite(ctx?.pawn?.id) ? Math.floor(ctx.pawn.id) : null;
+  if (pawnId == null || !ctx?.state) return baseAmount;
+
+  const intentId =
+    typeof ctx?.intentId === "string" && ctx.intentId.length > 0
+      ? ctx.intentId
+      : null;
+  if (!intentId) return baseAmount;
+
+  const skillMods = computeCharacterSkillMods(ctx.state, pawnId);
+  let delta = 0;
+  if (intentId === "forage") {
+    delta += Number.isFinite(skillMods?.forageStaminaCostDelta)
+      ? Math.floor(skillMods.forageStaminaCostDelta)
+      : 0;
+  }
+  if (intentId === "farmHarvest" || intentId === "farmPlant") {
+    delta += Number.isFinite(skillMods?.farmingStaminaCostDelta)
+      ? Math.floor(skillMods.farmingStaminaCostDelta)
+      : 0;
+  }
+
+  const modified = Math.floor(baseAmount + delta);
+  return Math.max(0, modified);
 }
 
 function countPoolUnitsByItem(pools, itemId) {
@@ -281,13 +313,14 @@ export function resolveCosts(costSpec, ctx) {
       if (!target) return null;
       const amountRaw = resolveAmountExpr(charge.amount, ctx);
       if (!Number.isFinite(amountRaw) || amountRaw < 0) return null;
+      const amount = applySkillCostModifiers(amountRaw, charge, ctx);
       const clampMin = Number.isFinite(charge.clampMin) ? charge.clampMin : 0;
       charges.push({
         kind: "system",
         targetRef,
         system,
         key,
-        amount: amountRaw,
+        amount,
         clampMin,
       });
     } else if (
