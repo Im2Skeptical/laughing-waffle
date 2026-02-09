@@ -96,6 +96,8 @@ export function validateSkillDefs({
   }
 
   const treeById = new Map();
+  const treeDeclaredRingIds = new Map();
+  const treeHasExplicitRingDecl = new Map();
   for (const [key, tree] of Object.entries(skillTrees)) {
     if (!isObject(tree)) {
       addIssue(errors, `skillTrees: entry "${key}" must be an object.`);
@@ -115,6 +117,109 @@ export function validateSkillDefs({
     if (typeof tree.startNodeId !== "string" || !tree.startNodeId.length) {
       addIssue(errors, `skillTrees: "${tree.id}" missing startNodeId.`);
       continue;
+    }
+    if (tree.ui != null && !isObject(tree.ui)) {
+      addIssue(errors, `skillTrees: "${tree.id}" ui must be an object when provided.`);
+    }
+    if (isObject(tree.ui) && tree.ui.ringLayout != null) {
+      if (!isObject(tree.ui.ringLayout)) {
+        addIssue(errors, `skillTrees: "${tree.id}" ui.ringLayout must be an object.`);
+      } else {
+        const ringLayout = tree.ui.ringLayout;
+        const declaredRingIds = new Set(["core"]);
+        let hasExplicitDecl = false;
+        if (ringLayout.radii != null) {
+          if (!isObject(ringLayout.radii)) {
+            addIssue(errors, `skillTrees: "${tree.id}" ui.ringLayout.radii must be an object.`);
+          } else {
+            for (const [ringId, radius] of Object.entries(ringLayout.radii)) {
+              if (typeof ringId !== "string" || !ringId.length) {
+                addIssue(errors, `skillTrees: "${tree.id}" ui.ringLayout.radii keys must be non-empty strings.`);
+                continue;
+              }
+              hasExplicitDecl = true;
+              declaredRingIds.add(ringId);
+              if (!Number.isFinite(radius) || radius < 0) {
+                addIssue(
+                  errors,
+                  `skillTrees: "${tree.id}" ui.ringLayout.radii["${ringId}"] must be >= 0.`
+                );
+              }
+            }
+          }
+        }
+        if (ringLayout.ringOrder != null) {
+          if (!Array.isArray(ringLayout.ringOrder)) {
+            addIssue(errors, `skillTrees: "${tree.id}" ui.ringLayout.ringOrder must be an array.`);
+          } else {
+            const seenRingIds = new Set();
+            for (const ringId of ringLayout.ringOrder) {
+              if (typeof ringId !== "string" || !ringId.length) {
+                addIssue(
+                  errors,
+                  `skillTrees: "${tree.id}" ui.ringLayout.ringOrder must contain non-empty strings.`
+                );
+                continue;
+              }
+              if (seenRingIds.has(ringId)) {
+                addIssue(
+                  errors,
+                  `skillTrees: "${tree.id}" ui.ringLayout.ringOrder contains duplicate "${ringId}".`
+                );
+                continue;
+              }
+              hasExplicitDecl = true;
+              seenRingIds.add(ringId);
+              declaredRingIds.add(ringId);
+            }
+          }
+        }
+        if (
+          ringLayout.overlapIterations != null &&
+          (!Number.isFinite(ringLayout.overlapIterations) || ringLayout.overlapIterations < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.overlapIterations must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.overlapPaddingPx != null &&
+          (!Number.isFinite(ringLayout.overlapPaddingPx) || ringLayout.overlapPaddingPx < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.overlapPaddingPx must be >= 0 when provided.`
+          );
+        }
+        treeDeclaredRingIds.set(tree.id, declaredRingIds);
+        treeHasExplicitRingDecl.set(tree.id, hasExplicitDecl);
+      }
+    }
+    if (isObject(tree.ui) && tree.ui.nodeSizes != null) {
+      if (!isObject(tree.ui.nodeSizes)) {
+        addIssue(errors, `skillTrees: "${tree.id}" ui.nodeSizes must be an object.`);
+      } else {
+        const nodeSizes = tree.ui.nodeSizes;
+        if (
+          nodeSizes.defaultRadius != null &&
+          (!Number.isFinite(nodeSizes.defaultRadius) || nodeSizes.defaultRadius <= 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.nodeSizes.defaultRadius must be > 0 when provided.`
+          );
+        }
+        if (
+          nodeSizes.notableRadius != null &&
+          (!Number.isFinite(nodeSizes.notableRadius) || nodeSizes.notableRadius <= 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.nodeSizes.notableRadius must be > 0 when provided.`
+          );
+        }
+      }
     }
     treeById.set(tree.id, tree);
   }
@@ -159,6 +264,27 @@ export function validateSkillDefs({
         addIssue(errors, `skillNodes: "${node.id}" uiPos requires numeric x and y.`);
       }
     }
+    if (node.uiPosNudge != null) {
+      if (!isObject(node.uiPosNudge)) {
+        addIssue(errors, `skillNodes: "${node.id}" uiPosNudge must be an object.`);
+      } else {
+        if (node.uiPosNudge.x != null && !Number.isFinite(node.uiPosNudge.x)) {
+          addIssue(errors, `skillNodes: "${node.id}" uiPosNudge.x must be numeric when provided.`);
+        }
+        if (node.uiPosNudge.y != null && !Number.isFinite(node.uiPosNudge.y)) {
+          addIssue(errors, `skillNodes: "${node.id}" uiPosNudge.y must be numeric when provided.`);
+        }
+      }
+    }
+    if (node.ringId != null && (typeof node.ringId !== "string" || !node.ringId.length)) {
+      addIssue(errors, `skillNodes: "${node.id}" ringId must be a non-empty string when provided.`);
+    }
+    if (
+      node.uiNodeRadius != null &&
+      (!Number.isFinite(node.uiNodeRadius) || node.uiNodeRadius <= 0)
+    ) {
+      addIssue(errors, `skillNodes: "${node.id}" uiNodeRadius must be > 0 when provided.`);
+    }
 
     nodeById.set(node.id, node);
   }
@@ -187,6 +313,20 @@ export function validateSkillDefs({
 
   for (const [nodeId, node] of nodeById.entries()) {
     const adjacent = toArray(node.adjacent);
+    const treeRingIds = treeDeclaredRingIds.get(node.treeId);
+    const enforceRingIdDecl = treeHasExplicitRingDecl.get(node.treeId) === true;
+    if (
+      typeof node.ringId === "string" &&
+      node.ringId.length &&
+      enforceRingIdDecl &&
+      treeRingIds &&
+      !treeRingIds.has(node.ringId)
+    ) {
+      addIssue(
+        errors,
+        `skillNodes: "${nodeId}" ringId "${node.ringId}" is not declared in tree "${node.treeId}" ringLayout.`
+      );
+    }
     for (const adjId of adjacent) {
       if (typeof adjId !== "string" || !adjId.length) {
         addIssue(errors, `skillNodes: "${nodeId}" adjacent must contain non-empty strings.`);

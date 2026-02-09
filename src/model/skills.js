@@ -386,18 +386,308 @@ export function computeAvailableRecipesAndBuildings(state) {
   };
 }
 
-export function getSkillTreeLayout(treeId, opts = {}, defsInput = null) {
-  const treeDef = getSkillTreeDef(treeId, defsInput);
-  if (!treeDef) {
-    return {
-      treeId,
-      positionsByNodeId: {},
-      depthByNodeId: {},
-      orderedNodeIds: [],
-      edges: [],
-    };
+const COLOR_TAG_ORDER = ["Blue", "Green", "Red", "Black"];
+const DEFAULT_WEDGE_CENTER_DEG = {
+  Blue: 135,
+  Green: 45,
+  Red: -45,
+  Black: -135,
+  BlueGreen: 90,
+  GreenRed: 0,
+  RedBlack: -90,
+  BlackBlue: 180,
+};
+const DEFAULT_WEDGE_SPAN_DEG = {
+  Blue: 70,
+  Green: 70,
+  Red: 70,
+  Black: 70,
+  BlueGreen: 46,
+  GreenRed: 46,
+  RedBlack: 46,
+  BlackBlue: 46,
+};
+const DEFAULT_LAYOUT_NODE_RADIUS = 24;
+const DEFAULT_LAYOUT_NOTABLE_RADIUS = 34;
+const MIN_LAYOUT_NODE_RADIUS = 10;
+const MAX_LAYOUT_NODE_RADIUS = 72;
+
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+function getLegacyRingIdFromTags(node) {
+  const tags = toArray(node?.tags);
+  if (tags.includes("Core")) return "core";
+  if (tags.includes("Early")) return "early";
+  if (tags.includes("Mid")) return "mid";
+  if (tags.includes("Late")) return "late";
+  return null;
+}
+
+function getNodeRingId(node) {
+  if (typeof node?.ringId === "string" && node.ringId.length > 0) {
+    return node.ringId;
+  }
+  return getLegacyRingIdFromTags(node);
+}
+
+function getRingIdSortKey(ringId) {
+  const id = String(ringId || "");
+  if (id === "core") return [0, 0, id];
+  const match = /^ring[_-]?(\d+)$/i.exec(id);
+  if (match) return [1, Number(match[1]), id];
+  if (id === "early") return [2, 0, id];
+  if (id === "mid") return [2, 1, id];
+  if (id === "late") return [2, 2, id];
+  return [3, 0, id];
+}
+
+function uniqueStringsInOrder(values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of toArray(values)) {
+    if (typeof value !== "string" || value.length === 0) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function sortRingIds(ringIds) {
+  return ringIds.slice().sort((left, right) => {
+    const lk = getRingIdSortKey(left);
+    const rk = getRingIdSortKey(right);
+    if (lk[0] !== rk[0]) return lk[0] - rk[0];
+    if (lk[1] !== rk[1]) return lk[1] - rk[1];
+    return String(lk[2]).localeCompare(String(rk[2]));
+  });
+}
+
+function buildRingOrder(layoutCfg, radiiCfg, ringIdsInUse = []) {
+  const orderFromCfg = uniqueStringsInOrder(layoutCfg?.ringOrder);
+  const ringIdsFromRadii = sortRingIds(Object.keys(radiiCfg || {}));
+  const ringIdsUsed = sortRingIds(uniqueSortedStrings(ringIdsInUse));
+
+  const order = [];
+  const seen = new Set();
+  function pushRing(id) {
+    if (typeof id !== "string" || id.length === 0) return;
+    if (seen.has(id)) return;
+    seen.add(id);
+    order.push(id);
   }
 
+  pushRing("core");
+  for (const ringId of orderFromCfg) pushRing(ringId);
+  for (const ringId of ringIdsFromRadii) pushRing(ringId);
+  for (const ringId of ringIdsUsed) pushRing(ringId);
+
+  if (order.length <= 1) {
+    pushRing("early");
+    pushRing("mid");
+    pushRing("late");
+  }
+
+  return order;
+}
+
+function applyNodeUiPosition(node, basePos) {
+  const out = { ...basePos };
+  if (isObject(node?.uiPos)) {
+    out.x = Number.isFinite(node.uiPos.x) ? node.uiPos.x : out.x;
+    out.y = Number.isFinite(node.uiPos.y) ? node.uiPos.y : out.y;
+  }
+  if (isObject(node?.uiPosNudge)) {
+    out.x += Number.isFinite(node.uiPosNudge.x) ? node.uiPosNudge.x : 0;
+    out.y += Number.isFinite(node.uiPosNudge.y) ? node.uiPosNudge.y : 0;
+  }
+  return out;
+}
+
+function normalizeColorPairWedgeId(colorA, colorB) {
+  const pair = [colorA, colorB].sort().join("|");
+  if (pair === "Blue|Green") return "BlueGreen";
+  if (pair === "Green|Red") return "GreenRed";
+  if (pair === "Black|Red") return "RedBlack";
+  if (pair === "Black|Blue") return "BlackBlue";
+  return `${colorA}${colorB}`;
+}
+
+function getWedgeIdFromTags(node) {
+  const tags = new Set(toArray(node?.tags));
+  const colors = COLOR_TAG_ORDER.filter((color) => tags.has(color));
+  if (colors.length === 1) return colors[0];
+  if (colors.length >= 2) {
+    return normalizeColorPairWedgeId(colors[0], colors[1]);
+  }
+  return null;
+}
+
+function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
+  const {
+    x = 0,
+    y = 0,
+    width = 1600,
+    height = 650,
+  } = opts;
+  const layoutCfg = isObject(treeDef?.ui?.ringLayout) ? treeDef.ui.ringLayout : {};
+  const minDim = Math.min(width, height);
+  const lateDefault = Math.max(120, Math.floor(minDim * 0.42));
+  const radiiCfg = isObject(layoutCfg?.radii) ? layoutCfg.radii : {};
+  const ringOrder = buildRingOrder(layoutCfg, radiiCfg, ringIdsInUse);
+  const ringIndexById = {};
+  for (let idx = 0; idx < ringOrder.length; idx++) {
+    ringIndexById[ringOrder[idx]] = idx;
+  }
+
+  const radiiByRing = {};
+  const nonCoreCount = Math.max(0, ringOrder.length - 1);
+  for (let idx = 0; idx < ringOrder.length; idx++) {
+    const ringId = ringOrder[idx];
+    let radius = Number.isFinite(radiiCfg[ringId]) ? radiiCfg[ringId] : null;
+    if (!Number.isFinite(radius)) {
+      if (ringId === "core") {
+        radius = Number.isFinite(radiiCfg.core) ? radiiCfg.core : 0;
+      } else if (nonCoreCount > 0) {
+        radius = Math.floor((lateDefault * idx) / nonCoreCount);
+      } else {
+        radius = 0;
+      }
+    }
+    radiiByRing[idx] = Math.max(0, Math.floor(radius));
+  }
+
+  const centersCfg = isObject(layoutCfg?.wedgeCentersDeg)
+    ? layoutCfg.wedgeCentersDeg
+    : {};
+  const spansCfg = isObject(layoutCfg?.wedgeSpansDeg) ? layoutCfg.wedgeSpansDeg : {};
+  const wedgeCenterDeg = { ...DEFAULT_WEDGE_CENTER_DEG, ...centersCfg };
+  const wedgeSpanDeg = { ...DEFAULT_WEDGE_SPAN_DEG, ...spansCfg };
+
+  return {
+    centerX: x + Math.floor(width / 2),
+    centerY: y + Math.floor(height / 2),
+    ringOrder,
+    ringIndexById,
+    radiiByRing,
+    wedgeCenterDeg,
+    wedgeSpanDeg,
+    barycenterIterations: Number.isFinite(layoutCfg?.barycenterIterations)
+      ? Math.max(1, Math.floor(layoutCfg.barycenterIterations))
+      : 6,
+    overlapIterations: Number.isFinite(layoutCfg?.overlapIterations)
+      ? Math.max(0, Math.floor(layoutCfg.overlapIterations))
+      : 3,
+    overlapPaddingPx: Number.isFinite(layoutCfg?.overlapPaddingPx)
+      ? Math.max(0, layoutCfg.overlapPaddingPx)
+      : 10,
+    coreSpread: Number.isFinite(layoutCfg?.coreSpread)
+      ? Math.max(0, Math.floor(layoutCfg.coreSpread))
+      : 48,
+  };
+}
+
+function getLayoutNodeRadius(nodeDef, treeDef) {
+  const tags = toArray(nodeDef?.tags);
+  const nodeSizes = isObject(treeDef?.ui?.nodeSizes) ? treeDef.ui.nodeSizes : null;
+  const defaultRadius = Number.isFinite(nodeSizes?.defaultRadius)
+    ? nodeSizes.defaultRadius
+    : DEFAULT_LAYOUT_NODE_RADIUS;
+  const notableRadius = Number.isFinite(nodeSizes?.notableRadius)
+    ? nodeSizes.notableRadius
+    : DEFAULT_LAYOUT_NOTABLE_RADIUS;
+  const fallback = tags.includes("Notable") ? notableRadius : defaultRadius;
+  const radius = Number.isFinite(nodeDef?.uiNodeRadius) ? nodeDef.uiNodeRadius : fallback;
+  return clampNumber(radius, MIN_LAYOUT_NODE_RADIUS, MAX_LAYOUT_NODE_RADIUS);
+}
+
+function resolveAngularOverlapsInWedge({
+  ids,
+  minTheta,
+  maxTheta,
+  ringRadius,
+  thetaByNodeId,
+  nodeById,
+  treeDef,
+  cfg,
+}) {
+  if (!Array.isArray(ids) || ids.length <= 1) return;
+  if (!Number.isFinite(minTheta) || !Number.isFinite(maxTheta) || maxTheta <= minTheta) return;
+  if (!Number.isFinite(ringRadius) || ringRadius <= 0) return;
+  const iterations = Math.max(0, Math.floor(cfg?.overlapIterations || 0));
+  if (iterations <= 0) return;
+
+  const orderedIds = ids.slice();
+  const paddingPx = Number.isFinite(cfg?.overlapPaddingPx) ? Math.max(0, cfg.overlapPaddingPx) : 10;
+  const n = orderedIds.length;
+  const angles = new Array(n);
+  const radii = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const id = orderedIds[i];
+    const fallbackTheta =
+      n === 1 ? (minTheta + maxTheta) / 2 : minTheta + ((maxTheta - minTheta) * i) / (n - 1);
+    angles[i] = Number.isFinite(thetaByNodeId[id]) ? thetaByNodeId[id] : fallbackTheta;
+    radii[i] = getLayoutNodeRadius(nodeById.get(id), treeDef);
+  }
+
+  const gaps = new Array(Math.max(0, n - 1)).fill(0);
+  const availableSpan = maxTheta - minTheta;
+  const epsilon = 0.0001;
+
+  function computeGaps() {
+    let requiredSpan = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const gap = (radii[i] + radii[i + 1] + paddingPx) / ringRadius;
+      gaps[i] = Math.max(0, gap);
+      requiredSpan += gaps[i];
+    }
+    return requiredSpan;
+  }
+
+  const requiredSpan = computeGaps();
+  if (requiredSpan >= availableSpan - epsilon) {
+    for (let i = 0; i < n; i++) {
+      angles[i] = n === 1 ? (minTheta + maxTheta) / 2 : minTheta + (availableSpan * i) / (n - 1);
+    }
+    for (let i = 0; i < n; i++) {
+      thetaByNodeId[orderedIds[i]] = angles[i];
+    }
+    return;
+  }
+
+  for (let pass = 0; pass < iterations; pass++) {
+    for (let i = 1; i < n; i++) {
+      const minAllowed = angles[i - 1] + gaps[i - 1];
+      if (angles[i] < minAllowed) angles[i] = minAllowed;
+    }
+
+    const overflow = angles[n - 1] - maxTheta;
+    if (overflow > 0) {
+      for (let i = 0; i < n; i++) angles[i] -= overflow;
+    }
+
+    for (let i = n - 2; i >= 0; i--) {
+      const maxAllowed = angles[i + 1] - gaps[i];
+      if (angles[i] > maxAllowed) angles[i] = maxAllowed;
+    }
+
+    const underflow = minTheta - angles[0];
+    if (underflow > 0) {
+      for (let i = 0; i < n; i++) angles[i] += underflow;
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    thetaByNodeId[orderedIds[i]] = clampNumber(angles[i], minTheta, maxTheta);
+  }
+}
+
+function buildBfsLayout(treeDef, opts, defsInput) {
   const {
     x = 0,
     y = 0,
@@ -407,7 +697,6 @@ export function getSkillTreeLayout(treeId, opts = {}, defsInput = null) {
     rowSpacing = 110,
     leftPad = 120,
   } = opts;
-
   const { nodeById, depthByNodeId } = getNodeDepthMap(treeDef, defsInput);
   const groups = new Map();
   for (const [nodeId, depth] of depthByNodeId.entries()) {
@@ -430,25 +719,299 @@ export function getSkillTreeLayout(treeId, opts = {}, defsInput = null) {
       const node = nodeById.get(nodeId);
       const defaultX = x + leftPad + depth * columnSpacing;
       const defaultY = startY + i * rowSpacing;
-      const pos = isObject(node?.uiPos)
-        ? {
-            x: Number.isFinite(node.uiPos.x) ? node.uiPos.x : defaultX,
-            y: Number.isFinite(node.uiPos.y) ? node.uiPos.y : defaultY,
-          }
-        : { x: defaultX, y: defaultY };
+      const pos = applyNodeUiPosition(node, { x: defaultX, y: defaultY });
       positionsByNodeId[nodeId] = { ...pos, depth };
       depthByNodeIdOut[nodeId] = depth;
     }
   }
 
-  const edges = buildEdgeList(nodeById);
-
   return {
-    treeId,
     positionsByNodeId,
     depthByNodeId: depthByNodeIdOut,
     orderedNodeIds: sortStrings(Array.from(nodeById.keys())),
-    edges,
+    edges: buildEdgeList(nodeById),
+  };
+}
+
+function buildRingLayout(treeDef, opts, defsInput) {
+  const nodes = getTreeNodes(treeDef.id, defsInput);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  if (!nodeById.has(treeDef.startNodeId)) return null;
+
+  const ringIdByNodeId = {};
+  for (const node of nodes) {
+    const ringId = getNodeRingId(node);
+    if (typeof ringId !== "string" || ringId.length === 0) return null;
+    ringIdByNodeId[node.id] = ringId;
+  }
+
+  const cfg = getRingLayoutConfig(treeDef, opts, Object.values(ringIdByNodeId));
+  const ringByNodeId = {};
+  const wedgeByNodeId = {};
+  for (const node of nodes) {
+    const ringId = ringIdByNodeId[node.id];
+    const ring = cfg.ringIndexById[ringId];
+    if (!Number.isFinite(ring)) return null;
+    const wedge = ring === 0 ? "Core" : getWedgeIdFromTags(node);
+    if (!wedge) return null;
+    ringByNodeId[node.id] = ring;
+    wedgeByNodeId[node.id] = wedge;
+  }
+
+  const wedgeIds = new Set();
+  for (const node of nodes) {
+    const ring = ringByNodeId[node.id];
+    if (ring <= 0) continue;
+    wedgeIds.add(wedgeByNodeId[node.id]);
+  }
+
+  const wedgeOrder = Array.from(wedgeIds.values()).sort((a, b) => {
+    const da = Number.isFinite(cfg.wedgeCenterDeg[a]) ? cfg.wedgeCenterDeg[a] : 0;
+    const db = Number.isFinite(cfg.wedgeCenterDeg[b]) ? cfg.wedgeCenterDeg[b] : 0;
+    if (da !== db) return da - db;
+    return a.localeCompare(b);
+  });
+
+  const groupsByRing = new Map();
+  const nodeIds = sortStrings(nodes.map((node) => node.id));
+  for (const nodeId of nodeIds) {
+    const ring = ringByNodeId[nodeId];
+    const wedge = wedgeByNodeId[nodeId];
+    if (!groupsByRing.has(ring)) groupsByRing.set(ring, new Map());
+    const ringMap = groupsByRing.get(ring);
+    if (!ringMap.has(wedge)) ringMap.set(wedge, []);
+    ringMap.get(wedge).push(nodeId);
+  }
+
+  function getRingNodeIndexMap(ring) {
+    const out = new Map();
+    const ringMap = groupsByRing.get(ring);
+    if (!ringMap) return out;
+    let index = 0;
+    const wedgeList = ring === 0 ? ["Core"] : wedgeOrder;
+    for (const wedge of wedgeList) {
+      const ids = ringMap.get(wedge) || [];
+      for (const id of ids) {
+        out.set(id, index++);
+      }
+    }
+    return out;
+  }
+
+  const maxRing = Math.max(...Object.values(ringByNodeId), 0);
+  const iterations = cfg.barycenterIterations;
+  for (let pass = 0; pass < iterations; pass++) {
+    for (let ring = 1; ring <= maxRing; ring++) {
+      const prevIndexByNode = getRingNodeIndexMap(ring - 1);
+      const ringMap = groupsByRing.get(ring);
+      if (!ringMap) continue;
+      for (const wedge of wedgeOrder) {
+        const ids = ringMap.get(wedge);
+        if (!ids || ids.length <= 1) continue;
+        const currentIndex = new Map(ids.map((id, idx) => [id, idx]));
+        ids.sort((a, b) => {
+          const neighborsA = getAdjacentNodeIds(nodeById.get(a)).filter(
+            (adjId) => ringByNodeId[adjId] === ring - 1 && prevIndexByNode.has(adjId)
+          );
+          const neighborsB = getAdjacentNodeIds(nodeById.get(b)).filter(
+            (adjId) => ringByNodeId[adjId] === ring - 1 && prevIndexByNode.has(adjId)
+          );
+          const keyA = neighborsA.length
+            ? neighborsA.reduce((sum, id) => sum + prevIndexByNode.get(id), 0) / neighborsA.length
+            : Number.POSITIVE_INFINITY;
+          const keyB = neighborsB.length
+            ? neighborsB.reduce((sum, id) => sum + prevIndexByNode.get(id), 0) / neighborsB.length
+            : Number.POSITIVE_INFINITY;
+          if (keyA !== keyB) return keyA - keyB;
+          const idxA = currentIndex.get(a) ?? 0;
+          const idxB = currentIndex.get(b) ?? 0;
+          if (idxA !== idxB) return idxA - idxB;
+          return a.localeCompare(b);
+        });
+      }
+    }
+
+    for (let ring = maxRing - 1; ring >= 1; ring--) {
+      const nextIndexByNode = getRingNodeIndexMap(ring + 1);
+      const ringMap = groupsByRing.get(ring);
+      if (!ringMap) continue;
+      for (const wedge of wedgeOrder) {
+        const ids = ringMap.get(wedge);
+        if (!ids || ids.length <= 1) continue;
+        const currentIndex = new Map(ids.map((id, idx) => [id, idx]));
+        ids.sort((a, b) => {
+          const neighborsA = getAdjacentNodeIds(nodeById.get(a)).filter(
+            (adjId) => ringByNodeId[adjId] === ring + 1 && nextIndexByNode.has(adjId)
+          );
+          const neighborsB = getAdjacentNodeIds(nodeById.get(b)).filter(
+            (adjId) => ringByNodeId[adjId] === ring + 1 && nextIndexByNode.has(adjId)
+          );
+          const keyA = neighborsA.length
+            ? neighborsA.reduce((sum, id) => sum + nextIndexByNode.get(id), 0) / neighborsA.length
+            : Number.POSITIVE_INFINITY;
+          const keyB = neighborsB.length
+            ? neighborsB.reduce((sum, id) => sum + nextIndexByNode.get(id), 0) / neighborsB.length
+            : Number.POSITIVE_INFINITY;
+          if (keyA !== keyB) return keyA - keyB;
+          const idxA = currentIndex.get(a) ?? 0;
+          const idxB = currentIndex.get(b) ?? 0;
+          if (idxA !== idxB) return idxA - idxB;
+          return a.localeCompare(b);
+        });
+      }
+    }
+  }
+
+  const positionsByNodeId = {};
+  const depthByNodeIdOut = {};
+  const thetaByNodeId = {};
+  const wedgeBoundsByRing = new Map();
+
+  const coreNodes = (groupsByRing.get(0)?.get("Core") || []).slice();
+  if (coreNodes.length === 1) {
+    const nodeId = coreNodes[0];
+    positionsByNodeId[nodeId] = { x: cfg.centerX, y: cfg.centerY, depth: 0 };
+    depthByNodeIdOut[nodeId] = 0;
+  } else if (coreNodes.length > 1) {
+    for (let i = 0; i < coreNodes.length; i++) {
+      const theta = (Math.PI * 2 * i) / coreNodes.length;
+      const nodeId = coreNodes[i];
+      positionsByNodeId[nodeId] = {
+        x: Math.floor(cfg.centerX + cfg.coreSpread * Math.cos(theta)),
+        y: Math.floor(cfg.centerY + cfg.coreSpread * Math.sin(theta)),
+        depth: 0,
+      };
+      depthByNodeIdOut[nodeId] = 0;
+    }
+  }
+
+  for (let ring = 1; ring <= maxRing; ring++) {
+    const ringMap = groupsByRing.get(ring);
+    if (!ringMap) continue;
+    const radius = Number.isFinite(cfg.radiiByRing[ring]) ? cfg.radiiByRing[ring] : 0;
+    if (!wedgeBoundsByRing.has(ring)) wedgeBoundsByRing.set(ring, new Map());
+    const wedgeBounds = wedgeBoundsByRing.get(ring);
+    for (const wedge of wedgeOrder) {
+      const ids = ringMap.get(wedge);
+      if (!ids || ids.length === 0) continue;
+      const centerDeg = Number.isFinite(cfg.wedgeCenterDeg[wedge]) ? cfg.wedgeCenterDeg[wedge] : 0;
+      const spanDeg = Number.isFinite(cfg.wedgeSpanDeg[wedge]) ? cfg.wedgeSpanDeg[wedge] : 40;
+      const center = (centerDeg * Math.PI) / 180;
+      const span = (spanDeg * Math.PI) / 180;
+      wedgeBounds.set(wedge, {
+        minTheta: center - span / 2,
+        maxTheta: center + span / 2,
+        radius,
+      });
+      for (let i = 0; i < ids.length; i++) {
+        const nodeId = ids[i];
+        const theta =
+          ids.length === 1
+            ? center
+            : center - span / 2 + (span * i) / (ids.length - 1);
+        thetaByNodeId[nodeId] = theta;
+        depthByNodeIdOut[nodeId] = ring;
+      }
+    }
+  }
+
+  for (let ring = 1; ring <= maxRing; ring++) {
+    const ringMap = groupsByRing.get(ring);
+    const wedgeBounds = wedgeBoundsByRing.get(ring);
+    if (!ringMap || !wedgeBounds) continue;
+    for (const wedge of wedgeOrder) {
+      const ids = ringMap.get(wedge);
+      const bounds = wedgeBounds.get(wedge);
+      if (!ids || !ids.length || !bounds) continue;
+      resolveAngularOverlapsInWedge({
+        ids,
+        minTheta: bounds.minTheta,
+        maxTheta: bounds.maxTheta,
+        ringRadius: bounds.radius,
+        thetaByNodeId,
+        nodeById,
+        treeDef,
+        cfg,
+      });
+    }
+  }
+
+  for (let ring = 1; ring <= maxRing; ring++) {
+    const ringMap = groupsByRing.get(ring);
+    const wedgeBounds = wedgeBoundsByRing.get(ring);
+    if (!ringMap || !wedgeBounds) continue;
+    for (const wedge of wedgeOrder) {
+      const ids = ringMap.get(wedge);
+      const bounds = wedgeBounds.get(wedge);
+      if (!ids || !ids.length || !bounds) continue;
+      const centerTheta = (bounds.minTheta + bounds.maxTheta) / 2;
+      for (const nodeId of ids) {
+        const theta = Number.isFinite(thetaByNodeId[nodeId]) ? thetaByNodeId[nodeId] : centerTheta;
+        positionsByNodeId[nodeId] = {
+          x: Math.floor(cfg.centerX + bounds.radius * Math.cos(theta)),
+          y: Math.floor(cfg.centerY + bounds.radius * Math.sin(theta)),
+          depth: ring,
+        };
+        depthByNodeIdOut[nodeId] = ring;
+      }
+    }
+  }
+
+  for (const nodeId of nodeIds) {
+    const node = nodeById.get(nodeId);
+    const basePos = positionsByNodeId[nodeId] ?? {
+      x: cfg.centerX,
+      y: cfg.centerY,
+      depth: Number.isFinite(ringByNodeId[nodeId]) ? ringByNodeId[nodeId] : 0,
+    };
+    const pos = applyNodeUiPosition(node, basePos);
+    positionsByNodeId[nodeId] = { ...pos, depth: basePos.depth };
+    depthByNodeIdOut[nodeId] = basePos.depth;
+  }
+
+  return {
+    positionsByNodeId,
+    depthByNodeId: depthByNodeIdOut,
+    orderedNodeIds: nodeIds,
+    edges: buildEdgeList(nodeById),
+  };
+}
+
+export function getSkillTreeLayout(treeId, opts = {}, defsInput = null) {
+  const treeDef = getSkillTreeDef(treeId, defsInput);
+  if (!treeDef) {
+    return {
+      treeId,
+      positionsByNodeId: {},
+      depthByNodeId: {},
+      orderedNodeIds: [],
+      edges: [],
+    };
+  }
+  const mode =
+    typeof opts?.layoutMode === "string"
+      ? opts.layoutMode
+      : treeDef?.ui?.layoutMode;
+  if (mode === "ringByTags") {
+    const ringLayout = buildRingLayout(treeDef, opts, defsInput);
+    if (ringLayout) {
+      return {
+        treeId,
+        positionsByNodeId: ringLayout.positionsByNodeId,
+        depthByNodeId: ringLayout.depthByNodeId,
+        orderedNodeIds: ringLayout.orderedNodeIds,
+        edges: ringLayout.edges,
+      };
+    }
+  }
+
+  const bfsLayout = buildBfsLayout(treeDef, opts, defsInput);
+  return {
+    treeId,
+    positionsByNodeId: bfsLayout.positionsByNodeId,
+    depthByNodeId: bfsLayout.depthByNodeId,
+    orderedNodeIds: bfsLayout.orderedNodeIds,
+    edges: bfsLayout.edges,
   };
 }
 

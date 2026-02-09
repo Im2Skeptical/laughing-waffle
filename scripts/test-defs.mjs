@@ -8,9 +8,16 @@ import { envTileDefs } from "../src/defs/gamepieces/env-tiles-defs.js";
 import { envSystemDefs } from "../src/defs/gamesystems/env-systems-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { itemDefs } from "../src/defs/gamepieces/item-defs.js";
+import { recipeDefs } from "../src/defs/gamepieces/recipes-defs.js";
+import { hubStructureDefs } from "../src/defs/gamepieces/hub-structure-defs.js";
+import {
+  skillTrees,
+  skillNodes,
+} from "../src/defs/gamepieces/skill-tree-defs.js";
 import { INTENT_AP_COSTS } from "../src/defs/gamesettings/action-costs-defs.js";
 import { LEADER_EQUIPMENT_SLOT_ORDER } from "../src/defs/gamesystems/equipment-slot-defs.js";
 import { validateEnvDefs } from "../src/defs/validate-env-defs.js";
+import { validateSkillDefs } from "../src/defs/validate-skill-defs.js";
 
 async function collectJsFiles(rootDir) {
   const entries = await readdir(rootDir, { withFileTypes: true });
@@ -114,6 +121,28 @@ function validateEnvironmentDefsSoft() {
   console.log("[test] Env defs validation check complete");
 }
 
+function validateSkillDefsHard() {
+  const result = validateSkillDefs({
+    skillTrees,
+    skillNodes,
+    recipeDefs,
+    hubStructureDefs,
+  });
+
+  if (!result.ok) {
+    assert.fail(
+      `[test] Skill defs validation failed:\n${result.errors.join("\n")}`
+    );
+  }
+
+  if (result.warnings.length > 0) {
+    console.warn(`[test] Skill defs warnings:\n${result.warnings.join("\n")}`);
+  }
+
+  console.log("[test] Skill defs validation check complete");
+}
+
 await checkDefsBundleability();
 validateCoreDefinitions();
 validateEnvironmentDefsSoft();
+validateSkillDefsHard();
