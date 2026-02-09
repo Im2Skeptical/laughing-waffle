@@ -17,6 +17,7 @@ import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { PAWN_ROLE_LEADER, getLeaderById } from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
+import { TIER_ASC } from "./effects/core/tiers.js";
 import {
   getProcessDefForInstance,
   getTemplateProcessForSystem,
@@ -634,8 +635,16 @@ function ensureRoutingTemplateSlotWithCandidates(slotState, candidates) {
   if (!slotState.enabled || typeof slotState.enabled !== "object") {
     slotState.enabled = {};
   }
-  if (slotState.ordered.length === 0 && Array.isArray(candidates)) {
-    slotState.ordered = candidates.slice();
+  if (Array.isArray(candidates) && candidates.length > 0) {
+    if (slotState.ordered.length === 0) {
+      slotState.ordered = candidates.slice();
+    } else {
+      for (const endpointId of candidates) {
+        if (!endpointId || typeof endpointId !== "string") continue;
+        if (slotState.ordered.includes(endpointId)) continue;
+        slotState.ordered.push(endpointId);
+      }
+    }
   }
   for (const endpointId of slotState.ordered) {
     if (!endpointId || typeof endpointId !== "string") continue;
@@ -645,16 +654,97 @@ function ensureRoutingTemplateSlotWithCandidates(slotState, candidates) {
   }
 }
 
+function itemKindHasTag(kind, tagId) {
+  if (!kind || !tagId) return false;
+  const tags = Array.isArray(itemDefs?.[kind]?.baseTags)
+    ? itemDefs[kind].baseTags
+    : [];
+  return tags.includes(tagId);
+}
+
+function getPoolTierQuantity(bucket, tier) {
+  if (!bucket || typeof bucket !== "object") return 0;
+  return Math.max(0, Math.floor(bucket[tier] ?? 0));
+}
+
+function consumeOneFromTierBucket(bucket, totalByTier = null) {
+  if (!bucket || typeof bucket !== "object") return false;
+  for (const tier of TIER_ASC) {
+    const qty = getPoolTierQuantity(bucket, tier);
+    if (qty <= 0) continue;
+    bucket[tier] = qty - 1;
+    if (totalByTier && typeof totalByTier === "object") {
+      const total = Math.max(0, Math.floor(totalByTier[tier] ?? 0));
+      totalByTier[tier] = Math.max(0, total - 1);
+    }
+    return true;
+  }
+  return false;
+}
+
+function getPoolTotalsByTier(endpoint) {
+  const owner = endpoint?.owner;
+  const systemId = endpoint?.systemId;
+  if (!owner || !systemId) return null;
+  const totals = owner?.systemState?.[systemId]?.totalByTier;
+  if (!totals || typeof totals !== "object") return null;
+  return totals;
+}
+
+function poolKindMatchesRequirement(kind, requirement) {
+  if (!kind || !requirement || typeof requirement !== "object") return false;
+  if (requirement.kind === "item" && requirement.itemId) {
+    return kind === requirement.itemId;
+  }
+  if (requirement.kind === "tag" && requirement.tag) {
+    return itemKindHasTag(kind, requirement.tag);
+  }
+  return false;
+}
+
+function consumeRequirementUnitFromPool(endpoint, requirement) {
+  if (!endpoint || endpoint.kind !== "pool") return false;
+  const pool = endpoint.target;
+  if (!pool || typeof pool !== "object") return false;
+
+  const totalByTier = getPoolTotalsByTier(endpoint);
+  const endpointItemId =
+    typeof endpoint.itemId === "string" && endpoint.itemId.length > 0
+      ? endpoint.itemId
+      : null;
+
+  if (endpointItemId) {
+    if (!poolKindMatchesRequirement(endpointItemId, requirement)) return false;
+    return consumeOneFromTierBucket(pool, totalByTier);
+  }
+
+  const kinds = Object.keys(pool).sort((a, b) => a.localeCompare(b));
+  for (const kind of kinds) {
+    if (!poolKindMatchesRequirement(kind, requirement)) continue;
+    const bucket = pool[kind];
+    if (!bucket || typeof bucket !== "object") continue;
+    if (consumeOneFromTierBucket(bucket, totalByTier)) return true;
+  }
+
+  return false;
+}
+
 function tryConsumeResidentMeal(endpoint) {
-  if (!endpoint || endpoint.kind !== "inventory") return false;
   const requirement = {
     kind: "tag",
     tag: "edible",
     consume: true,
   };
-  if (!canConsumeRequirementUnit(endpoint.target, requirement)) return false;
-  const consumed = consumeRequirementUnit(endpoint.target, requirement);
-  return !!consumed;
+  if (!endpoint) return false;
+  if (endpoint.kind === "inventory") {
+    if (!canConsumeRequirementUnit(endpoint.target, requirement)) return false;
+    const consumed = consumeRequirementUnit(endpoint.target, requirement);
+    return !!consumed;
+  }
+  if (endpoint.kind === "pool") {
+    return consumeRequirementUnitFromPool(endpoint, requirement);
+  }
+  return false;
 }
 
 function consumeResidentsMealsOnSeasonChange(state, structure) {

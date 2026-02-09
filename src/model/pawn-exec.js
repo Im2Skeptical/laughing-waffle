@@ -3,19 +3,34 @@
 
 import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
-import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { LEADER_EQUIPMENT_SLOT_ORDER } from "../defs/gamesystems/equipment-slot-defs.js";
-import { HUNGER_THRESHOLD } from "../defs/gamesettings/gamerules-defs.js";
+import {
+  PAWN_AI_HUNGER_WARNING,
+  PAWN_AI_HUNGER_FULL,
+  PAWN_AI_HUNGER_START_EAT,
+  PAWN_AI_STAMINA_WARNING,
+  PAWN_AI_STAMINA_FULL,
+  PAWN_AI_STAMINA_START_REST,
+} from "../defs/gamesettings/gamerules-defs.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
-import { ensurePawnSystems } from "./state.js";
+import { ensurePawnSystems, ensurePawnAI } from "./state.js";
 import { applyFollowerHungerDebt } from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
 import {
   findEquippedPoolProviderEntry,
   ownerHasEquippedPoolProvider,
 } from "./item-def-rules.js";
+
+const HUB_DISTRIBUTOR_TAG = "distributor";
+const REST_SPOT_AFFORDANCE = "restSpot";
+const NO_OCCUPY_AFFORDANCE = "noOccupy";
+const LOCATION_ROW_SWITCH_COST = 1;
 
 function requirementsPass(requires, pawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -82,6 +97,71 @@ function isTagDisabled(target, tagId) {
   return entry?.disabled === true;
 }
 
+function hasAffordance(def, affordance) {
+  const affordances = Array.isArray(def?.affordances) ? def.affordances : [];
+  return affordances.includes(affordance);
+}
+
+function normalizeLocation(location) {
+  const hubCol = Number.isFinite(location?.hubCol) ? Math.floor(location.hubCol) : null;
+  const envCol = Number.isFinite(location?.envCol) ? Math.floor(location.envCol) : null;
+  if (hubCol != null) return { hubCol, envCol: null };
+  if (envCol != null) return { hubCol: null, envCol };
+  return { hubCol: null, envCol: null };
+}
+
+function getPawnLocation(pawn) {
+  return normalizeLocation(pawn);
+}
+
+function getLocationColumn(location) {
+  const loc = normalizeLocation(location);
+  if (loc.hubCol != null) return loc.hubCol;
+  if (loc.envCol != null) return loc.envCol;
+  return 0;
+}
+
+function locationsMatch(a, b) {
+  const left = normalizeLocation(a);
+  const right = normalizeLocation(b);
+  if (left.hubCol != null || right.hubCol != null) {
+    return left.hubCol != null && right.hubCol != null && left.hubCol === right.hubCol;
+  }
+  if (left.envCol != null || right.envCol != null) {
+    return left.envCol != null && right.envCol != null && left.envCol === right.envCol;
+  }
+  return true;
+}
+
+function placementToLocation(placement) {
+  if (placement?.kind === "hub") {
+    return { hubCol: Number.isFinite(placement.col) ? Math.floor(placement.col) : null, envCol: null };
+  }
+  if (placement?.kind === "env") {
+    return { hubCol: null, envCol: Number.isFinite(placement.col) ? Math.floor(placement.col) : null };
+  }
+  return { hubCol: null, envCol: null };
+}
+
+function scorePlacement(currentLocation, placement) {
+  const targetLocation = placementToLocation(placement);
+  const dist = Math.abs(
+    getLocationColumn(targetLocation) - getLocationColumn(currentLocation)
+  );
+  const current = normalizeLocation(currentLocation);
+  const target = normalizeLocation(targetLocation);
+  const rowSwitch =
+    (current.hubCol != null && target.envCol != null) ||
+    (current.envCol != null && target.hubCol != null)
+      ? LOCATION_ROW_SWITCH_COST
+      : 0;
+  return {
+    total: dist + rowSwitch,
+    dist,
+    rowSwitch,
+  };
+}
+
 function itemPassiveRequirementsPass(requires, ctx = {}) {
   if (!requires || typeof requires !== "object") return true;
   if (typeof requires.equipped === "boolean") {
@@ -91,28 +171,14 @@ function itemPassiveRequirementsPass(requires, ctx = {}) {
   return true;
 }
 
-function arePawnsOnSameLocation(a, b) {
-  if (!a || !b) return false;
-  const aHub = Number.isFinite(a.hubCol) ? Math.floor(a.hubCol) : null;
-  const bHub = Number.isFinite(b.hubCol) ? Math.floor(b.hubCol) : null;
-  const aEnv = Number.isFinite(a.envCol) ? Math.floor(a.envCol) : null;
-  const bEnv = Number.isFinite(b.envCol) ? Math.floor(b.envCol) : null;
-  if (aHub != null || bHub != null) {
-    return aHub != null && bHub != null && aHub === bHub;
-  }
-  if (aEnv != null || bEnv != null) {
-    return aEnv != null && bEnv != null && aEnv === bEnv;
-  }
-  return false;
-}
-
-function listEquippedBasketPoolsForPawn(state, pawn) {
+function listEquippedBasketPoolsForPawn(state, pawn, locationOverride = null) {
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   const out = [];
+  const location = normalizeLocation(locationOverride ?? pawn);
   let order = 0;
   for (const carrier of chars) {
     if (!carrier || carrier.id == null) continue;
-    if (!arePawnsOnSameLocation(pawn, carrier)) continue;
+    if (!locationsMatch(location, getPawnLocation(carrier))) continue;
     if (!ownerHasEquippedPoolProvider(carrier, "storage", "byKindTier")) {
       continue;
     }
@@ -149,9 +215,10 @@ function listEquippedBasketPoolsForPawn(state, pawn) {
   return out;
 }
 
-function listDistributorPoolsForPawn(state, pawn) {
-  const hubCol = Number.isFinite(pawn?.hubCol) ? Math.floor(pawn.hubCol) : null;
-  const basketPools = listEquippedBasketPoolsForPawn(state, pawn);
+function listDistributorPoolsForPawn(state, pawn, locationOverride = null) {
+  const location = normalizeLocation(locationOverride ?? pawn);
+  const hubCol = location.hubCol;
+  const basketPools = listEquippedBasketPoolsForPawn(state, pawn, location);
   if (hubCol == null) return basketPools;
 
   const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
@@ -162,7 +229,10 @@ function listDistributorPoolsForPawn(state, pawn) {
     const anchor = anchors[i];
     if (!anchor) continue;
     const tags = Array.isArray(anchor.tags) ? anchor.tags : [];
-    if (!tags.includes("distributor") || isTagDisabled(anchor, "distributor")) {
+    if (
+      !tags.includes(HUB_DISTRIBUTOR_TAG) ||
+      isTagDisabled(anchor, HUB_DISTRIBUTOR_TAG)
+    ) {
       continue;
     }
 
@@ -212,6 +282,51 @@ function listDistributorPoolsForPawn(state, pawn) {
   });
 
   return basketPools.concat(sources);
+}
+
+function listLocalAccessibleInventoriesForPawn(state, locationOverride = null) {
+  const location = normalizeLocation(locationOverride);
+  const out = [];
+  if (location.hubCol != null) {
+    const structure = state?.hub?.occ?.[location.hubCol] ?? null;
+    const ownerId = structure?.instanceId;
+    if (ownerId != null) {
+      const inv = state?.ownerInventories?.[ownerId] ?? null;
+      if (inv) {
+        out.push({
+          ownerId,
+          inv,
+        });
+      }
+    }
+  }
+  out.sort((a, b) => (a.ownerId ?? 0) - (b.ownerId ?? 0));
+  return out;
+}
+
+function buildPawnContext(state, pawn, tSec, locationOverride = null) {
+  const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
+  const distributorPools = listDistributorPoolsForPawn(
+    state,
+    pawn,
+    locationOverride
+  );
+  const localInventories = listLocalAccessibleInventoriesForPawn(
+    state,
+    locationOverride ?? pawn
+  );
+  return {
+    kind: "game",
+    state,
+    source: pawn,
+    tSec,
+    pawnId: pawn.id,
+    ownerId: pawn.id,
+    pawn,
+    pawnInv,
+    distributorPools,
+    localInventories,
+  };
 }
 
 function getPawnLabel(pawn) {
@@ -320,6 +435,26 @@ function snapshotEdibleDistributorPools(distributorPools) {
   return byKind;
 }
 
+function snapshotEdibleLocalInventories(localInventories) {
+  const byKind = new Map();
+  const entries = Array.isArray(localInventories) ? localInventories : [];
+  for (const entry of entries) {
+    const inv = entry?.inv;
+    if (!Array.isArray(inv?.items)) continue;
+    for (const item of inv.items) {
+      if (!item || !item.kind) continue;
+      const tags = Array.isArray(item.tags) ? item.tags : [];
+      if (!tags.includes("edible") && !itemHasTagByKind(item.kind, "edible")) {
+        continue;
+      }
+      const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+      if (qty <= 0) continue;
+      byKind.set(item.kind, (byKind.get(item.kind) || 0) + qty);
+    }
+  }
+  return byKind;
+}
+
 function findConsumedKind(before, after) {
   const keys = new Set([
     ...Array.from(before?.keys?.() || []),
@@ -340,13 +475,293 @@ function findConsumedKind(before, after) {
   return bestKind;
 }
 
-export function stepPawnSecond(state, tSec) {
+function findIntentById(intents, intentId) {
+  const list = Array.isArray(intents) ? intents : [];
+  for (const intent of list) {
+    if (!intent || typeof intent !== "object") continue;
+    if (intent.id === intentId) return intent;
+  }
+  return null;
+}
+
+function canExecuteIntent(intent, pawn, context, options = {}) {
+  if (!intent || typeof intent !== "object") return false;
+  if (options.ignoreRequires !== true) {
+    if (intent.requires && !requirementsPass(intent.requires, pawn)) return false;
+  }
+  if (intent.cost) {
+    const resolved = resolveCosts(intent.cost, context);
+    if (!resolved) return false;
+    if (!canAffordCosts(resolved, context)) return false;
+  }
+  return true;
+}
+
+function executeIntent(state, intent, pawn, context, options = {}) {
+  if (!intent || typeof intent !== "object") return false;
+  if (options.ignoreRequires !== true) {
+    if (intent.requires && !requirementsPass(intent.requires, pawn)) return false;
+  }
+  if (intent.cost) {
+    const resolved = resolveCosts(intent.cost, context);
+    if (!resolved) return false;
+    if (!canAffordCosts(resolved, context)) return false;
+    applyCosts(resolved, context);
+  }
+  if (intent.effect) {
+    runEffect(state, intent.effect, { ...context });
+  }
+  return true;
+}
+
+function getIntentsForMode(intents, mode) {
+  const list = Array.isArray(intents) ? intents : [];
+  if (mode === "eat") {
+    return list.filter((intent) => intent?.id === "eat");
+  }
+  if (mode === "rest") {
+    return list.filter((intent) => intent?.id === "rest");
+  }
+  return list;
+}
+
+function clampInt(value, min, max, fallback = min) {
+  const n = Number.isFinite(value) ? Math.floor(value) : fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function getSystemCur(pawn, systemId, fallback = 0) {
+  const value = pawn?.systemState?.[systemId]?.cur;
+  if (!Number.isFinite(value)) return fallback;
+  return Math.floor(value);
+}
+
+function getSystemMax(pawn, systemId, fallback = 100) {
+  const value = pawn?.systemState?.[systemId]?.max;
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.floor(value));
+}
+
+function updatePawnAiMode(pawn) {
+  ensurePawnAI(pawn);
+  let mode = pawn.ai.mode;
+
+  const hungerCur = getSystemCur(pawn, "hunger", 0);
+  const hungerMax = getSystemMax(pawn, "hunger", 100);
+  const hungerStartEat = clampInt(PAWN_AI_HUNGER_START_EAT, 0, hungerMax, 0);
+  const hungerFull = clampInt(PAWN_AI_HUNGER_FULL, hungerStartEat, hungerMax, hungerMax);
+
+  const staminaCur = getSystemCur(pawn, "stamina", 0);
+  const staminaMax = getSystemMax(pawn, "stamina", 100);
+  const staminaStartRest = clampInt(PAWN_AI_STAMINA_START_REST, 0, staminaMax, 0);
+  const staminaFull = clampInt(PAWN_AI_STAMINA_FULL, staminaStartRest, staminaMax, staminaMax);
+
+  if (mode === "eat" && hungerCur >= hungerFull) {
+    mode = null;
+  } else if (mode === "rest" && staminaCur >= staminaFull) {
+    mode = null;
+  }
+
+  if (mode == null) {
+    const wantsEat = hungerCur <= hungerStartEat;
+    const wantsRest = staminaCur <= staminaStartRest;
+    if (wantsEat) {
+      mode = "eat";
+    } else if (wantsRest) {
+      mode = "rest";
+    }
+  }
+
+  pawn.ai.mode = mode;
+  return mode;
+}
+
+function isPawnAiSuppressed(pawn, tSec) {
+  const nowSec = Number.isFinite(tSec) ? Math.floor(tSec) : 0;
+  const suppressUntil = Number.isFinite(pawn?.ai?.suppressAutoUntilSec)
+    ? Math.floor(pawn.ai.suppressAutoUntilSec)
+    : 0;
+  return nowSec < suppressUntil;
+}
+
+function isEnvColOccupiable(state, envCol) {
+  if (!Number.isFinite(envCol)) return false;
+  const col = Math.floor(envCol);
+  const tile = state?.board?.occ?.tile?.[col] ?? null;
+  if (!tile) return false;
+  const tags = Array.isArray(tile.tags) ? tile.tags : [];
+  for (const tagId of tags) {
+    if (hasAffordance(envTagDefs?.[tagId], NO_OCCUPY_AFFORDANCE)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function listSeekPlacements(state) {
+  const out = [];
+  const envCols = Number.isFinite(state?.board?.cols) ? Math.floor(state.board.cols) : 0;
+  for (let col = 0; col < envCols; col++) {
+    if (!isEnvColOccupiable(state, col)) continue;
+    out.push({ kind: "env", col });
+  }
+
+  const hubCols = Array.isArray(state?.hub?.slots) ? state.hub.slots.length : 0;
+  for (let col = 0; col < hubCols; col++) {
+    out.push({ kind: "hub", col });
+  }
+
+  return out;
+}
+
+function isRestSpotAtLocation(state, location) {
+  const loc = normalizeLocation(location);
+  if (loc.hubCol != null) {
+    const structure = state?.hub?.occ?.[loc.hubCol] ?? null;
+    if (!structure) return false;
+    const tags = Array.isArray(structure.tags) ? structure.tags : [];
+    for (const tagId of tags) {
+      if (isTagDisabled(structure, tagId)) continue;
+      if (hasAffordance(hubTagDefs?.[tagId], REST_SPOT_AFFORDANCE)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (loc.envCol != null) {
+    const tile = state?.board?.occ?.tile?.[loc.envCol] ?? null;
+    if (!tile) return false;
+    const tags = Array.isArray(tile.tags) ? tile.tags : [];
+    for (const tagId of tags) {
+      if (isTagDisabled(tile, tagId)) continue;
+      if (hasAffordance(envTagDefs?.[tagId], REST_SPOT_AFFORDANCE)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function sortScoredPlacements(scored) {
+  scored.sort((a, b) => {
+    if (a.total !== b.total) return a.total - b.total;
+    if (a.rowSwitch !== b.rowSwitch) return a.rowSwitch - b.rowSwitch;
+    if (a.dist !== b.dist) return a.dist - b.dist;
+    if (a.placement.kind !== b.placement.kind) {
+      return a.placement.kind === "hub" ? -1 : 1;
+    }
+    return a.placement.col - b.placement.col;
+  });
+}
+
+function findEatMoveCandidates(state, pawn, tSec, eatIntent) {
+  if (!eatIntent) return [];
+  const currentLocation = getPawnLocation(pawn);
+  const candidates = [];
+
+  for (const placement of listSeekPlacements(state)) {
+    const targetLocation = placementToLocation(placement);
+    if (locationsMatch(currentLocation, targetLocation)) continue;
+    const ctx = buildPawnContext(state, pawn, tSec, targetLocation);
+    if (!canExecuteIntent(eatIntent, pawn, ctx, { ignoreRequires: true })) continue;
+    candidates.push({ placement, ...scorePlacement(currentLocation, placement) });
+  }
+
+  sortScoredPlacements(candidates);
+  return candidates.map((entry) => entry.placement);
+}
+
+function findRestMoveCandidates(state, pawn) {
+  const currentLocation = getPawnLocation(pawn);
+  const candidates = [];
+
+  for (const placement of listSeekPlacements(state)) {
+    const targetLocation = placementToLocation(placement);
+    if (locationsMatch(currentLocation, targetLocation)) continue;
+    if (!isRestSpotAtLocation(state, targetLocation)) continue;
+    candidates.push({ placement, ...scorePlacement(currentLocation, placement) });
+  }
+
+  sortScoredPlacements(candidates);
+  return candidates.map((entry) => entry.placement);
+}
+
+function tryMovePawnViaCommand(state, pawn, placement, placeCharacter) {
+  if (typeof placeCharacter !== "function") return false;
+  if (!placement || !Number.isFinite(placement.col)) return false;
+
+  const toPlacement =
+    placement.kind === "env"
+      ? { envCol: Math.floor(placement.col) }
+      : { hubCol: Math.floor(placement.col) };
+
+  const res = placeCharacter(state, {
+    charId: pawn.id,
+    toPlacement,
+    skipAutoSuppress: true,
+  });
+  return res?.ok === true;
+}
+
+function getPlacementLabel(state, placement) {
+  if (!placement || !Number.isFinite(placement.col)) return "unknown";
+  const col = Math.floor(placement.col);
+  if (placement.kind === "hub") {
+    const structure = state?.hub?.occ?.[col] ?? null;
+    const defName = structure?.defId ? hubStructureDefs?.[structure.defId]?.name : null;
+    if (typeof defName === "string" && defName.length > 0) {
+      return `${defName} (hub ${col})`;
+    }
+    return `hub ${col}`;
+  }
+
+  if (placement.kind === "env") {
+    const tile = state?.board?.occ?.tile?.[col] ?? null;
+    const defName = tile?.defId ? envTileDefs?.[tile.defId]?.name : null;
+    if (typeof defName === "string" && defName.length > 0) {
+      return `${defName} (env ${col})`;
+    }
+    return `env ${col}`;
+  }
+
+  return `col ${col}`;
+}
+
+function pushPawnSeekMoveEvent(state, pawn, tSec, mode, placement) {
+  const destination = getPlacementLabel(state, placement);
+  const isRest = mode === "rest";
+  pushGameEvent(state, {
+    type: isRest ? "pawnMovedToRest" : "pawnMovedToFood",
+    tSec,
+    text: isRest
+      ? `${getPawnLabel(pawn)} moved to ${destination} to rest`
+      : `${getPawnLabel(pawn)} moved to ${destination} to find food`,
+    data: {
+      focusKind: "pawn",
+      pawnId: pawn.id ?? null,
+      ownerIds: pawn.id != null ? [pawn.id] : [],
+      mode: isRest ? "rest" : "eat",
+      destinationKind: placement?.kind ?? null,
+      destinationCol: Number.isFinite(placement?.col)
+        ? Math.floor(placement.col)
+        : null,
+    },
+  });
+}
+
+export function stepPawnSecond(state, tSec, options = {}) {
   const chars = Array.isArray(state?.characters) ? state.characters : [];
   if (!chars.length) return;
+
+  const placeCharacter =
+    typeof options?.placeCharacter === "function" ? options.placeCharacter : null;
 
   for (const pawn of chars) {
     if (!pawn) continue;
     ensurePawnSystems(pawn);
+    ensurePawnAI(pawn);
 
     const defId =
       typeof pawn.pawnDefId === "string" ? pawn.pawnDefId : "default";
@@ -354,22 +769,8 @@ export function stepPawnSecond(state, tSec) {
     const intents = Array.isArray(def?.intents) ? def.intents : [];
     const passives = Array.isArray(def?.passives) ? def.passives : [];
 
-    const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
-    const distributorPools = listDistributorPoolsForPawn(state, pawn);
-    const context = {
-      kind: "game",
-      state,
-      source: pawn,
-      tSec,
-      pawnId: pawn.id,
-      ownerId: pawn.id,
-      pawn,
-      pawnInv,
-      distributorPools,
-    };
+    let context = buildPawnContext(state, pawn, tSec);
     const hungerBefore = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
-    const edibleInvBefore = snapshotEdibleInventory(pawnInv);
-    const ediblePoolsBefore = snapshotEdibleDistributorPools(distributorPools);
 
     runEquippedItemPassives(state, pawn, tSec, context);
 
@@ -381,19 +782,103 @@ export function stepPawnSecond(state, tSec) {
       }
     }
 
+    const prevMode = pawn?.ai?.mode ?? null;
+    let aiMode = updatePawnAiMode(pawn);
+    const suppressed = isPawnAiSuppressed(pawn, tSec);
+    const eatIntent = findIntentById(intents, "eat");
+    const hungerWarning = clampInt(
+      PAWN_AI_HUNGER_WARNING,
+      0,
+      getSystemMax(pawn, "hunger", 100),
+      0
+    );
+    const staminaWarning = clampInt(
+      PAWN_AI_STAMINA_WARNING,
+      0,
+      getSystemMax(pawn, "stamina", 100),
+      0
+    );
+    const hungerNow = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
+    const staminaNow = Math.floor(pawn?.systemState?.stamina?.cur ?? 0);
+    let hungryWarningLogged = false;
+
+    if (prevMode !== "eat" && aiMode === "eat" && hungerNow <= hungerWarning) {
+      pushGameEvent(state, {
+        type: "pawnHungry",
+        tSec,
+        text: `${getPawnLabel(pawn)} is hungry`,
+        data: {
+          focusKind: "pawn",
+          pawnId: pawn.id ?? null,
+          ownerIds: pawn.id != null ? [pawn.id] : [],
+          value: hungerNow,
+          threshold: hungerWarning,
+        },
+      });
+      hungryWarningLogged = true;
+    }
+
+    if (prevMode !== "rest" && aiMode === "rest" && staminaNow <= staminaWarning) {
+      pushGameEvent(state, {
+        type: "pawnTired",
+        tSec,
+        text: `${getPawnLabel(pawn)} is tired`,
+        data: {
+          focusKind: "pawn",
+          pawnId: pawn.id ?? null,
+          ownerIds: pawn.id != null ? [pawn.id] : [],
+          value: staminaNow,
+          threshold: staminaWarning,
+        },
+      });
+    }
+    context = buildPawnContext(state, pawn, tSec);
+
+    if (aiMode === "eat" && !eatIntent) {
+      pawn.ai.mode = null;
+      aiMode = null;
+    }
+
+    if (aiMode === "eat" && eatIntent) {
+      const canEatInPlace = canExecuteIntent(eatIntent, pawn, context, {
+        ignoreRequires: true,
+      });
+      if (!canEatInPlace && !suppressed) {
+        const candidates = findEatMoveCandidates(state, pawn, tSec, eatIntent);
+        for (const placement of candidates) {
+          if (!tryMovePawnViaCommand(state, pawn, placement, placeCharacter)) continue;
+          context = buildPawnContext(state, pawn, tSec);
+          pushPawnSeekMoveEvent(state, pawn, tSec, "eat", placement);
+          break;
+        }
+      }
+    } else if (aiMode === "rest") {
+      const atRestSpot = isRestSpotAtLocation(state, getPawnLocation(pawn));
+      if (!atRestSpot && !suppressed) {
+        const candidates = findRestMoveCandidates(state, pawn);
+        for (const placement of candidates) {
+          if (!tryMovePawnViaCommand(state, pawn, placement, placeCharacter)) continue;
+          context = buildPawnContext(state, pawn, tSec);
+          pushPawnSeekMoveEvent(state, pawn, tSec, "rest", placement);
+          break;
+        }
+      }
+    }
+
+    const edibleInvBefore = snapshotEdibleInventory(context.pawnInv);
+    const ediblePoolsBefore = snapshotEdibleDistributorPools(context.distributorPools);
+    const edibleLocalBefore = snapshotEdibleLocalInventories(
+      context.localInventories
+    );
+
     let executed = false;
     let executedIntentId = null;
-    for (const intent of intents) {
+    const intentsToRun = getIntentsForMode(intents, pawn.ai.mode);
+    for (const intent of intentsToRun) {
       if (!intent || typeof intent !== "object") continue;
-      if (intent.requires && !requirementsPass(intent.requires, pawn)) continue;
-      if (intent.cost) {
-        const resolved = resolveCosts(intent.cost, context);
-        if (!resolved) continue;
-        if (!canAffordCosts(resolved, context)) continue;
-        applyCosts(resolved, context);
-      }
-      if (intent.effect) {
-        runEffect(state, intent.effect, { ...context });
+      const ignoreRequires = pawn.ai.mode === "eat" && intent.id === "eat";
+      if (!executeIntent(state, intent, pawn, context, { ignoreRequires })) {
+        continue;
       }
       executed = true;
       executedIntentId =
@@ -406,8 +891,11 @@ export function stepPawnSecond(state, tSec) {
     }
 
     const hungerAfter = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
-    const threshold = Math.max(0, Math.floor(HUNGER_THRESHOLD ?? 0));
-    if (hungerBefore >= threshold && hungerAfter < threshold) {
+    if (
+      !hungryWarningLogged &&
+      hungerBefore > hungerWarning &&
+      hungerAfter <= hungerWarning
+    ) {
       pushGameEvent(state, {
         type: "pawnHungry",
         tSec,
@@ -416,16 +904,22 @@ export function stepPawnSecond(state, tSec) {
           focusKind: "pawn",
           pawnId: pawn.id ?? null,
           ownerIds: pawn.id != null ? [pawn.id] : [],
+          value: hungerAfter,
+          threshold: hungerWarning,
         },
       });
     }
 
     if (executedIntentId === "eat") {
       const edibleInvAfter = snapshotEdibleInventory(state?.ownerInventories?.[pawn.id]);
-      const ediblePoolsAfter = snapshotEdibleDistributorPools(distributorPools);
+      const ediblePoolsAfter = snapshotEdibleDistributorPools(context.distributorPools);
+      const edibleLocalAfter = snapshotEdibleLocalInventories(
+        context.localInventories
+      );
       const kindFromInv = findConsumedKind(edibleInvBefore, edibleInvAfter);
       const kindFromPools = findConsumedKind(ediblePoolsBefore, ediblePoolsAfter);
-      const itemKind = kindFromInv || kindFromPools || null;
+      const kindFromLocal = findConsumedKind(edibleLocalBefore, edibleLocalAfter);
+      const itemKind = kindFromInv || kindFromPools || kindFromLocal || null;
       const itemLabel = getItemLabel(itemKind);
       pushGameEvent(state, {
         type: "pawnAte",

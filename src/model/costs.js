@@ -5,6 +5,8 @@ import { Inventory } from "./inventory-model.js";
 import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { PAWN_AI_STAMINA_WARNING } from "../defs/gamesettings/gamerules-defs.js";
+import { pushGameEvent } from "./event-feed.js";
 
 function resolveAmountExpr(expr, ctx) {
   if (Number.isFinite(expr)) return expr;
@@ -78,12 +80,44 @@ function getDistributorPools(ctx) {
   return Array.isArray(ctx?.distributorPools) ? ctx.distributorPools : [];
 }
 
+function getLocalInventories(ctx) {
+  const raw = Array.isArray(ctx?.localInventories) ? ctx.localInventories : [];
+  const out = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    if (!entry.inv || !Array.isArray(entry.inv.items)) continue;
+    out.push(entry);
+  }
+  out.sort((a, b) => {
+    const ao = Number.isFinite(a?.ownerId) ? Math.floor(a.ownerId) : 0;
+    const bo = Number.isFinite(b?.ownerId) ? Math.floor(b.ownerId) : 0;
+    return ao - bo;
+  });
+  return out;
+}
+
 function itemHasTag(kind, tag) {
   if (!kind || !tag) return false;
   const tags = Array.isArray(itemDefs?.[kind]?.baseTags)
     ? itemDefs[kind].baseTags
     : [];
   return tags.includes(tag);
+}
+
+function getPawnLabel(target, fallbackPawn) {
+  const pawn = target ?? fallbackPawn ?? null;
+  if (!pawn) return "Pawn";
+  return pawn.name || `Char ${pawn.id ?? ""}`.trim();
+}
+
+function isPawnLikeTarget(target, fallbackPawn) {
+  const pawn = target ?? fallbackPawn ?? null;
+  if (!pawn || typeof pawn !== "object") return false;
+  return (
+    typeof pawn.pawnDefId === "string" ||
+    pawn.role === "leader" ||
+    pawn.role === "follower"
+  );
 }
 
 function countPoolUnitsByItem(pools, itemId) {
@@ -337,6 +371,52 @@ function countItemUnitsByTag(inv, tag) {
   return total;
 }
 
+function countLocalInventoryUnitsByItem(localInventories, itemId) {
+  let total = 0;
+  for (const entry of localInventories) {
+    total += countItemUnits(entry?.inv, itemId);
+  }
+  return total;
+}
+
+function countLocalInventoryUnitsByTag(localInventories, tag) {
+  let total = 0;
+  for (const entry of localInventories) {
+    total += countItemUnitsByTag(entry?.inv, tag);
+  }
+  return total;
+}
+
+function consumeFromLocalInventoriesByItem(localInventories, itemId, amount) {
+  let remaining = Math.max(0, Math.floor(amount ?? 0));
+  if (remaining <= 0) return 0;
+  let consumed = 0;
+  for (const entry of localInventories) {
+    if (remaining <= 0) break;
+    const inv = entry?.inv;
+    const take = consumeFromInventoryForCost(inv, itemId, remaining);
+    if (take <= 0) continue;
+    consumed += take;
+    remaining -= take;
+  }
+  return consumed;
+}
+
+function consumeFromLocalInventoriesByTag(localInventories, tag, amount) {
+  let remaining = Math.max(0, Math.floor(amount ?? 0));
+  if (remaining <= 0) return 0;
+  let consumed = 0;
+  for (const entry of localInventories) {
+    if (remaining <= 0) break;
+    const inv = entry?.inv;
+    const take = consumeFromInventoryForTag(inv, tag, remaining);
+    if (take <= 0) continue;
+    consumed += take;
+    remaining -= take;
+  }
+  return consumed;
+}
+
 export function canAffordCosts(resolvedCosts, ctx) {
   const charges = Array.isArray(resolvedCosts?.charges)
     ? resolvedCosts.charges
@@ -361,17 +441,27 @@ export function canAffordCosts(resolvedCosts, ctx) {
         const total = countItemUnits(inv, charge.itemId);
         if (total < charge.amount) {
           if (!charge.allowDistributorPools) return false;
+          const localInventories = getLocalInventories(ctx);
+          const localTotal = countLocalInventoryUnitsByItem(
+            localInventories,
+            charge.itemId
+          );
           const pools = getDistributorPools(ctx);
           const poolTotal = countPoolUnitsByItem(pools, charge.itemId);
-          if (total + poolTotal < charge.amount) return false;
+          if (total + localTotal + poolTotal < charge.amount) return false;
         }
       } else {
         const total = countItemUnitsByTag(inv, charge.tag);
         if (total < charge.amount) {
           if (!charge.allowDistributorPools) return false;
+          const localInventories = getLocalInventories(ctx);
+          const localTotal = countLocalInventoryUnitsByTag(
+            localInventories,
+            charge.tag
+          );
           const pools = getDistributorPools(ctx);
           const poolTotal = countPoolUnitsByTag(pools, charge.tag);
-          if (total + poolTotal < charge.amount) return false;
+          if (total + localTotal + poolTotal < charge.amount) return false;
         }
       }
     } else if (
@@ -484,12 +574,54 @@ export function applyCosts(resolvedCosts, ctx) {
         : 0;
       const next = Math.max(charge.clampMin ?? 0, current - charge.amount);
       if (next !== current) systemState[charge.key] = next;
+      if (
+        next !== current &&
+        charge.system === "stamina" &&
+        charge.key === "cur" &&
+        isPawnLikeTarget(target, ctx?.pawn)
+      ) {
+        const max = Number.isFinite(systemState?.max)
+          ? Math.max(0, Math.floor(systemState.max))
+          : 100;
+        const threshold = Math.max(
+          0,
+          Math.min(max, Math.floor(PAWN_AI_STAMINA_WARNING ?? 0))
+        );
+        if (current > threshold && next <= threshold) {
+          const nowSec = Number.isFinite(ctx?.tSec)
+            ? Math.floor(ctx.tSec)
+            : Math.floor(ctx?.state?.tSec ?? 0);
+          pushGameEvent(ctx?.state ?? null, {
+            type: "pawnTired",
+            tSec: nowSec,
+            text: `${getPawnLabel(target, ctx?.pawn)} is tired`,
+            data: {
+              focusKind: "pawn",
+              pawnId: Number.isFinite(target?.id) ? target.id : ctx?.pawn?.id ?? null,
+              ownerIds:
+                Number.isFinite(target?.id) || Number.isFinite(ctx?.pawn?.id)
+                  ? [Number.isFinite(target?.id) ? target.id : ctx.pawn.id]
+                  : [],
+              value: Math.floor(next),
+              threshold,
+            },
+          });
+        }
+      }
     } else if (charge.kind === "item") {
       const inv = getInventoryForRef(ctx, charge.targetRef);
       if (!inv) continue;
       if (charge.amount <= 0) continue;
       let remaining = charge.amount;
       remaining -= consumeFromInventoryForCost(inv, charge.itemId, remaining);
+      if (remaining > 0 && charge.allowDistributorPools) {
+        const localInventories = getLocalInventories(ctx);
+        remaining -= consumeFromLocalInventoriesByItem(
+          localInventories,
+          charge.itemId,
+          remaining
+        );
+      }
       if (remaining > 0 && charge.allowDistributorPools) {
         const pools = getDistributorPools(ctx);
         consumeFromPoolByItem(pools, charge.itemId, remaining);
@@ -500,6 +632,14 @@ export function applyCosts(resolvedCosts, ctx) {
       if (charge.amount <= 0) continue;
       let remaining = charge.amount;
       remaining -= consumeFromInventoryForTag(inv, charge.tag, remaining);
+      if (remaining > 0 && charge.allowDistributorPools) {
+        const localInventories = getLocalInventories(ctx);
+        remaining -= consumeFromLocalInventoriesByTag(
+          localInventories,
+          charge.tag,
+          remaining
+        );
+      }
       if (remaining > 0 && charge.allowDistributorPools) {
         const pools = getDistributorPools(ctx);
         consumeFromPoolByTag(pools, charge.tag, remaining);

@@ -180,6 +180,21 @@ export function ensurePawnSystems(pawn) {
       }
     }
   }
+
+  ensurePawnAI(pawn);
+}
+
+export function ensurePawnAI(pawn) {
+  if (!pawn || typeof pawn !== "object") return;
+  const raw = pawn.ai;
+  const ai = raw && typeof raw === "object" ? raw : {};
+  const mode = ai.mode === "eat" || ai.mode === "rest" ? ai.mode : null;
+  const suppressAutoUntilSec = Number.isFinite(ai.suppressAutoUntilSec)
+    ? Math.max(0, Math.floor(ai.suppressAutoUntilSec))
+    : 0;
+  ai.mode = mode;
+  ai.suppressAutoUntilSec = suppressAutoUntilSec;
+  pawn.ai = ai;
 }
 
 function ensureLeaderPrestigeFields(pawn) {

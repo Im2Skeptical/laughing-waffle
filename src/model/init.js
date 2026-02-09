@@ -96,6 +96,10 @@ export function createInitialState(scenario = "testing", seed = null) {
       props: {},
       role,
       leaderId: null,
+      ai: {
+        mode: null,
+        suppressAutoUntilSec: 0,
+      },
     };
     if (role === "follower") {
       pawn.followerCreationOrderIndex = state.nextFollowerCreationOrderIndex++;

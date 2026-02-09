@@ -45,6 +45,7 @@ export const hubTagDefs = {
     kind: "hubTag",
     ui: { name: "Rest", description: "Rest here to regain stamina." },
     systems: [],
+    affordances: ["restSpot"],
     passives: [],
     intents: [
       {

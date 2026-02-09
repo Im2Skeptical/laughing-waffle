@@ -17,7 +17,7 @@ export const SEASON_DISPLAY = {
 // --- Moon / Action Point Cap ---
 export const MOON_CYCLE_SEC = 300;
 export const MOON_PHASE_OFFSET_SEC = 15;
-export const AP_CAP_MIN = 0;
+export const AP_CAP_MIN = 30;
 export const AP_CAP_MAX = 120;
 export const AP_INCOME_PER_SEC = 1;
 export const AP_INCOME_MULT_WAXING = 8;
@@ -36,6 +36,15 @@ export const PRESTIGE_CURVE_A_BY_TIER = {
   gold: 8,
   diamond: 12,
 };
+
+// --- Pawn AI (eat/rest automation) ---
+export const PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC = 20;
+export const PAWN_AI_HUNGER_WARNING = 50;
+export const PAWN_AI_HUNGER_START_EAT = 40;
+export const PAWN_AI_HUNGER_FULL = 100;
+export const PAWN_AI_STAMINA_WARNING = 30;
+export const PAWN_AI_STAMINA_START_REST = 20;
+export const PAWN_AI_STAMINA_FULL = 100;
 
 // --- Population ---
 export const INITIAL_POPULATION_DEFAULT = 8;

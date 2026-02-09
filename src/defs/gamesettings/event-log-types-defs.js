@@ -17,12 +17,27 @@ export const eventLogTypeDefs = {
   pawnHungry: {
     id: "pawnHungry",
     label: "Hungry",
-    color: 0xff0000, //#ff8c00
+    color: 0xffa640,
+  },
+  pawnTired: {
+    id: "pawnTired",
+    label: "Tired",
+    color: 0xffd166,
   },
   pawnAte: {
     id: "pawnAte",
     label: "Ate",
     color: 0x7bd88f,
+  },
+  pawnMovedToFood: {
+    id: "pawnMovedToFood",
+    label: "Seek Food",
+    color: 0x6fc6ff,
+  },
+  pawnMovedToRest: {
+    id: "pawnMovedToRest",
+    label: "Seek Rest",
+    color: 0x9ca3ff,
   },
   hubBuildComplete: {
     id: "hubBuildComplete",

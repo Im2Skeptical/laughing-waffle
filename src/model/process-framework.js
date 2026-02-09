@@ -448,6 +448,10 @@ export function getProcessDefForInstance(process, target, context) {
       store: "inv",
       includeSelfInv: true,
       includeOccupants: true,
+      includePool: [
+        { systemId: "granaryStore", poolKey: "byKindTier" },
+        { systemId: "storehouseStore", poolKey: "byKindTier" },
+      ],
     };
   }
 

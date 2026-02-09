@@ -27,6 +27,7 @@ import {
   AP_INCOME_PER_SEC,
   AP_INCOME_MULT_WAXING,
   AP_INCOME_MULT_WANING,
+  PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC,
 } from "../defs/gamesettings/gamerules-defs.js";
 
 import {
@@ -34,6 +35,7 @@ import {
   buildSeasonDeckForCurrentSeason,
   makeHubStructureInstance,
   ensureHubState,
+  ensurePawnAI,
   rebuildHubOccupancy,
 } from "./state.js";
 
@@ -345,7 +347,7 @@ export function cmdTickSimulation(state, dt) {
 
   if (didAdvanceSecond) {
     processSecondChangeForItems(state);
-    stepPawnSecond(state, state.tSec);
+    stepPawnSecond(state, state.tSec, { placeCharacter: cmdPlaceCharacter });
     stepEnvSecond(state, state.tSec);
     stepHubSecond(state, state.tSec);
     enforcePrestigeFollowerCap(state);
@@ -2074,6 +2076,13 @@ export function cmdPlaceCharacter(state, payload = {}) {
 
   ch.hubCol = nextHubCol;
   ch.envCol = nextEnvCol;
+  ensurePawnAI(ch);
+  if (payload.skipAutoSuppress !== true) {
+    const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    ch.ai.mode = null;
+    ch.ai.suppressAutoUntilSec =
+      nowSec + PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC;
+  }
 
   maybeAutoFollowLeader(state, ch);
 
