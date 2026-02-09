@@ -175,6 +175,15 @@ export function validateSkillDefs({
           }
         }
         if (
+          ringLayout.localSwapIterations != null &&
+          (!Number.isFinite(ringLayout.localSwapIterations) || ringLayout.localSwapIterations < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.localSwapIterations must be >= 0 when provided.`
+          );
+        }
+        if (
           ringLayout.overlapIterations != null &&
           (!Number.isFinite(ringLayout.overlapIterations) || ringLayout.overlapIterations < 0)
         ) {
@@ -190,6 +199,42 @@ export function validateSkillDefs({
           addIssue(
             errors,
             `skillTrees: "${tree.id}" ui.ringLayout.overlapPaddingPx must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.radialNudgeIterations != null &&
+          (!Number.isFinite(ringLayout.radialNudgeIterations) || ringLayout.radialNudgeIterations < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.radialNudgeIterations must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.radialNudgeMaxPx != null &&
+          (!Number.isFinite(ringLayout.radialNudgeMaxPx) || ringLayout.radialNudgeMaxPx < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.radialNudgeMaxPx must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.radialNudgePaddingPx != null &&
+          (!Number.isFinite(ringLayout.radialNudgePaddingPx) || ringLayout.radialNudgePaddingPx < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.radialNudgePaddingPx must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.radialNudgeSpring != null &&
+          (!Number.isFinite(ringLayout.radialNudgeSpring) || ringLayout.radialNudgeSpring < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.radialNudgeSpring must be >= 0 when provided.`
           );
         }
         treeDeclaredRingIds.set(tree.id, declaredRingIds);

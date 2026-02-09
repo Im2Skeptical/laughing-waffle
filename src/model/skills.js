@@ -580,12 +580,30 @@ function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
     barycenterIterations: Number.isFinite(layoutCfg?.barycenterIterations)
       ? Math.max(1, Math.floor(layoutCfg.barycenterIterations))
       : 6,
+    localSwapIterations: Number.isFinite(layoutCfg?.localSwapIterations)
+      ? Math.max(0, Math.floor(layoutCfg.localSwapIterations))
+      : 2,
     overlapIterations: Number.isFinite(layoutCfg?.overlapIterations)
       ? Math.max(0, Math.floor(layoutCfg.overlapIterations))
       : 3,
     overlapPaddingPx: Number.isFinite(layoutCfg?.overlapPaddingPx)
       ? Math.max(0, layoutCfg.overlapPaddingPx)
       : 10,
+    componentBandGapDeg: Number.isFinite(layoutCfg?.componentBandGapDeg)
+      ? Math.max(0, layoutCfg.componentBandGapDeg)
+      : 8,
+    radialNudgeIterations: Number.isFinite(layoutCfg?.radialNudgeIterations)
+      ? Math.max(0, Math.floor(layoutCfg.radialNudgeIterations))
+      : 4,
+    radialNudgeMaxPx: Number.isFinite(layoutCfg?.radialNudgeMaxPx)
+      ? Math.max(0, layoutCfg.radialNudgeMaxPx)
+      : 36,
+    radialNudgePaddingPx: Number.isFinite(layoutCfg?.radialNudgePaddingPx)
+      ? Math.max(0, layoutCfg.radialNudgePaddingPx)
+      : 12,
+    radialNudgeSpring: Number.isFinite(layoutCfg?.radialNudgeSpring)
+      ? Math.max(0, layoutCfg.radialNudgeSpring)
+      : 0.12,
     coreSpread: Number.isFinite(layoutCfg?.coreSpread)
       ? Math.max(0, Math.floor(layoutCfg.coreSpread))
       : 48,
@@ -685,6 +703,184 @@ function resolveAngularOverlapsInWedge({
   for (let i = 0; i < n; i++) {
     thetaByNodeId[orderedIds[i]] = clampNumber(angles[i], minTheta, maxTheta);
   }
+}
+
+function optimizeRingOrderWithLocalSwaps({
+  groupsByRing,
+  wedgeOrder,
+  maxRing,
+  nodeById,
+  iterations,
+}) {
+  const swapPasses = Math.max(0, Math.floor(iterations || 0));
+  if (swapPasses <= 0) return;
+
+  function getRingNodeIndexMap(ring) {
+    const out = new Map();
+    const ringMap = groupsByRing.get(ring);
+    if (!ringMap) return out;
+    let index = 0;
+    const wedgeList = ring === 0 ? ["Core"] : wedgeOrder;
+    for (const wedge of wedgeList) {
+      const ids = ringMap.get(wedge) || [];
+      for (const id of ids) out.set(id, index++);
+    }
+    return out;
+  }
+
+  function getNodeCostAtSlot(nodeId, slotIndex, neighborIndexMap) {
+    if (!neighborIndexMap || neighborIndexMap.size === 0) return 0;
+    const neighbors = getAdjacentNodeIds(nodeById.get(nodeId)).filter((adjId) =>
+      neighborIndexMap.has(adjId)
+    );
+    if (!neighbors.length) return 0;
+    let sum = 0;
+    for (const neighborId of neighbors) {
+      sum += Math.abs(slotIndex - neighborIndexMap.get(neighborId));
+    }
+    return sum / neighbors.length;
+  }
+
+  for (let pass = 0; pass < swapPasses; pass++) {
+    for (let ring = 1; ring <= maxRing; ring++) {
+      const prevIndexByNode = getRingNodeIndexMap(ring - 1);
+      const nextIndexByNode = getRingNodeIndexMap(ring + 1);
+      const ringMap = groupsByRing.get(ring);
+      if (!ringMap) continue;
+
+      for (const wedge of wedgeOrder) {
+        const ids = ringMap.get(wedge);
+        if (!ids || ids.length <= 1) continue;
+
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (let i = 0; i < ids.length - 1; i++) {
+            const a = ids[i];
+            const b = ids[i + 1];
+
+            const before =
+              getNodeCostAtSlot(a, i, prevIndexByNode) +
+              getNodeCostAtSlot(a, i, nextIndexByNode) +
+              getNodeCostAtSlot(b, i + 1, prevIndexByNode) +
+              getNodeCostAtSlot(b, i + 1, nextIndexByNode);
+            const after =
+              getNodeCostAtSlot(a, i + 1, prevIndexByNode) +
+              getNodeCostAtSlot(a, i + 1, nextIndexByNode) +
+              getNodeCostAtSlot(b, i, prevIndexByNode) +
+              getNodeCostAtSlot(b, i, nextIndexByNode);
+
+            if (after + 0.0001 < before) {
+              ids[i] = b;
+              ids[i + 1] = a;
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function computeRadialBreathingOffsets({
+  nodeIds,
+  ringByNodeId,
+  wedgeByNodeId,
+  thetaByNodeId,
+  baseRadiusByNodeId,
+  nodeById,
+  treeDef,
+  cfg,
+}) {
+  const iterations = Number.isFinite(cfg?.radialNudgeIterations)
+    ? Math.max(0, Math.floor(cfg.radialNudgeIterations))
+    : 0;
+  const maxNudge = Number.isFinite(cfg?.radialNudgeMaxPx)
+    ? Math.max(0, cfg.radialNudgeMaxPx)
+    : 0;
+  if (iterations <= 0 || maxNudge <= 0) return {};
+
+  const spacingPadding = Number.isFinite(cfg?.radialNudgePaddingPx)
+    ? Math.max(0, cfg.radialNudgePaddingPx)
+    : 12;
+  const spring = Number.isFinite(cfg?.radialNudgeSpring)
+    ? Math.max(0, cfg.radialNudgeSpring)
+    : 0.12;
+  const step = 0.28;
+  const maxStepPx = Math.max(4, Math.floor(maxNudge * 0.35));
+
+  const movableIds = nodeIds.filter((id) => {
+    const ring = ringByNodeId[id];
+    return Number.isFinite(ring) && ring > 0 && Number.isFinite(thetaByNodeId[id]);
+  });
+  if (!movableIds.length) return {};
+
+  const radiusByNodeId = {};
+  const offsetByNodeId = {};
+  const adjacentSetByNodeId = {};
+  for (const id of movableIds) {
+    radiusByNodeId[id] = getLayoutNodeRadius(nodeById.get(id), treeDef);
+    offsetByNodeId[id] = 0;
+    adjacentSetByNodeId[id] = new Set(getAdjacentNodeIds(nodeById.get(id)));
+  }
+
+  function getPos(nodeId) {
+    const theta = thetaByNodeId[nodeId];
+    const baseRadius = Number.isFinite(baseRadiusByNodeId[nodeId]) ? baseRadiusByNodeId[nodeId] : 0;
+    const radius = Math.max(0, baseRadius + (offsetByNodeId[nodeId] || 0));
+    return {
+      x: cfg.centerX + radius * Math.cos(theta),
+      y: cfg.centerY + radius * Math.sin(theta),
+      radius,
+      theta,
+    };
+  }
+
+  function shouldInteract(aId, bId) {
+    const ringA = ringByNodeId[aId];
+    const ringB = ringByNodeId[bId];
+    const wedgeA = wedgeByNodeId[aId];
+    const wedgeB = wedgeByNodeId[bId];
+    if (adjacentSetByNodeId[aId]?.has(bId) || adjacentSetByNodeId[bId]?.has(aId)) return true;
+    if (wedgeA === wedgeB && Math.abs(ringA - ringB) <= 1) return true;
+    return false;
+  }
+
+  for (let iter = 0; iter < iterations; iter++) {
+    for (const id of movableIds) {
+      const pi = getPos(id);
+      const ux = Math.cos(pi.theta);
+      const uy = Math.sin(pi.theta);
+      let push = 0;
+
+      for (const otherId of movableIds) {
+        if (otherId === id) continue;
+        if (!shouldInteract(id, otherId)) continue;
+        const pj = getPos(otherId);
+        const dx = pi.x - pj.x;
+        const dy = pi.y - pj.y;
+        const dist = Math.hypot(dx, dy);
+        const minDist = radiusByNodeId[id] + radiusByNodeId[otherId] + spacingPadding;
+        if (!Number.isFinite(dist) || dist <= 0.0001 || dist >= minDist) continue;
+
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const overlap = minDist - dist;
+        const radialEffect = nx * ux + ny * uy;
+        push += radialEffect * overlap;
+      }
+
+      push -= (offsetByNodeId[id] || 0) * spring;
+      const delta = clampNumber(push * step, -maxStepPx, maxStepPx);
+      offsetByNodeId[id] = clampNumber(
+        (offsetByNodeId[id] || 0) + delta,
+        -maxNudge,
+        maxNudge
+      );
+    }
+  }
+
+  return offsetByNodeId;
 }
 
 function buildBfsLayout(treeDef, opts, defsInput) {
@@ -862,9 +1058,18 @@ function buildRingLayout(treeDef, opts, defsInput) {
     }
   }
 
+  optimizeRingOrderWithLocalSwaps({
+    groupsByRing,
+    wedgeOrder,
+    maxRing,
+    nodeById,
+    iterations: cfg.localSwapIterations,
+  });
+
   const positionsByNodeId = {};
   const depthByNodeIdOut = {};
   const thetaByNodeId = {};
+  const baseRadiusByNodeId = {};
   const wedgeBoundsByRing = new Map();
 
   const coreNodes = (groupsByRing.get(0)?.get("Core") || []).slice();
@@ -910,6 +1115,7 @@ function buildRingLayout(treeDef, opts, defsInput) {
             ? center
             : center - span / 2 + (span * i) / (ids.length - 1);
         thetaByNodeId[nodeId] = theta;
+        baseRadiusByNodeId[nodeId] = radius;
         depthByNodeIdOut[nodeId] = ring;
       }
     }
@@ -936,6 +1142,17 @@ function buildRingLayout(treeDef, opts, defsInput) {
     }
   }
 
+  const radialOffsetByNodeId = computeRadialBreathingOffsets({
+    nodeIds,
+    ringByNodeId,
+    wedgeByNodeId,
+    thetaByNodeId,
+    baseRadiusByNodeId,
+    nodeById,
+    treeDef,
+    cfg,
+  });
+
   for (let ring = 1; ring <= maxRing; ring++) {
     const ringMap = groupsByRing.get(ring);
     const wedgeBounds = wedgeBoundsByRing.get(ring);
@@ -947,9 +1164,13 @@ function buildRingLayout(treeDef, opts, defsInput) {
       const centerTheta = (bounds.minTheta + bounds.maxTheta) / 2;
       for (const nodeId of ids) {
         const theta = Number.isFinite(thetaByNodeId[nodeId]) ? thetaByNodeId[nodeId] : centerTheta;
+        const radialOffset = Number.isFinite(radialOffsetByNodeId[nodeId])
+          ? radialOffsetByNodeId[nodeId]
+          : 0;
+        const radius = Math.max(0, bounds.radius + radialOffset);
         positionsByNodeId[nodeId] = {
-          x: Math.floor(cfg.centerX + bounds.radius * Math.cos(theta)),
-          y: Math.floor(cfg.centerY + bounds.radius * Math.sin(theta)),
+          x: Math.floor(cfg.centerX + radius * Math.cos(theta)),
+          y: Math.floor(cfg.centerY + radius * Math.sin(theta)),
           depth: ring,
         };
         depthByNodeIdOut[nodeId] = ring;

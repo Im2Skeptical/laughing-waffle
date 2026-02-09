@@ -17,6 +17,11 @@ const MIN_NODE_RADIUS = 10;
 const MAX_NODE_RADIUS = 72;
 const EDGE_COLOR = 0x4b5875;
 const EDGE_ALPHA = 0.8;
+const EDGE_LANE_MIN_DEGREE = 3;
+const EDGE_LANE_STEP_MEDIUM = 11;
+const EDGE_LANE_STEP_DENSE = 14;
+const EDGE_ENDPOINT_LANE_SCALE = 0.38;
+const EDGE_CURVE_MAX_OFFSET = 64;
 const VIEWPORT_X = 36;
 const VIEWPORT_Y = 24;
 const VIEWPORT_WIDTH = 1460;
@@ -424,7 +429,11 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
     return { focusNodes, focusEdges };
   }
 
-  function computeEdgeFanOffsets(edges, positions) {
+  function makeDirectedEdgeKey(a, b) {
+    return `${a}|${b}`;
+  }
+
+  function computeEdgeLaneData(edges, positions) {
     const byNode = new Map();
     for (const edge of edges || []) {
       if (!byNode.has(edge.a)) byNode.set(edge.a, []);
@@ -433,10 +442,10 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
       byNode.get(edge.b).push(edge.a);
     }
 
-    const offsetByEdgeKey = new Map();
+    const endpointOffsetByEdgeKey = new Map();
     for (const [nodeId, neighborsRaw] of byNode.entries()) {
       const neighbors = neighborsRaw.slice();
-      if (neighbors.length < 5) continue;
+      if (neighbors.length < EDGE_LANE_MIN_DEGREE) continue;
       neighbors.sort((left, right) => {
         const pl = positions[left];
         const pr = positions[right];
@@ -448,14 +457,34 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
         return String(left).localeCompare(String(right));
       });
       const half = (neighbors.length - 1) / 2;
+      const laneStep =
+        neighbors.length >= 6 ? EDGE_LANE_STEP_DENSE : EDGE_LANE_STEP_MEDIUM;
       for (let i = 0; i < neighbors.length; i++) {
         const neighbor = neighbors[i];
-        const key = makeEdgeKey(nodeId, neighbor);
-        const current = offsetByEdgeKey.get(key) || 0;
-        offsetByEdgeKey.set(key, current + (i - half) * 8);
+        endpointOffsetByEdgeKey.set(
+          makeDirectedEdgeKey(nodeId, neighbor),
+          (i - half) * laneStep
+        );
       }
     }
-    return offsetByEdgeKey;
+
+    const edgeOffsetByKey = new Map();
+    for (const edge of edges || []) {
+      const key = makeEdgeKey(edge.a, edge.b);
+      const fromA = endpointOffsetByEdgeKey.get(makeDirectedEdgeKey(edge.a, edge.b)) || 0;
+      const fromB = endpointOffsetByEdgeKey.get(makeDirectedEdgeKey(edge.b, edge.a)) || 0;
+      let edgeOffset = 0;
+      if (fromA !== 0 && fromB !== 0 && Math.sign(fromA) === Math.sign(fromB)) {
+        edgeOffset = (fromA + fromB) / 2;
+      } else if (Math.abs(fromA) >= Math.abs(fromB)) {
+        edgeOffset = fromA * 0.9;
+      } else {
+        edgeOffset = fromB * 0.9;
+      }
+      edgeOffsetByKey.set(key, edgeOffset);
+    }
+
+    return { edgeOffsetByKey, endpointOffsetByEdgeKey };
   }
 
   function shouldShowNodeLabel(nodeDef, status, nodeId) {
@@ -570,7 +599,7 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
     const focusNodeId = getInfoNodeId();
     const { focusNodes, focusEdges } = getFocusSets(layout.edges || [], focusNodeId);
     const unlockedProjected = getBufferedUnlockedSet(state);
-    const fanOffsets = computeEdgeFanOffsets(layout.edges || [], positions);
+    const edgeLaneData = computeEdgeLaneData(layout.edges || [], positions);
 
     const edgeLayer = new PIXI.Container();
     treeWorld.addChild(edgeLayer);
@@ -634,15 +663,28 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
       const len = Math.hypot(dx, dy) || 1;
       const nx = -dy / len;
       const ny = dx / len;
-      const offset = fanOffsets.get(edgeKey) || 0;
+      const startLaneOffset =
+        edgeLaneData.endpointOffsetByEdgeKey.get(makeDirectedEdgeKey(edge.a, edge.b)) || 0;
+      const endLaneOffset =
+        edgeLaneData.endpointOffsetByEdgeKey.get(makeDirectedEdgeKey(edge.b, edge.a)) || 0;
+      const startX = pa.x + nx * startLaneOffset * EDGE_ENDPOINT_LANE_SCALE;
+      const startY = pa.y + ny * startLaneOffset * EDGE_ENDPOINT_LANE_SCALE;
+      const endX = pb.x + nx * endLaneOffset * EDGE_ENDPOINT_LANE_SCALE;
+      const endY = pb.y + ny * endLaneOffset * EDGE_ENDPOINT_LANE_SCALE;
+      const offset = edgeLaneData.edgeOffsetByKey.get(edgeKey) || 0;
       if (Math.abs(offset) > 0.5) {
-        const cx = (pa.x + pb.x) / 2 + nx * offset;
-        const cy = (pa.y + pb.y) / 2 + ny * offset;
-        edgeGraphics.moveTo(pa.x, pa.y);
-        edgeGraphics.quadraticCurveTo(cx, cy, pb.x, pb.y);
+        const curvedOffset = clamp(
+          offset,
+          -EDGE_CURVE_MAX_OFFSET,
+          EDGE_CURVE_MAX_OFFSET
+        );
+        const cx = (startX + endX) / 2 + nx * curvedOffset;
+        const cy = (startY + endY) / 2 + ny * curvedOffset;
+        edgeGraphics.moveTo(startX, startY);
+        edgeGraphics.quadraticCurveTo(cx, cy, endX, endY);
       } else {
-        edgeGraphics.moveTo(pa.x, pa.y);
-        edgeGraphics.lineTo(pb.x, pb.y);
+        edgeGraphics.moveTo(startX, startY);
+        edgeGraphics.lineTo(endX, endY);
       }
     }
     edgeLayer.addChild(edgeGraphics);
