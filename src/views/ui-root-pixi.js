@@ -21,6 +21,7 @@ import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
 import { createProcessWidgetView } from "./process-widget-pixi.js";
 import { createSkillTreeView } from "./skill-tree-pixi.js";
+import { createSkillTreeEditorView } from "./skill-tree-editor-pixi.js";
 import {
   BOARD_COLS,
   HUB_COLS,
@@ -57,6 +58,7 @@ let actionLogView = null;
 let eventLogView = null;
 let externalUiFocus = null;
 let skillTreeView = null;
+let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
 
 const runner = createSimRunner({
@@ -168,6 +170,7 @@ function resizeCanvas() {
   document.documentElement.style.backgroundColor = "black";
   document.documentElement.style.height = "100%";
   skillTreeView?.resize?.();
+  skillTreeEditorView?.resize?.();
 }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
@@ -312,9 +315,34 @@ function restoreMainUiAfterSkillTree() {
   tooltipView?.hide?.();
 }
 
+function openSkillTreeEditorForTree({ treeId, defsInput = null } = {}) {
+  if (!skillTreeEditorView) return { ok: false, reason: "noSkillTreeEditorView" };
+  if (!treeId || typeof treeId !== "string") return { ok: false, reason: "badTreeId" };
+  if (skillTreeEditorView.isOpen?.()) return { ok: false, reason: "alreadyOpen" };
+
+  requestPauseForAction();
+  const openRes = skillTreeEditorView.open({
+    treeId,
+    defsInput,
+    onExit: () => {
+      restoreMainUiAfterSkillTree();
+    },
+  });
+  if (!openRes?.ok) return openRes;
+
+  if (!mainUiHiddenBySkillTree) {
+    mainUiHiddenBySkillTree = true;
+    setMainUiVisible(false);
+  }
+  clearExternalUiFocus();
+  tooltipView?.hide?.();
+  return { ok: true };
+}
+
 function openSkillTreeForCharacter(characterId) {
   if (!skillTreeView) return { ok: false, reason: "noSkillTreeView" };
   if (skillTreeView.isOpen?.()) return { ok: false, reason: "alreadyOpen" };
+  if (skillTreeEditorView?.isOpen?.()) return { ok: false, reason: "editorOpen" };
   if (!Number.isFinite(characterId)) {
     return { ok: false, reason: "badCharacterId" };
   }
@@ -322,7 +350,14 @@ function openSkillTreeForCharacter(characterId) {
   requestPauseForAction();
   const openRes = skillTreeView.open({
     characterId: Math.floor(characterId),
-    onExit: () => {
+    onExit: (result) => {
+      if (result?.openEditor && result?.treeId) {
+        const editorRes = openSkillTreeEditorForTree({ treeId: result.treeId });
+        if (!editorRes?.ok) {
+          restoreMainUiAfterSkillTree();
+        }
+        return;
+      }
       restoreMainUiAfterSkillTree();
     },
   });
@@ -421,12 +456,27 @@ function applyScenarioDevUiBootstrap() {
     inventoryView?.rebuildWindow?.(ownerId);
   }
 
-  if (devUi.openSkillTree != null && devUi.openSkillTree !== false) {
+  const shouldOpenSkillTreeEditor =
+    devUi.openSkillTreeEditor != null && devUi.openSkillTreeEditor !== false;
+
+  if (!shouldOpenSkillTreeEditor && devUi.openSkillTree != null && devUi.openSkillTree !== false) {
     const selector = devUi.openSkillTree === true ? { type: "character", index: 0 } : devUi.openSkillTree;
     const characterId = resolveCharacterIdFromScenarioSelector(state, selector);
     if (characterId != null) {
       openSkillTreeForCharacter(characterId);
     }
+  }
+
+  if (shouldOpenSkillTreeEditor) {
+    const selector =
+      typeof devUi.openSkillTreeEditor === "object" && devUi.openSkillTreeEditor
+        ? devUi.openSkillTreeEditor
+        : {};
+    const treeId =
+      typeof selector.treeId === "string" && selector.treeId.length
+        ? selector.treeId
+        : "systemColorMap";
+    openSkillTreeEditorForTree({ treeId });
   }
 }
 
@@ -1344,6 +1394,12 @@ skillTreeView = createSkillTreeView({
   app,
   layer: uiLayers.skillTreeLayer,
   runner,
+  onOpenEditor: ({ treeId, defsInput }) => openSkillTreeEditorForTree({ treeId, defsInput }),
+});
+
+skillTreeEditorView = createSkillTreeEditorView({
+  app,
+  layer: uiLayers.skillTreeLayer,
 });
 
 flashActionLogAp = () => actionLogView.flashInsufficientAp?.();
@@ -1407,6 +1463,7 @@ app.ticker.add((delta) => {
   actionLogView.update(frameDt);
   eventLogView.update(frameDt);
   skillTreeView?.update?.(frameDt);
+  skillTreeEditorView?.update?.(frameDt);
   debugView.update();
 
   const anyMetricGraphOpen =

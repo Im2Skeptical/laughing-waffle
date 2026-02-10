@@ -40,7 +40,7 @@ import {
   makeEdgeKey,
 } from "./skill-tree/edge-routing.js";
 
-export function createSkillTreeView({ app, layer, runner } = {}) {
+export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   const root = new PIXI.Container();
   root.visible = false;
   root.eventMode = "static";
@@ -114,6 +114,11 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
   cancelBtn.root.x = 1690;
   cancelBtn.root.y = 104;
   root.addChild(cancelBtn.root);
+
+  const editorBtn = makeButton("Editor", 90, () => openEditor());
+  editorBtn.root.x = 1800;
+  editorBtn.root.y = 148;
+  root.addChild(editorBtn.root);
 
   const zoomInBtn = makeButton("Zoom +", 90, () => zoomBy(1.12));
   zoomInBtn.root.x = RIGHT_PANEL_X;
@@ -749,6 +754,31 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
     const characterId = activeCharacterId;
     close();
     exitCb?.({ saved: false, characterId });
+  }
+
+  function openEditor() {
+    if (typeof onOpenEditor !== "function") {
+      errorText.text = "Editor opener not configured.";
+      return;
+    }
+    if (!activeTreeId) {
+      errorText.text = "No active skill tree.";
+      return;
+    }
+    const res = onOpenEditor({
+      treeId: activeTreeId,
+      characterId: activeCharacterId,
+      defsInput: activeDefs,
+    });
+    if (!res?.ok) {
+      errorText.text = `Failed to open editor: ${res?.reason || "unknown"}`;
+      return;
+    }
+    const exitCb = onExit;
+    const characterId = activeCharacterId;
+    const treeId = activeTreeId;
+    close();
+    exitCb?.({ saved: false, characterId, openEditor: true, treeId });
   }
 
   function open({ characterId, defs = null, onExit: onExitCb } = {}) {

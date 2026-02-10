@@ -10,6 +10,7 @@ export const setupDefs = {
     // Optional dev-time UI bootstrap:
     // - openInventories: owner selectors opened/pinned on boot
     // - openSkillTree: false | true | character selector ({ type: "character", index })
+    // - openSkillTreeEditor: false | true | { treeId: "..." }
     devUi: {
       //openInventories: [{ type: "hubStructure", hubCol: 0 }],
       openSkillTree: true,
