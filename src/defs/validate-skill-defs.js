@@ -202,6 +202,15 @@ export function validateSkillDefs({
           );
         }
         if (
+          ringLayout.componentBandGapDeg != null &&
+          (!Number.isFinite(ringLayout.componentBandGapDeg) || ringLayout.componentBandGapDeg < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.componentBandGapDeg must be >= 0 when provided.`
+          );
+        }
+        if (
           ringLayout.radialNudgeIterations != null &&
           (!Number.isFinite(ringLayout.radialNudgeIterations) || ringLayout.radialNudgeIterations < 0)
         ) {

@@ -234,6 +234,7 @@ export const skillTrees = {
         localSwapIterations: 3,
         overlapIterations: 4,
         overlapPaddingPx: 8,
+        componentBandGapDeg: 10,
         radialNudgeIterations: 10,
         radialNudgeMaxPx: 50,
         radialNudgePaddingPx: 120,

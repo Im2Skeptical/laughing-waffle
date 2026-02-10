@@ -10,129 +10,35 @@ import {
   getSkillTreeLayout,
   getUnlockedSkillSet,
 } from "../model/skills.js";
-
-const DEFAULT_NODE_RADIUS = 24;
-const DEFAULT_NOTABLE_RADIUS = 34;
-const MIN_NODE_RADIUS = 10;
-const MAX_NODE_RADIUS = 72;
-const EDGE_COLOR = 0x4b5875;
-const EDGE_ALPHA = 0.8;
-const EDGE_LANE_MIN_DEGREE = 3;
-const EDGE_LANE_STEP_MEDIUM = 11;
-const EDGE_LANE_STEP_DENSE = 14;
-const EDGE_ENDPOINT_LANE_SCALE = 0.38;
-const EDGE_CURVE_MAX_OFFSET = 64;
-const VIEWPORT_X = 36;
-const VIEWPORT_Y = 24;
-const VIEWPORT_WIDTH = 1460;
-const VIEWPORT_HEIGHT = 1020;
-const RIGHT_PANEL_X = 1510;
-const MIN_ZOOM = 0.35;
-const MAX_ZOOM = 2.4;
-const EDGE_MODE_ALL = "all";
-const EDGE_MODE_FOCUS = "focus";
-const EDGE_MODE_PROGRESS = "progress";
-const EDGE_MODE_ORDER = [EDGE_MODE_ALL, EDGE_MODE_FOCUS, EDGE_MODE_PROGRESS];
-
-function floorInt(value, fallback = 0) {
-  return Number.isFinite(value) ? Math.floor(value) : fallback;
-}
-
-function sortedStrings(values) {
-  return values.slice().sort((a, b) => String(a).localeCompare(String(b)));
-}
-
-function clamp(value, min, max) {
-  if (!Number.isFinite(value)) return min;
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-}
-
-function makeEdgeKey(a, b) {
-  if (String(a) < String(b)) return `${a}|${b}`;
-  return `${b}|${a}`;
-}
-
-function formatNodeEffects(nodeDef) {
-  const lines = [];
-  const effects = nodeDef?.effects || null;
-  if (!effects) return lines;
-
-  const charMods = effects.characterMods || null;
-  if (charMods) {
-    if (Number.isFinite(charMods.forageTierBonus)) {
-      lines.push(`Forage tier +${floorInt(charMods.forageTierBonus)}`);
-    }
-    if (Number.isFinite(charMods.forageStaminaCostDelta)) {
-      lines.push(`Forage stamina ${floorInt(charMods.forageStaminaCostDelta)}`);
-    }
-    if (Number.isFinite(charMods.farmingStaminaCostDelta)) {
-      lines.push(`Farming stamina ${floorInt(charMods.farmingStaminaCostDelta)}`);
-    }
-    if (Number.isFinite(charMods.restStaminaBonusFlat)) {
-      lines.push(`Rest stamina +${floorInt(charMods.restStaminaBonusFlat)}`);
-    }
-    if (Number.isFinite(charMods.restStaminaBonusMult)) {
-      const pct = Math.round((charMods.restStaminaBonusMult - 1) * 100);
-      lines.push(`Rest stamina +${pct}%`);
-    }
-  }
-
-  const globalMods = effects.globalMods || null;
-  if (globalMods) {
-    if (Number.isFinite(globalMods.apCapBonus)) {
-      lines.push(`AP cap +${floorInt(globalMods.apCapBonus)}`);
-    }
-    if (Number.isFinite(globalMods.projectionHorizonBonusSec)) {
-      lines.push(`Projection horizon +${floorInt(globalMods.projectionHorizonBonusSec)}s`);
-    }
-    if (Number.isFinite(globalMods.populationFoodMult)) {
-      const pct = Math.round((1 - globalMods.populationFoodMult) * 100);
-      lines.push(`Population food -${pct}%`);
-    }
-  }
-
-  const unlocks = effects.unlocks || null;
-  if (unlocks) {
-    const recipes = Array.isArray(unlocks.recipes) ? unlocks.recipes : [];
-    const structures = Array.isArray(unlocks.hubStructures)
-      ? unlocks.hubStructures
-      : [];
-    if (recipes.length) lines.push(`Unlock recipes: ${recipes.join(", ")}`);
-    if (structures.length) lines.push(`Unlock buildings: ${structures.join(", ")}`);
-  }
-
-  return lines;
-}
-
-function makeButton(label, width, onTap) {
-  const root = new PIXI.Container();
-  root.eventMode = "static";
-  root.cursor = "pointer";
-
-  const bg = new PIXI.Graphics();
-  bg.beginFill(0x2a3350, 0.96);
-  bg.drawRoundedRect(0, 0, width, 34, 8);
-  bg.endFill();
-  root.addChild(bg);
-
-  const text = new PIXI.Text(label, {
-    fill: 0xffffff,
-    fontSize: 13,
-    fontWeight: "bold",
-  });
-  text.x = Math.floor((width - text.width) / 2);
-  text.y = 8;
-  root.addChild(text);
-
-  root.on("pointertap", (ev) => {
-    ev?.stopPropagation?.();
-    onTap?.();
-  });
-
-  return { root, bg, text };
-}
+import {
+  DEFAULT_NODE_RADIUS,
+  DEFAULT_NOTABLE_RADIUS,
+  EDGE_ALPHA,
+  EDGE_COLOR,
+  EDGE_CURVE_MAX_OFFSET,
+  EDGE_ENDPOINT_LANE_SCALE,
+  EDGE_MODE_ALL,
+  EDGE_MODE_FOCUS,
+  EDGE_MODE_ORDER,
+  EDGE_MODE_PROGRESS,
+  MAX_NODE_RADIUS,
+  MAX_ZOOM,
+  MIN_NODE_RADIUS,
+  MIN_ZOOM,
+  RIGHT_PANEL_X,
+  VIEWPORT_HEIGHT,
+  VIEWPORT_WIDTH,
+  VIEWPORT_X,
+  VIEWPORT_Y,
+} from "./skill-tree/constants.js";
+import { makeButton } from "./skill-tree/button.js";
+import { clamp, floorInt, formatNodeEffects, sortedStrings } from "./skill-tree/formatters.js";
+import {
+  computeEdgeLaneData,
+  getFocusSets,
+  makeDirectedEdgeKey,
+  makeEdgeKey,
+} from "./skill-tree/edge-routing.js";
 
 export function createSkillTreeView({ app, layer, runner } = {}) {
   const root = new PIXI.Container();
@@ -413,80 +319,6 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
     return unlocked;
   }
 
-  function getFocusSets(edges, focusNodeId) {
-    const focusNodes = new Set();
-    const focusEdges = new Set();
-    if (!focusNodeId) return { focusNodes, focusEdges };
-
-    focusNodes.add(focusNodeId);
-    for (const edge of edges || []) {
-      if (edge.a === focusNodeId || edge.b === focusNodeId) {
-        focusNodes.add(edge.a);
-        focusNodes.add(edge.b);
-        focusEdges.add(makeEdgeKey(edge.a, edge.b));
-      }
-    }
-    return { focusNodes, focusEdges };
-  }
-
-  function makeDirectedEdgeKey(a, b) {
-    return `${a}|${b}`;
-  }
-
-  function computeEdgeLaneData(edges, positions) {
-    const byNode = new Map();
-    for (const edge of edges || []) {
-      if (!byNode.has(edge.a)) byNode.set(edge.a, []);
-      if (!byNode.has(edge.b)) byNode.set(edge.b, []);
-      byNode.get(edge.a).push(edge.b);
-      byNode.get(edge.b).push(edge.a);
-    }
-
-    const endpointOffsetByEdgeKey = new Map();
-    for (const [nodeId, neighborsRaw] of byNode.entries()) {
-      const neighbors = neighborsRaw.slice();
-      if (neighbors.length < EDGE_LANE_MIN_DEGREE) continue;
-      neighbors.sort((left, right) => {
-        const pl = positions[left];
-        const pr = positions[right];
-        const pn = positions[nodeId];
-        if (!pl || !pr || !pn) return String(left).localeCompare(String(right));
-        const al = Math.atan2(pl.y - pn.y, pl.x - pn.x);
-        const ar = Math.atan2(pr.y - pn.y, pr.x - pn.x);
-        if (al !== ar) return al - ar;
-        return String(left).localeCompare(String(right));
-      });
-      const half = (neighbors.length - 1) / 2;
-      const laneStep =
-        neighbors.length >= 6 ? EDGE_LANE_STEP_DENSE : EDGE_LANE_STEP_MEDIUM;
-      for (let i = 0; i < neighbors.length; i++) {
-        const neighbor = neighbors[i];
-        endpointOffsetByEdgeKey.set(
-          makeDirectedEdgeKey(nodeId, neighbor),
-          (i - half) * laneStep
-        );
-      }
-    }
-
-    const edgeOffsetByKey = new Map();
-    for (const edge of edges || []) {
-      const key = makeEdgeKey(edge.a, edge.b);
-      const fromA = endpointOffsetByEdgeKey.get(makeDirectedEdgeKey(edge.a, edge.b)) || 0;
-      const fromB = endpointOffsetByEdgeKey.get(makeDirectedEdgeKey(edge.b, edge.a)) || 0;
-      let edgeOffset = 0;
-      if (fromA !== 0 && fromB !== 0 && Math.sign(fromA) === Math.sign(fromB)) {
-        edgeOffset = (fromA + fromB) / 2;
-      } else if (Math.abs(fromA) >= Math.abs(fromB)) {
-        edgeOffset = fromA * 0.9;
-      } else {
-        edgeOffset = fromB * 0.9;
-      }
-      edgeOffsetByKey.set(key, edgeOffset);
-    }
-
-    return { edgeOffsetByKey, endpointOffsetByEdgeKey };
-  }
-
   function shouldShowNodeLabel(nodeDef, status, nodeId) {
     const isFocused = nodeId === getInfoNodeId();
     const tags = Array.isArray(nodeDef?.tags) ? nodeDef.tags : [];
@@ -613,6 +445,21 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
       const pa = positions[edge.a];
       const pb = positions[edge.b];
       if (!pa || !pb) continue;
+      const sa = nodeStatusById.get(edge.a);
+      const sb = nodeStatusById.get(edge.b);
+      const endAHot =
+        unlockedProjected.has(edge.a) || sa === "pending" || sa === "unlockable";
+      const endBHot =
+        unlockedProjected.has(edge.b) || sb === "pending" || sb === "unlockable";
+
+      if (
+        edgeMode === EDGE_MODE_ALL &&
+        camera.scale < 0.55 &&
+        !focusEdges.has(edgeKey) &&
+        !(endAHot || endBHot)
+      ) {
+        continue;
+      }
 
       let color = EDGE_COLOR;
       let alpha = EDGE_ALPHA * 0.26;
@@ -629,12 +476,6 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
           alpha = EDGE_ALPHA * 0.24;
         }
       } else if (edgeMode === EDGE_MODE_PROGRESS) {
-        const sa = nodeStatusById.get(edge.a);
-        const sb = nodeStatusById.get(edge.b);
-        const endAHot =
-          unlockedProjected.has(edge.a) || sa === "pending" || sa === "unlockable";
-        const endBHot =
-          unlockedProjected.has(edge.b) || sb === "pending" || sb === "unlockable";
         if (endAHot && endBHot) {
           color = 0x84f5a4;
           alpha = 0.85;
@@ -655,6 +496,10 @@ export function createSkillTreeView({ app, layer, runner } = {}) {
         alpha = 0.7;
         color = 0xa5d4ff;
         width = 2.6;
+      }
+
+      if (edgeMode === EDGE_MODE_ALL && camera.scale < 0.55 && !focusEdges.has(edgeKey)) {
+        alpha *= endAHot || endBHot ? 0.7 : 0.45;
       }
 
       edgeGraphics.lineStyle(width, color, alpha);
