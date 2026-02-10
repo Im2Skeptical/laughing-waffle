@@ -8,6 +8,33 @@ Reference for all currently registered effect ops in `src/model/effects/index.js
 - `kind` is accepted as an alias for `op`.
 - Unknown ops are ignored (return `false`).
 
+## Skill Tree Additions (Not `runEffect` Ops)
+- Skill tree node payloads in `skill-tree-defs.js` are not registered effect ops and are not executed by `runEffect`.
+- Runtime reads them via `src/model/skills.js` and applies them as deterministic derived modifiers.
+
+### `skillNodes[*].effects.characterMods`
+- `forageTierBonus` (additive integer)
+- `forageStaminaCostDelta` (additive integer)
+- `farmingStaminaCostDelta` (additive integer)
+- `restStaminaBonusFlat` (additive integer)
+- `restStaminaBonusMult` (multiplicative number)
+
+### `skillNodes[*].effects.globalMods`
+- `apCapBonus` (additive integer)
+- `projectionHorizonBonusSec` (additive integer)
+- `populationFoodMult` (multiplicative number)
+
+### `skillNodes[*].effects.unlocks`
+- `recipes: string[]`
+- `hubStructures: string[]`
+
+### Skill Node Requirement Shape
+- `requirements.requiredNodeIds: string[]`
+
+### Notes
+- Current gameplay wiring uses `forageStaminaCostDelta` and `farmingStaminaCostDelta` in intent stamina costs.
+- AP cap, projection horizon, seasonal population food attempts, and recipe/building availability are fed from aggregated global skill mods.
+
 ## Shared Conventions
 
 ### Context kinds in use

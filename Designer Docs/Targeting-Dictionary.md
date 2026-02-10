@@ -83,3 +83,11 @@ Used by `ConsumeItem`, `TransferUnits`, `SpawnItem`, `SpawnFromDropTable`.
 ### Return type notes
 - Resolver may return pawn objects or raw owner ids depending on spec.
 - Game ops normalize each target by using `target.id` when object, otherwise raw id.
+
+## Skill Tree Targeting Scope (Outside Effect Target Resolvers)
+- Skill tree node effects do not use `target` specs or `resolveBoardTargets` / `resolveOwnerTargets`.
+- Targeting is implied by effect bucket:
+  - `effects.characterMods`: applies only to the character that unlocked the node.
+  - `effects.globalMods`: aggregates across all characters and applies globally.
+  - `effects.unlocks.recipes` / `effects.unlocks.hubStructures`: global unlock gates for recipe and build availability.
+- Aggregation is deterministic (character and node id ordering is normalized in `src/model/skills.js`).

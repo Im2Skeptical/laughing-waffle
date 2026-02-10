@@ -113,6 +113,20 @@ Used by passives in multiple systems.
 - Draws one entry from current season deck and applies event `spawn` rules.
 - If `spawn.consumePolicy === "onlyIfAnyPlaced"` and no anchor is placed, entry is pushed back to the front of deck.
 
+## Skill Tree Unlock Trigger (Action-Driven)
+- Skill unlocks are triggered by timeline action `unlockSkillNode` (`ActionKinds.UNLOCK_SKILL_NODE` -> `cmdUnlockSkillNode`).
+- Unlock actions follow normal edit-action gating:
+  - must be paused for non-replay execution (`applyAction` paused gate).
+  - executed at the action's `tSec` in replay/time-travel.
+- Unlock effects are passive after commit:
+  - no per-second `timing` trigger object in skill defs.
+  - systems query derived skill selectors/mods (`computeCharacterSkillMods`, `computeGlobalSkillMods`, `computeAvailableRecipesAndBuildings`).
+- Unlock validation includes:
+  - node exists, not already unlocked
+  - skill point affordability
+  - tree start node or adjacency-to-unlocked rule
+  - explicit requirements (`requirements.requiredNodeIds`)
+
 ## Command-Driven Effect Execution (`commands.js`)
 - Inventory commands run effect ops immediately (not per-second):
   - `cmdMoveItemBetweenOwners` -> `moveItem` (`context.kind = "inventoryMove"`)
