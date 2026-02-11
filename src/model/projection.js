@@ -5,10 +5,21 @@
 
 import { serializeGameState, deserializeGameState } from "./state.js";
 import { GRAPH_METRICS } from "./graph-metrics.js";
-import { rebuildStateAtSecond, isValidTimeline } from "./timeline.js";
+import {
+  rebuildStateAtSecond,
+  getStateDataAtSecond,
+  isValidTimeline,
+} from "./timeline.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { updateGame } from "./game-model.js";
 import { applyAction } from "./actions.js";
+import {
+  perfEnabled,
+  perfNowMs,
+  recordProjectionHistoryBuild,
+  recordProjectionForecastBuild,
+  recordProjectionStateWindowBuild,
+} from "./perf.js";
 
 const TICKS_PER_SEC = 60;
 const DEFAULT_DT_STEP = 1 / TICKS_PER_SEC;
@@ -16,6 +27,17 @@ const DEFAULT_DT_STEP = 1 / TICKS_PER_SEC;
 function clampSec(v) {
   if (!Number.isFinite(v)) return 0;
   return Math.max(0, Math.floor(v));
+}
+
+function resolveDtStepStrict(dtStep) {
+  if (dtStep == null) return { ok: true, dt: DEFAULT_DT_STEP };
+  if (!Number.isFinite(dtStep)) {
+    return { ok: false, reason: "unsupportedDtStep" };
+  }
+  if (dtStep !== DEFAULT_DT_STEP) {
+    return { ok: false, reason: "unsupportedDtStep" };
+  }
+  return { ok: true, dt: DEFAULT_DT_STEP };
 }
 
 function cloneState(state) {
@@ -82,16 +104,11 @@ export function getStateAtSecond(tl, tSec) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
   const s = clampSec(tSec);
 
-  // Fast path if there's an exact checkpoint at s.
-  const cpMap = checkpointMapBySecFromTimeline(tl);
-  const sd = cpMap.get(s);
-  if (sd != null) {
-    const st = deserializeGameState(sd);
-    canonicalizeSnapshot(st);
-    return { ok: true, state: st };
-  }
-
-  return rebuildStateAtSecond(tl, s);
+  const sdRes = getStateDataAtSecond(tl, s);
+  if (!sdRes.ok) return sdRes;
+  const st = deserializeGameState(sdRes.stateData);
+  canonicalizeSnapshot(st);
+  return { ok: true, state: st, stateData: sdRes.stateData };
 }
 
 // -----------------------------------------------------------------------------
@@ -99,8 +116,9 @@ export function getStateAtSecond(tl, tSec) {
 // -----------------------------------------------------------------------------
 
 function simulateForwardSecondsInPlace(state, seconds, dtStep) {
-  const dt =
-    typeof dtStep === "number" && dtStep > 0 ? dtStep : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dt = dtRes.dt;
 
   const totalSec = Math.max(0, clampSec(seconds));
 
@@ -108,11 +126,7 @@ function simulateForwardSecondsInPlace(state, seconds, dtStep) {
   state.paused = false;
 
   // Default semantics: fixed-step 60 ticks per second when dt=1/60.
-  // If dt differs, we approximate by stepping floor(totalSec/dt).
-  const steps =
-    dt === DEFAULT_DT_STEP
-      ? totalSec * TICKS_PER_SEC
-      : Math.max(0, Math.floor(totalSec / dt));
+  const steps = totalSec * TICKS_PER_SEC;
 
   for (let i = 0; i < steps; i++) {
     updateGame(dt, state);
@@ -123,7 +137,8 @@ function simulateForwardSecondsInPlace(state, seconds, dtStep) {
 
 function simulateForwardSecondsPure(startState, seconds, dtStep) {
   const state = cloneState(startState);
-  simulateForwardSecondsInPlace(state, seconds, dtStep);
+  const res = simulateForwardSecondsInPlace(state, seconds, dtStep);
+  if (!res.ok) return res;
   return { ok: true, state };
 }
 
@@ -144,18 +159,16 @@ function simulateUntilNextSeasonEventPure(
   dtStep,
   stepCapSec = 600
 ) {
-  const dt =
-    typeof dtStep === "number" && dtStep > 0 ? dtStep : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dt = dtRes.dt;
 
   const state = cloneState(startState);
   canonicalizeSnapshot(state);
   state.paused = false;
 
   const startSeason = state.currentSeasonIndex ?? 0;
-  const maxSteps =
-    dt === DEFAULT_DT_STEP
-      ? Math.max(1, Math.floor(stepCapSec) * TICKS_PER_SEC)
-      : Math.max(1, Math.floor(stepCapSec / dt));
+  const maxSteps = Math.max(1, Math.floor(stepCapSec) * TICKS_PER_SEC);
 
   for (let i = 0; i < maxSteps; i++) {
     updateGame(dt, state);
@@ -174,6 +187,8 @@ function simulateUntilNextSeasonEventPure(
 
 export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const series = normalizeSeries(opts?.series);
   const historyEndSec = clampSec(tl.historyEndSec ?? 0);
@@ -233,6 +248,18 @@ export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
     }
   }
 
+  if (perfEnabled()) {
+    recordProjectionHistoryBuild({
+      ms: perfNowMs() - perfStart,
+      points: history.length,
+    });
+  }
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     history,
@@ -248,11 +275,12 @@ export function buildMetricGraphWindowFromTimeline(
 ) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
   const series = normalizeSeries(opts?.series);
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -349,6 +377,12 @@ export function buildMetricGraphWindowFromTimeline(
     }
   }
 
+  if (perfEnabled()) {
+    recordProjectionForecastBuild({
+      ms: perfNowMs() - perfStart,
+      points: forecast.length,
+    });
+  }
   return {
     ok: true,
     window: {
@@ -372,10 +406,11 @@ export function buildProjectionStateWindowFromTimeline(
 ) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -426,10 +461,11 @@ export function buildProjectionStateStepWindowFromTimeline(
 ) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -466,6 +502,12 @@ export function buildProjectionStateStepWindowFromTimeline(
     stateDataBySecond.set(curSec, serializeGameState(s));
   }
 
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     window: {
@@ -488,10 +530,11 @@ export function buildProjectionStateStepWindowFromStateData(
 ) {
   if (baseStateData == null) return { ok: false, reason: "noBaseStateData" };
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -524,6 +567,12 @@ export function buildProjectionStateStepWindowFromStateData(
     stateDataBySecond.set(curSec, serializeGameState(s));
   }
 
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     window: {
@@ -546,10 +595,11 @@ export function buildProjectionStateWindowFromStateData(
 ) {
   if (baseStateData == null) return { ok: false, reason: "noBaseStateData" };
 
-  const dtStep =
-    typeof opts?.dtStep === "number" && opts.dtStep > 0
-      ? opts.dtStep
-      : DEFAULT_DT_STEP;
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
 
   const horizonSec =
     typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
@@ -576,6 +626,12 @@ export function buildProjectionStateWindowFromStateData(
     stateDataBySecond.set(curSec, serializeGameState(s));
   }
 
+  if (perfEnabled()) {
+    recordProjectionStateWindowBuild({
+      ms: perfNowMs() - perfStart,
+      points: stateDataBySecond.size,
+    });
+  }
   return {
     ok: true,
     window: {

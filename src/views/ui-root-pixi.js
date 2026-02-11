@@ -40,6 +40,7 @@ import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
 } from "./sunandmoon-disks-pixi.js";
+import { getPerfSnapshot } from "../model/perf.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
@@ -1618,6 +1619,16 @@ window.__DBG__ = {
   dispatch: (kind, payload) => runner.dispatchAction(kind, payload),
   getLastPlannerCommitError: () =>
     runner.getLastPlannerCommitError?.() ?? null,
+  perf: () =>
+    getPerfSnapshot({
+      timeline: runner.getTimeline(),
+      controllers: [
+        goldGraphController,
+        foodGraphController,
+        apGraphController,
+        systemGraphController,
+      ],
+    }),
   test: runDeterminismSuite,
 };
 

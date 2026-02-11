@@ -7,6 +7,12 @@ import { deserializeGameState, serializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { applyAction } from "./actions.js";
 import { updateGame } from "./game-model.js";
+import {
+  perfEnabled,
+  perfNowMs,
+  recordTimelineRebuild,
+  recordCheckpointMaintenance,
+} from "./perf.js";
 
 const TICKS_PER_SEC = 60;
 const MICROSTEP_DT = 1 / TICKS_PER_SEC;
@@ -65,6 +71,9 @@ function bumpRevision(tl) {
   // Clear memo eagerly to prevent growth; revision-keying also invalidates hits.
   if (tl.memoStateBySec) tl.memoStateBySec.clear();
   if (tl.memoFifo) tl.memoFifo.length = 0;
+  if (tl._actionSecondsRangeCache) {
+    tl._actionSecondsRangeCache = null;
+  }
   return tl.revision;
 }
 
@@ -150,6 +159,15 @@ function ensureActionsBySecFresh(tl) {
   if (!actionsSigEquals(cur, tl._actionsBySecSig) || !tl.actionsBySec) {
     rebuildActionsBySecIndex(tl);
   }
+}
+
+function ensureActionSecondsRangeCache(tl) {
+  const rev = ensureRevision(tl);
+  const cache = tl._actionSecondsRangeCache;
+  if (!cache || cache.revision !== rev || !cache.map) {
+    tl._actionSecondsRangeCache = { revision: rev, map: new Map() };
+  }
+  return tl._actionSecondsRangeCache.map;
 }
 
 // -----------------------------------------------------------------------------
@@ -307,6 +325,8 @@ export function replaceActionsAtSecond(tl, tSec, actionsAtSec, opts = {}) {
 export function maintainCheckpoints(tl, state) {
   if (!tl || !state) return;
 
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
   const currentSec = Math.floor(state.tSec ?? 0);
 
   tl.cursorSec = currentSec;
@@ -361,6 +381,10 @@ export function maintainCheckpoints(tl, state) {
     bumpRevision(tl);
     tl._memoGuardSig = computeTimelineMutationSig(tl);
   }
+
+  if (perfEnabled()) {
+    recordCheckpointMaintenance(perfNowMs() - perfStart);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -373,6 +397,8 @@ export function rebuildStateAtSecond(tl, targetSec) {
     return { ok: false, reason: "badTargetSec" };
   }
 
+  const perfStart = perfEnabled() ? perfNowMs() : 0;
+
   // Invalidate memo if timeline mutated out-of-band, and keep actionsBySec index fresh.
   ensureRevisionFreshAgainstOutOfBandMutations(tl);
 
@@ -383,6 +409,12 @@ export function rebuildStateAtSecond(tl, targetSec) {
   if (memoStateData != null) {
     const state = deserializeGameState(memoStateData);
     canonicalizeSnapshot(state);
+    if (perfEnabled()) {
+      recordTimelineRebuild({
+        ms: perfNowMs() - perfStart,
+        memoHit: true,
+      });
+    }
     return { ok: true, state, memoHit: true };
   }
 
@@ -444,7 +476,92 @@ export function rebuildStateAtSecond(tl, targetSec) {
   // Keep actionsBySec fresh in case callers rely on it post-rebuild.
   ensureActionsBySecFresh(tl);
 
+  if (perfEnabled()) {
+    recordTimelineRebuild({
+      ms: perfNowMs() - perfStart,
+      memoHit: false,
+    });
+  }
   return { ok: true, state, memoHit: false };
+}
+
+// -----------------------------------------------------------------------------
+// StateData Snapshot Service (timeline-owned)
+// -----------------------------------------------------------------------------
+
+export function getStateDataAtSecond(tl, targetSec) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+  if (!Number.isFinite(targetSec) || targetSec < 0) {
+    return { ok: false, reason: "badTargetSec" };
+  }
+
+  // Invalidate memo if timeline mutated out-of-band, and keep actionsBySec index fresh.
+  ensureRevisionFreshAgainstOutOfBandMutations(tl);
+
+  const target = Math.floor(targetSec);
+
+  // Exact checkpoint fast-path.
+  for (const cp of tl.checkpoints || []) {
+    if (Math.floor(cp?.checkpointSec ?? -1) === target && cp?.stateData != null) {
+      memoPutStateData(tl, target, cp.stateData);
+      return { ok: true, stateData: cp.stateData, source: "checkpoint" };
+    }
+  }
+
+  // Memo fast-path.
+  const memoStateData = memoGetStateData(tl, target);
+  if (memoStateData != null) {
+    return { ok: true, stateData: memoStateData, source: "memo" };
+  }
+
+  // Rebuild path (writes memo).
+  const rebuilt = rebuildStateAtSecond(tl, target);
+  if (!rebuilt.ok) return rebuilt;
+
+  const fromMemo = memoGetStateData(tl, target);
+  if (fromMemo != null) {
+    return { ok: true, stateData: fromMemo, source: "rebuild" };
+  }
+
+  const stateData = serializeGameState(rebuilt.state);
+  memoPutStateData(tl, target, stateData);
+  return { ok: true, stateData, source: "rebuild" };
+}
+
+// -----------------------------------------------------------------------------
+// Action seconds range query (cached per revision)
+// -----------------------------------------------------------------------------
+
+export function getActionSecondsInRange(tl, startSec, endSec) {
+  if (!isValidTimeline(tl)) return [];
+  const start = Math.max(0, Math.floor(startSec ?? 0));
+  const end = Math.max(0, Math.floor(endSec ?? 0));
+  if (end < start) return [];
+
+  // Ensure actionsBySec is fresh and revision cache is valid.
+  ensureRevisionFreshAgainstOutOfBandMutations(tl);
+
+  const cacheMap = ensureActionSecondsRangeCache(tl);
+  const key = `${start}:${end}`;
+  const cached = cacheMap.get(key);
+  if (cached) return cached.slice();
+
+  const actionsBySec = tl.actionsBySec;
+  if (!actionsBySec || typeof actionsBySec.keys !== "function") {
+    cacheMap.set(key, []);
+    return [];
+  }
+
+  const secs = [];
+  for (const secRaw of actionsBySec.keys()) {
+    const sec = Math.max(0, Math.floor(secRaw));
+    if (sec < start || sec > end) continue;
+    secs.push(sec);
+  }
+  if (secs.length > 1) secs.sort((a, b) => a - b);
+
+  cacheMap.set(key, secs);
+  return secs.slice();
 }
 
 // -----------------------------------------------------------------------------
