@@ -22,8 +22,8 @@ function validateEffects(node, knownRecipeIds, knownHubIds, errors) {
   const effects = isObject(node?.effects) ? node.effects : null;
   if (!effects) return;
 
-  if (effects.characterMods != null && !isObject(effects.characterMods)) {
-    addIssue(errors, `skillNodes: "${node.id}" effects.characterMods must be an object.`);
+  if (effects.pawnMods != null && !isObject(effects.pawnMods)) {
+    addIssue(errors, `skillNodes: "${node.id}" effects.pawnMods must be an object.`);
   }
   if (effects.globalMods != null && !isObject(effects.globalMods)) {
     addIssue(errors, `skillNodes: "${node.id}" effects.globalMods must be an object.`);

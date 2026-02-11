@@ -199,24 +199,24 @@ export function createInventoryView({
 
   function getLeaderForOwner(ownerId) {
     const state = getStateSafe();
-    const chars = state?.pawns;
-    if (!Array.isArray(chars)) return null;
-    const ch = chars.find((c) => c?.id === ownerId);
-    return ch && ch.role === "leader" ? ch : null;
+    const pawns = state?.pawns;
+    if (!Array.isArray(pawns)) return null;
+    const pawn = pawns.find((candidatePawn) => candidatePawn?.id === ownerId);
+    return pawn && pawn.role === "leader" ? pawn : null;
   }
 
   function getPawnForOwner(ownerId) {
     const state = getStateSafe();
-    const chars = state?.pawns;
-    if (!Array.isArray(chars)) return null;
-    return chars.find((c) => c?.id === ownerId) || null;
+    const pawns = state?.pawns;
+    if (!Array.isArray(pawns)) return null;
+    return pawns.find((candidatePawn) => candidatePawn?.id === ownerId) || null;
   }
 
   function getFollowersForLeader(state, leaderId) {
     if (!state || leaderId == null) return [];
-    const chars = Array.isArray(state.pawns) ? state.pawns : [];
-    return chars.filter(
-      (c) => c && c.role === "follower" && c.leaderId === leaderId
+    const pawns = Array.isArray(state.pawns) ? state.pawns : [];
+    return pawns.filter(
+      (pawn) => pawn && pawn.role === "follower" && pawn.leaderId === leaderId
     );
   }
 
@@ -504,11 +504,11 @@ export function createInventoryView({
       ev?.stopPropagation?.();
       if (uiBlocked) return;
       if (typeof openSkillTree !== "function") return;
-      const ch = getPawnForOwner(ownerId);
-      if (!ch || !Number.isFinite(ch.id)) return;
+      const pawn = getPawnForOwner(ownerId);
+      if (!pawn || !Number.isFinite(pawn.id)) return;
       openSkillTree({
-        leaderPawnId: Math.floor(ch.id),
-        pawnId: Math.floor(ch.id),
+        leaderPawnId: Math.floor(pawn.id),
+        pawnId: Math.floor(pawn.id),
         ownerId,
       });
     });

@@ -82,8 +82,8 @@ export function createPawnsView(opts) {
     return (nextR << 16) | (nextG << 8) | nextB;
   }
 
-  function getStaminaRatio(char) {
-    const stamina = char?.systemState?.stamina;
+  function getStaminaRatio(pawn) {
+    const stamina = pawn?.systemState?.stamina;
     const cur = Number.isFinite(stamina?.cur) ? stamina.cur : null;
     const max = Number.isFinite(stamina?.max) ? stamina.max : null;
     if (max != null && max <= 0) return 0;
@@ -273,24 +273,24 @@ export function createPawnsView(opts) {
     };
   }
 
-  function getHoverPlacementForChar(char) {
+  function getHoverPlacementForPawn(pawn) {
     let placement = null;
     if (typeof getPreviewPlacement === "function") {
-      placement = getPreviewPlacement(char.id);
+      placement = getPreviewPlacement(pawn.id);
     } else if (typeof getPreviewHubCol === "function") {
-      const overrideIdx = getPreviewHubCol(char.id);
+      const overrideIdx = getPreviewHubCol(pawn.id);
       if (overrideIdx != null) placement = { hubCol: overrideIdx };
     }
 
     const envCol = Number.isFinite(placement?.envCol)
       ? Math.floor(placement.envCol)
-      : Number.isFinite(char.envCol)
-      ? Math.floor(char.envCol)
+      : Number.isFinite(pawn.envCol)
+      ? Math.floor(pawn.envCol)
       : null;
     const hubCol = Number.isFinite(placement?.hubCol)
       ? Math.floor(placement.hubCol)
-      : Number.isFinite(char.hubCol)
-      ? Math.floor(char.hubCol)
+      : Number.isFinite(pawn.hubCol)
+      ? Math.floor(pawn.hubCol)
       : null;
 
     return { envCol, hubCol };
@@ -345,12 +345,12 @@ export function createPawnsView(opts) {
     return { row: targetRow, col: bestIndex };
   }
 
-  function buildPawnDragGhostSpec(char, globalPos) {
-    if (!char) return null;
+  function buildPawnDragGhostSpec(pawn, globalPos) {
+    if (!pawn) return null;
     const state = getStateSafe();
     const target = getDropTargetFromPos(globalPos);
-    const pawnName = char?.name || `Pawn ${char?.id ?? ""}`.trim() || "Pawn";
-    const intentId = char?.id != null ? `pawn:${char.id}` : null;
+    const pawnName = pawn?.name || `Pawn ${pawn?.id ?? ""}`.trim() || "Pawn";
+    const intentId = pawn?.id != null ? `pawn:${pawn.id}` : null;
     if (!target || !state) {
       return { description: pawnName, cost: 0, intentId };
     }
@@ -364,17 +364,17 @@ export function createPawnsView(opts) {
     if (typeof getPawnMoveAffordability === "function") {
       const aff =
         target.row === "env"
-          ? getPawnMoveAffordability({ pawnId: char.id, toEnvCol: target.col })
-          : getPawnMoveAffordability({ pawnId: char.id, toHubCol: target.col });
+          ? getPawnMoveAffordability({ pawnId: pawn.id, toEnvCol: target.col })
+          : getPawnMoveAffordability({ pawnId: pawn.id, toHubCol: target.col });
       if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
     }
 
     return { description: `${pawnName} > ${targetLabel}`, cost, intentId };
   }
 
-  function updatePawnDragGhost(char, globalPos) {
+  function updatePawnDragGhost(pawn, globalPos) {
     if (typeof setDragGhost !== "function") return;
-    const spec = buildPawnDragGhostSpec(char, globalPos);
+    const spec = buildPawnDragGhostSpec(pawn, globalPos);
     if (!spec) return;
     setDragGhost(spec);
   }
@@ -423,10 +423,10 @@ export function createPawnsView(opts) {
     return String(Math.round(value * 10) / 10);
   }
 
-  function getPawnSystemLines(char) {
+  function getPawnSystemLines(pawn) {
     const lines = [];
-    const systemState = char?.systemState ?? {};
-    const systemTiers = char?.systemTiers ?? {};
+    const systemState = pawn?.systemState ?? {};
+    const systemTiers = pawn?.systemTiers ?? {};
     const systemIds = Object.keys(pawnSystemDefs);
 
     for (const systemId of systemIds) {
@@ -446,10 +446,10 @@ export function createPawnsView(opts) {
     return lines;
   }
 
-  function makeCharTooltipSpec(char) {
-    const systemLines = getPawnSystemLines(char);
+  function makePawnTooltipSpec(pawn) {
+    const systemLines = getPawnSystemLines(pawn);
     return {
-      title: char.name || `Pawn ${char.id ?? ""}`,
+      title: pawn.name || `Pawn ${pawn.id ?? ""}`,
       lines: [
         "Moves between hub and env tiles.",
         "Activates the hub structure it sits on in the hub.",
@@ -459,11 +459,11 @@ export function createPawnsView(opts) {
     };
   }
 
-  function getFollowerOrdinal(char) {
-    if (!char || char.role !== "follower") return null;
-    const leaderId = char.leaderId ?? null;
-    const chars = getPawnsSafe();
-    const followers = chars
+  function getFollowerOrdinal(pawn) {
+    if (!pawn || pawn.role !== "follower") return null;
+    const leaderId = pawn.leaderId ?? null;
+    const pawns = getPawnsSafe();
+    const followers = pawns
       .filter((c) => c && c.role === "follower" && c.leaderId === leaderId)
       .slice()
       .sort((a, b) => {
@@ -477,17 +477,17 @@ export function createPawnsView(opts) {
         return (a?.id ?? 0) - (b?.id ?? 0);
       });
     for (let i = 0; i < followers.length; i++) {
-      if (followers[i]?.id === char.id) return i + 1;
+      if (followers[i]?.id === pawn.id) return i + 1;
     }
     return null;
   }
 
-  function getLabelForChar(char) {
-    if (char?.role === "follower") {
-      const ordinal = getFollowerOrdinal(char);
+  function getLabelForPawn(pawn) {
+    if (pawn?.role === "follower") {
+      const ordinal = getFollowerOrdinal(pawn);
       return ordinal != null ? `F${ordinal}` : "F";
     }
-    return char?.name || "";
+    return pawn?.name || "";
   }
 
   function drawPawnShape(gfx, { isLeader, radius }) {
@@ -498,9 +498,9 @@ export function createPawnsView(opts) {
     gfx.drawCircle(0, 0, radius);
   }
 
-  function updateStaminaVisual(view, char) {
+  function updateStaminaVisual(view, pawn) {
     if (!view?.staminaMask || !Number.isFinite(view?.shapeRadius)) return;
-    const ratio = getStaminaRatio(char);
+    const ratio = getStaminaRatio(pawn);
     if (view.staminaRatio === ratio) {
       view.redGlow.visible = ratio <= 0;
       return;
@@ -526,7 +526,7 @@ export function createPawnsView(opts) {
   // Layout helper: fan pawns when multiple occupy a slot
   // ---------------------------------------------------------------------------
   function layoutAllPawns() {
-    const chars = getPawnsSafe();
+    const pawns = getPawnsSafe();
 
     const draggedPayload = interactionSafe.getDragged
       ? interactionSafe.getDragged()
@@ -538,14 +538,14 @@ export function createPawnsView(opts) {
         : null;
 
     /** @type {Map<string, { row: string, col: number, list: Array<any> }>} */
-    const slotsToChars = new Map();
+    const slotsToPawns = new Map();
 
-    for (const char of chars) {
+    for (const pawn of pawns) {
       let placement = null;
       if (typeof getPreviewPlacement === "function") {
-        placement = getPreviewPlacement(char.id);
+        placement = getPreviewPlacement(pawn.id);
       } else if (typeof getPreviewHubCol === "function") {
-        const overrideIdx = getPreviewHubCol(char.id);
+        const overrideIdx = getPreviewHubCol(pawn.id);
         if (overrideIdx != null) placement = { hubCol: overrideIdx };
       }
 
@@ -553,15 +553,15 @@ export function createPawnsView(opts) {
         ? Number.isFinite(placement.envCol)
           ? placement.envCol
           : null
-        : Number.isFinite(char.envCol)
-        ? char.envCol
+        : Number.isFinite(pawn.envCol)
+        ? pawn.envCol
         : null;
       const hubCol = placement
         ? Number.isFinite(placement.hubCol)
           ? placement.hubCol
           : null
-        : Number.isFinite(char.hubCol)
-        ? char.hubCol
+        : Number.isFinite(pawn.hubCol)
+        ? pawn.hubCol
         : null;
 
       const row = Number.isFinite(envCol)
@@ -573,15 +573,15 @@ export function createPawnsView(opts) {
       if (row == null || col == null) continue;
 
       const key = `${row}:${col}`;
-      let entry = slotsToChars.get(key);
+      let entry = slotsToPawns.get(key);
       if (!entry) {
         entry = { row, col, list: [] };
-        slotsToChars.set(key, entry);
+        slotsToPawns.set(key, entry);
       }
-      entry.list.push(char);
+      entry.list.push(pawn);
     }
 
-    for (const entry of slotsToChars.values()) {
+    for (const entry of slotsToPawns.values()) {
       const base =
         entry.row === "env"
           ? getBasePosForEnvCol(entry.col)
@@ -592,10 +592,10 @@ export function createPawnsView(opts) {
 
       const startOffset = -((n - 1) * FAN_SPACING) / 2;
 
-      entry.list.forEach((char, i) => {
-        if (draggedId != null && draggedId === char.id) return;
+      entry.list.forEach((pawn, i) => {
+        if (draggedId != null && draggedId === pawn.id) return;
 
-        const view = viewsById.get(char.id);
+        const view = viewsById.get(pawn.id);
         if (!view) return;
         const rawPos = {
           x: base.x + startOffset + i * FAN_SPACING,
@@ -613,20 +613,20 @@ export function createPawnsView(opts) {
   // ---------------------------------------------------------------------------
   // Create a single pawn view
   // ---------------------------------------------------------------------------
-  function createPawnView(char) {
+  function createPawnView(pawn) {
     const container = new PIXI.Container();
 
-    const pos = Number.isFinite(char.envCol)
-      ? getBasePosForEnvCol(char.envCol)
-      : getBasePosForHubCol(char.hubCol);
+    const pos = Number.isFinite(pawn.envCol)
+      ? getBasePosForEnvCol(pawn.envCol)
+      : getBasePosForHubCol(pawn.hubCol);
     container.x = pos.x;
     container.y = pos.y;
 
     container.eventMode = "static";
     container.cursor = "pointer";
 
-    const fillColor = typeof char.color === "number" ? char.color : 0xaa66ff;
-    const isLeader = char?.role === "leader";
+    const fillColor = typeof pawn.color === "number" ? pawn.color : 0xaa66ff;
+    const isLeader = pawn?.role === "leader";
     const leaderRadius = Math.round(RADIUS * LEADER_DIAMOND_SCALE);
     const shapeRadius = isLeader ? leaderRadius : RADIUS;
 
@@ -681,7 +681,7 @@ export function createPawnsView(opts) {
     drawPawnShape(outline, { isLeader, radius: shapeRadius + 1 });
     container.addChild(outline);
 
-    const label = new PIXI.Text(getLabelForChar(char), {
+    const label = new PIXI.Text(getLabelForPawn(pawn), {
       fill: 0xffffff,
       fontSize: 16,
       fontWeight: "bold",
@@ -698,7 +698,7 @@ export function createPawnsView(opts) {
     // -----------------------------------------------------------------------
     const view = {
       container,
-      char,
+      pawn,
       outline,
       shadow,
       redGlow,
@@ -732,15 +732,15 @@ export function createPawnsView(opts) {
         RADIUS * 2,
         scale
       );
-      tt?.show?.({ ...makeCharTooltipSpec(char), scale }, anchor);
+      tt?.show?.({ ...makePawnTooltipSpec(pawn), scale }, anchor);
 
       const inv = getInvSafe();
-      inv?.showOnHover?.(char.id, anchor);
+      inv?.showOnHover?.(pawn.id, anchor);
 
-      const placement = getHoverPlacementForChar(char);
+      const placement = getHoverPlacementForPawn(pawn);
       interactionSafe.setHoveredPawn?.({
         kind: "pawn",
-        id: char.id,
+        id: pawn.id,
         envCol: placement.envCol,
         hubCol: placement.hubCol,
         centerX: container.x,
@@ -753,7 +753,7 @@ export function createPawnsView(opts) {
       view.selfHover = false;
       applyPawnScale(view);
       const inv = getInvSafe();
-      inv?.hideOnHoverOut?.(char.id);
+      inv?.hideOnHoverOut?.(pawn.id);
 
       const tt = getTooltipSafe();
       tt?.hide?.();
@@ -797,14 +797,14 @@ export function createPawnsView(opts) {
 
     function tryStartDrag() {
       dragging = true;
-      interactionSafe.startDrag?.({ type: "pawn", id: char.id });
+      interactionSafe.startDrag?.({ type: "pawn", id: pawn.id });
       requestPauseForAction?.();
       view.selfHover = false;
       view.attachedScale = 1;
       applyPawnScale(view);
       hideHover();
       if (pointerDownPos) {
-        updatePawnDragGhost(char, pointerDownPos);
+        updatePawnDragGhost(pawn, pointerDownPos);
       }
     }
 
@@ -826,7 +826,7 @@ export function createPawnsView(opts) {
 
       container.x = g.x + dragOffset.x;
       container.y = g.y + dragOffset.y;
-      updatePawnDragGhost(char, g);
+      updatePawnDragGhost(pawn, g);
     }
 
     function onUp(ev) {
@@ -846,10 +846,10 @@ export function createPawnsView(opts) {
       const g = ev.data.global;
 
       if (!wasDragging) {
-        onPawnClicked?.({ pawnId: char.id });
+        onPawnClicked?.({ pawnId: pawn.id });
         // click -> toggle pinned inventory (optional)
         const inv = getInvSafe();
-        inv?.togglePinned?.(char.id);
+        inv?.togglePinned?.(pawn.id);
         if (typeof setDragGhost === "function") {
           setDragGhost(null);
         }
@@ -857,7 +857,7 @@ export function createPawnsView(opts) {
       }
 
       const dropResult = emitDropped({
-        pawnId: char.id,
+        pawnId: pawn.id,
         dropPos: { x: g.x, y: g.y },
       });
 
@@ -892,8 +892,8 @@ export function createPawnsView(opts) {
     }
 
     applyPawnScale(view);
-    updateStaminaVisual(view, char);
-    viewsById.set(char.id, view);
+    updateStaminaVisual(view, pawn);
+    viewsById.set(pawn.id, view);
   }
 
   // ---------------------------------------------------------------------------
@@ -908,8 +908,8 @@ export function createPawnsView(opts) {
     layer.removeChildren();
     viewsById.clear();
 
-    for (const char of getPawnsSafe()) {
-      createPawnView(char);
+    for (const pawn of getPawnsSafe()) {
+      createPawnView(pawn);
     }
 
     if (focusGhost && focusGhost.parent) {
@@ -981,13 +981,13 @@ export function createPawnsView(opts) {
       getPawnsSafe().map((pawn) => [pawn?.id, pawn]).filter((entry) => entry[0] != null)
     );
     for (const view of viewsById.values()) {
-      const latestPawn = pawnsById.get(view?.char?.id);
-      if (latestPawn) view.char = latestPawn;
-      const nextLabel = getLabelForChar(view.char);
+      const latestPawn = pawnsById.get(view?.pawn?.id);
+      if (latestPawn) view.pawn = latestPawn;
+      const nextLabel = getLabelForPawn(view.pawn);
       if (view.label && view.label.text !== nextLabel) {
         view.label.text = nextLabel;
       }
-      updateStaminaVisual(view, view.char);
+      updateStaminaVisual(view, view.pawn);
     }
     updateFocus();
   }
@@ -1000,7 +1000,7 @@ export function createPawnsView(opts) {
 
     for (const view of viewsById.values()) {
       if (!view?.container?.visible) continue;
-      const ownerId = view?.char?.id ?? null;
+      const ownerId = view?.pawn?.id ?? null;
       if (ownerId == null) continue;
       if (!inventories[ownerId]) continue;
       const bounds = view.container.getBounds();
@@ -1026,4 +1026,5 @@ export function createPawnsView(opts) {
     getInventoryOwnerAtGlobalPos,
   };
 }
+
 

@@ -172,11 +172,11 @@ function itemPassiveRequirementsPass(requires, ctx = {}) {
 }
 
 function listEquippedBasketPoolsForPawn(state, pawn, locationOverride = null) {
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const out = [];
   const location = normalizeLocation(locationOverride ?? pawn);
   let order = 0;
-  for (const carrier of chars) {
+  for (const carrier of pawns) {
     if (!carrier || carrier.id == null) continue;
     if (!locationsMatch(location, getPawnLocation(carrier))) continue;
     if (!ownerHasEquippedPoolProvider(carrier, "storage", "byKindTier")) {
@@ -752,15 +752,15 @@ function pushPawnSeekMoveEvent(state, pawn, tSec, mode, placement) {
 }
 
 export function stepPawnSecond(state, tSec, options = {}) {
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-  if (!chars.length) return;
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  if (!pawns.length) return;
 
   const placePawn =
     typeof options?.placePawn === "function"
       ? options.placePawn
       : null;
 
-  for (const pawn of chars) {
+  for (const pawn of pawns) {
     if (!pawn) continue;
     ensurePawnSystems(pawn);
     ensurePawnAI(pawn);

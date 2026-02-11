@@ -951,11 +951,11 @@ export function createActionPlanner({
     let baselinePlacement = existing?.baselinePlacement ?? null;
 
     if (!fromPlacement) {
-      const ch = state.pawns?.find((c) => c.id === resolvedPawnId);
-      if (ch) {
+      const pawn = state.pawns?.find((candidatePawn) => candidatePawn.id === resolvedPawnId);
+      if (pawn) {
         fromPlacement = makePawnPlacement({
-          hubCol: ch.hubCol,
-          envCol: ch.envCol,
+          hubCol: pawn.hubCol,
+          envCol: pawn.envCol,
         });
       }
     }
@@ -1020,11 +1020,11 @@ export function createActionPlanner({
     let baselinePlacement = existing?.baselinePlacement ?? null;
 
     if (!fromPlacement) {
-      const ch = state?.pawns?.find((c) => c.id === resolvedPawnId);
-      if (ch) {
+      const pawn = state?.pawns?.find((candidatePawn) => candidatePawn.id === resolvedPawnId);
+      if (pawn) {
         fromPlacement = makePawnPlacement({
-          hubCol: ch.hubCol,
-          envCol: ch.envCol,
+          hubCol: pawn.hubCol,
+          envCol: pawn.envCol,
         });
       }
     }

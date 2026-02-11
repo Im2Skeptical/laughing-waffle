@@ -47,8 +47,8 @@ function formatOwnerName(ownerId, getOwnerLabel) {
 }
 
 function formatPawnName(pawnId, state) {
-  const ch = state?.pawns?.find((c) => c.id === pawnId);
-  return ch?.name || `Pawn ${pawnId}`;
+  const pawn = state?.pawns?.find((candidatePawn) => candidatePawn.id === pawnId);
+  return pawn?.name || `Pawn ${pawnId}`;
 }
 
 function formatHubName(hubCol, state) {

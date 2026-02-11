@@ -177,11 +177,11 @@ export function createInitialState(scenario = "testing", seed = null) {
   }
 
   // pawn inventories
-  for (const ch of state.pawns) {
+  for (const pawn of state.pawns) {
     const inv = Inventory.create(5, 3);
     Inventory.init(inv);
     inv.version = 0;
-    state.ownerInventories[ch.id] = inv;
+    state.ownerInventories[pawn.id] = inv;
   }
 
   // scenario-defined inventory items

@@ -883,15 +883,15 @@ export function deserializeGameState(data) {
     : 1;
   let maxFollowerIndex = 0;
 
-  for (const ch of pawns) {
-    ensurePawnSystems(ch);
-    if (ch?.role !== "leader" && ch?.role !== "follower") {
-      ch.role = "leader";
+  for (const pawn of pawns) {
+    ensurePawnSystems(pawn);
+    if (pawn?.role !== "leader" && pawn?.role !== "follower") {
+      pawn.role = "leader";
     }
-    if (ch?.role === "follower" && Number.isFinite(ch.followerCreationOrderIndex)) {
+    if (pawn?.role === "follower" && Number.isFinite(pawn.followerCreationOrderIndex)) {
       maxFollowerIndex = Math.max(
         maxFollowerIndex,
-        Math.floor(ch.followerCreationOrderIndex)
+        Math.floor(pawn.followerCreationOrderIndex)
       );
     }
   }
@@ -900,12 +900,12 @@ export function deserializeGameState(data) {
     nextFollowerIndex = maxFollowerIndex + 1;
   }
 
-  for (const ch of pawns) {
-    if (ch?.role === "follower" && !Number.isFinite(ch.followerCreationOrderIndex)) {
-      ensurePawnRoleFields(state, ch, nextFollowerIndex++);
+  for (const pawn of pawns) {
+    if (pawn?.role === "follower" && !Number.isFinite(pawn.followerCreationOrderIndex)) {
+      ensurePawnRoleFields(state, pawn, nextFollowerIndex++);
       continue;
     }
-    ensurePawnRoleFields(state, ch, null);
+    ensurePawnRoleFields(state, pawn, null);
   }
   state.nextFollowerCreationOrderIndex = nextFollowerIndex;
   state._boardDirty = false;
@@ -1007,25 +1007,25 @@ export function validateState(state) {
   }
   const hubCols = Array.isArray(hub?.slots) ? hub.slots.length : 0;
 
-  const chars = getPawns(state);
-  for (const ch of chars) {
-    const hasHub = Number.isFinite(ch?.hubCol);
-    const hasEnv = Number.isFinite(ch?.envCol);
+  const pawns = getPawns(state);
+  for (const pawn of pawns) {
+    const hasHub = Number.isFinite(pawn?.hubCol);
+    const hasEnv = Number.isFinite(pawn?.envCol);
     if (hasHub && hasEnv) {
       warnings.push(
-        `pawn has both hubCol and envCol: ${ch.id ?? "unknown"}`
+        `pawn has both hubCol and envCol: ${pawn.id ?? "unknown"}`
       );
     }
     if (hasHub) {
-      const col = Math.floor(ch.hubCol);
+      const col = Math.floor(pawn.hubCol);
       if (col < 0 || col >= hubCols) {
-        errors.push(`pawn hubCol out of bounds: ${ch.id ?? "unknown"}`);
+        errors.push(`pawn hubCol out of bounds: ${pawn.id ?? "unknown"}`);
       }
     }
     if (hasEnv) {
-      const col = Math.floor(ch.envCol);
+      const col = Math.floor(pawn.envCol);
       if (col < 0 || col >= cols) {
-        errors.push(`pawn envCol out of bounds: ${ch.id ?? "unknown"}`);
+        errors.push(`pawn envCol out of bounds: ${pawn.id ?? "unknown"}`);
       }
     }
   }

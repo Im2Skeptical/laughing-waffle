@@ -140,10 +140,10 @@ function isTagDisabled(tile, tagId) {
 
 function getPawnIdsOnEnvCol(state, col) {
   const out = [];
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-  for (const ch of chars) {
-    const slot = Number.isFinite(ch?.envCol) ? Math.floor(ch.envCol) : null;
-    if (slot === col && ch?.id != null) out.push(ch.id);
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    const slot = Number.isFinite(pawn?.envCol) ? Math.floor(pawn.envCol) : null;
+    if (slot === col && pawn?.id != null) out.push(pawn.id);
   }
   return out;
 }
@@ -908,10 +908,10 @@ export function stepEnvSecond(state, tSec) {
 
   const cols = board.cols ?? 12;
   const tileOcc = board.occ?.tile;
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const pawnById = new Map();
-  for (const ch of chars) {
-    if (ch?.id != null) pawnById.set(ch.id, ch);
+  for (const pawn of pawns) {
+    if (pawn?.id != null) pawnById.set(pawn.id, pawn);
   }
   for (let col = 0; col < cols; col++) {
     const tile = tileOcc?.[col];

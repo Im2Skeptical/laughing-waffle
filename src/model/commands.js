@@ -1493,17 +1493,17 @@ function resolvePawnOwnerId(ownerId) {
 }
 
 function getLeaderByOwnerId(state, ownerId) {
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const normalized = resolvePawnOwnerId(ownerId);
-  const pawn = chars.find((ch) => ch && ch.id === normalized);
+  const pawn = pawns.find((candidatePawn) => candidatePawn && candidatePawn.id === normalized);
   if (!pawn || pawn.role !== "leader") return null;
   return pawn;
 }
 
 function getPawnById(state, ownerId) {
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const normalized = resolvePawnOwnerId(ownerId);
-  return chars.find((ch) => ch && ch.id === normalized) || null;
+  return pawns.find((candidatePawn) => candidatePawn && candidatePawn.id === normalized) || null;
 }
 
 function ensureLeaderEquipment(leader) {
@@ -2194,9 +2194,9 @@ function shouldFollowersAutoFollow(leader) {
 }
 
 function getFollowersForLeaderSorted(state, leaderId) {
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-  const followers = chars.filter(
-    (c) => c && c.role === "follower" && c.leaderId === leaderId
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  const followers = pawns.filter(
+    (pawn) => pawn && pawn.role === "follower" && pawn.leaderId === leaderId
   );
   followers.sort((a, b) => {
     const ai = Number.isFinite(a?.followerCreationOrderIndex)
@@ -2323,8 +2323,8 @@ function getOwnerKindAndDef(state, ownerId) {
     }
   }
 
-  const ch = state.pawns.find((c) => c.id === normalizedOwnerId);
-  if (ch) return { kind: "pawn", def: null };
+  const pawn = state.pawns.find((candidatePawn) => candidatePawn.id === normalizedOwnerId);
+  if (pawn) return { kind: "pawn", def: null };
 
   return { kind: null, def: null };
 }

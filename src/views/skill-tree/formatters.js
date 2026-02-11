@@ -21,22 +21,22 @@ export function formatNodeEffects(nodeDef) {
   const effects = nodeDef?.effects || null;
   if (!effects) return lines;
 
-  const charMods = effects.characterMods || null;
-  if (charMods) {
-    if (Number.isFinite(charMods.forageTierBonus)) {
-      lines.push(`Forage tier +${floorInt(charMods.forageTierBonus)}`);
+  const pawnMods = effects.pawnMods || null;
+  if (pawnMods) {
+    if (Number.isFinite(pawnMods.forageTierBonus)) {
+      lines.push(`Forage tier +${floorInt(pawnMods.forageTierBonus)}`);
     }
-    if (Number.isFinite(charMods.forageStaminaCostDelta)) {
-      lines.push(`Forage stamina ${floorInt(charMods.forageStaminaCostDelta)}`);
+    if (Number.isFinite(pawnMods.forageStaminaCostDelta)) {
+      lines.push(`Forage stamina ${floorInt(pawnMods.forageStaminaCostDelta)}`);
     }
-    if (Number.isFinite(charMods.farmingStaminaCostDelta)) {
-      lines.push(`Farming stamina ${floorInt(charMods.farmingStaminaCostDelta)}`);
+    if (Number.isFinite(pawnMods.farmingStaminaCostDelta)) {
+      lines.push(`Farming stamina ${floorInt(pawnMods.farmingStaminaCostDelta)}`);
     }
-    if (Number.isFinite(charMods.restStaminaBonusFlat)) {
-      lines.push(`Rest stamina +${floorInt(charMods.restStaminaBonusFlat)}`);
+    if (Number.isFinite(pawnMods.restStaminaBonusFlat)) {
+      lines.push(`Rest stamina +${floorInt(pawnMods.restStaminaBonusFlat)}`);
     }
-    if (Number.isFinite(charMods.restStaminaBonusMult)) {
-      const pct = Math.round((charMods.restStaminaBonusMult - 1) * 100);
+    if (Number.isFinite(pawnMods.restStaminaBonusMult)) {
+      const pct = Math.round((pawnMods.restStaminaBonusMult - 1) * 100);
       lines.push(`Rest stamina +${pct}%`);
     }
   }

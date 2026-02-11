@@ -773,10 +773,10 @@ function findHubStructureAtCol(snapshot, col) {
 }
 
 function findPawnById(snapshot, id) {
-  const chars = snapshot?.pawns;
-  if (!Array.isArray(chars)) return null;
-  for (const ch of chars) {
-    if (ch?.id === id) return ch;
+  const pawns = snapshot?.pawns;
+  if (!Array.isArray(pawns)) return null;
+  for (const pawn of pawns) {
+    if (pawn?.id === id) return pawn;
   }
   return null;
 }
@@ -1037,8 +1037,8 @@ inventoryView = createInventoryView({
       const def = hubStructureDefs[structure.defId];
       return def?.name || def?.id || `Hub ${ownerId}`;
     }
-    const ch = state.pawns.find((c) => c.id === ownerId);
-    if (ch) return ch.name || `Pawn ${ownerId}`;
+    const pawn = state.pawns.find((candidatePawn) => candidatePawn.id === ownerId);
+    if (pawn) return pawn.name || `Pawn ${ownerId}`;
     return `Owner ${ownerId}`;
   },
   getInventoryForOwner(ownerId) {
@@ -1504,8 +1504,8 @@ actionLogView = createActionLogView({
       const def = hubStructureDefs[structure.defId];
       return def?.name || def?.id || `Hub ${ownerId}`;
     }
-    const ch = state.pawns.find((c) => c.id === ownerId);
-    if (ch) return ch.name || `Pawn ${ownerId}`;
+    const pawn = state.pawns.find((candidatePawn) => candidatePawn.id === ownerId);
+    if (pawn) return pawn.name || `Pawn ${ownerId}`;
     return `Owner ${ownerId}`;
   },
   getState: () => runner.getState(),

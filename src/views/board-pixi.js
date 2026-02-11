@@ -1804,10 +1804,10 @@ export function createBoardView(opts) {
   function getPawnCountsByCol(state, cols) {
     const countLen = Number.isFinite(cols) ? Math.max(0, cols) : BOARD_COLS;
     const counts = new Array(countLen).fill(0);
-    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-    for (const ch of chars) {
-      const col = Number.isFinite(ch?.envCol)
-        ? Math.floor(ch.envCol)
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    for (const pawn of pawns) {
+      const col = Number.isFinite(pawn?.envCol)
+        ? Math.floor(pawn.envCol)
         : null;
       if (col == null || col < 0 || col >= counts.length) continue;
       counts[col] += 1;
@@ -1818,10 +1818,10 @@ export function createBoardView(opts) {
   function getPawnCountsByHub(state, cols) {
     const countLen = Number.isFinite(cols) ? Math.max(0, cols) : HUB_COLS;
     const counts = new Array(countLen).fill(0);
-    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-    for (const ch of chars) {
-      const col = Number.isFinite(ch?.hubCol)
-        ? Math.floor(ch.hubCol)
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    for (const pawn of pawns) {
+      const col = Number.isFinite(pawn?.hubCol)
+        ? Math.floor(pawn.hubCol)
         : null;
       if (col == null || col < 0 || col >= counts.length) continue;
       counts[col] += 1;

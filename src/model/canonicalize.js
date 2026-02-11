@@ -16,8 +16,8 @@ export function canonicalizeSnapshot(state) {
   state.simTime = typeof state.simTime === "number" ? state.simTime : 0;
 
   rebuildBoardOccupancy(state);
-  const chars = getPawns(state);
-  for (const pawn of chars) {
+  const pawns = getPawns(state);
+  for (const pawn of pawns) {
     ensurePawnSkillFields(pawn);
   }
   syncPhaseToPaused(state);

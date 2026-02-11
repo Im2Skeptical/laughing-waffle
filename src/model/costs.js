@@ -7,7 +7,7 @@ import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { PAWN_AI_STAMINA_WARNING } from "../defs/gamesettings/gamerules-defs.js";
 import { pushGameEvent } from "./event-feed.js";
-import { computeCharacterSkillMods } from "./skills.js";
+import { computePawnSkillMods } from "./skills.js";
 
 function resolveAmountExpr(expr, ctx) {
   if (Number.isFinite(expr)) return expr;
@@ -135,7 +135,7 @@ function applySkillCostModifiers(baseAmount, charge, ctx) {
       : null;
   if (!intentId) return baseAmount;
 
-  const skillMods = computeCharacterSkillMods(ctx.state, pawnId);
+  const skillMods = computePawnSkillMods(ctx.state, pawnId);
   let delta = 0;
   if (intentId === "forage") {
     delta += Number.isFinite(skillMods?.forageStaminaCostDelta)

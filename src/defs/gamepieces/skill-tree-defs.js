@@ -42,7 +42,7 @@ export const skillNodes = {
     cost: 1,
     adjacent: ["skill_start", "skill_projection_planning", "skill_cook_unlock"],
     effects: {
-      characterMods: { forageStaminaCostDelta: -1 },
+      pawnMods: { forageStaminaCostDelta: -1 },
     },
   },
   skill_rest_posture: {
@@ -53,7 +53,7 @@ export const skillNodes = {
     cost: 1,
     adjacent: ["skill_start", "skill_rationing", "skill_craft_unlock"],
     effects: {
-      characterMods: { restStaminaBonusMult: 1.1 },
+      pawnMods: { restStaminaBonusMult: 1.1 },
     },
   },
   skill_farm_hands: {
@@ -64,7 +64,7 @@ export const skillNodes = {
     cost: 1,
     adjacent: ["skill_start", "skill_ap_mastery", "skill_storehouse_unlock"],
     effects: {
-      characterMods: { farmingStaminaCostDelta: -1 },
+      pawnMods: { farmingStaminaCostDelta: -1 },
     },
   },
   skill_projection_planning: {

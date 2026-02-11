@@ -877,10 +877,10 @@ function resolveOwnerKind(state, ownerId) {
     if (!anchor) continue;
     if (String(anchor.instanceId) === String(ownerId)) return "env";
   }
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-  for (const ch of chars) {
-    if (!ch) continue;
-    if (String(ch.id) === String(ownerId)) return "pawn";
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    if (String(pawn.id) === String(ownerId)) return "pawn";
   }
   return null;
 }
@@ -1018,23 +1018,23 @@ function buildEndpointIdForStore(kind, store, target, systemId, poolKey) {
 
 function listOccupyingPawnIds(state, anchorInfo) {
   if (!state || !anchorInfo) return [];
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const start = anchorInfo.col;
   const end = anchorInfo.col + Math.max(1, anchorInfo.span) - 1;
   const occupants = [];
 
-  for (const ch of chars) {
-    if (!ch || ch.id == null) continue;
+  for (const pawn of pawns) {
+    if (!pawn || pawn.id == null) continue;
     if (anchorInfo.kind === "hub") {
-      if (Number.isFinite(ch.envCol)) continue;
-      const c = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
+      if (Number.isFinite(pawn.envCol)) continue;
+      const c = Number.isFinite(pawn.hubCol) ? Math.floor(pawn.hubCol) : null;
       if (c == null || c < start || c > end) continue;
     } else {
-      if (!Number.isFinite(ch.envCol)) continue;
-      const c = Math.floor(ch.envCol);
+      if (!Number.isFinite(pawn.envCol)) continue;
+      const c = Math.floor(pawn.envCol);
       if (c < start || c > end) continue;
     }
-    occupants.push(ch.id);
+    occupants.push(pawn.id);
   }
 
   occupants.sort((a, b) => {
@@ -1311,10 +1311,10 @@ function resolvePoolOwner(state, ownerKind, ownerId) {
     }
   }
   if (ownerKind === "pawn") {
-    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-    for (const ch of chars) {
-      if (!ch) continue;
-      if (String(ch.id) === String(ownerId)) return ch;
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    for (const pawn of pawns) {
+      if (!pawn) continue;
+      if (String(pawn.id) === String(ownerId)) return pawn;
     }
   }
   return null;
@@ -1376,10 +1376,10 @@ export function resolveEndpointTarget(state, endpointId) {
   }
   if (endpointId.startsWith("sys:pawn:")) {
     const id = endpointId.slice("sys:pawn:".length);
-    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-    for (const ch of chars) {
-      if (ch?.id != null && String(ch.id) === String(id)) {
-        return { kind: "system", target: ch };
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    for (const pawn of pawns) {
+      if (pawn?.id != null && String(pawn.id) === String(id)) {
+        return { kind: "system", target: pawn };
       }
     }
     return null;

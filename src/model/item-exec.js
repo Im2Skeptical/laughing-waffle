@@ -60,8 +60,8 @@ function collectDeterministicOwnerOrder(state) {
   };
 
   // 1) Pawns (array order)
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-  for (const ch of chars) addOwner(ch?.id ?? null);
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  for (const pawn of pawns) addOwner(pawn?.id ?? null);
 
   // 2) Hub structures (slot order)
   const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];

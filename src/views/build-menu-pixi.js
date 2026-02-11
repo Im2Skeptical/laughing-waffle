@@ -130,16 +130,16 @@ export function createBuildMenuView(opts) {
         ? getSelectedLeaderId()
         : null;
     if (leaderId == null) return null;
-    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
-    const leader = chars.find((c) => c?.id === leaderId) || null;
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    const leader = pawns.find((candidatePawn) => candidatePawn?.id === leaderId) || null;
     if (!leader || leader.role !== "leader") return null;
     return leader;
   }
 
   function computeOptions(state) {
-    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
     const availability = computeAvailableRecipesAndBuildings(state);
-    const leaders = chars.filter((c) => c?.role === "leader");
+    const leaders = pawns.filter((pawn) => pawn?.role === "leader");
     const buildable = new Set();
     for (const leader of leaders) {
       for (const id of getBuildableIdsFromPawn(leader)) {

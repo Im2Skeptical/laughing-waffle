@@ -1225,14 +1225,14 @@ function listHubWorkers(state, structure) {
         : 1;
   if (col == null) return [];
   const maxCol = col + span - 1;
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const out = [];
-  for (const ch of chars) {
-    if (!ch) continue;
-    if (Number.isFinite(ch.envCol)) continue;
-    const c = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    if (Number.isFinite(pawn.envCol)) continue;
+    const c = Number.isFinite(pawn.hubCol) ? Math.floor(pawn.hubCol) : null;
     if (c == null) continue;
-    if (c >= col && c <= maxCol) out.push(ch);
+    if (c >= col && c <= maxCol) out.push(pawn);
   }
   return out;
 }
@@ -1487,11 +1487,11 @@ export function handleCreateWorkProcess(state, effect, context) {
 function countEnvWorkers(state, envCol) {
   const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
   if (col == null) return 0;
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   let n = 0;
-  for (const ch of chars) {
-    if (!ch) continue;
-    const c = Number.isFinite(ch.envCol) ? Math.floor(ch.envCol) : null;
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    const c = Number.isFinite(pawn.envCol) ? Math.floor(pawn.envCol) : null;
     if (c === col) n++;
   }
   return n;

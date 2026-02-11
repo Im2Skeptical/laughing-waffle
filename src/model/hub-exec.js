@@ -185,15 +185,15 @@ function getPawnsOnHubAnchor(state, anchor) {
       ? Math.floor(anchor.span)
       : 1;
   if (col == null) return out;
-  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const maxCol = col + span - 1;
-  for (const ch of chars) {
-    if (!ch) continue;
-    if (Number.isFinite(ch.envCol)) continue;
-    const pawnCol = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    if (Number.isFinite(pawn.envCol)) continue;
+    const pawnCol = Number.isFinite(pawn.hubCol) ? Math.floor(pawn.hubCol) : null;
     if (pawnCol == null) continue;
     if (pawnCol < col || pawnCol > maxCol) continue;
-    out.push(ch);
+    out.push(pawn);
   }
   return out;
 }
