@@ -35,6 +35,7 @@ import {
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
 import { createEventLogView } from "./event-log-pixi.js";
+import { createYearEndPerformanceView } from "./year-end-performance-pixi.js";
 import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
@@ -56,10 +57,13 @@ document.body.appendChild(app.view);
 let flashActionLogAp = null;
 let actionLogView = null;
 let eventLogView = null;
+let yearEndPerformanceView = null;
 let externalUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
+let yearEndPreviewDismissedEventId = null;
+const liveSeenYearEndEventIds = new Set();
 
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
@@ -171,6 +175,7 @@ function resizeCanvas() {
   document.documentElement.style.height = "100%";
   skillTreeView?.resize?.();
   skillTreeEditorView?.resize?.();
+  yearEndPerformanceView?.resize?.();
 }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
@@ -546,6 +551,110 @@ function handleEventLogSelection(entry) {
   }
   const focus = normalizeEventLogFocus(entry);
   setExternalUiFocus(focus);
+}
+
+function hasYearEndPerformanceData(entry) {
+  return !!(
+    entry?.data &&
+    typeof entry.data === "object" &&
+    entry.data.yearEndPerformance &&
+    typeof entry.data.yearEndPerformance === "object"
+  );
+}
+
+function getLatestYearEndEventAtSecond(state, tSec) {
+  const targetSec = Math.max(0, Math.floor(tSec ?? 0));
+  const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const entry = feed[i];
+    if (!entry || entry.type !== "populationYearlyUpdate") continue;
+    const entrySec = Number.isFinite(entry.tSec) ? Math.floor(entry.tSec) : -1;
+    if (entrySec !== targetSec) continue;
+    if (!hasYearEndPerformanceData(entry)) continue;
+    return {
+      id: Number.isFinite(entry.id) ? Math.floor(entry.id) : null,
+      tSec: entrySec,
+      type: entry.type,
+      text: typeof entry.text === "string" ? entry.text : "",
+      data: entry.data,
+    };
+  }
+  return null;
+}
+
+function handleYearEndPerformanceClose(info) {
+  const previewing = runner.isPreviewing?.() ?? false;
+  if (!previewing) {
+    yearEndPreviewDismissedEventId = null;
+    return;
+  }
+  const state = runner.getState?.();
+  const currentSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : -1;
+  const eventSec = Number.isFinite(info?.eventSec) ? Math.floor(info.eventSec) : -2;
+  const eventId = Number.isFinite(info?.eventId) ? Math.floor(info.eventId) : null;
+  if (eventId != null && eventSec === currentSec) {
+    yearEndPreviewDismissedEventId = eventId;
+    return;
+  }
+  yearEndPreviewDismissedEventId = null;
+}
+
+function toggleYearEndPerformanceFromEventLog(entry) {
+  if (!hasYearEndPerformanceData(entry)) return;
+  if (yearEndPerformanceView?.isOpenForEvent?.(entry.id)) {
+    yearEndPerformanceView.close("eventLogToggle");
+    return;
+  }
+  yearEndPreviewDismissedEventId = null;
+  yearEndPerformanceView?.openForEntry?.(entry, { source: "eventLog" });
+}
+
+function isYearEndPerformanceOpenForEntry(entryId) {
+  return yearEndPerformanceView?.isOpenForEvent?.(entryId) === true;
+}
+
+function syncYearEndPerformancePopup() {
+  const state = runner.getState?.();
+  if (!state) return;
+
+  const previewing = runner.isPreviewing?.() ?? false;
+  const tSec = Number.isFinite(state.tSec) ? Math.floor(state.tSec) : 0;
+  const yearEndEntry = getLatestYearEndEventAtSecond(state, tSec);
+
+  if (previewing) {
+    if (!yearEndEntry) {
+      yearEndPreviewDismissedEventId = null;
+      if (yearEndPerformanceView?.isOpen?.()) {
+        yearEndPerformanceView.close("scrubPast");
+      }
+      return;
+    }
+    if (
+      Number.isFinite(yearEndEntry.id) &&
+      yearEndPreviewDismissedEventId === yearEndEntry.id
+    ) {
+      if (
+        yearEndPerformanceView?.isOpen?.() &&
+        !yearEndPerformanceView?.isOpenForEvent?.(yearEndEntry.id)
+      ) {
+        yearEndPerformanceView.close("scrubSwitch");
+      }
+      return;
+    }
+    if (!yearEndPerformanceView?.isOpenForEvent?.(yearEndEntry.id)) {
+      yearEndPerformanceView?.openForEntry?.(yearEndEntry, {
+        source: "scrub",
+      });
+    }
+    return;
+  }
+
+  yearEndPreviewDismissedEventId = null;
+
+  if (!yearEndEntry || !Number.isFinite(yearEndEntry.id)) return;
+  if (liveSeenYearEndEventIds.has(yearEndEntry.id)) return;
+  liveSeenYearEndEventIds.add(yearEndEntry.id);
+  yearEndPerformanceView?.openForEntry?.(yearEndEntry, { source: "live" });
 }
 
 const interactionController = createInteractionController({
@@ -1408,7 +1517,17 @@ eventLogView = createEventLogView({
   layer: uiLayers.controlsLayer,
   getState: () => runner.getState(),
   onSelectEntry: (entry) => handleEventLogSelection(entry),
+  onToggleYearEndPerformance: (entry) =>
+    toggleYearEndPerformanceFromEventLog(entry),
+  isYearEndPerformanceOpen: (entryId) =>
+    isYearEndPerformanceOpenForEntry(entryId),
   position: { x: 20, y: 180 },
+});
+
+yearEndPerformanceView = createYearEndPerformanceView({
+  app,
+  layer: uiLayers.controlsLayer,
+  onClose: (info) => handleYearEndPerformanceClose(info),
 });
 
 skillTreeView = createSkillTreeView({
@@ -1436,6 +1555,7 @@ chromeView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
 eventLogView.init();
+yearEndPerformanceView.init();
 applyScenarioDevUiBootstrap();
 apGraphView.open();
 systemGraphView.open();
@@ -1482,7 +1602,9 @@ app.ticker.add((delta) => {
   chromeView.update(frameDt);
   sunMoonDisksView.update(frameDt); // NEW
   actionLogView.update(frameDt);
+  syncYearEndPerformancePopup();
   eventLogView.update(frameDt);
+  yearEndPerformanceView.update(frameDt);
   skillTreeView?.update?.(frameDt);
   skillTreeEditorView?.update?.(frameDt);
   debugView.update();

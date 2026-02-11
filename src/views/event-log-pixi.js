@@ -46,7 +46,12 @@ function formatCalendarTimestamp(tSec, state) {
   return `Year ${year}, ${seasonName}, Sec ${secInSeason}`;
 }
 
-function buildRowsSignature(rowSpecs, selectedId, state) {
+function buildRowsSignature(
+  rowSpecs,
+  selectedId,
+  state,
+  isYearEndPerformanceOpen
+) {
   const seasonDuration = Number.isFinite(state?.seasonDurationSec)
     ? Math.max(1, Math.floor(state.seasonDurationSec))
     : 32;
@@ -54,11 +59,25 @@ function buildRowsSignature(rowSpecs, selectedId, state) {
 
   const parts = [String(selectedId ?? "none"), String(seasonDuration), seasons];
   for (const row of rowSpecs) {
+    const hasReport = hasYearEndPerformanceData(row);
+    const reportOpen =
+      hasReport && typeof isYearEndPerformanceOpen === "function"
+        ? isYearEndPerformanceOpen(row.id) === true
+        : false;
     parts.push(
-      `${row.id}:${row.tSec}:${Math.round((row.alpha ?? 1) * 100)}:${row.type}:${row.text}`
+      `${row.id}:${row.tSec}:${Math.round((row.alpha ?? 1) * 100)}:${row.type}:${row.text}:${hasReport ? 1 : 0}:${reportOpen ? 1 : 0}`
     );
   }
   return parts.join("|");
+}
+
+function hasYearEndPerformanceData(row) {
+  return !!(
+    row?.data &&
+    typeof row.data === "object" &&
+    row.data.yearEndPerformance &&
+    typeof row.data.yearEndPerformance === "object"
+  );
 }
 
 function clamp01(value) {
@@ -94,6 +113,8 @@ export function createEventLogView({
   layer,
   getState,
   onSelectEntry,
+  onToggleYearEndPerformance,
+  isYearEndPerformanceOpen,
   position = { x: 20, y: 180 },
 }) {
   const container = new PIXI.Container();
@@ -182,7 +203,7 @@ export function createEventLogView({
         fill: 0xffffff,
         fontSize: 14,
         wordWrap: true,
-        wordWrapWidth: rowWidth - 48,
+        wordWrapWidth: rowWidth - (hasYearEndPerformanceData(spec) ? 132 : 48),
       });
       text.x = 12;
       text.y = 10;
@@ -214,6 +235,42 @@ export function createEventLogView({
       timestamp.x = rowWidth - 8;
       timestamp.y = LOG_ROW_HEIGHT - 6;
       row.addChild(timestamp);
+
+      if (hasYearEndPerformanceData(spec)) {
+        const chip = new PIXI.Container();
+        chip.eventMode = "static";
+        chip.cursor = "pointer";
+
+        const chipBg = new PIXI.Graphics();
+        chip.addChild(chipBg);
+
+        const open = isYearEndPerformanceOpen?.(spec.id) === true;
+        const chipText = new PIXI.Text(open ? "Report: Open" : "Report", {
+          fill: open ? 0x111827 : 0xdde8ff,
+          fontSize: 9,
+          fontWeight: "bold",
+        });
+        chip.addChild(chipText);
+
+        const chipW = Math.ceil(chipText.width) + 10;
+        const chipH = 16;
+        chipBg.clear();
+        chipBg.beginFill(open ? 0x9cc3ff : 0x344666, 0.96);
+        chipBg.lineStyle(1, open ? 0xdbeafe : 0x7aa2df, 0.95);
+        chipBg.drawRoundedRect(0, 0, chipW, chipH, 7);
+        chipBg.endFill();
+
+        chipText.x = Math.floor((chipW - chipText.width) / 2);
+        chipText.y = Math.floor((chipH - chipText.height) / 2) - 1;
+
+        chip.x = rowWidth - chipW - 8;
+        chip.y = LOG_ROW_HEIGHT - chipH - 5;
+        chip.on("pointertap", (ev) => {
+          ev?.stopPropagation?.();
+          onToggleYearEndPerformance?.(spec);
+        });
+        row.addChild(chip);
+      }
 
       row.eventMode = "static";
       row.cursor = "pointer";
@@ -251,7 +308,12 @@ export function createEventLogView({
       onSelectEntry?.(null);
     }
 
-    const signature = buildRowsSignature(rowSpecs, selectedEntryId, state);
+    const signature = buildRowsSignature(
+      rowSpecs,
+      selectedEntryId,
+      state,
+      isYearEndPerformanceOpen
+    );
     if (signature === lastSignature) return;
     lastSignature = signature;
     buildRows(rowSpecs, state);
