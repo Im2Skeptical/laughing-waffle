@@ -3,6 +3,8 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
+import { createEmptyLeaderEquipment } from "./equipment-rules.js";
+import { INITIAL_POPULATION_DEFAULT } from "../defs/gamesettings/gamerules-defs.js";
 
 import {
   createEmptyState,
@@ -12,10 +14,25 @@ import {
   rebuildBoardOccupancy,
   buildPawnSystemDefaults,
 } from "./state.js";
+import { getDefaultSkillPointsForPawnDefId } from "./skills.js";
 
 import { Inventory } from "./inventory-model.js";
 
 const HUB_COLS = 10;
+
+function normalizeUnlockedSkillNodeIds(value) {
+  const raw = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string" || entry.length === 0) continue;
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+  }
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+}
 
 // Create a fully-initialized GameState snapshot
 // - scenario can be a setupId string OR a raw setup object (from scenarios-defs style)
@@ -44,7 +61,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.resources = {
     gold: 0,
     food: 0,
-    population: 0,
+    population: INITIAL_POPULATION_DEFAULT,
     ...(setup.resources || {}),
   };
 
@@ -52,7 +69,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.nextHubStructureInstanceId = 1;
   state.nextEnvInstanceId = 1;
   state.nextItemId = 1;
-  state.nextCharacterId = 101;
+  state.nextPawnId = 101;
   state.nextFollowerCreationOrderIndex = 1;
 
   const boardCols = getBoardColsFromSetup(setup, state);
@@ -68,11 +85,12 @@ export function createInitialState(scenario = "testing", seed = null) {
 
   state.board.layers.tile.anchors = buildTileAnchors(setup, boardCols, state);
 
-  // characters
-  const charSpecs = setup.characters || [];
+  // pawns
+  const pawnSpecs =
+    (Array.isArray(setup.pawns) ? setup.pawns : null) || [];
   const created = [];
-  for (let index = 0; index < charSpecs.length; index++) {
-    const c = charSpecs[index];
+  for (let index = 0; index < pawnSpecs.length; index++) {
+    const c = pawnSpecs[index];
     const wantsEnvRow = c?.row === "env" || Number.isFinite(c?.envCol);
     const envCol = wantsEnvRow
       ? getColIndex({ envCol: c.envCol }, index, boardCols)
@@ -82,18 +100,30 @@ export function createInitialState(scenario = "testing", seed = null) {
       : getColIndex({ hubCol: c.hubCol }, index, hubCols);
     const { systemTiers, systemState } = buildPawnSystemDefaults();
     const role = c?.role === "follower" ? "follower" : "leader";
+    const pawnDefId =
+      typeof c?.pawnDefId === "string" ? c.pawnDefId : "default";
     const pawn = {
-      id: state.nextCharacterId++,
-      pawnDefId: typeof c?.pawnDefId === "string" ? c.pawnDefId : "default",
+      id: state.nextPawnId++,
+      pawnDefId,
       name: c.name,
       color: c.color,
       hubCol,
       envCol,
       systemTiers,
       systemState,
+      skillPoints: Number.isFinite(c?.skillPoints)
+        ? Math.max(0, Math.floor(c.skillPoints))
+        : getDefaultSkillPointsForPawnDefId(pawnDefId),
+      unlockedSkillNodeIds: normalizeUnlockedSkillNodeIds(
+        c?.unlockedSkillNodeIds
+      ),
       props: {},
       role,
       leaderId: null,
+      ai: {
+        mode: null,
+        suppressAutoUntilSec: 0,
+      },
     };
     if (role === "follower") {
       pawn.followerCreationOrderIndex = state.nextFollowerCreationOrderIndex++;
@@ -107,6 +137,7 @@ export function createInitialState(scenario = "testing", seed = null) {
       pawn.prestigeCapDebt = 0;
       pawn.prestigeCapEffective = 0;
       pawn.prestigeDebtByFollowerId = {};
+      pawn.equipment = createEmptyLeaderEquipment();
     }
     created.push(pawn);
   }
@@ -124,7 +155,7 @@ export function createInitialState(scenario = "testing", seed = null) {
     delete pawn._leaderId;
   }
 
-  state.characters = created;
+  state.pawns = created;
 
   // inventories
   state.ownerInventories = {};
@@ -145,12 +176,12 @@ export function createInitialState(scenario = "testing", seed = null) {
     state.ownerInventories[structure.instanceId] = inv;
   }
 
-  // character inventories
-  for (const ch of state.characters) {
+  // pawn inventories
+  for (const pawn of state.pawns) {
     const inv = Inventory.create(5, 3);
     Inventory.init(inv);
     inv.version = 0;
-    state.ownerInventories[ch.id] = inv;
+    state.ownerInventories[pawn.id] = inv;
   }
 
   // scenario-defined inventory items
@@ -181,7 +212,10 @@ function applySetupInventories(state, setup) {
   const hubStructureIdsInOrder = state.hub.slots.map(
     (s) => s?.structure?.instanceId ?? null
   );
-  const charIdsInOrder = state.characters.map((c) => c.id);
+  const pawnIdsInOrder = state.pawns.map((c) => c.id);
+  const leaderPawnIdsInOrder = state.pawns
+    .filter((pawn) => pawn?.role === "leader")
+    .map((pawn) => pawn.id);
 
   for (const spec of invSpecs) {
     const owner = spec.owner;
@@ -200,8 +234,10 @@ function applySetupInventories(state, setup) {
         hubStructureIdsInOrder[
           getColIndex(owner, owner.index ?? 0, hubStructureIdsInOrder.length)
         ];
-    } else if (owner.type === "character") {
-      ownerId = charIdsInOrder[owner.index];
+    } else if (owner.type === "leaderPawn") {
+      ownerId = leaderPawnIdsInOrder[owner.index];
+    } else if (owner.type === "pawn") {
+      ownerId = pawnIdsInOrder[owner.index];
     }
 
     if (!ownerId) continue;
@@ -301,7 +337,9 @@ function buildHubSlots(setup, hubCols, state) {
     }
     if (blocked) continue;
 
-    const structure = makeHubStructureInstance(spec.defId, state);
+      const structure = makeHubStructureInstance(spec.defId, state, {
+        tier: typeof spec.tier === "string" ? spec.tier : null,
+      });
     slots[hubCol] = {
       x: spec.x,
       y: spec.y,

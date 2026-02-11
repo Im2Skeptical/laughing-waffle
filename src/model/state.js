@@ -1,16 +1,25 @@
 // state.js — core GameState shape + RNG helpers + season decks + serialize/deserialize
 // Model-only. No view imports.
 
-import { SEASONS, SEASON_DURATION_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import {
+  SEASONS,
+  SEASON_DURATION_SEC,
+  INITIAL_POPULATION_DEFAULT,
+} from "../defs/gamesettings/gamerules-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
-import { attachRngHelpers } from "./rng.js";
+import {
+  LEADER_EQUIPMENT_SLOT_ORDER,
+} from "../defs/gamesystems/equipment-slot-defs.js";
+import { createEmptyLeaderEquipment } from "./equipment-rules.js";
+import { attachRngHelpers, createRng } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 import { Inventory } from "./inventory-model.js";
+import { computeGlobalSkillMods } from "./skills.js";
 
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event"];
@@ -84,6 +93,17 @@ function ensureBoardState(state) {
       board.occ[layer] = new Array(cols).fill(null);
     }
   }
+}
+
+function ensurePawnCollectionState(state) {
+  if (!state || typeof state !== "object") return [];
+  if (Array.isArray(state.pawns)) return state.pawns;
+  state.pawns = [];
+  return state.pawns;
+}
+
+export function getPawns(state) {
+  return ensurePawnCollectionState(state);
 }
 
 export function ensureHubState(state) {
@@ -172,6 +192,45 @@ export function ensurePawnSystems(pawn) {
       }
     }
   }
+
+  ensurePawnAI(pawn);
+}
+
+export function ensurePawnAI(pawn) {
+  if (!pawn || typeof pawn !== "object") return;
+  const raw = pawn.ai;
+  const ai = raw && typeof raw === "object" ? raw : {};
+  const mode = ai.mode === "eat" || ai.mode === "rest" ? ai.mode : null;
+  const suppressAutoUntilSec = Number.isFinite(ai.suppressAutoUntilSec)
+    ? Math.max(0, Math.floor(ai.suppressAutoUntilSec))
+    : 0;
+  ai.mode = mode;
+  ai.suppressAutoUntilSec = suppressAutoUntilSec;
+  pawn.ai = ai;
+}
+
+function normalizeSkillNodeIdList(value) {
+  const raw = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string" || entry.length === 0) continue;
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+  }
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+}
+
+export function ensurePawnSkillFields(pawn) {
+  if (!pawn || typeof pawn !== "object") return;
+  pawn.skillPoints = Number.isFinite(pawn.skillPoints)
+    ? Math.max(0, Math.floor(pawn.skillPoints))
+    : 0;
+  pawn.unlockedSkillNodeIds = normalizeSkillNodeIdList(
+    pawn.unlockedSkillNodeIds
+  );
 }
 
 function ensureLeaderPrestigeFields(pawn) {
@@ -189,6 +248,16 @@ function ensureLeaderPrestigeFields(pawn) {
   pawn.prestigeCapBase = base;
   pawn.prestigeCapDebt = debt;
   pawn.prestigeCapEffective = Math.max(0, base - Math.min(debt, base));
+
+  if (!pawn.equipment || typeof pawn.equipment !== "object") {
+    pawn.equipment = createEmptyLeaderEquipment();
+    return;
+  }
+  for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+    if (!Object.prototype.hasOwnProperty.call(pawn.equipment, slotId)) {
+      pawn.equipment[slotId] = null;
+    }
+  }
 }
 
 function ensureFollowerFields(pawn, fallbackOrderIndex = null) {
@@ -209,6 +278,7 @@ function ensureFollowerFields(pawn, fallbackOrderIndex = null) {
 
 function ensurePawnRoleFields(state, pawn, fallbackFollowerOrderIndex = null) {
   if (!pawn || typeof pawn !== "object") return;
+  ensurePawnSkillFields(pawn);
   if (pawn.role !== "leader" && pawn.role !== "follower") {
     pawn.role = "leader";
   }
@@ -270,7 +340,11 @@ export function createEmptyState(seed = 123456789) {
     actionPointCap: 100,
     apCapOverride: null,
 
-    resources: { gold: 0, food: 0, population: 0 },
+    resources: {
+      gold: 0,
+      food: 0,
+      population: INITIAL_POPULATION_DEFAULT,
+    },
 
     board: createBoardState(),
     hub: createHubState(),
@@ -283,11 +357,13 @@ export function createEmptyState(seed = 123456789) {
 
     nextItemId: 1,
 
-    characters: [],
-    nextCharacterId: 101,
+    pawns: [],
+    nextPawnId: 101,
     nextFollowerCreationOrderIndex: 1,
+    gameEventFeed: [],
+    nextGameEventFeedId: 1,
 
-    rng: { seed },
+    rng: { seed, baseSeed: seed },
   };
 
   attachRngHelpers(state);
@@ -301,7 +377,7 @@ export const gameState = createEmptyState();
 // INSTANCE CREATION (core; used by init + effects)
 // =============================================================================
 
-export function makeHubStructureInstance(defId, state) {
+export function makeHubStructureInstance(defId, state, options = {}) {
   const def = hubStructureDefs[defId];
   const span =
     Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
@@ -311,6 +387,7 @@ export function makeHubStructureInstance(defId, state) {
     instanceId: state.nextHubStructureInstanceId++,
     defId,
     span,
+    tier: typeof options?.tier === "string" ? options.tier : null,
     props: {},
     tags: [],
     systemTiers: {},
@@ -473,26 +550,41 @@ function ensureHubStructureFields(instance, def) {
     instance.systemState = {};
   }
 
+  function ensureHubSystemState(systemId) {
+    if (!systemId || typeof systemId !== "string") return;
+    if (instance.systemTiers[systemId] == null) {
+      const sysDef = hubSystemDefs[systemId];
+      const instanceTier =
+        typeof instance.tier === "string" ? instance.tier : null;
+      if (instanceTier) {
+        instance.systemTiers[systemId] = instanceTier;
+      } else if (sysDef?.defaultTier != null) {
+        instance.systemTiers[systemId] = sysDef.defaultTier;
+      }
+    }
+    if (!instance.systemState[systemId]) {
+      const sysDef = hubSystemDefs[systemId];
+      if (sysDef?.stateDefaults) {
+        instance.systemState[systemId] = deepCloneSerializable(
+          sysDef.stateDefaults
+        );
+      }
+    }
+  }
+
   const tags = Array.isArray(instance.tags) ? instance.tags : [];
   for (const tagId of tags) {
     const tagDef = hubTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
     for (const systemId of systems) {
-      if (instance.systemTiers[systemId] == null) {
-        const sysDef = hubSystemDefs[systemId];
-        if (sysDef?.defaultTier != null) {
-          instance.systemTiers[systemId] = sysDef.defaultTier;
-        }
-      }
-      if (!instance.systemState[systemId]) {
-        const sysDef = hubSystemDefs[systemId];
-        if (sysDef?.stateDefaults) {
-          instance.systemState[systemId] = deepCloneSerializable(
-            sysDef.stateDefaults
-          );
-        }
-      }
+      ensureHubSystemState(systemId);
     }
+  }
+
+  const depositSystemId =
+    typeof def?.deposit?.systemId === "string" ? def.deposit.systemId : null;
+  if (depositSystemId) {
+    ensureHubSystemState(depositSystemId);
   }
 }
 
@@ -534,9 +626,9 @@ function normalizeTagList(tags) {
 // SEASON EVENT DECKS (tile-driven)
 // =============================================================================
 
-function pickWeightedDefId(state, entries) {
+function pickWeightedDefId(rng, entries) {
   if (!Array.isArray(entries) || entries.length === 0) return null;
-  if (typeof state?.rngNextFloat !== "function") return null;
+  if (!rng || typeof rng.nextFloat !== "function") return null;
 
   let total = 0;
   const weights = new Array(entries.length);
@@ -550,7 +642,7 @@ function pickWeightedDefId(state, entries) {
 
   if (total <= 0) return null;
 
-  const roll = state.rngNextFloat() * total;
+  const roll = rng.nextFloat() * total;
   let acc = 0;
   for (let i = 0; i < entries.length; i++) {
     acc += weights[i];
@@ -573,11 +665,11 @@ function getOrderedTileAnchors(state) {
   return ordered.map((entry) => entry.anchor);
 }
 
-function shuffleDeckInPlace(state, deck) {
+function shuffleDeckInPlace(rng, deck) {
   if (!Array.isArray(deck) || deck.length < 2) return;
-  if (typeof state?.rngNextInt !== "function") return;
+  if (!rng || typeof rng.nextInt !== "function") return;
   for (let i = deck.length - 1; i > 0; i--) {
-    const j = state.rngNextInt(0, i);
+    const j = rng.nextInt(0, i);
     if (i === j) continue;
     const tmp = deck[i];
     deck[i] = deck[j];
@@ -585,10 +677,27 @@ function shuffleDeckInPlace(state, deck) {
   }
 }
 
+function deriveSeasonDeckSeed(state) {
+  const baseSeed = Number.isFinite(state?.rng?.baseSeed)
+    ? Math.floor(state.rng.baseSeed)
+    : Number.isFinite(state?.rng?.seed)
+      ? Math.floor(state.rng.seed)
+      : 0;
+  const year = Number.isFinite(state?.year) ? Math.floor(state.year) : 0;
+  const seasonIndex = Number.isFinite(state?.currentSeasonIndex)
+    ? Math.floor(state.currentSeasonIndex)
+    : 0;
+  let seed = baseSeed | 0;
+  seed = Math.imul(seed ^ (year + 0x9e3779b9), 0x85ebca6b);
+  seed = Math.imul(seed ^ (seasonIndex + 0x7f4a7c15), 0xc2b2ae35);
+  return seed | 0;
+}
+
 export function buildSeasonDeckForCurrentSeason(state) {
   if (!state) return null;
   const seasonKey = getCurrentSeasonKey(state);
   const deck = [];
+  const rng = createRng(deriveSeasonDeckSeed(state));
 
   for (const anchor of getOrderedTileAnchors(state)) {
     if (!anchor) continue;
@@ -596,14 +705,14 @@ export function buildSeasonDeckForCurrentSeason(state) {
     const table = def?.seasonTables?.[seasonKey];
     if (!Array.isArray(table) || table.length === 0) continue;
 
-    const defId = pickWeightedDefId(state, table);
+    const defId = pickWeightedDefId(rng, table);
     if (!defId) continue;
 
     deck.push({ defId });
   }
 
   // Shuffle so draw order is not tied to tile columns.
-  shuffleDeckInPlace(state, deck);
+  shuffleDeckInPlace(rng, deck);
   state.currentSeasonDeck = { seasonKey, deck };
   return state.currentSeasonDeck;
 }
@@ -718,14 +827,42 @@ export function deserializeGameState(data) {
   const state = deepCloneSerializable(raw);
 
   // Ensure defaults
-  if (!state.rng) state.rng = { seed: 123456789 };
-  if (!state.resources) state.resources = { gold: 0, food: 0, population: 0 };
+  if (!state.rng) state.rng = { seed: 123456789, baseSeed: 123456789 };
+  if (!Number.isFinite(state.rng.seed)) {
+    state.rng.seed = Number.isFinite(state.rng.baseSeed)
+      ? Math.floor(state.rng.baseSeed)
+      : 123456789;
+  }
+  if (!Number.isFinite(state.rng.baseSeed)) {
+    state.rng.baseSeed = Math.floor(state.rng.seed ?? 123456789);
+  }
+  if (!state.resources) {
+    state.resources = {
+      gold: 0,
+      food: 0,
+      population: INITIAL_POPULATION_DEFAULT,
+    };
+  }
+  if (!Number.isFinite(state.resources.gold)) state.resources.gold = 0;
+  if (!Number.isFinite(state.resources.food)) state.resources.food = 0;
+  if (!Number.isFinite(state.resources.population)) {
+    state.resources.population = INITIAL_POPULATION_DEFAULT;
+  }
   if (state.envSlots) delete state.envSlots;
   if (state.envSlotsEnabled != null) delete state.envSlotsEnabled;
   if (!state.hub || typeof state.hub !== "object") state.hub = createHubState();
-  if (!state.characters) state.characters = [];
+  const pawns = ensurePawnCollectionState(state);
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
+  if (!Array.isArray(state.gameEventFeed)) state.gameEventFeed = [];
+  if (!Number.isFinite(state.nextGameEventFeedId)) {
+    let maxEventId = 0;
+    for (const entry of state.gameEventFeed) {
+      const id = Number.isFinite(entry?.id) ? Math.floor(entry.id) : 0;
+      if (id > maxEventId) maxEventId = id;
+    }
+    state.nextGameEventFeedId = Math.max(1, maxEventId + 1);
+  }
   if (
     state.currentSeasonDeck != null &&
     typeof state.currentSeasonDeck !== "object"
@@ -746,15 +883,15 @@ export function deserializeGameState(data) {
     : 1;
   let maxFollowerIndex = 0;
 
-  for (const ch of state.characters) {
-    ensurePawnSystems(ch);
-    if (ch?.role !== "leader" && ch?.role !== "follower") {
-      ch.role = "leader";
+  for (const pawn of pawns) {
+    ensurePawnSystems(pawn);
+    if (pawn?.role !== "leader" && pawn?.role !== "follower") {
+      pawn.role = "leader";
     }
-    if (ch?.role === "follower" && Number.isFinite(ch.followerCreationOrderIndex)) {
+    if (pawn?.role === "follower" && Number.isFinite(pawn.followerCreationOrderIndex)) {
       maxFollowerIndex = Math.max(
         maxFollowerIndex,
-        Math.floor(ch.followerCreationOrderIndex)
+        Math.floor(pawn.followerCreationOrderIndex)
       );
     }
   }
@@ -763,12 +900,12 @@ export function deserializeGameState(data) {
     nextFollowerIndex = maxFollowerIndex + 1;
   }
 
-  for (const ch of state.characters) {
-    if (ch?.role === "follower" && !Number.isFinite(ch.followerCreationOrderIndex)) {
-      ensurePawnRoleFields(state, ch, nextFollowerIndex++);
+  for (const pawn of pawns) {
+    if (pawn?.role === "follower" && !Number.isFinite(pawn.followerCreationOrderIndex)) {
+      ensurePawnRoleFields(state, pawn, nextFollowerIndex++);
       continue;
     }
-    ensurePawnRoleFields(state, ch, null);
+    ensurePawnRoleFields(state, pawn, null);
   }
   state.nextFollowerCreationOrderIndex = nextFollowerIndex;
   state._boardDirty = false;
@@ -782,6 +919,9 @@ export function deserializeGameState(data) {
   if (state.actionPointCap == null) state.actionPointCap = 100;
   if (state.nextHubStructureInstanceId == null) {
     state.nextHubStructureInstanceId = 1;
+  }
+  if (!Number.isFinite(state.nextPawnId)) {
+    state.nextPawnId = 101;
   }
   if (!state.apCapOverride || typeof state.apCapOverride !== "object") {
     state.apCapOverride = null;
@@ -821,7 +961,12 @@ export function deserializeGameState(data) {
       Math.max(0, overridePoints)
     );
   } else {
-    state.actionPointCap = getActionPointCapAtSecond(state.tSec ?? 0);
+    const baseCap = getActionPointCapAtSecond(state.tSec ?? 0);
+    const globalSkillMods = computeGlobalSkillMods(state);
+    const skillCapBonus = Number.isFinite(globalSkillMods?.apCapBonus)
+      ? Math.floor(globalSkillMods.apCapBonus)
+      : 0;
+    state.actionPointCap = Math.max(0, baseCap + skillCapBonus);
     // Enforce Cap Clamp immediately on load (in case save data is over-cap)
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);
   }
@@ -862,25 +1007,25 @@ export function validateState(state) {
   }
   const hubCols = Array.isArray(hub?.slots) ? hub.slots.length : 0;
 
-  const chars = Array.isArray(state.characters) ? state.characters : [];
-  for (const ch of chars) {
-    const hasHub = Number.isFinite(ch?.hubCol);
-    const hasEnv = Number.isFinite(ch?.envCol);
+  const pawns = getPawns(state);
+  for (const pawn of pawns) {
+    const hasHub = Number.isFinite(pawn?.hubCol);
+    const hasEnv = Number.isFinite(pawn?.envCol);
     if (hasHub && hasEnv) {
       warnings.push(
-        `character has both hubCol and envCol: ${ch.id ?? "unknown"}`
+        `pawn has both hubCol and envCol: ${pawn.id ?? "unknown"}`
       );
     }
     if (hasHub) {
-      const col = Math.floor(ch.hubCol);
+      const col = Math.floor(pawn.hubCol);
       if (col < 0 || col >= hubCols) {
-        errors.push(`character hubCol out of bounds: ${ch.id ?? "unknown"}`);
+        errors.push(`pawn hubCol out of bounds: ${pawn.id ?? "unknown"}`);
       }
     }
     if (hasEnv) {
-      const col = Math.floor(ch.envCol);
+      const col = Math.floor(pawn.envCol);
       if (col < 0 || col >= cols) {
-        errors.push(`character envCol out of bounds: ${ch.id ?? "unknown"}`);
+        errors.push(`pawn envCol out of bounds: ${pawn.id ?? "unknown"}`);
       }
     }
   }

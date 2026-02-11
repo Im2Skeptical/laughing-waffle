@@ -4,6 +4,8 @@
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { itemDefs } from "../../defs/gamepieces/item-defs.js";
+import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
 
 const TAG_PILL_HEIGHT = 20;
@@ -12,11 +14,52 @@ const TAG_PILL_PAD_X = 8;
 const TAG_PILL_GAP = 6;
 const TAG_PILL_MAX_WIDTH = TILE_WIDTH - 16;
 const TAG_PILL_WIDTH = TAG_PILL_MAX_WIDTH;
+const TAG_TOGGLE_SIZE = 12;
+const TAG_TOGGLE_PAD = 4;
+const TAG_LABEL_X = TAG_PILL_PAD_X + TAG_TOGGLE_SIZE + TAG_TOGGLE_PAD;
+const TAG_ROW_SCALE_ACTIVE = 1.05;
 const TAG_PILL_BG_ACTIVE = 0x1f263d;
-const TAG_PILL_BG_INACTIVE = 0x2f4a6f;
+const TAG_PILL_BG_TOP = 0x2a3958;
+const TAG_PILL_BG_LOW = 0x273245;
+const TAG_PILL_BG_BYPASSED = 0x4b252c;
 const TAG_PILL_BORDER_ACTIVE = 0x1b2a42;
-const TAG_PILL_BORDER_INACTIVE = 0x101524;
+const TAG_PILL_BORDER_TOP = 0x1e2c44;
+const TAG_PILL_BORDER_LOW = 0x141c2b;
+const TAG_PILL_BORDER_BYPASSED = 0x7a2d36;
 const TAG_PILL_TEXT = 0xe6eef9;
+const TAG_PILL_TEXT_LOW = 0xb8c2d6;
+const TAG_PILL_TEXT_BYPASSED = 0xf2b0b0;
+
+const TAG_PILL_STYLES = {
+  active: {
+    bgColor: TAG_PILL_BG_ACTIVE,
+    borderColor: TAG_PILL_BORDER_ACTIVE,
+    textColor: TAG_PILL_TEXT,
+    alpha: 1,
+    rowScale: TAG_ROW_SCALE_ACTIVE,
+  },
+  topInactive: {
+    bgColor: TAG_PILL_BG_TOP,
+    borderColor: TAG_PILL_BORDER_TOP,
+    textColor: TAG_PILL_TEXT,
+    alpha: 0.95,
+    rowScale: 1,
+  },
+  low: {
+    bgColor: TAG_PILL_BG_LOW,
+    borderColor: TAG_PILL_BORDER_LOW,
+    textColor: TAG_PILL_TEXT_LOW,
+    alpha: 0.7,
+    rowScale: 1,
+  },
+  bypassed: {
+    bgColor: TAG_PILL_BG_BYPASSED,
+    borderColor: TAG_PILL_BORDER_BYPASSED,
+    textColor: TAG_PILL_TEXT_BYPASSED,
+    alpha: 0.9,
+    rowScale: 1,
+  },
+};
 
 const SYSTEM_ROW_HEIGHT = 18;
 const SYSTEM_ROW_GAP = 4;
@@ -37,6 +80,7 @@ const GROWTH_BAR_COLORS = {
 };
 
 const SYSTEM_UI_MAP = {
+  build: { label: "Build", icon: "B", color: 0x8f8f8f },
   hydration: { label: "Hydration", icon: "H", color: 0x5aa2ff },
   fertility: { label: "Fertility", icon: "F", color: 0xb07a4f },
   growth: { label: "Growth", icon: "G", color: 0x7ccf6b },
@@ -64,6 +108,10 @@ export function createTagUi(opts) {
     baseTextResolution,
     hoverTextResolution,
     requestPauseForAction,
+    toggleTag,
+    onSystemIconHover,
+    onSystemIconOut,
+    onSystemIconClick,
   } = opts;
 
   function clamp01(value) {
@@ -130,6 +178,63 @@ export function createTagUi(opts) {
     const num = Number.isFinite(value) ? value : 0;
     if (num >= 1000) return `${Math.floor(num / 100) / 10}k`;
     return String(Math.floor(num));
+  }
+
+  function getBuildProcess(tileInst) {
+    const processes = Array.isArray(tileInst?.systemState?.build?.processes)
+      ? tileInst.systemState.build.processes
+      : [];
+    return processes.find((proc) => proc?.type === "build") ?? null;
+  }
+
+  function formatBuildRequirementLabel(req) {
+    if (!req || typeof req !== "object") return "Material";
+    if (req.kind === "item") {
+      const def = itemDefs?.[req.itemId];
+      return def?.name || req.itemId || "Item";
+    }
+    if (req.kind === "tag") {
+      const def = itemTagDefs?.[req.tag];
+      return def?.ui?.name || req.tag || "Tag";
+    }
+    if (req.kind === "resource") {
+      const raw = String(req.resource || "Resource");
+      return raw.length ? raw[0].toUpperCase() + raw.slice(1) : "Resource";
+    }
+    return "Material";
+  }
+
+  function buildRowsForBuildProcess(tileInst) {
+    const process = getBuildProcess(tileInst);
+    if (!process) return [{ kind: "labor" }];
+    const reqs = Array.isArray(process.requirements)
+      ? process.requirements.filter(
+          (req) => Math.max(0, Math.floor(req?.amount ?? 0)) > 0
+        )
+      : [];
+    if (reqs.length > 0) {
+      let hasRemaining = false;
+      for (const req of reqs) {
+        const required = Math.max(0, Math.floor(req?.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+        if (progress < required) {
+          hasRemaining = true;
+          break;
+        }
+      }
+      if (hasRemaining) {
+        return reqs.map((req, index) => ({
+          kind: "requirement",
+          index,
+          label: formatBuildRequirementLabel(req),
+        }));
+      }
+    }
+    return [{ kind: "labor" }];
+  }
+
+  function getBuildRowSignature(rows) {
+    return rows.map((row) => `${row.kind}:${row.index ?? ""}`).join("|");
   }
 
   function buildTagTooltipLines(tileInst, tagId) {
@@ -273,6 +378,30 @@ export function createTagUi(opts) {
       return lines;
     }
 
+    if (systemId === "build") {
+      const process = getBuildProcess(tileInst);
+      if (!process) {
+        lines.push("Progress: idle");
+        return lines;
+      }
+      const reqs = Array.isArray(process.requirements)
+        ? process.requirements
+        : [];
+      if (reqs.length > 0) {
+        lines.push("Materials:");
+        for (const req of reqs) {
+          const required = Math.max(0, Math.floor(req?.amount ?? 0));
+          const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+          const label = formatBuildRequirementLabel(req);
+          lines.push(`${label}: ${progress}/${required}`);
+        }
+      }
+      const progress = Math.max(0, Math.floor(process.progress ?? 0));
+      const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
+      lines.push(`Labor: ${progress}/${duration}`);
+      return lines;
+    }
+
     const tier = getSystemTier(tileInst, systemId);
     lines.push(`Tier: ${tier}`);
     return lines;
@@ -312,7 +441,7 @@ export function createTagUi(opts) {
     }, 160);
   }
 
-  function buildSystemRow(view, systemId) {
+  function buildSystemRow(view, systemId, opts = null) {
     const ui = getSystemUi(systemId);
     const container = new PIXI.Container();
     container.eventMode = "static";
@@ -327,10 +456,13 @@ export function createTagUi(opts) {
     });
     const icon = new PIXI.Container();
     icon.eventMode = "static";
-    icon.cursor = "help";
+    icon.cursor =
+      onSystemIconClick || onSystemIconHover || onSystemIconOut
+        ? "pointer"
+        : "help";
 
     const iconBg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER_INACTIVE, 0.8)
+      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
       .beginFill(ui.color, 1)
       .drawCircle(
         SYSTEM_ICON_SIZE / 2,
@@ -380,10 +512,19 @@ export function createTagUi(opts) {
     container.addChild(flashOverlay);
 
     icon.on("pointerover", () => {
+      onSystemIconHover?.(view, systemId);
       showTooltipForSystem(view.tile, systemId, icon.getBounds());
     });
     icon.on("pointerout", () => {
+      onSystemIconOut?.(view, systemId);
       tooltipView?.hide?.();
+    });
+    icon.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+    });
+    icon.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onSystemIconClick?.(view, systemId);
     });
 
     const row = {
@@ -401,6 +542,9 @@ export function createTagUi(opts) {
       lastMaturedMax: 0,
       flashOverlay,
       flashTimeout: null,
+      buildKind: opts?.kind ?? null,
+      buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
+      buildLabel: opts?.label ?? null,
     };
 
     if (systemId === "growth") {
@@ -415,7 +559,7 @@ export function createTagUi(opts) {
     return row;
   }
 
-  function buildTagEntry(view, tagId) {
+  function buildTagEntry(view, tagId, tileInst) {
     const tagDef = envTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
 
@@ -426,11 +570,24 @@ export function createTagUi(opts) {
     container.addChild(row);
 
     const bg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER_INACTIVE, 0.9)
-      .beginFill(TAG_PILL_BG_INACTIVE, 0.95)
+      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.9)
+      .beginFill(TAG_PILL_BG_LOW, 0.95)
       .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
       .endFill();
     row.addChild(bg);
+
+    const toggle = new PIXI.Container();
+    toggle.x = TAG_PILL_PAD_X - 2;
+    toggle.y = Math.round((TAG_PILL_HEIGHT - TAG_TOGGLE_SIZE) / 2);
+    toggle.eventMode = "static";
+    toggle.cursor = "pointer";
+    row.addChild(toggle);
+
+    const toggleBg = new PIXI.Graphics();
+    toggle.addChild(toggleBg);
+
+    const toggleIcon = new PIXI.Graphics();
+    toggle.addChild(toggleIcon);
 
     const label = getTagLabel(tagId);
     const labelText = new PIXI.Text(label, {
@@ -438,7 +595,7 @@ export function createTagUi(opts) {
       fontSize: 10,
       wordWrap: false,
     });
-    labelText.x = TAG_PILL_PAD_X;
+    labelText.x = TAG_LABEL_X;
     labelText.y = Math.round((TAG_PILL_HEIGHT - labelText.height) / 2);
     row.addChild(labelText);
 
@@ -456,12 +613,25 @@ export function createTagUi(opts) {
 
     const systemRows = [];
     let sysY = 0;
-    for (const systemId of systems) {
-      const rowEntry = buildSystemRow(view, systemId);
-      rowEntry.container.y = sysY;
-      systemContainer.addChild(rowEntry.container);
-      systemRows.push(rowEntry);
-      sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+    let buildRowSignature = null;
+    if (tagId === "build" && tileInst) {
+      const rows = buildRowsForBuildProcess(tileInst);
+      buildRowSignature = getBuildRowSignature(rows);
+      for (const rowSpec of rows) {
+        const rowEntry = buildSystemRow(view, "build", rowSpec);
+        rowEntry.container.y = sysY;
+        systemContainer.addChild(rowEntry.container);
+        systemRows.push(rowEntry);
+        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      }
+    } else {
+      for (const systemId of systems) {
+        const rowEntry = buildSystemRow(view, systemId);
+        rowEntry.container.y = sysY;
+        systemContainer.addChild(rowEntry.container);
+        systemRows.push(rowEntry);
+        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      }
     }
 
     const entry = {
@@ -470,21 +640,45 @@ export function createTagUi(opts) {
       container,
       row,
       bg,
-      bgColor: TAG_PILL_BG_INACTIVE,
-      borderColor: TAG_PILL_BORDER_INACTIVE,
+      bgColor: TAG_PILL_BG_LOW,
+      borderColor: TAG_PILL_BORDER_LOW,
       labelText,
       expandText,
+      toggle,
+      toggleBg,
+      toggleIcon,
+      rowScale: 1,
       systemContainer,
       systemRows,
       expanded: false,
       systemHeight: sysY > 0 ? sysY - SYSTEM_ROW_GAP : 0,
       height: TAG_PILL_HEIGHT,
+      buildRowSignature,
     };
 
     entry.setExpanded = (expanded) => {
       entry.expanded = !!expanded;
       entry.expandText.text = entry.expanded ? "v" : ">";
     };
+
+    toggle.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+      view.ignoreNextTagTap = true;
+    });
+    toggle.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      view.ignoreNextTagTap = true;
+      view.hasTagToggle = true;
+      requestPauseForAction?.();
+      if (typeof toggleTag === "function") {
+        toggleTag({
+          envCol: Number.isFinite(view.tile?.col)
+            ? Math.floor(view.tile.col)
+            : view.col,
+          tagId,
+        });
+      }
+    });
 
     row.on("pointerover", () => {
       showTooltipForTag(view.tile, tagId, row.getBounds());
@@ -514,21 +708,70 @@ export function createTagUi(opts) {
     return entry;
   }
 
-  function setTagPillStyle(entry, isActive) {
-    const bgColor = isActive ? TAG_PILL_BG_ACTIVE : TAG_PILL_BG_INACTIVE;
-    const borderColor = isActive
-      ? TAG_PILL_BORDER_ACTIVE
-      : TAG_PILL_BORDER_INACTIVE;
-    if (entry.bgColor === bgColor && entry.borderColor === borderColor) return;
+  function updateToggleVisual(entry, isDisabled) {
+    if (!entry?.toggleBg || !entry?.toggleIcon) return;
+    const fill = isDisabled ? 0x5a2a31 : 0x2e5c3f;
+    const stroke = isDisabled ? 0xf2b0b0 : 0xcff5d6;
 
-    entry.bg.clear();
-    entry.bg
-      .lineStyle(1, borderColor, 0.9)
-      .beginFill(bgColor, 0.95)
-      .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
+    entry.toggleBg.clear();
+    entry.toggleBg
+      .lineStyle(1, stroke, 0.9)
+      .beginFill(fill, 0.95)
+      .drawRoundedRect(0, 0, TAG_TOGGLE_SIZE, TAG_TOGGLE_SIZE, 3)
       .endFill();
-    entry.bgColor = bgColor;
-    entry.borderColor = borderColor;
+
+    entry.toggleIcon.clear();
+    if (isDisabled) {
+      entry.toggleIcon
+        .lineStyle(2, stroke, 1)
+        .moveTo(3, 3)
+        .lineTo(TAG_TOGGLE_SIZE - 3, TAG_TOGGLE_SIZE - 3)
+        .moveTo(TAG_TOGGLE_SIZE - 3, 3)
+        .lineTo(3, TAG_TOGGLE_SIZE - 3);
+    } else {
+      entry.toggleIcon.beginFill(0xd7ffe0, 1);
+      entry.toggleIcon.drawCircle(TAG_TOGGLE_SIZE / 2, TAG_TOGGLE_SIZE / 2, 3);
+      entry.toggleIcon.endFill();
+    }
+  }
+
+  function setTagPillStyle(entry, style) {
+    if (!entry || !style) return;
+    const bgColor = style.bgColor ?? TAG_PILL_BG_LOW;
+    const borderColor = style.borderColor ?? TAG_PILL_BORDER_LOW;
+    const textColor = style.textColor ?? TAG_PILL_TEXT;
+    const alpha = style.alpha ?? 1;
+    const rowScale = style.rowScale ?? 1;
+
+    if (entry.bgColor !== bgColor || entry.borderColor !== borderColor) {
+      entry.bg.clear();
+      entry.bg
+        .lineStyle(1, borderColor, 0.9)
+        .beginFill(bgColor, 0.95)
+        .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
+        .endFill();
+      entry.bgColor = bgColor;
+      entry.borderColor = borderColor;
+    }
+
+    if (entry.labelText?.style?.fill !== textColor) {
+      entry.labelText.style.fill = textColor;
+      entry.labelText.dirty = true;
+    }
+    if (entry.expandText?.style?.fill !== textColor) {
+      entry.expandText.style.fill = textColor;
+      entry.expandText.dirty = true;
+    }
+
+    entry.container.alpha = alpha;
+
+    if (entry.rowScale !== rowScale) {
+      entry.rowScale = rowScale;
+      entry.row.scale.set(rowScale);
+      if (entry.systemContainer) {
+        entry.systemContainer.y = TAG_PILL_HEIGHT * rowScale + 4;
+      }
+    }
   }
 
   function layoutTagEntries(view) {
@@ -540,8 +783,10 @@ export function createTagUi(opts) {
     let y = 0;
     for (const entry of entries) {
       if (!entry) continue;
+      const rowScale = entry.rowScale ?? 1;
+      const rowHeight = TAG_PILL_HEIGHT * rowScale;
       const spaceRemaining = maxHeight - y;
-      if (spaceRemaining < TAG_PILL_HEIGHT) {
+      if (spaceRemaining < rowHeight) {
         entry.container.visible = false;
         continue;
       }
@@ -549,9 +794,9 @@ export function createTagUi(opts) {
       entry.container.x = 0;
       entry.container.y = y;
 
-      let entryHeight = TAG_PILL_HEIGHT;
+      let entryHeight = rowHeight;
       if (entry.expanded && entry.systemRows.length > 0) {
-        const maxSystemHeight = spaceRemaining - TAG_PILL_HEIGHT - 4;
+        const maxSystemHeight = spaceRemaining - rowHeight - 4;
         if (maxSystemHeight > 0) {
           let sysY = 0;
           for (const row of entry.systemRows) {
@@ -565,7 +810,7 @@ export function createTagUi(opts) {
           }
           if (sysY > 0) sysY -= SYSTEM_ROW_GAP;
           entry.systemContainer.visible = sysY > 0;
-          entryHeight = TAG_PILL_HEIGHT + (sysY > 0 ? sysY + 4 : 0);
+          entryHeight = rowHeight + (sysY > 0 ? sysY + 4 : 0);
         } else {
           entry.systemContainer.visible = false;
           for (const row of entry.systemRows) {
@@ -601,6 +846,37 @@ export function createTagUi(opts) {
 
   function updateSystemRow(view, row, tileInst) {
     const systemId = row.systemId;
+    if (systemId === "build") {
+      const process = getBuildProcess(tileInst);
+      if (!process) {
+        row.labelText.text = "Build";
+        drawSystemBar(row, 0, row.uiColor);
+        return;
+      }
+      if (row.buildKind === "requirement") {
+        const req = Array.isArray(process.requirements)
+          ? process.requirements[row.buildReqIndex]
+          : null;
+        if (!req) {
+          row.labelText.text = row.buildLabel || "Material";
+          drawSystemBar(row, 0, row.uiColor);
+          return;
+        }
+        const required = Math.max(0, Math.floor(req.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req.progress ?? 0));
+        const ratio = required > 0 ? progress / required : 0;
+        const label = row.buildLabel || formatBuildRequirementLabel(req);
+        row.labelText.text = `${label} ${progress}/${required}`;
+        drawSystemBar(row, ratio, row.uiColor);
+        return;
+      }
+      const progress = Math.max(0, Math.floor(process.progress ?? 0));
+      const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
+      const ratio = duration > 0 ? progress / duration : 0;
+      row.labelText.text = `Build ${progress}/${duration}`;
+      drawSystemBar(row, ratio, row.uiColor);
+      return;
+    }
     if (systemId === "hydration") {
       const hyd = tileInst?.systemState?.hydration;
       const cur = Number.isFinite(hyd?.cur) ? Math.floor(hyd.cur) : 0;
@@ -691,13 +967,33 @@ export function createTagUi(opts) {
     drawSystemBar(row, getTierRatio(tier), row.uiColor);
   }
 
-  function updateTagEntry(view, entry, tileInst, topTagId, hasPawn) {
+  function updateTagEntry(view, entry, tileInst, topTagId, hasPawn, activeTagIds) {
     if (!entry) return;
     entry.row.cursor = "grab";
     const isDisabled = isTagDisabled(tileInst, entry.tagId);
-    const isActive = hasPawn && entry.tagId === topTagId && !isDisabled;
-    setTagPillStyle(entry, isActive);
-    entry.container.alpha = isDisabled ? 0.55 : 1;
+    const isActive =
+      hasPawn &&
+      !isDisabled &&
+      (activeTagIds instanceof Set
+        ? activeTagIds.has(entry.tagId)
+        : entry.tagId === topTagId);
+    const isTopInactive =
+      !hasPawn && entry.tagId === topTagId && !isDisabled;
+    const isLowerPriority = !isDisabled && entry.tagId !== topTagId;
+
+    let style = TAG_PILL_STYLES.low;
+    if (isDisabled) {
+      style = TAG_PILL_STYLES.bypassed;
+    } else if (isActive) {
+      style = TAG_PILL_STYLES.active;
+    } else if (isTopInactive) {
+      style = TAG_PILL_STYLES.topInactive;
+    } else if (isLowerPriority) {
+      style = TAG_PILL_STYLES.low;
+    }
+
+    setTagPillStyle(entry, style);
+    updateToggleVisual(entry, isDisabled);
 
     for (const row of entry.systemRows || []) {
       updateSystemRow(view, row, tileInst);
@@ -706,12 +1002,37 @@ export function createTagUi(opts) {
 
   function updateTagEntries(view, tileInst) {
     const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
-    const topTagId =
-      tags.find((tagId) => !isTagDisabled(tileInst, tagId)) || null;
-    const hasPawn =
-      Number.isFinite(view?.pawnCount) && view.pawnCount > 0;
+    const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
+    const topTagId = enabledTags[0] ?? null;
+    const pawnCount =
+      Number.isFinite(view?.pawnCount) && view.pawnCount > 0
+        ? Math.floor(view.pawnCount)
+        : 0;
+    const hasPawn = pawnCount > 0;
+    const activeTagIds = new Set(
+      hasPawn ? enabledTags.slice(0, pawnCount) : []
+    );
+    const buildEntry = (view.tagEntries || []).find(
+      (entry) => entry?.tagId === "build"
+    );
+    if (buildEntry) {
+      const desired = buildRowsForBuildProcess(tileInst);
+      const signature = getBuildRowSignature(desired);
+      if (signature !== buildEntry.buildRowSignature) {
+        rebuildTileTags(view, tileInst);
+        return;
+      }
+    }
+
     for (const entry of view.tagEntries || []) {
-      updateTagEntry(view, entry, tileInst, topTagId, hasPawn);
+      updateTagEntry(
+        view,
+        entry,
+        tileInst,
+        topTagId,
+        hasPawn,
+        activeTagIds
+      );
     }
   }
 
@@ -727,12 +1048,18 @@ export function createTagUi(opts) {
       view.expandedTagId = null;
     }
 
-    if (!view.hasTagToggle && view.expandedTagId == null && tags.length > 0) {
-      view.expandedTagId = tags[0];
+    if (!view.hasTagToggle && !view.expandedTagId) {
+      const pawnCount =
+        Number.isFinite(view?.pawnCount) && view.pawnCount > 0
+          ? Math.floor(view.pawnCount)
+          : 0;
+      const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
+      const activeTagId = pawnCount > 0 ? enabledTags[0] ?? null : null;
+      view.expandedTagId = activeTagId;
     }
 
     for (const tagId of tags) {
-      const entry = buildTagEntry(view, tagId);
+      const entry = buildTagEntry(view, tagId, tileInst);
       entry.setExpanded(view.expandedTagId === tagId);
       view.tagContainer.addChild(entry.container);
       view.tagEntries.push(entry);

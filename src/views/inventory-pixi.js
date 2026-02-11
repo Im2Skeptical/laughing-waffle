@@ -1,19 +1,37 @@
 //
 // inventory-pixi.js
 // Inventory UI system (Pixi).
-// - Renders inventories for generic "owners" (hub structures, characters, etc.)
+// - Renders inventories for generic "owners" (hub structures, pawns, etc.)
 // - Handles drag/drop + stack splitting.
 // - Does NOT contain game rules; delegates legality + mutation to the model.
 //
 
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
+import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
+import {
+  LEADER_EQUIPMENT_SLOT_LABELS,
+  LEADER_EQUIPMENT_SLOT_ORDER,
+} from "../defs/gamesystems/equipment-slot-defs.js";
 import {
   PRESTIGE_COST_PER_FOLLOWER,
   HUNGER_THRESHOLD,
   SECONDS_BELOW_HUNGER_THRESHOLD,
 } from "../defs/gamesettings/gamerules-defs.js";
+import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
+import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
+import {
+  HUB_COLS,
+  HUB_COL_GAP,
+  HUB_STRUCTURE_WIDTH,
+  HUB_STRUCTURE_HEIGHT,
+  HUB_STRUCTURE_ROW_Y,
+  getHubColumnCenterX,
+} from "./layout-pixi.js";
+import { createWindowHeader } from "./ui-helpers/window-header.js";
 
 
 
@@ -26,6 +44,8 @@ const INNER_PADDING = 8;
 const DEFAULT_COLS = 5;
 const DEFAULT_ROWS = 3;
 const DEFAULT_CELL_SIZE = 40;
+const BIN_CELL_SIZE = 2;
+const BIN_PAD = 6;
 const ITEM_TIER_BORDER_WIDTH = 2;
 const ITEM_TIER_BORDER_COLORS = {
   bronze: 0x8b6a3f,
@@ -34,11 +54,48 @@ const ITEM_TIER_BORDER_COLORS = {
   diamond: 0x7fd0ff,
   default: 0x333333,
 };
-const ITEM_GLYPH_COLOR = 0x111111;
-const ITEM_GLYPH_SHADOW = 0xffffff;
+const ITEM_GLYPH_COLOR = 0xffffff; //0xffffff
+const ITEM_GLYPH_SHADOW = 0x111111;
 const ITEM_GLYPH_ALPHA = 0.9;
+const EQUIP_PANEL_HEIGHT = 164;
+const EQUIP_PANEL_PADDING = 8;
+const EQUIP_SLOT_VISUAL_CELL_SIZE = 18;
+const EQUIP_SLOT_VISUAL_CELLS = {
+  head: { w: 2, h: 2 },
+  chest: { w: 2, h: 3 },
+  mainHand: { w: 2, h: 3 },
+  offHand: { w: 2, h: 3 },
+  ring1: { w: 1, h: 1 },
+  ring2: { w: 1, h: 1 },
+  amulet: { w: 1, h: 1 },
+};
+const EQUIP_SLOT_BG = 0x161a2a;
+const EQUIP_SLOT_BG_OCCUPIED = 0x26334a;
+const EQUIP_SLOT_STROKE = 0x44506e;
+const EQUIP_SLOT_STROKE_ACTIVE = 0x6f8dc6;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
+const BUILD_PANEL_ROW_HEIGHT = 24;
+const BUILD_PANEL_ROW_GAP = 4;
+const BUILD_PANEL_PADDING = 6;
+const BUILD_PANEL_HINT_HEIGHT = 12;
+const BUILD_PANEL_GAP = 8;
+const BUILD_PANEL_BG = 0x202436;
+const BUILD_PANEL_ROW_BG = 0x2a2f45;
+const BUILD_PANEL_ROW_BG_ACTIVE = 0x303a55;
+const BUILD_PANEL_TEXT = 0xffffff;
+const BUILD_PANEL_TEXT_MUTED = 0xb4bfd6;
+const SECTION_HEADER_HEIGHT = 22;
+const SECTION_HEADER_RADIUS = 9;
+const SECTION_HEADER_BG = 0x2c3450;
+const SECTION_HEADER_BG_ACTIVE = 0x364061;
+const SECTION_HEADER_TEXT = 0xe8efff;
+const SECTION_HEADER_ARROW = 0x9eb3d8;
+const BUILD_GHOST_SCALE_IDLE = 1.2;
+const BUILD_GHOST_SCALE_PLACE = 0.85;
+const BUILD_GHOST_PANEL_WIDTH = 140;
+const BUILD_GHOST_PANEL_PAD = 8;
+const BUILD_GHOST_PANEL_GAP = 10;
 const AP_OVERLAY_ALPHA = 0.45;
 const AP_OVERLAY_FADE_IN = 14;
 const AP_OVERLAY_FADE_OUT = 8;
@@ -61,17 +118,31 @@ export function createInventoryView({
   getPreviewVersion,
   getInventoryPreview,
   getFocusIntent,
+  getExternalFocusOwners,
+  openSkillTree,
   onGhostClick,
   hasItemTransferIntent,
+  equipItemToSlot,
+  depositItemToBasket,
+  openBasketWidget,
+  moveEquippedItemToInventory,
+  moveEquippedItemToSlot,
   getItemTransferAffordability,
+  getDropTargetOwnerAt,
+  setDragGhost,
+  resolveDragGhost,
+  actionPlanner,
 
   // Stage 6: injected handlers (timeline-aware in ui-root-pixi.js)
   moveItemBetweenOwners,
   splitStackAndPlace,
   cancelItemTransfer,
   adjustFollowerCount,
+  queueActionWhenPaused,
   requestPauseForAction,
   setApDragWarning,
+  discardItemFromOwner,
+  flashActionGhost,
 }) {
   const stage = layer.parent;
 
@@ -79,6 +150,10 @@ export function createInventoryView({
   let uiBlocked = false;
   let lastPreviewVersion = null;
   let focusIntentCache = null;
+  let activeBuildSpec = null;
+  let lastPointerPos = null;
+  let buildGhost = null;
+  let buildGhostDefId = null;
 
   // Owners currently showing an error flash; used to pause auto-rebuilds.
   const flashingOwners = new Set();
@@ -104,6 +179,7 @@ export function createInventoryView({
     offsetY: 0,
     view: null,
     sourceOwnerOverride: null,
+    sourceEquipmentSlotId: null,
 
     cellOffsetGX: 0,
     cellOffsetGY: 0,
@@ -123,17 +199,24 @@ export function createInventoryView({
 
   function getLeaderForOwner(ownerId) {
     const state = getStateSafe();
-    const chars = state?.characters;
-    if (!Array.isArray(chars)) return null;
-    const ch = chars.find((c) => c?.id === ownerId);
-    return ch && ch.role === "leader" ? ch : null;
+    const pawns = state?.pawns;
+    if (!Array.isArray(pawns)) return null;
+    const pawn = pawns.find((candidatePawn) => candidatePawn?.id === ownerId);
+    return pawn && pawn.role === "leader" ? pawn : null;
+  }
+
+  function getPawnForOwner(ownerId) {
+    const state = getStateSafe();
+    const pawns = state?.pawns;
+    if (!Array.isArray(pawns)) return null;
+    return pawns.find((candidatePawn) => candidatePawn?.id === ownerId) || null;
   }
 
   function getFollowersForLeader(state, leaderId) {
     if (!state || leaderId == null) return [];
-    const chars = Array.isArray(state.characters) ? state.characters : [];
-    return chars.filter(
-      (c) => c && c.role === "follower" && c.leaderId === leaderId
+    const pawns = Array.isArray(state.pawns) ? state.pawns : [];
+    return pawns.filter(
+      (pawn) => pawn && pawn.role === "follower" && pawn.leaderId === leaderId
     );
   }
 
@@ -176,6 +259,410 @@ export function createInventoryView({
       hungryCount,
       hungryDebt,
     };
+  }
+
+  function getLeaderEquipmentState(leader) {
+    const src =
+      leader?.equipment && typeof leader.equipment === "object"
+        ? leader.equipment
+        : {};
+    const out = {};
+    for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+      out[slotId] = src[slotId] ?? null;
+    }
+    return out;
+  }
+
+  function getLeaderEquippedItem(ownerId, slotId) {
+    const leader = getLeaderForOwner(ownerId);
+    if (!leader || !slotId) return null;
+    const equipment = getLeaderEquipmentState(leader);
+    return equipment?.[slotId] ?? null;
+  }
+
+  function itemProvidesBasketPool(item) {
+    if (!item || typeof item !== "object") return false;
+    const kind =
+      typeof item.kind === "string" && item.kind.length > 0 ? item.kind : null;
+    if (!kind) return false;
+    const def = itemDefs?.[kind];
+    if (!def || typeof def !== "object") return false;
+    const specs = Array.isArray(def.poolProviders)
+      ? def.poolProviders
+      : def.poolProviders && typeof def.poolProviders === "object"
+        ? [def.poolProviders]
+        : [];
+    return specs.some((spec) => {
+      const systemId =
+        typeof spec?.systemId === "string" ? spec.systemId : spec?.system;
+      const poolKey = typeof spec?.poolKey === "string" ? spec.poolKey : null;
+      return systemId === "storage" && poolKey === "byKindTier";
+    });
+  }
+
+  function getEquipmentSlotLayout(panelWidth) {
+    const getSlotSize = (slotId) => {
+      const dims = EQUIP_SLOT_VISUAL_CELLS[slotId] || { w: 1, h: 1 };
+      return {
+        width: Math.max(12, dims.w * EQUIP_SLOT_VISUAL_CELL_SIZE),
+        height: Math.max(12, dims.h * EQUIP_SLOT_VISUAL_CELL_SIZE),
+      };
+    };
+
+    const innerWidth = panelWidth - INNER_PADDING * 2;
+    const sideInset = EQUIP_PANEL_PADDING + 2;
+    const head = getSlotSize("head");
+    const chest = getSlotSize("chest");
+    const mainHand = getSlotSize("mainHand");
+    const offHand = getSlotSize("offHand");
+    const ring1 = getSlotSize("ring1");
+    const ring2 = getSlotSize("ring2");
+    const amulet = getSlotSize("amulet");
+
+    const centerX = Math.floor((innerWidth - chest.width) / 2);
+    const leftX = sideInset;
+    const rightX = innerWidth - sideInset - offHand.width;
+    const headY = 16;
+    const chestY = headY + head.height + 10;
+    const ringY = chestY + chest.height - 2;
+    const ringLeftX = centerX - ring1.width - 8;
+    const ringRightX = centerX + chest.width + 8;
+
+    return {
+      head: {
+        x: Math.floor((innerWidth - head.width) / 2),
+        y: headY,
+        ...head,
+      },
+      chest: { x: centerX, y: chestY, ...chest },
+      mainHand: { x: leftX, y: chestY, ...mainHand },
+      offHand: { x: rightX, y: chestY, ...offHand },
+      ring1: { x: ringLeftX, y: ringY, ...ring1 },
+      ring2: { x: ringRightX, y: ringY, ...ring2 },
+      amulet: {
+        x: ringRightX,
+        y: headY + head.height + 6,
+        ...amulet,
+      },
+    };
+  }
+
+  function getBuildableIdsFromPawn(pawn) {
+    if (!pawn || typeof pawn !== "object") return [];
+    const defId = typeof pawn.pawnDefId === "string" ? pawn.pawnDefId : "default";
+    const def = pawnDefs[defId] || pawnDefs.default;
+    const list =
+      def?.buildableStructureIds ||
+      def?.buildableStructures ||
+      def?.buildables ||
+      [];
+    return Array.isArray(list) ? list : [];
+  }
+
+  function countStructuresByDefId(state) {
+    const counts = new Map();
+    const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+    for (const slot of slots) {
+      const structure = slot?.structure;
+      if (!structure) continue;
+      const id = structure.defId;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    return counts;
+  }
+
+  function computeBuildOptions(state, leader) {
+    if (!state || !leader) return [];
+    const availability = computeAvailableRecipesAndBuildings(state);
+    const buildable = new Set();
+    for (const id of getBuildableIdsFromPawn(leader)) {
+      if (typeof id === "string" && id.length) buildable.add(id);
+    }
+
+    const counts = countStructuresByDefId(state);
+    const options = [];
+
+    for (const id of buildable.values()) {
+      if (!availability.hubStructureIds?.has(id)) continue;
+      const def = hubStructureDefs[id];
+      if (!def) continue;
+      const maxInstances = Number.isFinite(def.maxInstances)
+        ? Math.max(0, Math.floor(def.maxInstances))
+        : 1;
+      const existing = counts.get(id) || 0;
+      const available = maxInstances === 0 ? false : existing < maxInstances;
+      options.push({
+        def,
+        id,
+        name: def.name || id,
+        available,
+        existing,
+        maxInstances,
+      });
+    }
+
+    options.sort((a, b) => a.name.localeCompare(b.name));
+    return options;
+  }
+
+  function computeBuildContentHeight(optionCount) {
+    const rows = Math.max(0, Math.floor(optionCount ?? 0));
+    const rowsHeight = rows
+      ? rows * BUILD_PANEL_ROW_HEIGHT + Math.max(0, rows - 1) * BUILD_PANEL_ROW_GAP
+      : 0;
+    const rowGap = rows > 0 ? BUILD_PANEL_ROW_GAP : 0;
+    return BUILD_PANEL_PADDING * 2 + rowsHeight + rowGap + BUILD_PANEL_HINT_HEIGHT;
+  }
+
+  function ensureSectionState(win) {
+    if (!win) return { equipment: false, prestige: false, build: false };
+    if (!win.sectionState || typeof win.sectionState !== "object") {
+      win.sectionState = { equipment: false, prestige: false, build: false };
+    }
+    if (typeof win.sectionState.equipment !== "boolean") win.sectionState.equipment = false;
+    if (typeof win.sectionState.prestige !== "boolean") win.sectionState.prestige = false;
+    if (typeof win.sectionState.build !== "boolean") win.sectionState.build = false;
+    return win.sectionState;
+  }
+
+  function createSectionLozenge(labelText, onToggle) {
+    const container = new PIXI.Container();
+    container.eventMode = "static";
+    container.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const arrow = new PIXI.Text("v", {
+      fill: SECTION_HEADER_ARROW,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    arrow.x = 8;
+    arrow.y = 4;
+    container.addChild(arrow);
+
+    const label = new PIXI.Text(labelText, {
+      fill: SECTION_HEADER_TEXT,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    label.x = 20;
+    label.y = 4;
+    container.addChild(label);
+
+    const setExpanded = (expanded, active = false, overrideLabel = null) => {
+      if (typeof overrideLabel === "string" && overrideLabel.length > 0) {
+        label.text = overrideLabel;
+      }
+      const width = Math.max(72, Math.ceil(label.width) + 28);
+      bg.clear();
+      bg.beginFill(active ? SECTION_HEADER_BG_ACTIVE : SECTION_HEADER_BG, 0.98);
+      bg.drawRoundedRect(0, 0, width, SECTION_HEADER_HEIGHT, SECTION_HEADER_RADIUS);
+      bg.endFill();
+      arrow.text = expanded ? "v" : ">";
+      return width;
+    };
+
+    setExpanded(true, false, labelText);
+
+    container.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onToggle?.();
+    });
+
+    return { container, bg, arrow, label, setExpanded };
+  }
+
+  function createSkillsButton(ownerId, panelWidth) {
+    const root = new PIXI.Container();
+    root.eventMode = "static";
+    root.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    root.addChild(bg);
+
+    const text = new PIXI.Text("Skills", {
+      fill: 0xeaf3ff,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    text.x = 10;
+    text.y = 4;
+    root.addChild(text);
+
+    const buttonWidth = 58;
+    bg.beginFill(0x39456b, 0.98);
+    bg.drawRoundedRect(0, 0, buttonWidth, 18, 5);
+    bg.endFill();
+
+    root.x = panelWidth - 108;
+    root.y = 3;
+
+    root.on("pointerdown", (ev) => ev?.stopPropagation?.());
+    root.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      if (uiBlocked) return;
+      if (typeof openSkillTree !== "function") return;
+      const pawn = getPawnForOwner(ownerId);
+      if (!pawn || !Number.isFinite(pawn.id)) return;
+      openSkillTree({
+        leaderPawnId: Math.floor(pawn.id),
+        pawnId: Math.floor(pawn.id),
+        ownerId,
+      });
+    });
+
+    return { root, bg, text };
+  }
+
+  function resizeWindowFrame(win, height) {
+    if (!win) return;
+    const h = Math.max(HEADER_HEIGHT + INNER_PADDING * 2, Math.floor(height));
+    win.panelHeight = h;
+
+    if (win.bg) {
+      win.bg.clear();
+      win.bg.beginFill(0x101018, 0.95);
+      win.bg.drawRoundedRect(0, 0, win.panelWidth, h, 8);
+      win.bg.endFill();
+    }
+
+    if (win.focusOutline) {
+      win.focusOutline.clear();
+      win.focusOutline.lineStyle(2, 0x7fd0ff, 1);
+      win.focusOutline.drawRoundedRect(1, 1, win.panelWidth - 2, h - 2, 10);
+    }
+
+    if (win.apOverlay) {
+      win.apOverlay.clear();
+      win.apOverlay
+        .beginFill(AP_OVERLAY_FILL, 0.5)
+        .lineStyle(2, AP_OVERLAY_STROKE, 1)
+        .drawRoundedRect(1, 1, win.panelWidth - 2, h - 2, 10)
+        .endFill();
+      win.apOverlay.alpha = win.apOverlayAlpha || 0;
+      win.apOverlay.visible = (win.apOverlayAlpha || 0) > 0.01;
+    }
+  }
+
+  function layoutLeaderSections(win, leader, buildOptionCount = null) {
+    if (!win || !leader) return;
+    const state = ensureSectionState(win);
+    const panel = win.leaderPanel;
+    const equip = win.equipmentPanel;
+    if (!panel || !equip) return;
+
+    const sectionWidth = win.panelWidth - INNER_PADDING * 2;
+    const optionsCount =
+      buildOptionCount == null
+        ? computeBuildOptions(getStateSafe(), leader).length
+        : Math.max(0, Math.floor(buildOptionCount));
+
+    const equipExpanded = state.equipment !== false;
+    const prestigeExpanded = state.prestige !== false;
+    const buildExpanded = state.build !== false;
+
+    const equipHeight = equipExpanded ? EQUIP_PANEL_HEIGHT : SECTION_HEADER_HEIGHT;
+    equip.container.y = HEADER_HEIGHT + INNER_PADDING;
+    equip.header?.setExpanded?.(equipExpanded, false, "Equipment");
+    if (equip.bg) {
+      equip.bg.clear();
+      equip.bg.beginFill(0x1b1b28, 0.95);
+      equip.bg.drawRoundedRect(0, 0, sectionWidth, equipHeight, 6);
+      equip.bg.endFill();
+    }
+    if (equip.header?.container) {
+      equip.header.container.x = EQUIP_PANEL_PADDING;
+      equip.header.container.y = 4;
+    }
+
+    const bodyY = HEADER_HEIGHT + INNER_PADDING + equipHeight + INNER_PADDING;
+    win.body.y = bodyY;
+    if (win.bin?.container) {
+      win.bin.container.y = bodyY;
+    }
+
+    const buildContentHeight = computeBuildContentHeight(optionsCount);
+    panel.buildPanelHeight = buildContentHeight;
+
+    const prestigeContentHeight = prestigeExpanded ? LEADER_PANEL_HEIGHT : 0;
+    const buildContentShownHeight = buildExpanded ? buildContentHeight : 0;
+
+    panel.prestigeHeader?.setExpanded?.(prestigeExpanded, false, "Prestige");
+    if (panel.prestigeHeader?.container) {
+      panel.prestigeHeader.container.x = LEADER_PANEL_PADDING;
+      panel.prestigeHeader.container.y = LEADER_PANEL_PADDING;
+    }
+    if (panel.prestigeContent) {
+      panel.prestigeContent.visible = prestigeExpanded;
+      panel.prestigeContent.x = LEADER_PANEL_PADDING;
+      panel.prestigeContent.y = LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT;
+    }
+
+    const buildHeaderY =
+      LEADER_PANEL_PADDING +
+      SECTION_HEADER_HEIGHT +
+      prestigeContentHeight +
+      BUILD_PANEL_GAP;
+    panel.buildHeader?.setExpanded?.(buildExpanded, false, "Build");
+    if (panel.buildHeader?.container) {
+      panel.buildHeader.container.x = LEADER_PANEL_PADDING;
+      panel.buildHeader.container.y = buildHeaderY;
+    }
+    if (panel.buildPanel) {
+      panel.buildPanel.visible = buildExpanded;
+      panel.buildPanel.x = 0;
+      panel.buildPanel.y = buildHeaderY + SECTION_HEADER_HEIGHT;
+    }
+
+    const leaderInnerHeight =
+      LEADER_PANEL_PADDING +
+      SECTION_HEADER_HEIGHT +
+      prestigeContentHeight +
+      BUILD_PANEL_GAP +
+      SECTION_HEADER_HEIGHT +
+      buildContentShownHeight +
+      LEADER_PANEL_PADDING;
+
+    panel.container.y = bodyY + win.rows * win.cellSize + INNER_PADDING;
+    if (panel.bg) {
+      panel.bg.clear();
+      panel.bg.beginFill(0x1b1b28, 0.95);
+      panel.bg.drawRoundedRect(0, 0, sectionWidth, leaderInnerHeight, 6);
+      panel.bg.endFill();
+    }
+
+    const totalHeight = panel.container.y + leaderInnerHeight + INNER_PADDING;
+    resizeWindowFrame(win, totalHeight);
+  }
+
+  function formatBuildRequirementLabel(req) {
+    if (!req || typeof req !== "object") return "Resource";
+    if (req.kind === "item") {
+      const def = itemDefs?.[req.itemId];
+      return def?.name || req.itemId || "Item";
+    }
+    if (req.kind === "tag") {
+      const def = itemTagDefs?.[req.tag];
+      return def?.ui?.name || req.tag || "Tag";
+    }
+    if (req.kind === "resource") {
+      return req.resource || "Resource";
+    }
+    return "Resource";
+  }
+
+  function getBuildGhostCardSize(def) {
+    const span =
+      Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const safeSpan = Math.max(1, span);
+    const width =
+      HUB_STRUCTURE_WIDTH * safeSpan + HUB_COL_GAP * (safeSpan - 1);
+    const height = HUB_STRUCTURE_HEIGHT;
+    return { width, height, span: safeSpan };
   }
 
   // ---------------------------------------------------------------------------
@@ -246,6 +733,329 @@ export function createInventoryView({
     }, 180);
   }
 
+  function clearActiveBuildForOwner(ownerId) {
+    if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
+    activeBuildSpec = null;
+    if (buildGhost) buildGhost.container.visible = false;
+  }
+
+  function setActiveBuild(ownerId, defId) {
+    if (!ownerId || !defId) return;
+    if (
+      activeBuildSpec &&
+      activeBuildSpec.ownerId === ownerId &&
+      activeBuildSpec.defId === defId
+    ) {
+      activeBuildSpec = null;
+      if (buildGhost) buildGhost.container.visible = false;
+      return;
+    }
+    requestPauseForAction?.();
+    activeBuildSpec = { ownerId, defId };
+  }
+
+  function ensureBuildGhost() {
+    if (buildGhost) return buildGhost;
+    const ghostLayer = dragLayer || layer;
+    const container = new PIXI.Container();
+    container.visible = false;
+    container.eventMode = "none";
+    ghostLayer.addChild(container);
+
+    const card = new PIXI.Container();
+    const cardBg = new PIXI.Graphics()
+      .beginFill(0x3a3a3a, 0.8)
+      .drawRoundedRect(0, 0, 120, 80, 10)
+      .endFill();
+    card.addChild(cardBg);
+
+    const cardFill = new PIXI.Graphics()
+      .beginFill(0x6f6f6f, 0.9)
+      .drawRoundedRect(3, 3, 114, 74, 8)
+      .endFill();
+    card.addChild(cardFill);
+
+    const titleText = new PIXI.Text("", {
+      fill: 0xffffff,
+      fontSize: 12,
+      fontWeight: "bold",
+      wordWrap: true,
+      wordWrapWidth: 108,
+    });
+    titleText.x = 6;
+    titleText.y = 6;
+    card.addChild(titleText);
+
+    const subtitleText = new PIXI.Text("", {
+      fill: 0xe6e6e6,
+      fontSize: 10,
+      wordWrap: true,
+      wordWrapWidth: 108,
+    });
+    subtitleText.x = 6;
+    subtitleText.y = 26;
+    card.addChild(subtitleText);
+
+    const panel = new PIXI.Container();
+    const panelBg = new PIXI.Graphics()
+      .beginFill(0x1b1f2f, 0.95)
+      .drawRoundedRect(0, 0, BUILD_GHOST_PANEL_WIDTH, 10, 8)
+      .endFill();
+    panel.addChild(panelBg);
+
+    const panelTitle = new PIXI.Text("Costs", {
+      fill: 0xffffff,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    panelTitle.x = BUILD_GHOST_PANEL_PAD;
+    panelTitle.y = BUILD_GHOST_PANEL_PAD - 2;
+    panel.addChild(panelTitle);
+
+    const panelLines = [];
+
+    container.addChild(card);
+    container.addChild(panel);
+
+    buildGhost = {
+      container,
+      card,
+      cardFill,
+      cardBg,
+      titleText,
+      subtitleText,
+      panel,
+      panelBg,
+      panelTitle,
+      panelLines,
+      panelHeight: 0,
+      cardWidth: 120,
+      cardHeight: 80,
+    };
+    return buildGhost;
+  }
+
+  function updateBuildGhostContent(defId) {
+    const ghost = ensureBuildGhost();
+    if (!ghost) return;
+    if (!defId) {
+      ghost.container.visible = false;
+      buildGhostDefId = null;
+      return;
+    }
+    if (buildGhostDefId === defId) return;
+    buildGhostDefId = defId;
+
+    const def = hubStructureDefs[defId];
+    ghost.titleText.text = def?.name || defId || "Build";
+    ghost.subtitleText.text = "Construction Plan";
+
+    const { width, height } = getBuildGhostCardSize(def);
+    if (ghost.cardWidth !== width || ghost.cardHeight !== height) {
+      ghost.cardWidth = width;
+      ghost.cardHeight = height;
+      ghost.cardBg.clear();
+      ghost.cardBg
+        .beginFill(0x3a3a3a, 0.8)
+        .drawRoundedRect(0, 0, width, height, 10)
+        .endFill();
+      ghost.titleText.style.wordWrapWidth = Math.max(40, width - 12);
+      ghost.subtitleText.style.wordWrapWidth = Math.max(40, width - 12);
+      ghost.subtitleText.y = Math.min(26, height - 18);
+    }
+
+    const color = Number.isFinite(def?.color) ? def.color : 0x6f6f6f;
+    ghost.cardFill.clear();
+    ghost.cardFill
+      .beginFill(color, 0.9)
+      .drawRoundedRect(3, 3, ghost.cardWidth - 6, ghost.cardHeight - 6, 8)
+      .endFill();
+
+    for (const line of ghost.panelLines) {
+      if (line?.parent) line.parent.removeChild(line);
+    }
+    ghost.panelLines.length = 0;
+
+    const lines = [];
+    const apCost = INTENT_AP_COSTS?.buildDesignate ?? 0;
+    lines.push(`AP: ${apCost}`);
+
+    const reqs = Array.isArray(def?.build?.requirements) ? def.build.requirements : [];
+    for (const req of reqs) {
+      const amount = Math.max(0, Math.floor(req?.amount ?? 0));
+      if (amount <= 0) continue;
+      const label = formatBuildRequirementLabel(req);
+      lines.push(`${label}: ${amount}`);
+    }
+
+    let y = BUILD_GHOST_PANEL_PAD + 16;
+    for (const text of lines) {
+      const lineText = new PIXI.Text(text, {
+        fill: 0xc7d2ee,
+        fontSize: 10,
+      });
+      lineText.x = BUILD_GHOST_PANEL_PAD;
+      lineText.y = y;
+      ghost.panel.addChild(lineText);
+      ghost.panelLines.push(lineText);
+      y += 12;
+    }
+
+    const panelHeight = Math.max(
+      48,
+      y + BUILD_GHOST_PANEL_PAD - 4
+    );
+    ghost.panelBg.clear();
+    ghost.panelBg
+      .beginFill(0x1b1f2f, 0.95)
+      .drawRoundedRect(0, 0, BUILD_GHOST_PANEL_WIDTH, panelHeight, 8)
+      .endFill();
+    ghost.panelHeight = panelHeight;
+  }
+
+  function isHubPlacementZone(globalPos) {
+    if (!globalPos) return false;
+    return (
+      globalPos.y >= HUB_STRUCTURE_ROW_Y &&
+      globalPos.y <= HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT
+    );
+  }
+
+  function updateBuildGhostPosition(globalPos) {
+    if (!buildGhost || !globalPos) return;
+    const ghost = buildGhost;
+    const placing = isHubPlacementZone(globalPos);
+    const scale = placing ? BUILD_GHOST_SCALE_PLACE : BUILD_GHOST_SCALE_IDLE;
+    ghost.container.scale.set(scale);
+
+    ghost.card.x = 0;
+    ghost.card.y = 0;
+
+    const panelHeight = ghost.panelHeight || 60;
+    const panelWidth = BUILD_GHOST_PANEL_WIDTH;
+    const ghostWidth = ghost.cardWidth || 120;
+    const ghostHeight = ghost.cardHeight || 80;
+
+    let panelX = ghostWidth + BUILD_GHOST_PANEL_GAP;
+    if (globalPos.x + (ghostWidth + panelWidth + BUILD_GHOST_PANEL_GAP) * scale > DESIGN_WIDTH - 10) {
+      panelX = -panelWidth - BUILD_GHOST_PANEL_GAP;
+    }
+
+    ghost.panel.x = panelX;
+    ghost.panel.y = Math.max(0, (ghostHeight - panelHeight) / 2);
+
+    ghost.container.x = globalPos.x + 10;
+    ghost.container.y = globalPos.y + 10;
+  }
+
+  function resolveHubColFromPos(state, globalPos, screenWidth) {
+    if (!state || !globalPos) return null;
+    const hubTop = HUB_STRUCTURE_ROW_Y;
+    const hubBottom = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT;
+    if (globalPos.y < hubTop || globalPos.y > hubBottom) return null;
+
+    const hubCols = Array.isArray(state?.hub?.slots)
+      ? state.hub.slots.length
+      : HUB_COLS;
+
+    let bestCol = null;
+    let bestDist2 = Infinity;
+    for (let col = 0; col < hubCols; col++) {
+      const cx = getHubColumnCenterX(screenWidth, col);
+      const dx = globalPos.x - cx;
+      const d2 = dx * dx;
+      if (d2 < bestDist2) {
+        bestDist2 = d2;
+        bestCol = col;
+      }
+    }
+    return bestCol;
+  }
+
+  function flashBuildGhost(defId) {
+    if (typeof flashActionGhost !== "function") return;
+    const def = hubStructureDefs[defId];
+    const name = def?.name || defId || "Build";
+    flashActionGhost(
+      {
+        description: `Build ${name}`,
+        cost: INTENT_AP_COSTS?.buildDesignate ?? 0,
+      },
+      "fail"
+    );
+  }
+
+  function placeBuildAt(col, ownerId, defId) {
+    const state = getStateSafe();
+    const leader = getLeaderForOwner(ownerId);
+    if (!state || !leader || !actionPlanner) {
+      return { ok: false, reason: "noLeader" };
+    }
+    if (!Number.isFinite(col)) return { ok: false, reason: "badHubCol" };
+    if (!defId) return { ok: false, reason: "noBuildSelected" };
+
+    const previewPlacement =
+      typeof actionPlanner.getPawnOverridePlacement === "function"
+        ? actionPlanner.getPawnOverridePlacement(leader.id)
+        : null;
+    const currentHubCol = Number.isFinite(previewPlacement?.hubCol)
+      ? Math.floor(previewPlacement.hubCol)
+      : Number.isFinite(leader.hubCol)
+      ? Math.floor(leader.hubCol)
+      : null;
+    const currentEnvCol = Number.isFinite(previewPlacement?.envCol)
+      ? Math.floor(previewPlacement.envCol)
+      : Number.isFinite(leader.envCol)
+      ? Math.floor(leader.envCol)
+      : null;
+    const alreadyThere = currentHubCol === col && currentEnvCol == null;
+
+    const buildKey = `hub:${col}`;
+    const target = { hubCol: col };
+
+    const run = () => {
+      let moveSet = false;
+      let moveRes = { ok: true };
+      if (!alreadyThere) {
+        moveRes = actionPlanner.setPawnMoveIntent({
+          pawnId: leader.id,
+          toHubCol: col,
+        });
+        if (!moveRes?.ok) {
+          if (moveRes?.reason === "insufficientAP") {
+            flashBuildGhost(defId);
+          }
+          return moveRes;
+        }
+        moveSet = true;
+      }
+
+      const buildRes = actionPlanner.setBuildDesignationIntent({
+        buildKey,
+        defId,
+        target,
+      });
+
+      if (!buildRes?.ok) {
+        if (buildRes?.reason === "insufficientAP") {
+          flashBuildGhost(defId);
+        }
+        if (moveSet && !previewPlacement) {
+          actionPlanner.removeIntent?.(`pawn:${leader.id}`);
+        }
+        return buildRes;
+      }
+
+      clearActiveBuildForOwner(ownerId);
+      return buildRes;
+    };
+
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
+    }
+    return run();
+  }
+
   function updateApOverlayAlpha(win, dt) {
     if (!win?.apOverlay) return;
     const target = Number.isFinite(win.apOverlayTarget)
@@ -314,11 +1124,28 @@ export function createInventoryView({
     const rows = inv?.rows ?? DEFAULT_ROWS;
     const cellSize = DEFAULT_CELL_SIZE;
     const leader = getLeaderForOwner(ownerId);
+    const ownerPawn = getPawnForOwner(ownerId);
 
-    const w = cols * cellSize + INNER_PADDING * 2;
-    const baseHeight =
-      HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
-    const leaderPanelHeight = leader ? LEADER_PANEL_HEIGHT + INNER_PADDING : 0;
+    const gridWidth = cols * cellSize;
+    const binSize = cellSize * BIN_CELL_SIZE;
+    const w = gridWidth + INNER_PADDING * 3 + binSize;
+    const equipmentPanelHeight = leader ? EQUIP_PANEL_HEIGHT + INNER_PADDING : 0;
+    const bodyY = HEADER_HEIGHT + INNER_PADDING + equipmentPanelHeight;
+    const baseHeight = bodyY + rows * cellSize + INNER_PADDING;
+    const buildOptions = leader
+      ? computeBuildOptions(getStateSafe(), leader)
+      : [];
+    const buildPanelHeight = computeBuildContentHeight(buildOptions.length);
+    const leaderPanelHeight = leader
+      ? LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        LEADER_PANEL_HEIGHT +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        buildPanelHeight +
+        LEADER_PANEL_PADDING +
+        INNER_PADDING
+      : 0;
     const h = baseHeight + leaderPanelHeight;
 
     const c = new PIXI.Container();
@@ -348,14 +1175,44 @@ export function createInventoryView({
     apOverlay.visible = false;
     apOverlay.eventMode = "none";
 
-    // Header (drag handle)
-    const header = new PIXI.Graphics();
-    header.beginFill(0x303048);
-    header.drawRoundedRect(0, 0, w, HEADER_HEIGHT, 8);
-    header.endFill();
-    header.eventMode = "static";
-    header.cursor = "move";
-    c.addChild(header);
+    const headerUi = createWindowHeader({
+      stage,
+      parent: c,
+      width: w,
+      height: HEADER_HEIGHT,
+      radius: 8,
+      background: 0x303048,
+      title: getOwnerLabel(ownerId),
+      titleStyle: { fill: 0xffffff, fontSize: 13 },
+      paddingX: 8,
+      paddingY: 4,
+      pinOffsetX: 40,
+      closeOffsetX: 20,
+      dragTarget: c,
+      canDrag: () => !uiBlocked,
+      onDragStart: () => {
+        dragWindow.active = true;
+        dragWindow.ownerId = ownerId;
+      },
+      onDragEnd: () => {
+        dragWindow.active = false;
+        dragWindow.ownerId = null;
+      },
+      onPinToggle: () => togglePinned(ownerId),
+      onClose: () => hideWindow(ownerId),
+    });
+
+    const header = headerUi.container;
+    const title = headerUi.titleText;
+    const pinText = headerUi.pinText;
+    const closeText = headerUi.closeText;
+    const skillsButton =
+      ownerPawn && typeof openSkillTree === "function"
+        ? createSkillsButton(ownerId, w)
+        : null;
+    if (skillsButton?.root) {
+      c.addChild(skillsButton.root);
+    }
 
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
@@ -363,44 +1220,48 @@ export function createInventoryView({
     focusOutline.visible = false;
     c.addChild(focusOutline);
 
-    const title = new PIXI.Text(getOwnerLabel(ownerId), {
-      fill: 0xffffff,
-      fontSize: 13,
-    });
-    title.x = 8;
-    title.y = 4;
-    c.addChild(title);
+    // Bin (discard) drop target
+    const bin = new PIXI.Container();
+    bin.x = INNER_PADDING + gridWidth + INNER_PADDING;
+    bin.y = bodyY;
+    bin.eventMode = "static";
+    bin.cursor = "default";
+    c.addChild(bin);
 
-    // Pin button
-    const pinText = new PIXI.Text("[ ]", { fill: 0xffffff, fontSize: 12 });
-    pinText.x = w - 40;
-    pinText.y = 4;
-    pinText.eventMode = "static";
-    pinText.cursor = "pointer";
-    c.addChild(pinText);
+    const binBg = new PIXI.Graphics();
+    binBg
+      .lineStyle(1, 0x4b4f66, 1)
+      .beginFill(0x1b1f2f, 0.9)
+      .drawRoundedRect(0, 0, binSize, binSize, 6)
+      .endFill();
+    bin.addChild(binBg);
 
-    // Close button
-    const closeText = new PIXI.Text("x", { fill: 0xffffff, fontSize: 12 });
-    closeText.x = w - 20;
-    closeText.y = 4;
-    closeText.eventMode = "static";
-    closeText.cursor = "pointer";
-    c.addChild(closeText);
+    const binIcon = new PIXI.Graphics();
+    binIcon
+      .lineStyle(2, 0xd6d6e0, 1)
+      .drawRoundedRect(binSize * 0.35, binSize * 0.35, binSize * 0.3, binSize * 0.4, 2)
+      .moveTo(binSize * 0.3, binSize * 0.32)
+      .lineTo(binSize * 0.7, binSize * 0.32)
+      .moveTo(binSize * 0.42, binSize * 0.26)
+      .lineTo(binSize * 0.58, binSize * 0.26);
+    bin.addChild(binIcon);
 
     // Body container (grid + items)
     const body = new PIXI.Container();
     body.x = INNER_PADDING;
-    body.y = HEADER_HEIGHT + INNER_PADDING;
+    body.y = bodyY;
     c.addChild(body);
 
     const win = {
       ownerId,
       container: c,
+      bg,
       header,
       focusOutline,
       title,
       pinText,
       body,
+      skillsButton,
       cols,
       rows,
       cellSize,
@@ -412,80 +1273,164 @@ export function createInventoryView({
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      equipmentPanel: null,
       leaderPanel: null,
+      sectionState: { equipment: false, prestige: false, build: false },
+      bin: {
+        container: bin,
+        bg: binBg,
+      },
     };
 
     windows.set(ownerId, win);
 
-    // Header dragging
-    header.on("pointerdown", (ev) => {
-      if (uiBlocked) return;
-      dragWindow.active = true;
-      dragWindow.ownerId = ownerId;
-
-      const g = ev.data.global;
-      dragWindow.offsetX = g.x - c.x;
-      dragWindow.offsetY = g.y - c.y;
-
-      stage.on("pointermove", onWindowDragMove);
-      stage.on("pointerup", onWindowDragEnd);
-      stage.on("pointerupoutside", onWindowDragEnd);
-    });
-
-    // Pin toggle
-    pinText.on("pointertap", () => {
-      togglePinned(ownerId);
-    });
-
-    // Close
-    closeText.on("pointertap", () => {
-      hideWindow(ownerId);
-    });
+    // Header drag is handled by the shared header helper.
 
     // Leader panel (optional)
     if (leader) {
+      const equipPanel = new PIXI.Container();
+      equipPanel.x = INNER_PADDING;
+      equipPanel.y = HEADER_HEIGHT + INNER_PADDING;
+      equipPanel.eventMode = "passive";
+      c.addChild(equipPanel);
+
+      const equipBg = new PIXI.Graphics();
+      equipBg.beginFill(0x1b1b28, 0.95);
+      equipBg.drawRoundedRect(0, 0, w - INNER_PADDING * 2, EQUIP_PANEL_HEIGHT, 6);
+      equipBg.endFill();
+      equipPanel.addChild(equipBg);
+      const equipHeader = createSectionLozenge("Equipment", () => {
+        const sectionState = ensureSectionState(win);
+        sectionState.equipment = !sectionState.equipment;
+        updateEquipmentPanel(win);
+        updateLeaderPanel(win);
+      });
+      equipHeader.container.x = EQUIP_PANEL_PADDING;
+      equipHeader.container.y = 4;
+      equipPanel.addChild(equipHeader.container);
+
+      const slotLayout = getEquipmentSlotLayout(w);
+      const equipSlots = {};
+      for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+        const layout = slotLayout[slotId];
+        if (!layout) continue;
+
+        const slot = new PIXI.Container();
+        slot.x = layout.x;
+        slot.y = layout.y;
+        slot.eventMode = "passive";
+        slot.cursor = "default";
+        equipPanel.addChild(slot);
+
+        const slotBg = new PIXI.Graphics();
+        slotBg
+          .lineStyle(1, EQUIP_SLOT_STROKE, 1)
+          .beginFill(EQUIP_SLOT_BG, 0.9)
+          .drawRoundedRect(0, 0, layout.width, layout.height, 6)
+          .endFill();
+        slot.addChild(slotBg);
+
+        const itemLayer = new PIXI.Container();
+        itemLayer.eventMode = "passive";
+        slot.addChild(itemLayer);
+
+        const slotLabel = new PIXI.Text(LEADER_EQUIPMENT_SLOT_LABELS[slotId] || slotId, {
+          fill: 0xaeb8d6,
+          fontSize: 9,
+        });
+        slotLabel.anchor.set(0.5, 0);
+        slotLabel.x = Math.floor(layout.width / 2);
+        slotLabel.y = layout.height + 2;
+        slot.addChild(slotLabel);
+
+        equipSlots[slotId] = {
+          slot,
+          slotBg,
+          itemLayer,
+          width: layout.width,
+          height: layout.height,
+          cellSize: EQUIP_SLOT_VISUAL_CELL_SIZE,
+          label: slotLabel,
+        };
+      }
+
+      win.equipmentPanel = {
+        container: equipPanel,
+        bg: equipBg,
+        header: equipHeader,
+        slots: equipSlots,
+      };
+
       const panel = new PIXI.Container();
       panel.x = INNER_PADDING;
-      panel.y = HEADER_HEIGHT + INNER_PADDING + rows * cellSize + INNER_PADDING;
+      panel.y = bodyY + rows * cellSize + INNER_PADDING;
       c.addChild(panel);
 
       const panelBg = new PIXI.Graphics();
+      const leaderPanelInnerHeight =
+        LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        LEADER_PANEL_HEIGHT +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        buildPanelHeight +
+        LEADER_PANEL_PADDING;
       panelBg.beginFill(0x1b1b28, 0.95);
-      panelBg.drawRoundedRect(0, 0, w - INNER_PADDING * 2, LEADER_PANEL_HEIGHT, 6);
+      panelBg.drawRoundedRect(
+        0,
+        0,
+        w - INNER_PADDING * 2,
+        leaderPanelInnerHeight,
+        6
+      );
       panelBg.endFill();
       panel.addChild(panelBg);
+
+      const prestigeHeader = createSectionLozenge("Prestige", () => {
+        const sectionState = ensureSectionState(win);
+        sectionState.prestige = !sectionState.prestige;
+        updateLeaderPanel(win);
+      });
+      prestigeHeader.container.x = LEADER_PANEL_PADDING;
+      prestigeHeader.container.y = LEADER_PANEL_PADDING;
+      panel.addChild(prestigeHeader.container);
+
+      const prestigeContent = new PIXI.Container();
+      prestigeContent.x = LEADER_PANEL_PADDING;
+      prestigeContent.y = LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT;
+      panel.addChild(prestigeContent);
 
       const prestigeText = new PIXI.Text("", {
         fill: 0xffffff,
         fontSize: 12,
       });
-      prestigeText.x = LEADER_PANEL_PADDING;
-      prestigeText.y = LEADER_PANEL_PADDING;
-      panel.addChild(prestigeText);
+      prestigeText.x = 0;
+      prestigeText.y = 0;
+      prestigeContent.addChild(prestigeText);
 
       const reservedText = new PIXI.Text("", {
         fill: 0xffffff,
         fontSize: 12,
       });
-      reservedText.x = LEADER_PANEL_PADDING;
+      reservedText.x = 0;
       reservedText.y = prestigeText.y + 16;
-      panel.addChild(reservedText);
+      prestigeContent.addChild(reservedText);
 
       const hungryText = new PIXI.Text("", {
         fill: 0xff9999,
         fontSize: 11,
       });
-      hungryText.x = LEADER_PANEL_PADDING;
+      hungryText.x = 0;
       hungryText.y = reservedText.y + 16;
-      panel.addChild(hungryText);
+      prestigeContent.addChild(hungryText);
 
       const followerLabel = new PIXI.Text("Followers:", {
         fill: 0xffffff,
         fontSize: 12,
       });
-      followerLabel.x = LEADER_PANEL_PADDING;
+      followerLabel.x = 0;
       followerLabel.y = hungryText.y + 18;
-      panel.addChild(followerLabel);
+      prestigeContent.addChild(followerLabel);
 
       const followerCountText = new PIXI.Text("0", {
         fill: 0xffffaa,
@@ -494,14 +1439,14 @@ export function createInventoryView({
       });
       followerCountText.x = followerLabel.x + 78;
       followerCountText.y = followerLabel.y - 1;
-      panel.addChild(followerCountText);
+      prestigeContent.addChild(followerCountText);
 
       const minusBtn = new PIXI.Container();
-      minusBtn.x = w - INNER_PADDING * 2 - 46;
+      minusBtn.x = w - INNER_PADDING * 2 - LEADER_PANEL_PADDING - 46;
       minusBtn.y = followerLabel.y - 4;
       minusBtn.eventMode = "static";
       minusBtn.cursor = "pointer";
-      panel.addChild(minusBtn);
+      prestigeContent.addChild(minusBtn);
 
       const minusBg = new PIXI.Graphics();
       minusBg.beginFill(0x333355);
@@ -518,11 +1463,11 @@ export function createInventoryView({
       minusBtn.addChild(minusText);
 
       const plusBtn = new PIXI.Container();
-      plusBtn.x = w - INNER_PADDING * 2 - 22;
+      plusBtn.x = w - INNER_PADDING * 2 - LEADER_PANEL_PADDING - 22;
       plusBtn.y = followerLabel.y - 4;
       plusBtn.eventMode = "static";
       plusBtn.cursor = "pointer";
-      panel.addChild(plusBtn);
+      prestigeContent.addChild(plusBtn);
 
       const plusBg = new PIXI.Graphics();
       plusBg.beginFill(0x333355);
@@ -552,14 +1497,77 @@ export function createInventoryView({
         }
       });
 
+      const buildHeader = createSectionLozenge("Build", () => {
+        const sectionState = ensureSectionState(win);
+        sectionState.build = !sectionState.build;
+        updateLeaderPanel(win);
+      });
+      buildHeader.container.x = LEADER_PANEL_PADDING;
+      buildHeader.container.y =
+        LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT + LEADER_PANEL_HEIGHT + BUILD_PANEL_GAP;
+      panel.addChild(buildHeader.container);
+
+      const buildPanel = new PIXI.Container();
+      buildPanel.x = 0;
+      buildPanel.y = buildHeader.container.y + SECTION_HEADER_HEIGHT;
+      buildPanel.eventMode = "static";
+      buildPanel.cursor = "pointer";
+      panel.addChild(buildPanel);
+
+      const buildPanelBg = new PIXI.Graphics();
+      buildPanelBg.beginFill(BUILD_PANEL_BG, 0.95);
+      buildPanelBg.drawRoundedRect(
+        0,
+        0,
+        w - INNER_PADDING * 2,
+        buildPanelHeight,
+        6
+      );
+      buildPanelBg.endFill();
+      buildPanel.addChild(buildPanelBg);
+
+      const buildListContainer = new PIXI.Container();
+      buildListContainer.x = BUILD_PANEL_PADDING;
+      buildListContainer.y = BUILD_PANEL_PADDING;
+      buildPanel.addChild(buildListContainer);
+
+      const buildHintText = new PIXI.Text("", {
+        fill: BUILD_PANEL_TEXT_MUTED,
+        fontSize: 10,
+      });
+      buildHintText.x = BUILD_PANEL_PADDING;
+      buildHintText.y =
+        buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
+      buildPanel.addChild(buildHintText);
+
+      let buildRows = [];
+
+      buildPanel.on("pointertap", (ev) => {
+        if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
+        ev?.stopPropagation?.();
+        clearActiveBuildForOwner(ownerId);
+        updateLeaderPanel(win);
+      });
+
       win.leaderPanel = {
         container: panel,
+        bg: panelBg,
+        prestigeHeader,
+        prestigeContent,
+        buildHeader,
         prestigeText,
         reservedText,
         hungryText,
         followerCountText,
         minusBtn,
         plusBtn,
+        buildPanel,
+        buildPanelBg,
+        buildHintText,
+        buildListContainer,
+        buildRows,
+        buildOptionsSignature: "",
+        buildPanelHeight,
       };
     }
 
@@ -571,29 +1579,6 @@ export function createInventoryView({
     rebuildWindow(ownerId);
 
     return win;
-  }
-
-  // ---------------------------------------------------------------------------
-  // WINDOW DRAGGING
-  // ---------------------------------------------------------------------------
-
-  function onWindowDragMove(ev) {
-    if (!dragWindow.active) return;
-    const win = windows.get(dragWindow.ownerId);
-    if (!win) return;
-
-    const g = ev.data.global;
-    win.container.x = g.x - dragWindow.offsetX;
-    win.container.y = g.y - dragWindow.offsetY;
-  }
-
-  function onWindowDragEnd() {
-    dragWindow.active = false;
-    dragWindow.ownerId = null;
-
-    stage.off("pointermove", onWindowDragMove);
-    stage.off("pointerup", onWindowDragEnd);
-    stage.off("pointerupoutside", onWindowDragEnd);
   }
 
   // ---------------------------------------------------------------------------
@@ -631,6 +1616,7 @@ export function createInventoryView({
     win.hovered = false;
     if (!win.pinned) {
       win.container.visible = false;
+      clearActiveBuildForOwner(ownerId);
     }
   }
 
@@ -642,6 +1628,7 @@ export function createInventoryView({
     win.hovered = false;
     win.container.visible = false;
     win.pinText.text = "[ ]";
+    clearActiveBuildForOwner(ownerId);
   }
 
   function togglePinned(ownerId) {
@@ -651,6 +1638,7 @@ export function createInventoryView({
 
     if (!win.pinned && !win.hovered) {
       win.container.visible = false;
+      clearActiveBuildForOwner(ownerId);
     } else {
       win.container.visible = true;
     }
@@ -673,6 +1661,27 @@ export function createInventoryView({
       }
       for (const win of windows.values()) {
         const shouldFocus = focusOwners.has(win.ownerId);
+        win.focusOutline.visible = shouldFocus;
+        win.container.visible = shouldFocus;
+      }
+      return;
+    }
+
+    const externalOwnersRaw =
+      typeof getExternalFocusOwners === "function"
+        ? getExternalFocusOwners()
+        : null;
+    const externalOwners = new Set(
+      Array.isArray(externalOwnersRaw)
+        ? externalOwnersRaw.filter((ownerId) => ownerId != null)
+        : []
+    );
+    if (externalOwners.size > 0) {
+      for (const ownerId of externalOwners) {
+        ensureWindow(ownerId);
+      }
+      for (const win of windows.values()) {
+        const shouldFocus = externalOwners.has(win.ownerId);
         win.focusOutline.visible = shouldFocus;
         win.container.visible = shouldFocus;
       }
@@ -822,7 +1831,10 @@ export function createInventoryView({
     if (!win) return;
 
     const inv = getInventoryForOwner(ownerId);
-    if (!inv) return;
+    if (!inv) {
+      hideWindow(ownerId);
+      return;
+    }
 
     win.body.removeChildren();
 
@@ -834,6 +1846,7 @@ export function createInventoryView({
     drawItems(win, inv, preview);
 
     win.title.text = getOwnerLabel(ownerId);
+    updateEquipmentPanel(win);
     updateLeaderPanel(win);
 
     lastVersionByOwner.set(ownerId, inv.version ?? 0);
@@ -860,7 +1873,9 @@ export function createInventoryView({
   }
 
   function buildItemView(win, item, opts = {}) {
-    const { cellSize } = win;
+    const cellSize = Number.isFinite(opts.cellSize)
+      ? Math.max(1, Math.floor(opts.cellSize))
+      : win.cellSize;
     const c = new PIXI.Container();
     const ownerId = opts.ownerId ?? win.ownerId;
 
@@ -871,6 +1886,7 @@ export function createInventoryView({
     c.itemData = item;
     c.ownerId = ownerId;
     c.sourceOwnerId = item?.sourceOwnerId ?? null;
+    c.sourceEquipmentSlotId = opts.sourceEquipmentSlotId ?? null;
 
     if (interactive && !opts.isGhost) {
       c.on("pointerover", () => {
@@ -945,7 +1961,7 @@ export function createInventoryView({
       glyphShadow.y = glyph.y + 1;
       glyphShadow.alpha = 0.35;
 
-      c.addChild(glyphShadow);
+      //c.addChild(glyphShadow);
       c.addChild(glyph);
     }
 
@@ -959,10 +1975,15 @@ export function createInventoryView({
       c.addChild(t);
     }
 
-    const gx = opts.gridX ?? item.gridX;
-    const gy = opts.gridY ?? item.gridY;
-    c.x = gx * cellSize + 1;
-    c.y = gy * cellSize + 1;
+    if (Number.isFinite(opts.pixelX) && Number.isFinite(opts.pixelY)) {
+      c.x = Math.floor(opts.pixelX);
+      c.y = Math.floor(opts.pixelY);
+    } else {
+      const gx = opts.gridX ?? item.gridX;
+      const gy = opts.gridY ?? item.gridY;
+      c.x = gx * cellSize + 1;
+      c.y = gy * cellSize + 1;
+    }
 
     if (opts.isGhost) {
       c.alpha = 0.4;
@@ -983,7 +2004,8 @@ export function createInventoryView({
       c.bg.tint = 0xffff66;
     }
 
-    win.body.addChild(c);
+    const parent = opts.parent || win.body;
+    parent.addChild(c);
     return c;
   }
 
@@ -1053,14 +2075,117 @@ export function createInventoryView({
     return { ok: true };
   }
 
+  function findItemViewInWindow(win, itemId) {
+    if (!win?.body || itemId == null) return null;
+    const children = Array.isArray(win.body.children) ? win.body.children : [];
+    for (const child of children) {
+      if (!child || !child.itemData) continue;
+      if (child.itemData.id === itemId) return child;
+    }
+    return null;
+  }
+
+  function beginDragItemFromOwner(ownerId, itemId, opts = {}) {
+    if (ownerId == null || itemId == null) {
+      return { ok: false, reason: "badArgs" };
+    }
+    if (uiBlocked) return { ok: false, reason: "uiBlocked" };
+    if (dragItem.active || dragWindow.active || activeSplit) {
+      return { ok: false, reason: "busy" };
+    }
+
+    const win = ensureWindow(ownerId);
+    if (!win) return { ok: false, reason: "noWindow" };
+    revealWindow(ownerId, { pinned: opts.pinned !== false });
+    rebuildWindow(ownerId);
+
+    const inv = getInventoryForOwner(ownerId);
+    const item = inv?.itemsById?.[itemId] ?? inv?.items?.find((it) => it?.id === itemId);
+    if (!item) return { ok: false, reason: "noItem" };
+
+    const view = findItemViewInWindow(win, itemId);
+    let global = null;
+    if (view?.getBounds) {
+      const bounds = view.getBounds();
+      global = {
+        x: bounds.x + Math.max(4, Math.floor(bounds.width / 2)),
+        y: bounds.y + Math.max(4, Math.floor(bounds.height / 2)),
+      };
+    } else {
+      global = win.body.toGlobal({
+        x: Math.max(1, item.gridX * win.cellSize + 2),
+        y: Math.max(1, item.gridY * win.cellSize + 2),
+      });
+    }
+
+    beginItemDragAtGlobal(win, item, view, global);
+    return { ok: true };
+  }
+
+  function redrawEquipmentSlot(slotBg, width, height, occupied) {
+    slotBg.clear();
+    slotBg
+      .lineStyle(1, occupied ? EQUIP_SLOT_STROKE_ACTIVE : EQUIP_SLOT_STROKE, 1)
+      .beginFill(occupied ? EQUIP_SLOT_BG_OCCUPIED : EQUIP_SLOT_BG, 0.92)
+      .drawRoundedRect(0, 0, width, height, 6)
+      .endFill();
+  }
+
+  function updateEquipmentPanel(win) {
+    if (!win?.equipmentPanel) return;
+    const leader = getLeaderForOwner(win.ownerId);
+    if (!leader) {
+      win.equipmentPanel.container.visible = false;
+      return;
+    }
+    const sectionState = ensureSectionState(win);
+    const expanded = sectionState.equipment !== false;
+    win.equipmentPanel.container.visible = true;
+    win.equipmentPanel.header?.setExpanded?.(expanded, false, "Equipment");
+    const equipment = getLeaderEquipmentState(leader);
+    for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+      const slot = win.equipmentPanel.slots?.[slotId];
+      if (!slot) continue;
+      slot.slot.visible = expanded;
+      if (!expanded) {
+        slot.itemLayer.removeChildren();
+        continue;
+      }
+      const item = equipment[slotId] ?? null;
+      redrawEquipmentSlot(slot.slotBg, slot.width, slot.height, !!item);
+      slot.itemLayer.removeChildren();
+      if (!item) continue;
+      const cellSize = Math.max(1, Math.floor(slot.cellSize || 1));
+      const renderW = Math.max(1, item.width * cellSize - 2);
+      const renderH = Math.max(1, item.height * cellSize - 2);
+      const pixelX = Math.floor((slot.width - renderW) / 2);
+      const pixelY = Math.floor((slot.height - renderH) / 2);
+      buildItemView(win, item, {
+        ownerId: win.ownerId,
+        interactive: true,
+        enableDrag: true,
+        parent: slot.itemLayer,
+        cellSize,
+        gridX: 0,
+        gridY: 0,
+        pixelX,
+        pixelY,
+        sourceEquipmentSlotId: slotId,
+      });
+    }
+  }
+
   function updateLeaderPanel(win) {
     if (!win?.leaderPanel) return;
     const leader = getLeaderForOwner(win.ownerId);
     if (!leader) {
       win.leaderPanel.container.visible = false;
+      clearActiveBuildForOwner(win.ownerId);
       return;
     }
     const data = computeLeaderPanelData(leader);
+    const options = computeBuildOptions(getStateSafe(), leader);
+    layoutLeaderSections(win, leader, options.length);
     win.leaderPanel.container.visible = true;
     win.leaderPanel.prestigeText.text = `Prestige: ${data.effective}/${data.base}`;
     win.leaderPanel.reservedText.text = `Reserved: ${data.reserved} (Debt ${data.debt})`;
@@ -1075,6 +2200,137 @@ export function createInventoryView({
     win.leaderPanel.minusBtn.alpha = canMinus ? 1 : 0.35;
     win.leaderPanel.minusBtn.eventMode = canMinus ? "static" : "none";
     win.leaderPanel.minusBtn.cursor = canMinus ? "pointer" : "default";
+
+    const panel = win.leaderPanel;
+    if (panel.buildListContainer) {
+      let activeDefId =
+        activeBuildSpec && activeBuildSpec.ownerId === win.ownerId
+          ? activeBuildSpec.defId
+          : null;
+      if (
+        activeDefId &&
+        !options.some((entry) => entry.id === activeDefId && entry.available)
+      ) {
+        clearActiveBuildForOwner(win.ownerId);
+        activeDefId = null;
+      }
+
+      const signature = `${options
+        .map((o) => `${o.id}:${o.available ? "1" : "0"}`)
+        .join("|")}|active:${activeDefId ?? ""}`;
+
+      if (signature !== panel.buildOptionsSignature) {
+        panel.buildOptionsSignature = signature;
+        panel.buildListContainer.removeChildren();
+        panel.buildRows = [];
+
+        const rowWidth =
+          win.panelWidth - INNER_PADDING * 2 - BUILD_PANEL_PADDING * 2;
+        let rowY = 0;
+        for (const entry of options) {
+          const row = new PIXI.Container();
+          row.y = rowY;
+          row.eventMode = "static";
+          row.cursor = entry.available ? "pointer" : "default";
+
+          const isActive = activeDefId === entry.id;
+          const fill = isActive
+            ? BUILD_PANEL_ROW_BG_ACTIVE
+            : BUILD_PANEL_ROW_BG;
+          const alpha = entry.available ? 0.95 : 0.5;
+
+          const rowBg = new PIXI.Graphics()
+            .beginFill(fill, alpha)
+            .drawRoundedRect(0, 0, rowWidth, BUILD_PANEL_ROW_HEIGHT, 6)
+            .endFill();
+          row.addChild(rowBg);
+
+          const label = new PIXI.Text(entry.name, {
+            fill: BUILD_PANEL_TEXT,
+            fontSize: 11,
+          });
+          label.x = 6;
+          label.y = 4;
+          row.addChild(label);
+
+          const cost = INTENT_AP_COSTS?.buildDesignate ?? 0;
+          const costText = new PIXI.Text(String(cost), {
+            fill: 0x7fd0ff,
+            fontSize: 10,
+          });
+          costText.x = rowWidth - 18;
+          costText.y = 5;
+          row.addChild(costText);
+
+          let limitText = null;
+          if (!entry.available) {
+            limitText = new PIXI.Text("Limit", {
+              fill: 0xffc2c2,
+              fontSize: 9,
+            });
+            limitText.x = rowWidth - 60;
+            limitText.y = 6;
+            row.addChild(limitText);
+          }
+
+          row.on("pointertap", (ev) => {
+            ev?.stopPropagation?.();
+            if (!entry.available) return;
+            setActiveBuild(win.ownerId, entry.id);
+            updateLeaderPanel(win);
+          });
+
+          panel.buildListContainer.addChild(row);
+          panel.buildRows.push({
+            id: entry.id,
+            row,
+            rowBg,
+            label,
+            costText,
+            limitText,
+          });
+
+          rowY += BUILD_PANEL_ROW_HEIGHT + BUILD_PANEL_ROW_GAP;
+        }
+      }
+
+      if (panel.buildHintText) {
+        panel.buildHintText.text =
+          activeDefId != null
+            ? "Drop here to cancel."
+            : "Select a building to place.";
+        panel.buildHintText.y =
+          panel.buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
+      }
+
+      if (panel.buildPanelBg) {
+        const bgColor = activeDefId != null ? 0x3b1f2a : BUILD_PANEL_BG;
+        panel.buildPanelBg.clear();
+        panel.buildPanelBg.beginFill(bgColor, 0.95);
+        panel.buildPanelBg.drawRoundedRect(
+          0,
+          0,
+          win.panelWidth - INNER_PADDING * 2,
+          panel.buildPanelHeight,
+          6
+        );
+        panel.buildPanelBg.endFill();
+      }
+      panel.buildHeader?.setExpanded?.(
+        ensureSectionState(win).build !== false,
+        activeDefId != null,
+        activeDefId != null ? "Cancel Build" : "Build"
+      );
+
+      if (panel.buildListContainer) {
+        panel.buildListContainer.alpha = activeDefId != null ? 0.35 : 1;
+        panel.buildListContainer.eventMode = activeDefId != null ? "none" : "static";
+      }
+
+      if (panel.buildPanel) {
+        panel.buildPanel.cursor = activeDefId != null ? "pointer" : "default";
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1084,7 +2340,7 @@ export function createInventoryView({
   function onItemPointerDown(ev, win, item, view) {
     if (uiBlocked) return;
 
-    if (ev.data.originalEvent.shiftKey) {
+    if (ev.data.originalEvent.shiftKey && !view?.sourceEquipmentSlotId) {
       const transferLocked =
         typeof hasItemTransferIntent === "function" &&
         hasItemTransferIntent(item.id);
@@ -1103,18 +2359,31 @@ export function createInventoryView({
 
   function beginItemDrag(ev, win, item, view) {
     requestPauseForAction?.();
-    const g = ev.data.global;
+    const g = ev?.data?.global;
+    if (!g) return;
+    beginItemDragAtGlobal(win, item, view, g);
+  }
+
+  function beginItemDragAtGlobal(win, item, view, globalPos) {
+    requestPauseForAction?.();
+    const g = globalPos;
+    if (!g) return;
+    const sourceSlotId = view?.sourceEquipmentSlotId ?? null;
 
     dragItem.lastGlobalPos = { x: g.x, y: g.y };
-    const localInBody = win.body.toLocal(g);
-    const clickGX = Math.floor(localInBody.x / win.cellSize);
-    const clickGY = Math.floor(localInBody.y / win.cellSize);
+    let cellOffsetGX = 0;
+    let cellOffsetGY = 0;
+    if (!sourceSlotId) {
+      const localInBody = win.body.toLocal(g);
+      const clickGX = Math.floor(localInBody.x / win.cellSize);
+      const clickGY = Math.floor(localInBody.y / win.cellSize);
 
-    let cellOffsetGX = clickGX - item.gridX;
-    let cellOffsetGY = clickGY - item.gridY;
+      cellOffsetGX = clickGX - item.gridX;
+      cellOffsetGY = clickGY - item.gridY;
 
-    cellOffsetGX = Math.max(0, Math.min(item.width - 1, cellOffsetGX));
-    cellOffsetGY = Math.max(0, Math.min(item.height - 1, cellOffsetGY));
+      cellOffsetGX = Math.max(0, Math.min(item.width - 1, cellOffsetGX));
+      cellOffsetGY = Math.max(0, Math.min(item.height - 1, cellOffsetGY));
+    }
 
     dragItem.cellOffsetGX = cellOffsetGX;
     dragItem.cellOffsetGY = cellOffsetGY;
@@ -1124,22 +2393,25 @@ export function createInventoryView({
     dragItem.item = item;
     dragItem.view = view;
     dragItem.sourceOwnerOverride = view?.sourceOwnerId ?? null;
+    dragItem.sourceEquipmentSlotId = sourceSlotId;
 
     grayItemView(view);
 
-    const sprite = makeDragSprite(win, item);
+    const sprite = makeDragSprite(win, item, view, g);
     dragItem.sprite = sprite;
     dragLayer.addChild(sprite);
 
     dragItem.offsetX = g.x - sprite.x;
     dragItem.offsetY = g.y - sprite.y;
 
+    updateItemDragGhost(g);
+
     stage.on("pointermove", onItemDragMove);
     stage.on("pointerup", onItemDragEnd);
     stage.on("pointerupoutside", onItemDragEnd);
   }
 
-  function makeDragSprite(win, item) {
+  function makeDragSprite(win, item, view, globalStart) {
     const { cellSize } = win;
     const w = item.width * cellSize;
     const h = item.height * cellSize;
@@ -1160,13 +2432,23 @@ export function createInventoryView({
     border.drawRoundedRect(0, 0, w - 2, h - 2, 5);
     c.addChild(border);
 
-    const global = win.body.toGlobal({
-      x: item.gridX * cellSize,
-      y: item.gridY * cellSize,
-    });
+    if (view?.sourceEquipmentSlotId) {
+      const bounds = view.getBounds();
+      c.x = bounds.x;
+      c.y = bounds.y;
+    } else {
+      const global = win.body.toGlobal({
+        x: item.gridX * cellSize,
+        y: item.gridY * cellSize,
+      });
+      c.x = global.x;
+      c.y = global.y;
+    }
 
-    c.x = global.x;
-    c.y = global.y;
+    if (Number.isFinite(globalStart?.x) && Number.isFinite(globalStart?.y)) {
+      c.x = Math.round(c.x);
+      c.y = Math.round(c.y);
+    }
 
     if (item.quantity > 1) {
       const t = new PIXI.Text(String(item.quantity), {
@@ -1190,6 +2472,8 @@ export function createInventoryView({
 
     s.x = g.x - dragItem.offsetX;
     s.y = g.y - dragItem.offsetY;
+
+    updateItemDragGhost(g);
   }
 
   function onItemDragEnd(ev) {
@@ -1216,6 +2500,7 @@ export function createInventoryView({
       dragItem.sourceOwnerOverride != null
         ? dragItem.sourceOwnerOverride
         : dragItem.ownerId;
+    const sourceEquipmentSlotId = dragItem.sourceEquipmentSlotId ?? null;
     const view = dragItem.view;
     const g = ev.data.global;
 
@@ -1223,25 +2508,230 @@ export function createInventoryView({
     dragItem.active = false;
     dragItem.lastGlobalPos = null;
 
-    const finish = () => {
+    const finish = (status = null) => {
       restoreItemView(view);
       dragItem.view = null;
       dragItem.sourceOwnerOverride = null;
+      dragItem.sourceEquipmentSlotId = null;
       if (typeof setApDragWarning === "function") {
         setApDragWarning(false);
+      }
+      if (typeof resolveDragGhost === "function") {
+        if (status === "success" || status === "fail") {
+          resolveDragGhost(status);
+        } else if (typeof setDragGhost === "function") {
+          setDragGhost(null);
+        }
+      } else if (typeof setDragGhost === "function") {
+        setDragGhost(null);
       }
     };
 
     if (uiBlocked) {
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
+      return;
+    }
+
+    const binTarget = findBinAt(g);
+    if (binTarget) {
+      const discard =
+        typeof discardItemFromOwner === "function"
+          ? discardItemFromOwner
+          : null;
+      const result = discard
+        ? discard({ ownerId: sourceOwner, itemId: item.id })
+        : { ok: false, reason: "noDiscardHandler" };
+      if (!result.ok) {
+        console.warn("discardItem failed:", result.reason, result);
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+      rebuildWindow(sourceOwner);
+      finish("success");
+      return;
+    }
+
+    const slotDrop = findEquipmentSlotAt(g);
+    if (slotDrop) {
+      const targetOwner = slotDrop.ownerId;
+      const targetSlotId = slotDrop.slotId;
+
+      if (view?.sourceOwnerId != null) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      if (!sourceEquipmentSlotId) {
+        const equippedTarget = getLeaderEquippedItem(targetOwner, targetSlotId);
+        const isBasketTarget = itemProvidesBasketPool(equippedTarget);
+        if (isBasketTarget) {
+          const deposit =
+            typeof depositItemToBasket === "function" ? depositItemToBasket : null;
+          const result = deposit
+            ? deposit({
+                fromOwnerId: sourceOwner,
+                toOwnerId: targetOwner,
+                itemId: item.id,
+                slotId: targetSlotId,
+              })
+            : { ok: false, reason: "noDepositItemToBasketHandler" };
+
+          if (!result?.ok) {
+            flashWindowError(targetOwner);
+            flashItemError(view, sourceOwner);
+            finish("fail");
+            return;
+          }
+
+          rebuildWindow(sourceOwner);
+          if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+          openBasketWidget?.({
+            ownerId: targetOwner,
+            itemId: equippedTarget?.id ?? null,
+            slotId: targetSlotId,
+          });
+          finish("success");
+          return;
+        }
+      }
+
+      if (sourceEquipmentSlotId) {
+        const moveEquipped =
+          typeof moveEquippedItemToSlot === "function"
+            ? moveEquippedItemToSlot
+            : null;
+        const result = moveEquipped
+          ? moveEquipped({
+              fromOwnerId: sourceOwner,
+              toOwnerId: targetOwner,
+              fromSlotId: sourceEquipmentSlotId,
+              toSlotId: targetSlotId,
+            })
+          : { ok: false, reason: "noMoveEquippedItemToSlotHandler" };
+
+        if (!result?.ok) {
+          flashWindowError(targetOwner);
+          flashItemError(view, sourceOwner);
+          finish("fail");
+          return;
+        }
+
+        rebuildWindow(sourceOwner);
+        if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+        if (item?.kind === "basket" && result?.result === "noChange") {
+          openBasketWidget?.({
+            ownerId: targetOwner,
+            itemId: item.id,
+            slotId: targetSlotId,
+          });
+        }
+        finish("success");
+        return;
+      }
+
+      const equip =
+        typeof equipItemToSlot === "function" ? equipItemToSlot : null;
+      const result = equip
+        ? equip({
+            fromOwnerId: sourceOwner,
+            toOwnerId: targetOwner,
+            itemId: item.id,
+            slotId: targetSlotId,
+          })
+        : { ok: false, reason: "noEquipItemToSlotHandler" };
+
+      if (!result?.ok) {
+        flashWindowError(targetOwner);
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      rebuildWindow(sourceOwner);
+      if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+      finish("success");
       return;
     }
 
     const win = findWindowAt(g);
     if (!win) {
+      const targetOwner =
+        typeof getDropTargetOwnerAt === "function"
+          ? getDropTargetOwnerAt(g)
+          : null;
+      if (targetOwner != null) {
+        if (targetOwner === sourceOwner) {
+          revealWindow(targetOwner);
+          finish();
+          return;
+        }
+
+        const targetInv = getInventoryForOwner(targetOwner);
+        const preview =
+          typeof getInventoryPreview === "function"
+            ? getInventoryPreview(targetOwner)
+            : null;
+
+        const placement = findItemPlacement(targetInv, item, preview, null);
+        if (!placement) {
+          revealWindow(targetOwner);
+          flashWindowError(targetOwner);
+          finish("fail");
+          return;
+        }
+
+        const handler =
+          sourceEquipmentSlotId
+            ? typeof moveEquippedItemToInventory === "function"
+              ? moveEquippedItemToInventory
+              : null
+            : typeof moveItemBetweenOwners === "function"
+              ? moveItemBetweenOwners
+              : null;
+
+        const result = handler
+          ? sourceEquipmentSlotId
+            ? handler({
+                fromOwnerId: sourceOwner,
+                toOwnerId: targetOwner,
+                slotId: sourceEquipmentSlotId,
+                targetGX: placement.gx,
+                targetGY: placement.gy,
+              })
+            : handler({
+                fromOwnerId: sourceOwner,
+                toOwnerId: targetOwner,
+                itemId: item.id,
+                targetGX: placement.gx,
+                targetGY: placement.gy,
+              })
+          : {
+              ok: false,
+              reason: sourceEquipmentSlotId
+                ? "noMoveEquippedItemToInventoryHandler"
+                : "noMoveItemBetweenOwnersHandler",
+            };
+
+        if (!result.ok) {
+          console.warn("inventoryMove failed:", result.reason, result);
+          revealWindow(targetOwner);
+          flashWindowError(targetOwner);
+          flashItemError(view, sourceOwner);
+          finish("fail");
+          return;
+        }
+
+        rebuildWindow(sourceOwner);
+        rebuildWindow(targetOwner);
+        finish("success");
+        return;
+      }
+
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
       return;
     }
 
@@ -1267,7 +2757,7 @@ export function createInventoryView({
       if (!result.ok) {
         console.warn("cancelItemTransfer failed:", result.reason, result);
         flashItemError(view, sourceOwner);
-        finish();
+        finish("fail");
         return;
       }
       rebuildWindow(targetOwner);
@@ -1277,6 +2767,55 @@ export function createInventoryView({
       finish();
       return;
     }
+
+    if (sourceEquipmentSlotId) {
+      const targetInv = getInventoryForOwner(targetOwner);
+      const preview =
+        typeof getInventoryPreview === "function"
+          ? getInventoryPreview(targetOwner)
+          : null;
+      let placeGX = gx;
+      let placeGY = gy;
+      const canPlaceAtCursor =
+        !isPreviewAreaReserved(item, gx, gy, preview, item?.id) &&
+        canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id);
+      if (!canPlaceAtCursor) {
+        const fallback = findItemPlacement(targetInv, item, preview, item?.id);
+        if (!fallback) {
+          flashItemError(view, sourceOwner);
+          finish("fail");
+          return;
+        }
+        placeGX = fallback.gx;
+        placeGY = fallback.gy;
+      }
+
+      const moveEquipped =
+        typeof moveEquippedItemToInventory === "function"
+          ? moveEquippedItemToInventory
+          : null;
+      const result = moveEquipped
+        ? moveEquipped({
+            fromOwnerId: sourceOwner,
+            toOwnerId: targetOwner,
+            slotId: sourceEquipmentSlotId,
+            targetGX: placeGX,
+            targetGY: placeGY,
+          })
+        : { ok: false, reason: "noMoveEquippedItemToInventoryHandler" };
+
+      if (!result?.ok) {
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      rebuildWindow(sourceOwner);
+      if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
+      finish("success");
+      return;
+    }
+
     const isCrossOwner = sourceOwner !== targetOwner;
     const targetInv = getInventoryForOwner(targetOwner);
     const preview =
@@ -1297,7 +2836,7 @@ export function createInventoryView({
         if (baseId != null && baseId !== item.id && !hidden.has(baseId)) {
           if (hasItemTransferIntent(item.id) || hasItemTransferIntent(baseId)) {
             flashItemError(view, sourceOwner);
-            finish();
+            finish("fail");
             return;
           }
         }
@@ -1306,14 +2845,14 @@ export function createInventoryView({
 
     if (isPreviewAreaReserved(item, gx, gy, preview, item?.id)) {
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
       return;
     }
 
     if (isCrossOwner) {
       if (!canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id)) {
         flashItemError(view, sourceOwner);
-        finish();
+        finish("fail");
         return;
       }
     }
@@ -1336,13 +2875,13 @@ export function createInventoryView({
     if (!result.ok) {
       console.warn("inventoryMove failed:", result.reason, result);
       flashItemError(view, sourceOwner);
-      finish();
+      finish("fail");
       return;
     }
 
     rebuildWindow(sourceOwner);
     if (targetOwner !== sourceOwner) rebuildWindow(targetOwner);
-    finish();
+    finish("success");
   }
 
   function findWindowAt(globalPos) {
@@ -1358,6 +2897,48 @@ export function createInventoryView({
         globalPos.y <= c.y + win.panelHeight
       ) {
         return win;
+      }
+    }
+    return null;
+  }
+
+  function findBinAt(globalPos) {
+    for (const win of windows.values()) {
+      const bin = win?.bin?.container;
+      if (!bin || !win.container?.visible) continue;
+      const bounds = bin.getBounds();
+      if (
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
+      ) {
+        return win;
+      }
+    }
+    return null;
+  }
+
+  function findEquipmentSlotAt(globalPos) {
+    for (const win of windows.values()) {
+      if (!win?.container?.visible) continue;
+      const equip = win.equipmentPanel;
+      if (!equip?.slots) continue;
+      const sectionState = ensureSectionState(win);
+      if (sectionState.equipment === false) continue;
+      if (equip.container?.visible === false) continue;
+      for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+        const slot = equip.slots?.[slotId]?.slot;
+        if (!slot) continue;
+        const bounds = slot.getBounds();
+        if (
+          globalPos.x >= bounds.x &&
+          globalPos.x <= bounds.x + bounds.width &&
+          globalPos.y >= bounds.y &&
+          globalPos.y <= bounds.y + bounds.height
+        ) {
+          return { win, ownerId: win.ownerId, slotId };
+        }
       }
     }
     return null;
@@ -1468,6 +3049,117 @@ export function createInventoryView({
       }
     }
     return null;
+  }
+
+  function findItemPlacement(inv, item, preview, ignoreItemId) {
+    if (!inv || !item) return null;
+    for (let gy = 0; gy <= inv.rows - item.height; gy++) {
+      for (let gx = 0; gx <= inv.cols - item.width; gx++) {
+        if (canPlaceItemPreview(inv, item, gx, gy, preview, ignoreItemId)) {
+          return { gx, gy };
+        }
+      }
+    }
+    return null;
+  }
+
+  function getItemDisplayName(item) {
+    if (!item) return "Item";
+    const def = itemDefs?.[item.kind];
+    return def?.name || item.kind || "Item";
+  }
+
+  function buildItemDragGhostSpec(globalPos) {
+    if (!dragItem.active || !dragItem.item) return null;
+
+    const sourceOwner =
+      dragItem.sourceOwnerOverride != null
+        ? dragItem.sourceOwnerOverride
+        : dragItem.ownerId;
+
+    const itemLabel = getItemDisplayName(dragItem.item);
+
+    let targetOwner = null;
+    let targetGX = null;
+    let targetGY = null;
+    let targetSlotId = null;
+
+    const slotDrop = findEquipmentSlotAt(globalPos);
+    if (slotDrop) {
+      targetOwner = slotDrop.ownerId;
+      targetSlotId = slotDrop.slotId;
+    } else {
+      const win = findWindowAt(globalPos);
+      if (win) {
+        targetOwner = win.ownerId;
+        let { gx, gy } = getGridCoords(win, globalPos);
+        gx -= dragItem.cellOffsetGX || 0;
+        gy -= dragItem.cellOffsetGY || 0;
+        targetGX = gx;
+        targetGY = gy;
+      }
+    }
+    if (targetOwner == null && typeof getDropTargetOwnerAt === "function") {
+      targetOwner = getDropTargetOwnerAt(globalPos);
+      if (targetOwner != null) {
+        const targetInv = getInventoryForOwner(targetOwner);
+        const preview =
+          typeof getInventoryPreview === "function"
+            ? getInventoryPreview(targetOwner)
+            : null;
+        const placement = findItemPlacement(
+          targetInv,
+          dragItem.item,
+          preview,
+          null
+        );
+        if (placement) {
+          targetGX = placement.gx;
+          targetGY = placement.gy;
+        }
+      }
+    }
+
+    const targetLabel =
+      targetOwner != null ? getOwnerLabel?.(targetOwner) : null;
+
+    const slotLabel =
+      targetSlotId != null
+        ? LEADER_EQUIPMENT_SLOT_LABELS[targetSlotId] || targetSlotId
+        : null;
+    const description = targetLabel
+      ? slotLabel
+        ? `${itemLabel} > ${targetLabel} (${slotLabel})`
+        : `${itemLabel} > ${targetLabel}`
+      : itemLabel;
+    const intentId =
+      dragItem?.item?.id != null ? `item:${dragItem.item.id}` : null;
+
+    let cost = 0;
+    if (
+      targetSlotId == null &&
+      targetOwner != null &&
+      targetOwner !== sourceOwner &&
+      typeof getItemTransferAffordability === "function"
+    ) {
+      const aff = getItemTransferAffordability({
+        fromOwnerId: sourceOwner,
+        toOwnerId: targetOwner,
+        itemId: dragItem.item.id,
+        targetGX: targetGX ?? 0,
+        targetGY: targetGY ?? 0,
+      });
+      if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
+    }
+
+    return { description, cost, intentId };
+  }
+
+  function updateItemDragGhost(globalPos) {
+    if (typeof setDragGhost !== "function") return;
+    const spec = buildItemDragGhostSpec(globalPos);
+    if (!spec) return;
+    setDragGhost(spec);
   }
 
   // ---------------------------------------------------------------------------
@@ -1649,12 +3341,56 @@ export function createInventoryView({
   // PUBLIC API
   // ---------------------------------------------------------------------------
 
-  function init() {}
+  function init() {
+    stage.on("pointerdown", (ev) => {
+      if (!activeBuildSpec) return;
+      if (dragItem.active || dragWindow.active) return;
+      const p = ev?.data?.global;
+      if (!p) return;
+      if (findWindowAt(p)) return;
+
+      const state = getStateSafe();
+      const col = resolveHubColFromPos(state, p, DESIGN_WIDTH);
+      if (col == null) return;
+
+      ev?.stopPropagation?.();
+      const ownerId = activeBuildSpec.ownerId;
+      const defId = activeBuildSpec.defId;
+      const res = placeBuildAt(col, ownerId, defId);
+      if (res?.ok) {
+        const win = windows.get(ownerId);
+        if (win) updateLeaderPanel(win);
+      }
+    });
+
+    stage.on("pointermove", (ev) => {
+      const p = ev?.data?.global;
+      if (!p) return;
+      lastPointerPos = { x: p.x, y: p.y };
+      if (!activeBuildSpec) return;
+      updateBuildGhostContent(activeBuildSpec.defId);
+      if (buildGhost) {
+        buildGhost.container.visible = true;
+        updateBuildGhostPosition(lastPointerPos);
+      }
+    });
+  }
 
   function update(dt) {
     updateApDragOverlays(dt);
     if (dragItem.active || activeSplit || flashingOwners.size > 0) {
       return;
+    }
+
+    if (activeBuildSpec) {
+      updateBuildGhostContent(activeBuildSpec.defId);
+      if (buildGhost) {
+        const pos = lastPointerPos || { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
+        buildGhost.container.visible = true;
+        updateBuildGhostPosition(pos);
+      }
+    } else if (buildGhost) {
+      buildGhost.container.visible = false;
     }
 
     const previewVersion =
@@ -1667,7 +3403,10 @@ export function createInventoryView({
       if (!win.container.visible) continue;
 
       const inv = getInventoryForOwner(ownerId);
-      if (!inv) continue;
+      if (!inv) {
+        hideWindow(ownerId);
+        continue;
+      }
 
       const v = inv.version ?? 0;
       const last = lastVersionByOwner.get(ownerId) ?? 0;
@@ -1675,6 +3414,7 @@ export function createInventoryView({
       if (v !== last || previewChanged) {
         rebuildWindow(ownerId);
       } else {
+        updateEquipmentPanel(win);
         updateLeaderPanel(win);
       }
     }
@@ -1696,6 +3436,7 @@ export function createInventoryView({
     hideWindow,
     togglePinned,
     revealWindow,
+    beginDragItemFromOwner,
     flashWindowError,
 
     rebuildWindow,

@@ -5,6 +5,10 @@ import { hubStructureDefs }  from "../../defs/gamepieces/hub-structure-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
+import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
+import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
+import { skillNodes } from "../../defs/gamepieces/skill-tree-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { IntentKinds } from "./action-intents.js";
 import {
@@ -22,14 +26,29 @@ function formatCropName(cropId) {
   return cropDefs[cropId]?.name || cropDefs[cropId]?.cropId || cropId;
 }
 
+function formatRecipeName(recipeId) {
+  if (!recipeId) return "None";
+  return recipeDefs[recipeId]?.name || recipeDefs[recipeId]?.id || recipeId;
+}
+
+function formatEnvTagName(tagId) {
+  if (!tagId) return "Tag";
+  return envTagDefs[tagId]?.ui?.name || tagId;
+}
+
+function formatHubTagName(tagId) {
+  if (!tagId) return "Tag";
+  return hubTagDefs[tagId]?.ui?.name || tagId;
+}
+
 function formatOwnerName(ownerId, getOwnerLabel) {
   if (typeof getOwnerLabel === "function") return getOwnerLabel(ownerId);
   return `Owner ${ownerId}`;
 }
 
-function formatPawnName(charId, state) {
-  const ch = state?.characters?.find((c) => c.id === charId);
-  return ch?.name || `Char ${charId}`;
+function formatPawnName(pawnId, state) {
+  const pawn = state?.pawns?.find((candidatePawn) => candidatePawn.id === pawnId);
+  return pawn?.name || `Pawn ${pawnId}`;
 }
 
 function formatHubName(hubCol, state) {
@@ -48,6 +67,89 @@ function formatTileName(envCol, state) {
   const tile = state?.board?.occ?.tile?.[col];
   const def = tile ? envTileDefs[tile.defId] : null;
   return def?.name || tile?.defId || `Tile ${col}`;
+}
+
+function isTilePlanIntent(intent) {
+  if (!intent) return false;
+  return (
+    intent.kind === IntentKinds.TILE_TAG_ORDER ||
+    intent.kind === IntentKinds.TILE_TAG_TOGGLE ||
+    intent.kind === IntentKinds.TILE_CROP_SELECT
+  );
+}
+
+function isHubPlanIntent(intent) {
+  if (!intent) return false;
+  return (
+    intent.kind === IntentKinds.HUB_TAG_ORDER ||
+    intent.kind === IntentKinds.HUB_TAG_TOGGLE ||
+    intent.kind === IntentKinds.HUB_RECIPE_SELECT
+  );
+}
+
+function isTilePlanAction(action) {
+  const kind = action?.kind;
+  return (
+    kind === ActionKinds.SET_TILE_TAG_ORDER ||
+    kind === ActionKinds.TOGGLE_TILE_TAG ||
+    kind === ActionKinds.SET_TILE_CROP_SELECTION
+  );
+}
+
+function isHubPlanAction(action) {
+  const kind = action?.kind;
+  return (
+    kind === ActionKinds.SET_HUB_TAG_ORDER ||
+    kind === ActionKinds.TOGGLE_HUB_TAG ||
+    kind === ActionKinds.SET_HUB_RECIPE_SELECTION
+  );
+}
+
+function formatSkillNodeName(nodeId) {
+  if (!nodeId) return "Skill";
+  return skillNodes?.[nodeId]?.name || nodeId;
+}
+
+function formatTilePlanLabel(envCol, state) {
+  const tileName = formatTileName(envCol, state);
+  return `Tags > ${tileName} changed`;
+}
+
+function formatHubPlanLabel(hubCol, state) {
+  const hubName = formatHubName(hubCol, state);
+  return `Tags > ${hubName} changed`;
+}
+
+function getTilePlanIntentSignature(intent) {
+  if (!intent) return "";
+  if (intent.kind === IntentKinds.TILE_TAG_ORDER) {
+    const tags = Array.isArray(intent.tagIds) ? intent.tagIds : [];
+    return `order:${tags.join(",")}`;
+  }
+  if (intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
+    return `toggle:${intent.tagId ?? ""}:${intent.disabled === true}`;
+  }
+  if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
+    const crop = intent.cropId ?? "none";
+    return `crop:${crop}`;
+  }
+  return intent.kind || "";
+}
+
+function getHubPlanIntentSignature(intent) {
+  if (!intent) return "";
+  if (intent.kind === IntentKinds.HUB_TAG_ORDER) {
+    const tags = Array.isArray(intent.tagIds) ? intent.tagIds : [];
+    return `order:${tags.join(",")}`;
+  }
+  if (intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
+    return `toggle:${intent.tagId ?? ""}:${intent.disabled === true}`;
+  }
+  if (intent.kind === IntentKinds.HUB_RECIPE_SELECT) {
+    const recipe = intent.recipeId ?? "none";
+    return `recipe:${intent.systemId ?? ""}:${recipe}`;
+  }
+  return intent.kind || "";
 }
 
 function formatPlacementName(placement, state) {
@@ -92,7 +194,7 @@ function describeIntent(intent, state, getOwnerLabel) {
       return `${fallback} > ${dest}`;
     }
     case IntentKinds.PAWN_MOVE: {
-      const pawnName = formatPawnName(intent.charId, state);
+      const pawnName = formatPawnName(intent.pawnId, state);
       const dest = formatPlacementName(intent.toPlacement, state);
       return `${pawnName} > ${dest}`;
     }
@@ -107,10 +209,27 @@ function describeIntent(intent, state, getOwnerLabel) {
       const hubName = formatHubName(intent.hubCol, state);
       return `Tags > ${hubName}`;
     }
+    case IntentKinds.TILE_TAG_TOGGLE: {
+      const tileName = formatTileName(intent.envCol, state);
+      const tagName = formatEnvTagName(intent.tagId);
+      const status = intent.disabled ? "Off" : "On";
+      return `Tag ${tagName} > ${tileName}: ${status}`;
+    }
+    case IntentKinds.HUB_TAG_TOGGLE: {
+      const hubName = formatHubName(intent.hubCol, state);
+      const tagName = formatHubTagName(intent.tagId);
+      const status = intent.disabled ? "Off" : "On";
+      return `Tag ${tagName} > ${hubName}: ${status}`;
+    }
     case IntentKinds.TILE_CROP_SELECT: {
       const tileName = formatTileName(intent.envCol, state);
       const cropName = formatCropName(intent.cropId);
       return `Crop > ${tileName}: ${cropName}`;
+    }
+    case IntentKinds.HUB_RECIPE_SELECT: {
+      const hubName = formatHubName(intent.hubCol, state);
+      const recipeName = formatRecipeName(intent.recipeId);
+      return `Recipe > ${hubName}: ${recipeName}`;
     }
     default:
       return intent.kind || "Action";
@@ -134,6 +253,8 @@ function formatCurrencyGroupDescription(group, getOwnerLabel) {
 function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
   const groupByKey = new Map();
   const groupKeyByIntentId = new Map();
+  const tilePlanGroups = new Map();
+  const hubPlanGroups = new Map();
 
   for (const intent of intents) {
     if (intent?.kind !== IntentKinds.ITEM_TRANSFER) continue;
@@ -170,6 +291,70 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
 
   const rowsOut = [];
   const emittedGroups = new Set();
+  const emittedTilePlans = new Set();
+  const emittedHubPlans = new Set();
+
+  for (const intent of intents) {
+    if (!isTilePlanIntent(intent)) continue;
+    const envCol = Number.isFinite(intent.envCol)
+      ? Math.floor(intent.envCol)
+      : null;
+    if (envCol == null) continue;
+    const key = envCol;
+    let group = tilePlanGroups.get(key);
+    if (!group) {
+      group = {
+        envCol,
+        intentIds: [],
+        cost: 0,
+        isFocused: false,
+        focusIntentId: null,
+        signatures: [],
+      };
+      tilePlanGroups.set(key, group);
+    }
+    const intentId = intent?.id ?? intent?.subjectKey ?? null;
+    if (intentId != null) {
+      group.intentIds.push(intentId);
+      const cost = planner?.getIntentCost?.(intentId) ?? 0;
+      if (cost > group.cost) group.cost = cost;
+      if (!group.focusIntentId) group.focusIntentId = intentId;
+      if (focus && focus.id === intentId) group.isFocused = true;
+    }
+    const sig = getTilePlanIntentSignature(intent);
+    if (sig) group.signatures.push(sig);
+  }
+
+  for (const intent of intents) {
+    if (!isHubPlanIntent(intent)) continue;
+    const hubCol = Number.isFinite(intent.hubCol)
+      ? Math.floor(intent.hubCol)
+      : null;
+    if (hubCol == null) continue;
+    const key = hubCol;
+    let group = hubPlanGroups.get(key);
+    if (!group) {
+      group = {
+        hubCol,
+        intentIds: [],
+        cost: 0,
+        isFocused: false,
+        focusIntentId: null,
+        signatures: [],
+      };
+      hubPlanGroups.set(key, group);
+    }
+    const intentId = intent?.id ?? intent?.subjectKey ?? null;
+    if (intentId != null) {
+      group.intentIds.push(intentId);
+      const cost = planner?.getIntentCost?.(intentId) ?? 0;
+      if (cost > group.cost) group.cost = cost;
+      if (!group.focusIntentId) group.focusIntentId = intentId;
+      if (focus && focus.id === intentId) group.isFocused = true;
+    }
+    const sig = getHubPlanIntentSignature(intent);
+    if (sig) group.signatures.push(sig);
+  }
 
   for (const intent of intents) {
     const intentId = intent?.id ?? intent?.subjectKey ?? null;
@@ -196,12 +381,59 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
       continue;
     }
 
+    if (isTilePlanIntent(intent)) {
+      const envCol = Number.isFinite(intent.envCol)
+        ? Math.floor(intent.envCol)
+        : null;
+      if (envCol == null) continue;
+      if (emittedTilePlans.has(envCol)) continue;
+      emittedTilePlans.add(envCol);
+      const group = tilePlanGroups.get(envCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `tilePlan:${envCol}`,
+        description: formatTilePlanLabel(envCol, state),
+        cost: group.cost,
+        signature: group.signatures.slice().sort().join("|"),
+        intentIds: group.intentIds.slice(),
+        focusIntentId: group.focusIntentId,
+        isFocused: group.isFocused,
+        isUndoable: true,
+      });
+      continue;
+    }
+
+    if (isHubPlanIntent(intent)) {
+      const hubCol = Number.isFinite(intent.hubCol)
+        ? Math.floor(intent.hubCol)
+        : null;
+      if (hubCol == null) continue;
+      if (emittedHubPlans.has(hubCol)) continue;
+      emittedHubPlans.add(hubCol);
+      const group = hubPlanGroups.get(hubCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `hubPlan:${hubCol}`,
+        description: formatHubPlanLabel(hubCol, state),
+        cost: group.cost,
+        signature: group.signatures.slice().sort().join("|"),
+        intentIds: group.intentIds.slice(),
+        focusIntentId: group.focusIntentId,
+        isFocused: group.isFocused,
+        isUndoable: true,
+      });
+      continue;
+    }
+
     if (!intent) continue;
     const intentCost = planner?.getIntentCost?.(intentId) ?? 0;
     if (intent.kind === IntentKinds.ITEM_TRANSFER && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_TAG_ORDER && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.HUB_TAG_ORDER && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.TILE_TAG_TOGGLE && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.HUB_TAG_TOGGLE && intentCost <= 0) continue;
     if (intent.kind === IntentKinds.TILE_CROP_SELECT && intentCost <= 0) continue;
+    if (intent.kind === IntentKinds.HUB_RECIPE_SELECT && intentCost <= 0) continue;
     const rowId = intentId ?? `intent:${rowsOut.length}`;
     rowsOut.push({
       id: rowId,
@@ -220,6 +452,8 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
 function buildActionRowSpecs(actions, state, getOwnerLabel) {
   const groupByKey = new Map();
   const groupKeyByAction = new Map();
+  const tilePlanGroups = new Map();
+  const hubPlanGroups = new Map();
 
   for (const action of actions) {
     if (action.kind !== ActionKinds.INVENTORY_MOVE) continue;
@@ -253,8 +487,54 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
     groupKeyByAction.set(action, info.key);
   }
 
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    if (!isTilePlanAction(action)) continue;
+    const payload = action.payload || {};
+    const envCol = Number.isFinite(payload.envCol)
+      ? Math.floor(payload.envCol)
+      : Number.isFinite(payload.toEnvCol)
+      ? Math.floor(payload.toEnvCol)
+      : null;
+    if (envCol == null) continue;
+    let group = tilePlanGroups.get(envCol);
+    if (!group) {
+      group = { envCol, cost: 0, firstIndex: i };
+      tilePlanGroups.set(envCol, group);
+    }
+    const apCost =
+      Number.isFinite(action.apCost) || Number.isFinite(payload.apCost)
+        ? Math.floor(action.apCost ?? payload.apCost ?? 0)
+        : 0;
+    if (apCost > group.cost) group.cost = apCost;
+  }
+
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    if (!isHubPlanAction(action)) continue;
+    const payload = action.payload || {};
+    const hubCol = Number.isFinite(payload.hubCol)
+      ? Math.floor(payload.hubCol)
+      : Number.isFinite(payload.toHubCol)
+      ? Math.floor(payload.toHubCol)
+      : null;
+    if (hubCol == null) continue;
+    let group = hubPlanGroups.get(hubCol);
+    if (!group) {
+      group = { hubCol, cost: 0, firstIndex: i };
+      hubPlanGroups.set(hubCol, group);
+    }
+    const apCost =
+      Number.isFinite(action.apCost) || Number.isFinite(payload.apCost)
+        ? Math.floor(action.apCost ?? payload.apCost ?? 0)
+        : 0;
+    if (apCost > group.cost) group.cost = apCost;
+  }
+
   const rowsOut = [];
   const emittedGroups = new Set();
+  const emittedTilePlans = new Set();
+  const emittedHubPlans = new Set();
 
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i];
@@ -277,6 +557,46 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       continue;
     }
 
+    if (isTilePlanAction(action)) {
+      const envCol = Number.isFinite(payload.envCol)
+        ? Math.floor(payload.envCol)
+        : Number.isFinite(payload.toEnvCol)
+        ? Math.floor(payload.toEnvCol)
+        : null;
+      if (envCol == null) continue;
+      if (emittedTilePlans.has(envCol)) continue;
+      emittedTilePlans.add(envCol);
+      const group = tilePlanGroups.get(envCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `tilePlan:${envCol}:${group.firstIndex}`,
+        description: formatTilePlanLabel(envCol, state),
+        cost: group.cost,
+        isUndoable: false,
+      });
+      continue;
+    }
+
+    if (isHubPlanAction(action)) {
+      const hubCol = Number.isFinite(payload.hubCol)
+        ? Math.floor(payload.hubCol)
+        : Number.isFinite(payload.toHubCol)
+        ? Math.floor(payload.toHubCol)
+        : null;
+      if (hubCol == null) continue;
+      if (emittedHubPlans.has(hubCol)) continue;
+      emittedHubPlans.add(hubCol);
+      const group = hubPlanGroups.get(hubCol);
+      if (!group || group.cost <= 0) continue;
+      rowsOut.push({
+        id: `hubPlan:${hubCol}:${group.firstIndex}`,
+        description: formatHubPlanLabel(hubCol, state),
+        cost: group.cost,
+        isUndoable: false,
+      });
+      continue;
+    }
+
     const kind = action.kind;
     const apCost =
       Number.isFinite(action.apCost) || Number.isFinite(payload.apCost)
@@ -290,29 +610,66 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
         : `Item ${payload.itemId ?? ""}`.trim();
       const dest = formatOwnerName(payload.toOwnerId, getOwnerLabel);
       desc = `${itemName} > ${dest}`;
-    } else if (kind === ActionKinds.PLACE_CHARACTER) {
-      const pawnName = formatPawnName(payload.charId, state);
+    } else if (kind === ActionKinds.PLACE_PAWN) {
+      const pawnId = payload.pawnId;
+      const pawnName = formatPawnName(pawnId, state);
       const placement = resolvePlacementFromPayload(payload);
       const dest = formatPlacementName(placement, state);
       desc = `${pawnName} > ${dest}`;
     } else if (kind === ActionKinds.BUILD_DESIGNATE) {
       desc = `Build ${payload.defId || payload.buildKey || "Plan"}`;
+    } else if (kind === ActionKinds.BUILD_CANCEL) {
+      const hubCol = Number.isFinite(payload.hubCol)
+        ? Math.floor(payload.hubCol)
+        : null;
+      const hubName = hubCol != null ? formatHubName(hubCol, state) : "Hub";
+      const defName = payload.defId
+        ? hubStructureDefs[payload.defId]?.name || payload.defId
+        : "Structure";
+      desc = `Cancel ${defName} @ ${hubName}`;
     } else if (kind === ActionKinds.SET_TILE_TAG_ORDER) {
       const tileName = formatTileName(payload.envCol, state);
       desc = `Tags > ${tileName}`;
     } else if (kind === ActionKinds.SET_HUB_TAG_ORDER) {
       const hubName = formatHubName(payload.hubCol, state);
       desc = `Tags > ${hubName}`;
+    } else if (kind === ActionKinds.TOGGLE_TILE_TAG) {
+      const tileName = formatTileName(payload.envCol, state);
+      const tagName = formatEnvTagName(payload.tagId);
+      const status = payload.disabled ? "Off" : "On";
+      desc = `Tag ${tagName} > ${tileName}: ${status}`;
+    } else if (kind === ActionKinds.TOGGLE_HUB_TAG) {
+      const hubName = formatHubName(payload.hubCol, state);
+      const tagName = formatHubTagName(payload.tagId);
+      const status = payload.disabled ? "Off" : "On";
+      desc = `Tag ${tagName} > ${hubName}: ${status}`;
     } else if (kind === ActionKinds.SET_TILE_CROP_SELECTION) {
       const tileName = formatTileName(payload.envCol, state);
       const cropName = formatCropName(payload.cropId);
       desc = `Crop > ${tileName}: ${cropName}`;
+    } else if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) {
+      const hubName = formatHubName(payload.hubCol, state);
+      const recipeName = formatRecipeName(payload.recipeId);
+      desc = `Recipe > ${hubName}: ${recipeName}`;
+    } else if (kind === ActionKinds.UNLOCK_SKILL_NODE) {
+      const leaderPawnId =
+        payload.leaderPawnId != null
+          ? payload.leaderPawnId
+          : payload.pawnId != null
+            ? payload.pawnId
+            : null;
+      const pawnName = formatPawnName(leaderPawnId, state);
+      const skillName = formatSkillNodeName(payload.nodeId);
+      desc = `Skill > ${pawnName}: ${skillName}`;
     }
 
     if (kind === ActionKinds.INVENTORY_MOVE && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_TAG_ORDER && apCost <= 0) continue;
     if (kind === ActionKinds.SET_HUB_TAG_ORDER && apCost <= 0) continue;
+    if (kind === ActionKinds.TOGGLE_TILE_TAG && apCost <= 0) continue;
+    if (kind === ActionKinds.TOGGLE_HUB_TAG && apCost <= 0) continue;
     if (kind === ActionKinds.SET_TILE_CROP_SELECTION && apCost <= 0) continue;
+    if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION && apCost <= 0) continue;
     rowsOut.push({
       id: `${kind}:${i}`,
       description: desc,
@@ -333,11 +690,16 @@ function isLogAction(action) {
     const toOwner = payload.toOwnerId;
     return fromOwner != null && toOwner != null && fromOwner !== toOwner;
   }
-  if (kind === ActionKinds.PLACE_CHARACTER) return true;
+  if (kind === ActionKinds.PLACE_PAWN) return true;
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
+  if (kind === ActionKinds.BUILD_CANCEL) return true;
   if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;
   if (kind === ActionKinds.SET_HUB_TAG_ORDER) return true;
+  if (kind === ActionKinds.TOGGLE_TILE_TAG) return true;
+  if (kind === ActionKinds.TOGGLE_HUB_TAG) return true;
   if (kind === ActionKinds.SET_TILE_CROP_SELECTION) return true;
+  if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) return true;
+  if (kind === ActionKinds.UNLOCK_SKILL_NODE) return true;
   return false;
 }
 

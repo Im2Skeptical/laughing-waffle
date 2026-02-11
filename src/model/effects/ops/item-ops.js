@@ -15,6 +15,9 @@ function applyKindToItem(state, inv, item, targetKind) {
   Inventory.clearItemFromGrid(inv, item);
 
   item.kind = targetKind;
+
+  // Keep these normalized to null so stacking behavior is not fragmented by lifespan metadata.
+  // (No systems in this refactor should ever set them.)
   item.seasonsToExpire = null;
   item.expiryTurn = null;
 
@@ -49,36 +52,7 @@ export function handleRemoveItem(state, effect, context) {
   return true;
 }
 
-export function handleCheckItemRot(state, effect, context) {
-  if (!context || context.kind !== "item") return false;
-  const { inv, item } = context;
-  if (!inv || !item) return false;
-  if (typeof state?.rngNextFloat !== "function") return false;
-
-  const rotKind = effect.rotKind || "rot";
-  if (!itemDefs[rotKind]) return false;
-
-  if (Number.isFinite(effect.rotChancePerSec)) {
-    const chancePerUnit = Math.max(0, effect.rotChancePerSec);
-    if (chancePerUnit <= 0) return false;
-    return handleExpireItemChance(
-      state,
-      { chance: chancePerUnit, targetKind: rotKind },
-      context
-    );
-  }
-
-  if (effect.chanceFromDefKey) {
-    return handleExpireItemChance(
-      state,
-      { chanceFromDefKey: effect.chanceFromDefKey, targetKind: rotKind },
-      context
-    );
-  }
-
-  return false;
-}
-
+// Generic: expires N units (binomial) and optionally transforms the expired units into targetKind.
 export function handleExpireItemChance(state, effect, context) {
   if (!context || context.kind !== "item") return false;
   const { inv, item } = context;
@@ -89,11 +63,33 @@ export function handleExpireItemChance(state, effect, context) {
   if (!Number.isFinite(chance) && effect.chanceFromDefKey && itemDef) {
     chance = itemDef[effect.chanceFromDefKey];
   }
+
+  const tierSystemId =
+    typeof effect.tierSystemId === "string" ? effect.tierSystemId : null;
+  if (tierSystemId) {
+    const tier =
+      item.systemTiers?.[tierSystemId] ??
+      item.tier ??
+      itemDef?.defaultTier ??
+      "bronze";
+    const multiplierMap =
+      effect.tierMultiplierByTier &&
+      typeof effect.tierMultiplierByTier === "object"
+        ? effect.tierMultiplierByTier
+        : effect.multiplierByTier && typeof effect.multiplierByTier === "object"
+          ? effect.multiplierByTier
+          : null;
+    if (multiplierMap && Number.isFinite(multiplierMap[tier])) {
+      chance = (Number.isFinite(chance) ? chance : 0) * multiplierMap[tier];
+    }
+  }
+
   if (!Number.isFinite(chance) || chance <= 0) return false;
 
   const qty = Math.floor(item.quantity ?? 0);
   if (qty <= 0) return false;
 
+  // This produces the same distribution as rolling once per unit.
   const expired = sampleBinomial(state, qty, chance);
   if (expired <= 0) return false;
 
@@ -110,31 +106,6 @@ export function handleExpireItemChance(state, effect, context) {
     }
   }
 
-  bumpInvVersion(inv);
-  return true;
-}
-
-export function handleTickItemSeasonExpiry(state, effect, context) {
-  if (!context || context.kind !== "item") return false;
-  const { inv, item } = context;
-  if (!inv || !item) return false;
-
-  const targetKind = effect.targetKind;
-  if (targetKind && !itemDefs[targetKind]) return false;
-
-  if (item.seasonsToExpire == null) return false;
-  item.seasonsToExpire -= 1;
-
-  if (item.seasonsToExpire > 0) {
-    bumpInvVersion(inv);
-    return true;
-  }
-
-  if (targetKind) {
-    return applyKindToItem(state, inv, item, targetKind);
-  }
-
-  Inventory.removeItem(inv, item.id);
   bumpInvVersion(inv);
   return true;
 }

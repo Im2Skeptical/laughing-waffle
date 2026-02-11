@@ -1,22 +1,26 @@
-// characters-pixi.js
+// pawns-pixi.js
 //
-// Responsible for rendering characters and wiring their UI behaviour
+// Responsible for rendering pawns and wiring their UI behaviour
 // (hover tooltip, hover inventory, click-to-toggle inventory, dragging).
 //
 // VIEW-ONLY: does NOT depend on model slot.x/slot.y. Positions are derived
 // from the same layout math used by board-pixi.js.
 //
 // Wiring:
-// - opts { getCharacters, getHubSlots, interaction, tooltipView, inventoryView, onCharacterDropped }
-// - Or opts { getGameState, onDropCharacter } (used by current ui-root-pixi.js)
+// - opts { getPawns, getHubSlots, interaction, tooltipView, inventoryView, onPawnDropped }
 
 import {
   BOARD_COLS,
   HUB_COLS,
   HUB_STRUCTURE_WIDTH,
+  HUB_STRUCTURE_HEIGHT,
+  HUB_STRUCTURE_ROW_Y,
+  TILE_HEIGHT,
   TILE_WIDTH,
   TILE_ROW_Y,
   CHARACTER_ROW_OFFSET_Y,
+  getBoardColumnCenterX,
+  getHubColumnCenterX,
   layoutBoardColPos,
   layoutHubStructurePos,
   GAMEPIECE_HOVER_SCALE,
@@ -26,26 +30,28 @@ import {
   GAMEPIECE_SHADOW_OFFSET_Y,
 } from "./layout-pixi.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
+import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 
-export function createCharactersView(opts) {
+export function createPawnsView(opts) {
   const {
     app,
     layer,
     hoverLayer,
-
-    // old shape
-    getCharacters,
+    getPawns,
     getHubSlots,
     interaction,
     tooltipView,
     inventoryView,
-    onCharacterDropped,
+    onPawnDropped,
+    onPawnClicked,
     requestPauseForAction,
-
-    // newer shape
+    getPawnMoveAffordability,
+    setDragGhost,
+    resolveDragGhost,
     getGameState,
-    onDropCharacter,
     getFocusIntent,
+    getExternalFocus,
     getPreviewHubCol,
     getPreviewPlacement,
   } = opts;
@@ -56,7 +62,35 @@ export function createCharactersView(opts) {
   const RADIUS = 20;
   const LEADER_DIAMOND_SCALE = 1.15;
   let focusGhost = null;
-  let focusedCharId = null;
+  let focusedPawnId = null;
+
+  function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    if (value <= 0) return 0;
+    if (value >= 1) return 1;
+    return value;
+  }
+
+  function dimColor(color, factor = 0.35) {
+    const rgb = Number.isFinite(color) ? color : 0;
+    const r = (rgb >> 16) & 0xff;
+    const g = (rgb >> 8) & 0xff;
+    const b = rgb & 0xff;
+    const nextR = Math.max(0, Math.min(255, Math.round(r * factor)));
+    const nextG = Math.max(0, Math.min(255, Math.round(g * factor)));
+    const nextB = Math.max(0, Math.min(255, Math.round(b * factor)));
+    return (nextR << 16) | (nextG << 8) | nextB;
+  }
+
+  function getStaminaRatio(pawn) {
+    const stamina = pawn?.systemState?.stamina;
+    const cur = Number.isFinite(stamina?.cur) ? stamina.cur : null;
+    const max = Number.isFinite(stamina?.max) ? stamina.max : null;
+    if (max != null && max <= 0) return 0;
+    if (cur == null && max == null) return 1;
+    if (max == null) return cur > 0 ? 1 : 0;
+    return clamp01(cur / max);
+  }
 
   if (layer) layer.sortableChildren = true;
   if (hoverLayer) hoverLayer.sortableChildren = true;
@@ -68,7 +102,7 @@ export function createCharactersView(opts) {
   const interactionSafe = interaction || {
     canShowHoverUI: () => true,
     isDragging: () => false,
-    canDragCharacter: () => true,
+    canDragPawn: () => true,
     startDrag: () => {},
     endDrag: () => {},
     getDragged: () => null,
@@ -84,11 +118,11 @@ export function createCharactersView(opts) {
     return typeof getGameState === "function" ? getGameState() : null;
   }
 
-  function getCharsSafe() {
-    if (typeof getCharacters === "function") return getCharacters() || [];
+  function getPawnsSafe() {
+    if (typeof getPawns === "function") return getPawns() || [];
     const s = getStateSafe();
     // Support likely state shapes
-    return s?.characters || s?.chars || s?.characterList || s?.party || [];
+    return s?.pawns || s?.party || [];
   }
 
   function getEnvColsSafe() {
@@ -118,7 +152,7 @@ export function createCharactersView(opts) {
   }
 
   function emitDropped(payload) {
-    const cb = onCharacterDropped || onDropCharacter || null;
+    const cb = onPawnDropped || null;
     if (typeof cb === "function") return cb(payload);
     return { ok: false, reason: "noDropHandler" };
   }
@@ -170,7 +204,7 @@ export function createCharactersView(opts) {
     return Math.max(attached, hover);
   }
 
-  function applyCharacterScale(view) {
+  function applyPawnScale(view) {
     const scale = getEffectiveScale(view);
     view.container.scale.set(scale);
     view.shadow.visible = scale > 1 && GAMEPIECE_SHADOW_ALPHA > 0;
@@ -239,27 +273,110 @@ export function createCharactersView(opts) {
     };
   }
 
-  function getHoverPlacementForChar(char) {
+  function getHoverPlacementForPawn(pawn) {
     let placement = null;
     if (typeof getPreviewPlacement === "function") {
-      placement = getPreviewPlacement(char.id);
+      placement = getPreviewPlacement(pawn.id);
     } else if (typeof getPreviewHubCol === "function") {
-      const overrideIdx = getPreviewHubCol(char.id);
+      const overrideIdx = getPreviewHubCol(pawn.id);
       if (overrideIdx != null) placement = { hubCol: overrideIdx };
     }
 
     const envCol = Number.isFinite(placement?.envCol)
       ? Math.floor(placement.envCol)
-      : Number.isFinite(char.envCol)
-      ? Math.floor(char.envCol)
+      : Number.isFinite(pawn.envCol)
+      ? Math.floor(pawn.envCol)
       : null;
     const hubCol = Number.isFinite(placement?.hubCol)
       ? Math.floor(placement.hubCol)
-      : Number.isFinite(char.hubCol)
-      ? Math.floor(char.hubCol)
+      : Number.isFinite(pawn.hubCol)
+      ? Math.floor(pawn.hubCol)
       : null;
 
     return { envCol, hubCol };
+  }
+
+  function formatTileName(envCol, state) {
+    const col = Math.floor(envCol);
+    const tile = state?.board?.occ?.tile?.[col];
+    const def = tile ? envTileDefs[tile.defId] : null;
+    return def?.name || tile?.defId || `Tile ${col}`;
+  }
+
+  function formatHubName(hubCol, state) {
+    const col = Math.floor(hubCol);
+    const slot = state?.hub?.slots?.[col];
+    const structure = slot?.structure;
+    if (structure) {
+      const def = hubStructureDefs[structure.defId];
+      return def?.name || def?.id || `Hub ${col}`;
+    }
+    return `Hub ${col}`;
+  }
+
+  function getDropTargetFromPos(globalPos) {
+    const state = getStateSafe();
+    if (!globalPos || !state) return null;
+    const envCols = getEnvColsSafe();
+    const hubCols = getHubColsSafe();
+
+    const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
+    const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT / 2;
+    const distToTile = Math.abs(globalPos.y - tileCenterY);
+    const distToHub = Math.abs(globalPos.y - hubCenterY);
+    const targetRow = distToTile <= distToHub ? "env" : "hub";
+
+    const colCount = targetRow === "env" ? envCols : hubCols;
+    const getCenterX =
+      targetRow === "env" ? getBoardColumnCenterX : getHubColumnCenterX;
+
+    let bestIndex = null;
+    let bestDist2 = Infinity;
+    for (let col = 0; col < colCount; col++) {
+      const cx = getCenterX(app.screen.width, col);
+      const dx = globalPos.x - cx;
+      const d2 = dx * dx;
+      if (d2 < bestDist2) {
+        bestDist2 = d2;
+        bestIndex = col;
+      }
+    }
+    if (bestIndex == null) return null;
+    return { row: targetRow, col: bestIndex };
+  }
+
+  function buildPawnDragGhostSpec(pawn, globalPos) {
+    if (!pawn) return null;
+    const state = getStateSafe();
+    const target = getDropTargetFromPos(globalPos);
+    const pawnName = pawn?.name || `Pawn ${pawn?.id ?? ""}`.trim() || "Pawn";
+    const intentId = pawn?.id != null ? `pawn:${pawn.id}` : null;
+    if (!target || !state) {
+      return { description: pawnName, cost: 0, intentId };
+    }
+
+    const targetLabel =
+      target.row === "env"
+        ? formatTileName(target.col, state)
+        : formatHubName(target.col, state);
+
+    let cost = 0;
+    if (typeof getPawnMoveAffordability === "function") {
+      const aff =
+        target.row === "env"
+          ? getPawnMoveAffordability({ pawnId: pawn.id, toEnvCol: target.col })
+          : getPawnMoveAffordability({ pawnId: pawn.id, toHubCol: target.col });
+      if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
+    }
+
+    return { description: `${pawnName} > ${targetLabel}`, cost, intentId };
+  }
+
+  function updatePawnDragGhost(pawn, globalPos) {
+    if (typeof setDragGhost !== "function") return;
+    const spec = buildPawnDragGhostSpec(pawn, globalPos);
+    if (!spec) return;
+    setDragGhost(spec);
   }
 
   // ---------------------------------------------------------------------------
@@ -306,10 +423,10 @@ export function createCharactersView(opts) {
     return String(Math.round(value * 10) / 10);
   }
 
-  function getPawnSystemLines(char) {
+  function getPawnSystemLines(pawn) {
     const lines = [];
-    const systemState = char?.systemState ?? {};
-    const systemTiers = char?.systemTiers ?? {};
+    const systemState = pawn?.systemState ?? {};
+    const systemTiers = pawn?.systemTiers ?? {};
     const systemIds = Object.keys(pawnSystemDefs);
 
     for (const systemId of systemIds) {
@@ -329,10 +446,10 @@ export function createCharactersView(opts) {
     return lines;
   }
 
-  function makeCharTooltipSpec(char) {
-    const systemLines = getPawnSystemLines(char);
+  function makePawnTooltipSpec(pawn) {
+    const systemLines = getPawnSystemLines(pawn);
     return {
-      title: char.name || `Character ${char.id ?? ""}`,
+      title: pawn.name || `Pawn ${pawn.id ?? ""}`,
       lines: [
         "Moves between hub and env tiles.",
         "Activates the hub structure it sits on in the hub.",
@@ -342,11 +459,11 @@ export function createCharactersView(opts) {
     };
   }
 
-  function getFollowerOrdinal(char) {
-    if (!char || char.role !== "follower") return null;
-    const leaderId = char.leaderId ?? null;
-    const chars = getCharsSafe();
-    const followers = chars
+  function getFollowerOrdinal(pawn) {
+    if (!pawn || pawn.role !== "follower") return null;
+    const leaderId = pawn.leaderId ?? null;
+    const pawns = getPawnsSafe();
+    const followers = pawns
       .filter((c) => c && c.role === "follower" && c.leaderId === leaderId)
       .slice()
       .sort((a, b) => {
@@ -360,43 +477,75 @@ export function createCharactersView(opts) {
         return (a?.id ?? 0) - (b?.id ?? 0);
       });
     for (let i = 0; i < followers.length; i++) {
-      if (followers[i]?.id === char.id) return i + 1;
+      if (followers[i]?.id === pawn.id) return i + 1;
     }
     return null;
   }
 
-  function getLabelForChar(char) {
-    if (char?.role === "follower") {
-      const ordinal = getFollowerOrdinal(char);
+  function getLabelForPawn(pawn) {
+    if (pawn?.role === "follower") {
+      const ordinal = getFollowerOrdinal(pawn);
       return ordinal != null ? `F${ordinal}` : "F";
     }
-    return char?.name || "";
+    return pawn?.name || "";
+  }
+
+  function drawPawnShape(gfx, { isLeader, radius }) {
+    if (isLeader) {
+      gfx.drawPolygon([0, -radius, radius, 0, 0, radius, -radius, 0]);
+      return;
+    }
+    gfx.drawCircle(0, 0, radius);
+  }
+
+  function updateStaminaVisual(view, pawn) {
+    if (!view?.staminaMask || !Number.isFinite(view?.shapeRadius)) return;
+    const ratio = getStaminaRatio(pawn);
+    if (view.staminaRatio === ratio) {
+      view.redGlow.visible = ratio <= 0;
+      return;
+    }
+
+    const radius = view.shapeRadius;
+    const diameter = radius * 2;
+    const filledHeight = diameter * ratio;
+    const yTop = radius - filledHeight;
+
+    view.staminaMask.clear();
+    if (filledHeight > 0.0001) {
+      view.staminaMask.beginFill(0xffffff, 1);
+      view.staminaMask.drawRect(-radius - 2, yTop, diameter + 4, filledHeight + 1);
+      view.staminaMask.endFill();
+    }
+
+    view.redGlow.visible = ratio <= 0;
+    view.staminaRatio = ratio;
   }
 
   // ---------------------------------------------------------------------------
-  // Layout helper: fan characters when multiple occupy a slot
+  // Layout helper: fan pawns when multiple occupy a slot
   // ---------------------------------------------------------------------------
-  function layoutAllCharacters() {
-    const chars = getCharsSafe();
+  function layoutAllPawns() {
+    const pawns = getPawnsSafe();
 
     const draggedPayload = interactionSafe.getDragged
       ? interactionSafe.getDragged()
       : null;
 
     const draggedId =
-      draggedPayload && draggedPayload.type === "character"
+      draggedPayload && draggedPayload.type === "pawn"
         ? draggedPayload.id
         : null;
 
     /** @type {Map<string, { row: string, col: number, list: Array<any> }>} */
-    const slotsToChars = new Map();
+    const slotsToPawns = new Map();
 
-    for (const char of chars) {
+    for (const pawn of pawns) {
       let placement = null;
       if (typeof getPreviewPlacement === "function") {
-        placement = getPreviewPlacement(char.id);
+        placement = getPreviewPlacement(pawn.id);
       } else if (typeof getPreviewHubCol === "function") {
-        const overrideIdx = getPreviewHubCol(char.id);
+        const overrideIdx = getPreviewHubCol(pawn.id);
         if (overrideIdx != null) placement = { hubCol: overrideIdx };
       }
 
@@ -404,15 +553,15 @@ export function createCharactersView(opts) {
         ? Number.isFinite(placement.envCol)
           ? placement.envCol
           : null
-        : Number.isFinite(char.envCol)
-        ? char.envCol
+        : Number.isFinite(pawn.envCol)
+        ? pawn.envCol
         : null;
       const hubCol = placement
         ? Number.isFinite(placement.hubCol)
           ? placement.hubCol
           : null
-        : Number.isFinite(char.hubCol)
-        ? char.hubCol
+        : Number.isFinite(pawn.hubCol)
+        ? pawn.hubCol
         : null;
 
       const row = Number.isFinite(envCol)
@@ -424,15 +573,15 @@ export function createCharactersView(opts) {
       if (row == null || col == null) continue;
 
       const key = `${row}:${col}`;
-      let entry = slotsToChars.get(key);
+      let entry = slotsToPawns.get(key);
       if (!entry) {
         entry = { row, col, list: [] };
-        slotsToChars.set(key, entry);
+        slotsToPawns.set(key, entry);
       }
-      entry.list.push(char);
+      entry.list.push(pawn);
     }
 
-    for (const entry of slotsToChars.values()) {
+    for (const entry of slotsToPawns.values()) {
       const base =
         entry.row === "env"
           ? getBasePosForEnvCol(entry.col)
@@ -443,10 +592,10 @@ export function createCharactersView(opts) {
 
       const startOffset = -((n - 1) * FAN_SPACING) / 2;
 
-      entry.list.forEach((char, i) => {
-        if (draggedId != null && draggedId === char.id) return;
+      entry.list.forEach((pawn, i) => {
+        if (draggedId != null && draggedId === pawn.id) return;
 
-        const view = viewsById.get(char.id);
+        const view = viewsById.get(pawn.id);
         if (!view) return;
         const rawPos = {
           x: base.x + startOffset + i * FAN_SPACING,
@@ -456,33 +605,30 @@ export function createCharactersView(opts) {
         view.container.x = scaledPos.x;
         view.container.y = scaledPos.y;
         view.attachedScale = scaledPos.scale;
-        applyCharacterScale(view);
+        applyPawnScale(view);
       });
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Create a single character view
+  // Create a single pawn view
   // ---------------------------------------------------------------------------
-  function createCharacterView(char) {
+  function createPawnView(pawn) {
     const container = new PIXI.Container();
 
-    const pos = Number.isFinite(char.envCol)
-      ? getBasePosForEnvCol(char.envCol)
-      : getBasePosForHubCol(char.hubCol);
+    const pos = Number.isFinite(pawn.envCol)
+      ? getBasePosForEnvCol(pawn.envCol)
+      : getBasePosForHubCol(pawn.hubCol);
     container.x = pos.x;
     container.y = pos.y;
 
     container.eventMode = "static";
     container.cursor = "pointer";
 
-    const fillColor = typeof char.color === "number" ? char.color : 0xaa66ff;
-    const isLeader = char?.role === "leader";
+    const fillColor = typeof pawn.color === "number" ? pawn.color : 0xaa66ff;
+    const isLeader = pawn?.role === "leader";
     const leaderRadius = Math.round(RADIUS * LEADER_DIAMOND_SCALE);
-
-    function drawDiamond(gfx, radius) {
-      gfx.drawPolygon([0, -radius, radius, 0, 0, radius, -radius, 0]);
-    }
+    const shapeRadius = isLeader ? leaderRadius : RADIUS;
 
     const shadow = new PIXI.Graphics().beginFill(
       GAMEPIECE_SHADOW_COLOR,
@@ -511,24 +657,31 @@ export function createCharactersView(opts) {
     shadow.visible = false;
     container.addChild(shadow);
 
-    const gfx = new PIXI.Graphics().beginFill(fillColor);
-    if (isLeader) {
-      drawDiamond(gfx, leaderRadius);
-    } else {
-      gfx.drawCircle(0, 0, RADIUS);
-    }
-    gfx.endFill();
-    container.addChild(gfx);
+    const redGlow = new PIXI.Graphics().beginFill(0xff2f3a, 0.28);
+    drawPawnShape(redGlow, { isLeader, radius: shapeRadius + 6 });
+    redGlow.endFill();
+    redGlow.visible = false;
+    container.addChild(redGlow);
+
+    const dimBg = new PIXI.Graphics().beginFill(dimColor(fillColor), 1);
+    drawPawnShape(dimBg, { isLeader, radius: shapeRadius });
+    dimBg.endFill();
+    container.addChild(dimBg);
+
+    const staminaFill = new PIXI.Graphics().beginFill(fillColor, 1);
+    drawPawnShape(staminaFill, { isLeader, radius: shapeRadius });
+    staminaFill.endFill();
+    container.addChild(staminaFill);
+
+    const staminaMask = new PIXI.Graphics();
+    container.addChild(staminaMask);
+    staminaFill.mask = staminaMask;
 
     const outline = new PIXI.Graphics().lineStyle(2, 0x000000, 1);
-    if (isLeader) {
-      drawDiamond(outline, leaderRadius + 1);
-    } else {
-      outline.drawCircle(0, 0, RADIUS + 1);
-    }
+    drawPawnShape(outline, { isLeader, radius: shapeRadius + 1 });
     container.addChild(outline);
 
-    const label = new PIXI.Text(getLabelForChar(char), {
+    const label = new PIXI.Text(getLabelForPawn(pawn), {
       fill: 0xffffff,
       fontSize: 16,
       fontWeight: "bold",
@@ -545,9 +698,10 @@ export function createCharactersView(opts) {
     // -----------------------------------------------------------------------
     const view = {
       container,
-      char,
+      pawn,
       outline,
       shadow,
+      redGlow,
       flashRing,
       flashTimeout: null,
       selfHover: false,
@@ -555,6 +709,9 @@ export function createCharactersView(opts) {
       hoverParent: null,
       hoverIndex: null,
       label,
+      staminaMask,
+      shapeRadius,
+      staminaRatio: null,
     };
 
     // -----------------------------------------------------------------------
@@ -564,7 +721,7 @@ export function createCharactersView(opts) {
       if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI())
         return;
       view.selfHover = true;
-      applyCharacterScale(view);
+      applyPawnScale(view);
 
       const tt = getTooltipSafe();
       const scale = getEffectiveScale(view);
@@ -575,15 +732,15 @@ export function createCharactersView(opts) {
         RADIUS * 2,
         scale
       );
-      tt?.show?.({ ...makeCharTooltipSpec(char), scale }, anchor);
+      tt?.show?.({ ...makePawnTooltipSpec(pawn), scale }, anchor);
 
       const inv = getInvSafe();
-      inv?.showOnHover?.(char.id, anchor);
+      inv?.showOnHover?.(pawn.id, anchor);
 
-      const placement = getHoverPlacementForChar(char);
+      const placement = getHoverPlacementForPawn(pawn);
       interactionSafe.setHoveredPawn?.({
         kind: "pawn",
-        id: char.id,
+        id: pawn.id,
         envCol: placement.envCol,
         hubCol: placement.hubCol,
         centerX: container.x,
@@ -594,9 +751,9 @@ export function createCharactersView(opts) {
 
     function hideHover() {
       view.selfHover = false;
-      applyCharacterScale(view);
+      applyPawnScale(view);
       const inv = getInvSafe();
-      inv?.hideOnHoverOut?.(char.id);
+      inv?.hideOnHoverOut?.(pawn.id);
 
       const tt = getTooltipSafe();
       tt?.hide?.();
@@ -622,8 +779,8 @@ export function createCharactersView(opts) {
 
     container.on("pointerdown", (ev) => {
       if (
-        interactionSafe.canDragCharacter &&
-        !interactionSafe.canDragCharacter()
+        interactionSafe.canDragPawn &&
+        !interactionSafe.canDragPawn()
       ) {
         flashDragBlocked(view);
         return;
@@ -640,12 +797,15 @@ export function createCharactersView(opts) {
 
     function tryStartDrag() {
       dragging = true;
-      interactionSafe.startDrag?.({ type: "character", id: char.id });
+      interactionSafe.startDrag?.({ type: "pawn", id: pawn.id });
       requestPauseForAction?.();
       view.selfHover = false;
       view.attachedScale = 1;
-      applyCharacterScale(view);
+      applyPawnScale(view);
       hideHover();
+      if (pointerDownPos) {
+        updatePawnDragGhost(pawn, pointerDownPos);
+      }
     }
 
     function onMove(ev) {
@@ -666,6 +826,7 @@ export function createCharactersView(opts) {
 
       container.x = g.x + dragOffset.x;
       container.y = g.y + dragOffset.y;
+      updatePawnDragGhost(pawn, g);
     }
 
     function onUp(ev) {
@@ -685,20 +846,27 @@ export function createCharactersView(opts) {
       const g = ev.data.global;
 
       if (!wasDragging) {
+        onPawnClicked?.({ pawnId: pawn.id });
         // click -> toggle pinned inventory (optional)
         const inv = getInvSafe();
-        inv?.togglePinned?.(char.id);
+        inv?.togglePinned?.(pawn.id);
+        if (typeof setDragGhost === "function") {
+          setDragGhost(null);
+        }
         return;
       }
 
       const dropResult = emitDropped({
-        charId: char.id,
+        pawnId: pawn.id,
         dropPos: { x: g.x, y: g.y },
       });
 
       // If no handler, restore layout.
-      if (!onCharacterDropped && !onDropCharacter) {
-        layoutAllCharacters();
+      if (!onPawnDropped) {
+        layoutAllPawns();
+        if (typeof setDragGhost === "function") {
+          setDragGhost(null);
+        }
         return;
       }
 
@@ -709,12 +877,23 @@ export function createCharactersView(opts) {
         dropResult.reason === "insufficientAP"
       ) {
         flashDragBlocked(view);
-        layoutAllCharacters();
+        layoutAllPawns();
+        resolveDragGhost?.("fail");
+        return;
+      }
+
+      if (dropResult && dropResult.ok === false) {
+        resolveDragGhost?.("fail");
+      } else if (dropResult && (dropResult.ok === true || dropResult.queued)) {
+        resolveDragGhost?.("success");
+      } else if (typeof setDragGhost === "function") {
+        setDragGhost(null);
       }
     }
 
-    applyCharacterScale(view);
-    viewsById.set(char.id, view);
+    applyPawnScale(view);
+    updateStaminaVisual(view, pawn);
+    viewsById.set(pawn.id, view);
   }
 
   // ---------------------------------------------------------------------------
@@ -729,8 +908,8 @@ export function createCharactersView(opts) {
     layer.removeChildren();
     viewsById.clear();
 
-    for (const char of getCharsSafe()) {
-      createCharacterView(char);
+    for (const pawn of getPawnsSafe()) {
+      createPawnView(pawn);
     }
 
     if (focusGhost && focusGhost.parent) {
@@ -738,11 +917,11 @@ export function createCharactersView(opts) {
     }
     focusGhost = null;
 
-    layoutAllCharacters();
+    layoutAllPawns();
   }
 
   function updatePositionsFromModel() {
-    layoutAllCharacters();
+    layoutAllPawns();
   }
 
   function init() {}
@@ -750,14 +929,21 @@ export function createCharactersView(opts) {
   function updateFocus() {
     const intent =
       typeof getFocusIntent === "function" ? getFocusIntent() : null;
+    const external =
+      typeof getExternalFocus === "function" ? getExternalFocus() : null;
+    const externalFocused =
+      external?.kind === "pawn" && Number.isFinite(external?.pawnId)
+        ? Math.floor(external.pawnId)
+        : null;
     const nextFocused =
-      intent && intent.kind === "pawnMove" ? intent.charId : null;
-    if (focusedCharId !== nextFocused) {
-      focusedCharId = nextFocused;
+      intent && intent.kind === "pawnMove" ? intent.pawnId : null;
+    const resolvedFocused = nextFocused ?? externalFocused;
+    if (focusedPawnId !== resolvedFocused) {
+      focusedPawnId = resolvedFocused;
     }
 
     for (const [id, view] of viewsById.entries()) {
-      const isFocused = focusedCharId != null && id === focusedCharId;
+      const isFocused = focusedPawnId != null && id === focusedPawnId;
       view.outline.tint = isFocused ? 0xffff66 : 0x000000;
     }
 
@@ -790,14 +976,45 @@ export function createCharactersView(opts) {
   }
 
   function update() {
-    layoutAllCharacters();
+    layoutAllPawns();
+    const pawnsById = new Map(
+      getPawnsSafe().map((pawn) => [pawn?.id, pawn]).filter((entry) => entry[0] != null)
+    );
     for (const view of viewsById.values()) {
-      const nextLabel = getLabelForChar(view.char);
+      const latestPawn = pawnsById.get(view?.pawn?.id);
+      if (latestPawn) view.pawn = latestPawn;
+      const nextLabel = getLabelForPawn(view.pawn);
       if (view.label && view.label.text !== nextLabel) {
         view.label.text = nextLabel;
       }
+      updateStaminaVisual(view, view.pawn);
     }
     updateFocus();
+  }
+
+  function getInventoryOwnerAtGlobalPos(globalPos) {
+    if (!globalPos) return null;
+    const state = getStateSafe();
+    const inventories = state?.ownerInventories || null;
+    if (!inventories) return null;
+
+    for (const view of viewsById.values()) {
+      if (!view?.container?.visible) continue;
+      const ownerId = view?.pawn?.id ?? null;
+      if (ownerId == null) continue;
+      if (!inventories[ownerId]) continue;
+      const bounds = view.container.getBounds();
+      if (
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
+      ) {
+        return ownerId;
+      }
+    }
+
+    return null;
   }
 
   return {
@@ -806,5 +1023,8 @@ export function createCharactersView(opts) {
     update,
     updatePositionsFromModel,
     getViewForId: (id) => viewsById.get(id) || null,
+    getInventoryOwnerAtGlobalPos,
   };
 }
+
+

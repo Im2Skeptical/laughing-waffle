@@ -1,9 +1,9 @@
-function getCharsOnCol(state, col) {
+function getPawnsOnCol(state, col) {
   const out = [];
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
-  for (const ch of chars) {
-    const envCol = Number.isFinite(ch?.envCol) ? Math.floor(ch.envCol) : null;
-    if (envCol === col) out.push(ch);
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    const envCol = Number.isFinite(pawn?.envCol) ? Math.floor(pawn.envCol) : null;
+    if (envCol === col) out.push(pawn);
   }
   return out;
 }
@@ -21,17 +21,21 @@ export function resolveOwnerTargets(state, targetSpec, context) {
   }
 
   if (targetSpec.kind === "tileOccupants") {
-    if (context?.pawn && typeof context.pawn === "object") {
-      return [context.pawn];
-    }
-    const directId =
-      context?.pawnId != null ? context.pawnId : context?.ownerId;
-    if (directId != null) {
-      const chars = Array.isArray(state?.characters) ? state.characters : [];
-      for (const ch of chars) {
-        if (ch?.id === directId) return [ch];
+    const allOccupants =
+      targetSpec.scope === "all" || targetSpec.all === true;
+    if (!allOccupants) {
+      if (context?.pawn && typeof context.pawn === "object") {
+        return [context.pawn];
       }
-      return [];
+      const directId =
+        context?.pawnId != null ? context.pawnId : context?.ownerId;
+      if (directId != null) {
+        const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+        for (const pawn of pawns) {
+          if (pawn?.id === directId) return [pawn];
+        }
+        return [];
+      }
     }
     const col =
       Number.isFinite(targetSpec.envCol)
@@ -42,7 +46,7 @@ export function resolveOwnerTargets(state, targetSpec, context) {
             ? Math.floor(context.source.col)
             : null;
     if (col == null) return [];
-    return getCharsOnCol(state, col);
+    return getPawnsOnCol(state, col);
   }
 
   if (Array.isArray(targetSpec.ownerIds)) {

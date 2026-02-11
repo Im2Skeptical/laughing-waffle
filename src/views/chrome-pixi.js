@@ -24,6 +24,7 @@ export function createChromeView({
   onGoldClick,
   onFoodClick,
   onApClick,
+  onPopClick,
 
   // Time lever (optional)
   getTimeScale,
@@ -67,6 +68,16 @@ export function createChromeView({
 
   apHit.on("pointertap", () => {
     if (typeof onApClick === "function") onApClick();
+  });
+
+  const popHit = new PIXI.Graphics();
+  popHit.eventMode = "static";
+  popHit.cursor = "pointer";
+  popHit.alpha = 0;
+  layer.addChild(popHit);
+
+  popHit.on("pointertap", () => {
+    if (typeof onPopClick === "function") onPopClick();
   });
 
   const deckInfoText = new PIXI.Text("", {
@@ -224,9 +235,11 @@ export function createChromeView({
 
     const goldSegment = `Gold: ${s.resources.gold.toFixed(1)}  `;
     const foodSegment = `Food: ${foodTotal.toFixed(1)}  `;
+    const popSegment = `Pop: ${s.resources.population.toFixed(1)}  `;
 
     const goldWidth = measureTextWidth(goldSegment);
     const foodWidth = measureTextWidth(foodSegment);
+    const popWidth = measureTextWidth(popSegment);
 
     // Position and size the gold hit area over the left section of the HUD line.
     const gx = resourceText.x;
@@ -252,6 +265,16 @@ export function createChromeView({
 
     foodHit.eventMode = typeof onFoodClick === "function" ? "static" : "none";
     foodHit.cursor = typeof onFoodClick === "function" ? "pointer" : "default";
+
+    const popHitW = Math.max(1, Math.ceil(popWidth));
+    const popHitX = foodHitX + foodHitW;
+    popHit.clear();
+    popHit.beginFill(0xffffff);
+    popHit.drawRect(popHitX, gy - 2, popHitW, hitH);
+    popHit.endFill();
+
+    popHit.eventMode = typeof onPopClick === "function" ? "static" : "none";
+    popHit.cursor = typeof onPopClick === "function" ? "pointer" : "default";
 
     const apHitW = 150;
     const apHitX = Math.max(gx, gx + resourceText.width - apHitW);

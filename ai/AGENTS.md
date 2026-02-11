@@ -6,7 +6,7 @@ Local instructions for Codex agents working in this repo.
 - Read `ai/ai-context.md` before making changes.
 
 ## Current goal context
-- Read `ai/TimetravelOptimizationPrompt_01.md`
+- General feature buildout and fixes.
 
 ## Core constraints (non-negotiable)
 - Determinism: no `Math.random()`; all randomness must go through `state.rng`.
@@ -14,7 +14,9 @@ Local instructions for Codex agents working in this repo.
 - Replay: `rebuildStateAtSecond(tSec)` must be authoritative and deterministic.
 - Time: `tSec` is the authoritative axis; time only advances via simulation ticks.
 - Layering: Model has no UI imports; Views are render/input only; Controllers orchestrate.
+- DSL-first gamepiece behaviors: when creating or updating gamepieces, first express behavior with existing DSL ops; if not possible, add a generalized DSL capability and then implement the behavior as data using that capability (avoid bespoke one-off model logic when a reusable DSL affordance can cover it).
 
 ## AI workflow
 - Before coding, do an impact analysis (determinism, serialization, replay, layering).
 - Mention how to test any behavior you touch.
+- Refactors are to be clean with no migratory shim style code. We are prototyping and so there is no need to preserve functionality of older saves

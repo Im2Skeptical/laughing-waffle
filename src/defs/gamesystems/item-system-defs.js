@@ -2,14 +2,52 @@
 // Item system registry (data only).
 
 export const itemSystemDefs = {
-  freshness: {
-    id: "freshness",
+  perishability: {
+    id: "perishability",
     kind: "itemSystem",
-    ui: { name: "Freshness", description: "Tracks rot progression over time." },
+    ui: { name: "Perishability", description: "Tracks rot progression over time." },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
     stateDefaults: {
-      ageSec: 0,
+    },
+  },
+  nourishment: {
+    id: "nourishment",
+    kind: "itemSystem",
+    ui: { name: "Nourishment", description: "Tracks nutritional value of items." },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+    },
+  },
+  wearable: {
+    id: "wearable",
+    kind: "itemSystem",
+    ui: { name: "Wearable", description: "Defines equipment slot compatibility." },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+      slot: null,
+      slots: [],
+    },
+  },
+  storage: {
+    id: "storage",
+    kind: "itemSystem",
+    ui: {
+      name: "Storage",
+      description: "Tiered storage pool for portable storage items.",
+    },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+      byKindTier: {},
+      totalByTier: {
+        bronze: 0,
+        silver: 0,
+        gold: 0,
+        diamond: 0,
+      },
     },
   },
 };

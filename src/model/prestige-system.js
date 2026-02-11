@@ -114,9 +114,9 @@ export function recomputeLeaderPrestigeBase(leader) {
 
 export function getLeaderById(state, leaderId) {
   if (!state || leaderId == null) return null;
-  const chars = Array.isArray(state.characters) ? state.characters : [];
-  for (const ch of chars) {
-    if (ch?.id === leaderId) return ch;
+  const pawns = Array.isArray(state.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    if (pawn?.id === leaderId) return pawn;
   }
   return null;
 }
@@ -124,12 +124,12 @@ export function getLeaderById(state, leaderId) {
 export function getFollowersForLeader(state, leaderId) {
   const out = [];
   if (!state || leaderId == null) return out;
-  const chars = Array.isArray(state.characters) ? state.characters : [];
-  for (const ch of chars) {
-    if (!ch) continue;
-    if (ch.role !== PAWN_ROLE_FOLLOWER) continue;
-    if (ch.leaderId !== leaderId) continue;
-    out.push(ch);
+  const pawns = Array.isArray(state.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    if (pawn.role !== PAWN_ROLE_FOLLOWER) continue;
+    if (pawn.leaderId !== leaderId) continue;
+    out.push(pawn);
   }
   return out;
 }
@@ -272,6 +272,38 @@ export function applyGranaryDepositsForStructure(state, structure, pawns) {
   }
 
   return { ok: depositedTotal > 0, deposited: depositedTotal };
+}
+
+export function applyPrestigeDeposit(state, leaderId, structure, kindTierTotals) {
+  if (!state || leaderId == null || !kindTierTotals) return false;
+  const parsedLeaderId = Number.isFinite(Number(leaderId))
+    ? Number(leaderId)
+    : leaderId;
+  const leader = getLeaderById(state, parsedLeaderId);
+  if (!leader || leader.role !== PAWN_ROLE_LEADER) return false;
+
+  ensureLeaderPrestigeFields(leader);
+
+  let depositedTotal = 0;
+  const kinds = Object.keys(kindTierTotals || {});
+  for (const kind of kinds) {
+    const tiers = kindTierTotals?.[kind];
+    if (!tiers || typeof tiers !== "object") continue;
+    for (const [tierRaw, amountRaw] of Object.entries(tiers)) {
+      const amount = Math.max(0, Math.floor(amountRaw ?? 0));
+      if (amount <= 0) continue;
+      const tier = typeof tierRaw === "string" && tierRaw.length ? tierRaw : "bronze";
+      addToLeaderTotals(leader, tier, amount);
+      depositedTotal += amount;
+    }
+  }
+
+  if (depositedTotal > 0) {
+    recomputeLeaderPrestigeBase(leader);
+    return true;
+  }
+
+  return false;
 }
 
 function findPlacementForItem(inv, item) {
@@ -429,10 +461,10 @@ export function applyFollowerHungerDebt(state, follower) {
 
 export function enforcePrestigeFollowerCap(state) {
   if (!state) return { ok: false, despawned: 0 };
-  const chars = Array.isArray(state.characters) ? state.characters : [];
+  const pawns = Array.isArray(state.pawns) ? state.pawns : [];
   let totalDespawned = 0;
 
-  for (const leader of chars) {
+  for (const leader of pawns) {
     if (!leader || leader.role !== PAWN_ROLE_LEADER) continue;
     ensureLeaderPrestigeFields(leader);
 
@@ -463,17 +495,27 @@ export function spawnFollowerForLeader(state, leader) {
 
   const { systemTiers, systemState } = buildPawnSystemDefaults();
 
-  const spawnCol = Number.isFinite(leader.hubCol)
-    ? Math.floor(leader.hubCol)
-    : 0;
+  const spawnEnvCol = Number.isFinite(leader.envCol)
+    ? Math.floor(leader.envCol)
+    : null;
+  const spawnHubCol =
+    spawnEnvCol == null
+      ? Number.isFinite(leader.hubCol)
+        ? Math.floor(leader.hubCol)
+        : 0
+      : null;
 
+  if (!Number.isFinite(state.nextPawnId)) {
+    state.nextPawnId = 101;
+  }
+  const nextPawnId = Math.floor(state.nextPawnId);
   const follower = {
-    id: state.nextCharacterId++,
+    id: state.nextPawnId++,
     pawnDefId: leader.pawnDefId || "default",
-    name: `Follower ${state.nextCharacterId - 1}`,
+    name: `Follower ${nextPawnId}`,
     color: leader.color,
-    hubCol: spawnCol,
-    envCol: null,
+    hubCol: spawnHubCol,
+    envCol: spawnEnvCol,
     systemTiers,
     systemState,
     props: {},
@@ -484,7 +526,7 @@ export function spawnFollowerForLeader(state, leader) {
 
   ensureFollowerFields(follower, follower.followerCreationOrderIndex);
 
-  state.characters.push(follower);
+  state.pawns.push(follower);
 
   if (!state.ownerInventories) state.ownerInventories = {};
   const inv = Inventory.create(5, 3);
@@ -513,7 +555,7 @@ export function despawnFollower(state, leader, follower, options = {}) {
     return { ok: true, blocked: true, followerId: follower.id, remainingItems: remaining };
   }
 
-  state.characters = state.characters.filter((ch) => ch?.id !== follower.id);
+  state.pawns = state.pawns.filter((pawn) => pawn?.id !== follower.id);
   delete state.ownerInventories[follower.id];
 
   return {

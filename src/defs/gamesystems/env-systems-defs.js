@@ -2,6 +2,16 @@
 // Env system registry (data only).
 
 export const envSystemDefs = {
+  build: {
+    id: "build",
+    kind: "envSystem",
+    ui: { name: "Build", description: "Construction progress." },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {
+      processes: [],
+    },
+  },
   fertility: {
     id: "fertility",
     kind: "envSystem",

@@ -8,6 +8,9 @@ export const IntentKinds = {
   TILE_TAG_ORDER: "tileTagOrder",
   TILE_CROP_SELECT: "tileCropSelect",
   HUB_TAG_ORDER: "hubTagOrder",
+  HUB_RECIPE_SELECT: "hubRecipeSelect",
+  TILE_TAG_TOGGLE: "tileTagToggle",
+  HUB_TAG_TOGGLE: "hubTagToggle",
 };
 
 export function makeItemTransferIntent(spec = {}) {
@@ -32,7 +35,7 @@ export function makePawnMoveIntent(spec = {}) {
     kind: IntentKinds.PAWN_MOVE,
     id: spec.id ?? null,
     subjectKey: spec.subjectKey ?? null,
-    charId: spec.charId ?? null,
+    pawnId: spec.pawnId ?? null,
     fromPlacement: spec.fromPlacement ?? null,
     toPlacement: spec.toPlacement ?? null,
     baselinePlacement: spec.baselinePlacement ?? null,
@@ -97,6 +100,48 @@ export function makeHubTagOrderIntent(spec = {}) {
   };
 }
 
+export function makeHubRecipeSelectIntent(spec = {}) {
+  return {
+    kind: IntentKinds.HUB_RECIPE_SELECT,
+    id: spec.id ?? null,
+    subjectKey: spec.subjectKey ?? null,
+    hubCol: spec.hubCol ?? null,
+    systemId: spec.systemId ?? null,
+    recipeId: spec.recipeId ?? null,
+    baselineRecipeId: spec.baselineRecipeId ?? null,
+    apCostOverride: spec.apCostOverride ?? null,
+    source: spec.source ?? "planner",
+  };
+}
+
+export function makeTileTagToggleIntent(spec = {}) {
+  return {
+    kind: IntentKinds.TILE_TAG_TOGGLE,
+    id: spec.id ?? null,
+    subjectKey: spec.subjectKey ?? null,
+    envCol: spec.envCol ?? null,
+    tagId: spec.tagId ?? null,
+    disabled: spec.disabled ?? null,
+    baselineDisabled: spec.baselineDisabled ?? null,
+    apCostOverride: spec.apCostOverride ?? null,
+    source: spec.source ?? "planner",
+  };
+}
+
+export function makeHubTagToggleIntent(spec = {}) {
+  return {
+    kind: IntentKinds.HUB_TAG_TOGGLE,
+    id: spec.id ?? null,
+    subjectKey: spec.subjectKey ?? null,
+    hubCol: spec.hubCol ?? null,
+    tagId: spec.tagId ?? null,
+    disabled: spec.disabled ?? null,
+    baselineDisabled: spec.baselineDisabled ?? null,
+    apCostOverride: spec.apCostOverride ?? null,
+    source: spec.source ?? "planner",
+  };
+}
+
 export function getIntentSubjectKey(intent) {
   if (!intent || typeof intent !== "object") return null;
   if (intent.subjectKey) return intent.subjectKey;
@@ -104,7 +149,7 @@ export function getIntentSubjectKey(intent) {
     case IntentKinds.ITEM_TRANSFER:
       return intent.itemId != null ? `item:${intent.itemId}` : null;
     case IntentKinds.PAWN_MOVE:
-      return intent.charId != null ? `pawn:${intent.charId}` : null;
+      return intent.pawnId != null ? `pawn:${intent.pawnId}` : null;
     case IntentKinds.BUILD_DESIGNATE:
       return intent.buildKey != null ? `build:${intent.buildKey}` : null;
     case IntentKinds.TILE_TAG_ORDER:
@@ -118,6 +163,18 @@ export function getIntentSubjectKey(intent) {
     case IntentKinds.HUB_TAG_ORDER:
       return Number.isFinite(intent.hubCol)
         ? `hubTags:${Math.floor(intent.hubCol)}`
+        : null;
+    case IntentKinds.HUB_RECIPE_SELECT:
+      return Number.isFinite(intent.hubCol) && intent.systemId
+        ? `hubRecipe:${Math.floor(intent.hubCol)}:${intent.systemId}`
+        : null;
+    case IntentKinds.TILE_TAG_TOGGLE:
+      return Number.isFinite(intent.envCol) && intent.tagId
+        ? `tileTagToggle:${Math.floor(intent.envCol)}:${intent.tagId}`
+        : null;
+    case IntentKinds.HUB_TAG_TOGGLE:
+      return Number.isFinite(intent.hubCol) && intent.tagId
+        ? `hubTagToggle:${Math.floor(intent.hubCol)}:${intent.tagId}`
         : null;
     default:
       return null;

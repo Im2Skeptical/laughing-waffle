@@ -3,28 +3,67 @@
 // Centralizes dispatch and validation.
 
 import {
-  cmdPlaceCharacter,
+  cmdPlacePawn,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
+  cmdDiscardItemFromOwner,
+  cmdMoveProcessBufferItem,
+  cmdDepositItemToEquippedBasket,
+  cmdEquipItemToLeaderSlot,
+  cmdMoveLeaderEquipmentToInventory,
+  cmdMoveLeaderEquipmentToSlot,
   cmdDebugSetCap,
   cmdSetTileTagOrder,
   cmdSetHubTagOrder,
+  cmdToggleTileTag,
+  cmdToggleHubTag,
   cmdSetTileCropSelection,
+  cmdSetHubRecipeSelection,
+  cmdWithdrawHubPoolItem,
+  cmdWithdrawPawnBasketPoolItem,
+  cmdSetProcessRouting,
+  cmdReorderProcessRoutingEndpoint,
+  cmdToggleProcessRoutingEndpoint,
+  cmdSetRoutingTemplate,
+  cmdReorderRoutingTemplateEndpoint,
+  cmdToggleRoutingTemplateEndpoint,
   cmdDebugQueueEnvEvent,
   cmdAdjustFollowerCount,
+  cmdBuildDesignate,
+  cmdCancelBuild,
+  cmdUnlockSkillNode,
 } from "./commands.js";
 
 export const ActionKinds = {
-  PLACE_CHARACTER: "placeCharacter",
+  PLACE_PAWN: "placePawn",
   INVENTORY_MOVE: "inventoryMove",
   INVENTORY_SPLIT: "inventorySplit",
   INVENTORY_STACK: "inventoryStack",
+  INVENTORY_DISCARD: "inventoryDiscard",
+  PROCESS_BUFFER_MOVE: "processBufferMove",
+  DEPOSIT_ITEM_TO_BASKET: "depositItemToBasket",
+  EQUIP_ITEM: "equipItem",
+  UNEQUIP_ITEM: "unequipItem",
+  MOVE_EQUIPPED_ITEM: "moveEquippedItem",
   BUILD_DESIGNATE: "buildDesignate",
+  BUILD_CANCEL: "buildCancel",
   SET_TILE_TAG_ORDER: "setTileTagOrder",
   SET_HUB_TAG_ORDER: "setHubTagOrder",
+  TOGGLE_TILE_TAG: "toggleTileTag",
+  TOGGLE_HUB_TAG: "toggleHubTag",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
+  SET_HUB_RECIPE_SELECTION: "setHubRecipeSelection",
+  WITHDRAW_HUB_POOL_ITEM: "withdrawHubPoolItem",
+  WITHDRAW_PAWN_BASKET_POOL_ITEM: "withdrawPawnBasketPoolItem",
+  SET_PROCESS_ROUTING: "setProcessRouting",
+  REORDER_PROCESS_ROUTING_ENDPOINT: "reorderProcessRoutingEndpoint",
+  TOGGLE_PROCESS_ROUTING_ENDPOINT: "toggleProcessRoutingEndpoint",
+  SET_ROUTING_TEMPLATE: "setRoutingTemplate",
+  REORDER_ROUTING_TEMPLATE_ENDPOINT: "reorderRoutingTemplateEndpoint",
+  TOGGLE_ROUTING_TEMPLATE_ENDPOINT: "toggleRoutingTemplateEndpoint",
   ADJUST_FOLLOWER_COUNT: "adjustFollowerCount",
+  UNLOCK_SKILL_NODE: "unlockSkillNode",
   DEBUG_SET_CAP: "debugSetCap",
   DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
 };
@@ -42,13 +81,20 @@ function getActionApCost(action) {
 
   const kind = action?.kind;
   if (
-    kind === ActionKinds.PLACE_CHARACTER ||
+    kind === ActionKinds.PLACE_PAWN ||
     kind === ActionKinds.INVENTORY_MOVE ||
     kind === ActionKinds.INVENTORY_SPLIT ||
     kind === ActionKinds.INVENTORY_STACK ||
+    kind === ActionKinds.EQUIP_ITEM ||
+    kind === ActionKinds.UNEQUIP_ITEM ||
+    kind === ActionKinds.MOVE_EQUIPPED_ITEM ||
     kind === ActionKinds.BUILD_DESIGNATE ||
+    kind === ActionKinds.BUILD_CANCEL ||
     kind === ActionKinds.SET_TILE_CROP_SELECTION
+    || kind === ActionKinds.SET_HUB_RECIPE_SELECTION
     || kind === ActionKinds.SET_HUB_TAG_ORDER
+    || kind === ActionKinds.TOGGLE_TILE_TAG
+    || kind === ActionKinds.TOGGLE_HUB_TAG
     || kind === ActionKinds.ADJUST_FOLLOWER_COUNT
   ) {
     console.warn(
@@ -114,12 +160,32 @@ export function applyAction(state, action, context = {}) {
   let result;
 
   switch (kind) {
-    case ActionKinds.PLACE_CHARACTER:
-      result = cmdPlaceCharacter(state, payload);
+    case ActionKinds.PLACE_PAWN:
+      result = cmdPlacePawn(state, payload);
       break;
 
     case ActionKinds.INVENTORY_MOVE:
       result = cmdMoveItemBetweenOwners(state, payload);
+      break;
+
+    case ActionKinds.PROCESS_BUFFER_MOVE:
+      result = cmdMoveProcessBufferItem(state, payload);
+      break;
+
+    case ActionKinds.DEPOSIT_ITEM_TO_BASKET:
+      result = cmdDepositItemToEquippedBasket(state, payload);
+      break;
+
+    case ActionKinds.EQUIP_ITEM:
+      result = cmdEquipItemToLeaderSlot(state, payload);
+      break;
+
+    case ActionKinds.UNEQUIP_ITEM:
+      result = cmdMoveLeaderEquipmentToInventory(state, payload);
+      break;
+
+    case ActionKinds.MOVE_EQUIPPED_ITEM:
+      result = cmdMoveLeaderEquipmentToSlot(state, payload);
       break;
 
     case ActionKinds.INVENTORY_SPLIT:
@@ -137,8 +203,16 @@ export function applyAction(state, action, context = {}) {
       result = cmdStackItemsInOwner(state, payload);
       break;
 
+    case ActionKinds.INVENTORY_DISCARD:
+      result = cmdDiscardItemFromOwner(state, payload);
+      break;
+
     case ActionKinds.BUILD_DESIGNATE:
-      result = { ok: true, result: "designated" };
+      result = cmdBuildDesignate(state, payload);
+      break;
+
+    case ActionKinds.BUILD_CANCEL:
+      result = cmdCancelBuild(state, payload);
       break;
 
     case ActionKinds.SET_TILE_TAG_ORDER:
@@ -149,12 +223,60 @@ export function applyAction(state, action, context = {}) {
       result = cmdSetHubTagOrder(state, payload);
       break;
 
+    case ActionKinds.TOGGLE_TILE_TAG:
+      result = cmdToggleTileTag(state, payload);
+      break;
+
+    case ActionKinds.TOGGLE_HUB_TAG:
+      result = cmdToggleHubTag(state, payload);
+      break;
+
     case ActionKinds.SET_TILE_CROP_SELECTION:
       result = cmdSetTileCropSelection(state, payload);
       break;
 
+    case ActionKinds.SET_HUB_RECIPE_SELECTION:
+      result = cmdSetHubRecipeSelection(state, payload);
+      break;
+
+    case ActionKinds.WITHDRAW_HUB_POOL_ITEM:
+      result = cmdWithdrawHubPoolItem(state, payload);
+      break;
+
+    case ActionKinds.WITHDRAW_PAWN_BASKET_POOL_ITEM:
+      result = cmdWithdrawPawnBasketPoolItem(state, payload);
+      break;
+
+    case ActionKinds.SET_PROCESS_ROUTING:
+      result = cmdSetProcessRouting(state, payload);
+      break;
+
+    case ActionKinds.REORDER_PROCESS_ROUTING_ENDPOINT:
+      result = cmdReorderProcessRoutingEndpoint(state, payload);
+      break;
+
+    case ActionKinds.TOGGLE_PROCESS_ROUTING_ENDPOINT:
+      result = cmdToggleProcessRoutingEndpoint(state, payload);
+      break;
+
+    case ActionKinds.SET_ROUTING_TEMPLATE:
+      result = cmdSetRoutingTemplate(state, payload);
+      break;
+
+    case ActionKinds.REORDER_ROUTING_TEMPLATE_ENDPOINT:
+      result = cmdReorderRoutingTemplateEndpoint(state, payload);
+      break;
+
+    case ActionKinds.TOGGLE_ROUTING_TEMPLATE_ENDPOINT:
+      result = cmdToggleRoutingTemplateEndpoint(state, payload);
+      break;
+
     case ActionKinds.ADJUST_FOLLOWER_COUNT:
       result = cmdAdjustFollowerCount(state, payload);
+      break;
+
+    case ActionKinds.UNLOCK_SKILL_NODE:
+      result = cmdUnlockSkillNode(state, payload);
       break;
 
     case ActionKinds.DEBUG_SET_CAP:

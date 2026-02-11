@@ -6,6 +6,7 @@ export const pawnDefs = {
     id: "default",
     kind: "pawn",
     name: "Default Pawn",
+    buildableStructureIds: ["granary", "storehouse"],
     systems: ["stamina", "hunger"],
     passives: [
       {
@@ -38,10 +39,11 @@ export const pawnDefs = {
         cost: {
           charges: [
             {
-              kind: "item",
+              kind: "tag",
               target: { ref: "pawnInv" },
-              itemId: "barley",
+              tag: "edible",
               amount: { const: 1 },
+              allowDistributorPools: true,
             },
           ],
         },

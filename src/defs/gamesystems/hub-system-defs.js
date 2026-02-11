@@ -2,6 +2,55 @@
 // Hub system registry (data only).
 
 export const hubSystemDefs = {
+  residents: {
+    id: "residents",
+    kind: "hubSystem",
+    ui: { name: "Residents", description: "Resident population in this hub." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      processes: [],
+    },
+  },
+  deposit: {
+    id: "deposit",
+    kind: "hubSystem",
+    ui: { name: "Deposit", description: "Deposit processes for storage pools." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      processes: [],
+    },
+  },
+  storage: {
+    id: "storage",
+    kind: "hubSystem",
+    ui: { name: "Storage", description: "Stored item pools." },
+    defaultTier: "bronze",
+    stateDefaults: {},
+  },
+  build: {
+    id: "build",
+    kind: "hubSystem",
+    ui: { name: "Build", description: "Construction progress." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      processes: [],
+    },
+  },
+  distribution: {
+    id: "distribution",
+    kind: "hubSystem",
+    ui: {
+      name: "Distribution",
+      description: "Routing range for distributor structures.",
+    },
+    defaultTier: "bronze",
+    rangeByTier: {
+      bronze: 1,
+      silver: 2,
+      gold: 3,
+      diamond: "global",
+    },
+  },
   granaryStore: {
     id: "granaryStore",
     kind: "hubSystem",
@@ -9,7 +58,44 @@ export const hubSystemDefs = {
     defaultTier: "bronze",
     stateDefaults: {
       byKindTier: {},
+      rotByKindTier: {},
       totalByTier: {},
+      processes: [],
+    },
+  },
+  storehouseStore: {
+    id: "storehouseStore",
+    kind: "hubSystem",
+    ui: {
+      name: "Storehouse Store",
+      description: "Stored items by type and tier.",
+    },
+    defaultTier: "bronze",
+    stateDefaults: {
+      byKindTier: {},
+      rotByKindTier: {},
+      totalByTier: {},
+      processes: [],
+    },
+  },
+  fireplace: {
+    id: "fireplace",
+    kind: "hubSystem",
+    ui: { name: "Fireplace", description: "Provides warmth and light." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      selectedRecipeId: null,
+      processes: [], // same queueKey pattern as crops
+    },
+  },
+  workspace: {
+    id: "workspace",
+    kind: "hubSystem",
+    ui: { name: "Workspace", description: "Craft items here." },
+    defaultTier: "bronze",
+    stateDefaults: {
+      selectedRecipeId: null,
+      processes: [], // same queueKey pattern as crops
     },
   },
 };

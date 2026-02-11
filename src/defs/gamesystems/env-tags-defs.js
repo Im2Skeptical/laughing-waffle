@@ -2,6 +2,27 @@
 // Env tag registry (data only).
 
 export const envTagDefs = {
+  build: {
+    id: "build",
+    kind: "envTag",
+    ui: { name: "Build", description: "Construct improvements here." },
+    systems: ["build"],
+    intents: [],
+    passives: [
+      {
+        id: "buildAdvance",
+        timing: { cadenceSec: 1 },
+        effect: {
+          op: "AdvanceWorkProcess",
+          system: "build",
+          queueKey: "processes",
+          processType: "build",
+          mode: "work",
+          workersFrom: "envCol",
+        },
+      },
+    ],
+  },
   farmable: {
     id: "farmable",
     kind: "envTag",
@@ -54,41 +75,38 @@ export const envTagDefs = {
               amount: { const: 1 },
               clampMin: 0,
             },
-            {
-              kind: "item",
-              target: { ref: "pawnInv" },
-              itemId: {
-                var: "selectedCropId",
-                map: { 
-                  barley: "barley",
-                  wheat: "wheat", 
-                },
-                default: null,
-              },
-              amount: {
-                var: "selectedCropId",
-                map: { 
-                  barley: 1,
-                  wheat: 1, 
-                },
-                default: null,
-              },
-            },
           ],
         },
-        effect: {
-          op: "CreateProcess",
-          system: "growth",
-          defRegistry: "crops",
-          defIdFromSystemKey: "selectedCropId",
-          amountFromDefKey: "plantSeedPerSec",
-          durationFromDefKey: "maturitySec",
-          processType: "cropGrowth",
-          queueKey: "processes",
-          captureSystem: "hydration",
-          captureKey: "sumRatio",
-          captureAs: "sumAtStart",
-        },
+        effect: [
+          {
+            op: "ConsumeItem",
+            system: "growth",
+            target: { kind: "tileOccupants", scope: "all" },
+            defRegistry: "crops",
+            defIdFromSystemKey: "selectedCropId",
+            amountFromDefKey: "plantSeedPerSec",
+            tierOrder: "asc",
+            outVar: "seedSpent",
+          },
+          {
+            op: "CreateWorkProcess",
+            system: "growth",
+            defRegistry: "crops",
+            defIdFromSystemKey: "selectedCropId",
+            amountVar: "seedSpent",
+            durationFromDefKey: "maturitySec",
+            processType: "cropGrowth",
+            queueKey: "processes",
+            captureSystem: "hydration",
+            captureKey: "sumRatio",
+            captureAs: "sumAtStart",
+            completionPolicy: "cropGrowth",
+            poolKey: "maturedPool",
+            processMeta: {
+              skipAutoCropSeedRequirement: true,
+            },
+          },
+        ],
       },
     ],
     passives: [
@@ -123,11 +141,13 @@ export const envTagDefs = {
         id: "farmProcessFinalize",
         timing: { cadenceSec: 1 },
         effect: {
-          op: "FinalizeProcess",
+          op: "AdvanceWorkProcess",
           system: "growth",
           queueKey: "processes",
           poolKey: "maturedPool",
           processType: "cropGrowth",
+          mode: "time",
+          deltaSec: 1,
         },
       },
     ],
@@ -155,7 +175,18 @@ export const envTagDefs = {
       {
         id: "forage",
         verb: "forage",
-        requires: { season: ["spring", "autumn"] },
+        cost: {
+          charges: [
+            {
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
+              amount: { const: 3 },
+              clampMin: 0,
+            },
+          ],
+        },
         effect: { op: "SpawnFromDropTable", tableKey: "forageDrops" },
       },
     ],

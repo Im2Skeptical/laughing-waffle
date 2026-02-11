@@ -2,10 +2,46 @@
 // Per-second hub structure execution (passives + intents).
 
 import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
+import {
+  INITIAL_POPULATION_DEFAULT,
+  POPULATION_GROWTH_FULL_FEED_RATE,
+  POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER,
+  YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE,
+  YEAR_END_SKILL_POINTS_POPULATION_CHANGE,
+  YEAR_END_SKILL_POINTS_POPULATION_HALVING,
+  SEASON_DISPLAY,
+} from "../defs/gamesettings/gamerules-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
-import { applyGranaryDepositsForStructure } from "./prestige-system.js";
+import { PAWN_ROLE_LEADER, getLeaderById } from "./prestige-system.js";
+import { pushGameEvent } from "./event-feed.js";
+import { TIER_ASC } from "./effects/core/tiers.js";
+import {
+  getProcessDefForInstance,
+  getTemplateProcessForSystem,
+  ensureProcessRoutingState,
+  ensureSystemRoutingTemplate,
+  listCandidateEndpoints,
+  resolveEndpointTarget,
+  resolveFixedEndpointId,
+  canConsumeRequirementUnit,
+  consumeRequirementUnit,
+  isDropEndpoint,
+} from "./process-framework.js";
+import { canOwnerAcceptItem } from "./commands.js";
+import { computeGlobalSkillMods } from "./skills.js";
+
+function hasProcess(structure, systemId, type) {
+  const sys = structure?.systemState?.[systemId];
+  const processes = Array.isArray(sys?.processes) ? sys.processes : [];
+  if (!type) return processes.length > 0;
+  return processes.some((p) => p && p.type === type);
+}
 
 function requirementsPass(requires, seasonKey, structure, hasPawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -52,6 +88,34 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
     if (requires.hasMaturedPool !== hasPool) return false;
   }
 
+  const processSystem =
+    typeof requires.processSystem === "string" ? requires.processSystem : null;
+  const recipeKey =
+    typeof requires.processTypeFromSystemKey === "string"
+      ? requires.processTypeFromSystemKey
+      : "selectedRecipeId";
+  const selectedRecipeId =
+    processSystem && structure?.systemState?.[processSystem]
+      ? structure.systemState[processSystem][recipeKey]
+      : null;
+  const hasSelectedRecipe =
+    typeof selectedRecipeId === "string" && selectedRecipeId.length > 0;
+
+  if (typeof requires.hasSelectedRecipe === "boolean") {
+    if (requires.hasSelectedRecipe !== hasSelectedRecipe) return false;
+  }
+
+  if (requires.hasSelectedProcessType === true) {
+    if (!hasSelectedRecipe) return false;
+    if (!hasProcess(structure, processSystem, selectedRecipeId)) return false;
+  }
+
+  if (requires.noSelectedProcessType === true) {
+    if (hasSelectedRecipe && hasProcess(structure, processSystem, selectedRecipeId)) {
+      return false;
+    }
+  }
+
   const tagReq = requires.hasTag;
   if (tagReq != null) {
     const structureTags = Array.isArray(structure?.tags) ? structure.tags : [];
@@ -63,6 +127,26 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
 
     for (const tag of requiredTags) {
       if (!structureTags.includes(tag)) return false;
+    }
+  }
+
+  // processSystem already derived above for recipe checks.
+  if (processSystem) {
+    if (requires.hasProcessType) {
+      const types = Array.isArray(requires.hasProcessType)
+        ? requires.hasProcessType
+        : [requires.hasProcessType];
+      for (const type of types) {
+        if (!hasProcess(structure, processSystem, type)) return false;
+      }
+    }
+    if (requires.noProcessType) {
+      const types = Array.isArray(requires.noProcessType)
+        ? requires.noProcessType
+        : [requires.noProcessType];
+      for (const type of types) {
+        if (hasProcess(structure, processSystem, type)) return false;
+      }
     }
   }
 
@@ -101,23 +185,944 @@ function getPawnsOnHubAnchor(state, anchor) {
       ? Math.floor(anchor.span)
       : 1;
   if (col == null) return out;
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const maxCol = col + span - 1;
-  for (const ch of chars) {
-    if (!ch) continue;
-    if (Number.isFinite(ch.envCol)) continue;
-    const pawnCol = Number.isFinite(ch.hubCol) ? Math.floor(ch.hubCol) : null;
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    if (Number.isFinite(pawn.envCol)) continue;
+    const pawnCol = Number.isFinite(pawn.hubCol) ? Math.floor(pawn.hubCol) : null;
     if (pawnCol == null) continue;
     if (pawnCol < col || pawnCol > maxCol) continue;
-    out.push(ch);
+    out.push(pawn);
   }
   return out;
+}
+
+function getContributingPawns(state, structure) {
+  const pawns = getPawnsOnHubAnchor(state, structure);
+  const contributors = [];
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    ensurePawnSystems(pawn);
+    const stamina = pawn.systemState?.stamina;
+    const cur = Number.isFinite(stamina?.cur) ? Math.floor(stamina.cur) : 0;
+    if (cur <= 0) continue;
+    contributors.push(pawn);
+  }
+  return contributors;
+}
+
+function normalizeDepositConfig(structure) {
+  if (!structure || !structure.defId) return null;
+  const def = hubStructureDefs?.[structure.defId];
+  const deposit = def?.deposit;
+  if (!deposit || typeof deposit !== "object") return null;
+  const systemId =
+    typeof deposit.systemId === "string" ? deposit.systemId : null;
+  if (!systemId) return null;
+  const poolKey =
+    typeof deposit.poolKey === "string" && deposit.poolKey.length > 0
+      ? deposit.poolKey
+      : "byKindTier";
+  const allowedTags = Array.isArray(deposit.allowedTags)
+    ? deposit.allowedTags.filter((tag) => typeof tag === "string" && tag.length > 0)
+    : [];
+  const allowedItemIds = Array.isArray(deposit.allowedItemIds)
+    ? deposit.allowedItemIds.filter(
+        (id) => typeof id === "string" && id.length > 0
+      )
+    : [];
+  const allowAny = deposit.allowAny === true;
+  return { systemId, poolKey, allowedTags, allowedItemIds, allowAny };
+}
+
+function ensureHubSystemState(structure, systemId) {
+  if (!structure || !systemId) return null;
+  if (!structure.systemState || typeof structure.systemState !== "object") {
+    structure.systemState = {};
+  }
+  if (!structure.systemTiers || typeof structure.systemTiers !== "object") {
+    structure.systemTiers = {};
+  }
+  if (structure.systemTiers[systemId] == null) {
+    const def = hubSystemDefs?.[systemId];
+    const structureTier =
+      typeof structure.tier === "string" ? structure.tier : null;
+    if (structureTier) {
+      structure.systemTiers[systemId] = structureTier;
+    } else if (def?.defaultTier != null) {
+      structure.systemTiers[systemId] = def.defaultTier;
+    }
+  }
+  if (!structure.systemState[systemId]) {
+    const def = hubSystemDefs?.[systemId];
+    if (def?.stateDefaults) {
+      structure.systemState[systemId] = JSON.parse(
+        JSON.stringify(def.stateDefaults)
+      );
+    } else {
+      structure.systemState[systemId] = {};
+    }
+  }
+  return structure.systemState[systemId];
+}
+
+function ensureDepositQueue(structure) {
+  const depositState = ensureHubSystemState(structure, "deposit");
+  if (!depositState) return [];
+  if (!Array.isArray(depositState.processes)) {
+    depositState.processes = [];
+  }
+  return depositState.processes;
+}
+
+function itemMatchesDepositFilter(item, depositConfig) {
+  if (!item || !depositConfig) return false;
+  const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+  if (qty <= 0) return false;
+  const allowAny = depositConfig.allowAny === true;
+  const allowedItemIds = depositConfig.allowedItemIds || [];
+  const allowedTags = depositConfig.allowedTags || [];
+  if (allowAny && allowedItemIds.length === 0 && allowedTags.length === 0) {
+    return true;
+  }
+  if (allowedItemIds.length > 0 && allowedItemIds.includes(item.kind)) {
+    return true;
+  }
+  if (allowedTags.length > 0) {
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    for (const tag of allowedTags) {
+      if (tags.includes(tag)) return true;
+    }
+  }
+  return allowAny;
+}
+
+function countDepositableByKind(inv, depositConfig) {
+  if (!inv || !Array.isArray(inv.items) || !depositConfig) return {};
+  const totals = {};
+  for (const item of inv.items) {
+    if (!itemMatchesDepositFilter(item, depositConfig)) continue;
+    const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+    if (qty <= 0) continue;
+    const kind = item.kind;
+    if (!kind) continue;
+    totals[kind] = Math.max(0, Math.floor(totals[kind] ?? 0)) + qty;
+  }
+  return totals;
+}
+
+function buildDepositRequirements(kindTotals) {
+  const kinds = Object.keys(kindTotals || {});
+  kinds.sort((a, b) => a.localeCompare(b));
+  const reqs = [];
+  for (const kind of kinds) {
+    const qty = Math.max(0, Math.floor(kindTotals[kind] ?? 0));
+    if (qty <= 0) continue;
+    reqs.push({
+      kind: "item",
+      itemId: kind,
+      amount: qty,
+      progress: 0,
+      consume: true,
+      slotId: "items",
+    });
+  }
+  return reqs;
+}
+
+function ensureDepositProcesses(state, structure, pawns, tSec) {
+  if (!state || !structure || !Array.isArray(pawns) || pawns.length === 0) {
+    return false;
+  }
+  const depositConfig = normalizeDepositConfig(structure);
+  if (!depositConfig) return false;
+
+  ensureHubSystemState(structure, depositConfig.systemId);
+
+  const processes = ensureDepositQueue(structure);
+  let changed = false;
+
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
+    if (!pawnInv) continue;
+
+    const kindTotals = countDepositableByKind(pawnInv, depositConfig);
+    const totalUnits = Object.values(kindTotals).reduce(
+      (sum, value) => sum + Math.max(0, Math.floor(value ?? 0)),
+      0
+    );
+    if (totalUnits <= 0) continue;
+
+    const hasExisting = processes.some(
+      (proc) => proc?.type === "depositItems" && proc?.ownerId === pawn.id
+    );
+    if (hasExisting) continue;
+
+    const leader =
+      pawn.role === PAWN_ROLE_LEADER
+        ? pawn
+        : pawn.leaderId != null
+        ? getLeaderById(state, pawn.leaderId)
+        : null;
+    const hasLeader = leader && leader.role === PAWN_ROLE_LEADER;
+    const communal =
+      Array.isArray(structure.tags) &&
+      structure.tags.includes("communal") &&
+      !isTagDisabled(structure, "communal");
+
+    const requirements = buildDepositRequirements(kindTotals);
+    if (requirements.length === 0) continue;
+
+    const outputs = [
+      {
+        kind: "pool",
+        system: depositConfig.systemId,
+        poolKey: depositConfig.poolKey,
+        fromLedger: true,
+        slotId: "pool",
+      },
+    ];
+
+    if (communal && hasLeader) {
+      outputs.push({
+        kind: "prestige",
+        qty: totalUnits,
+        slotId: "prestige",
+      });
+    }
+
+    runEffect(
+      state,
+      {
+        op: "CreateWorkProcess",
+        system: "deposit",
+        queueKey: "processes",
+        processType: "depositItems",
+        mode: "time",
+        durationSec: 1,
+        requirements,
+        outputs,
+        processMeta: {
+          ownerKind: "pawn",
+          leaderId: hasLeader ? leader.id : null,
+        },
+      },
+      {
+        kind: "game",
+        state,
+        source: structure,
+        tSec,
+        ownerId: pawn.id,
+        leaderId: hasLeader ? leader.id : null,
+      }
+    );
+
+    changed = true;
+  }
+
+  return changed;
+}
+
+const DEFAULT_INPUT_SLOT_ID = "materials";
+const DEFAULT_OUTPUT_SLOT_ID = "output";
+
+function buildDummyItemForAcceptance(itemId, tier) {
+  const def = itemDefs?.[itemId] || null;
+  const tags = Array.isArray(def?.baseTags) ? def.baseTags.slice() : [];
+  return {
+    kind: itemId,
+    tier: tier ?? def?.defaultTier ?? "bronze",
+    tags,
+  };
+}
+
+function resolveSlotDef(processDef, slotKind, slotId) {
+  const kind = slotKind === "outputs" ? "outputs" : "inputs";
+  const slots = processDef?.routingSlots?.[kind] ?? [];
+  if (!Array.isArray(slots) || slots.length === 0) return null;
+  if (slotId) {
+    const match = slots.find((slot) => slot?.slotId === slotId);
+    if (match) return match;
+  }
+  const fallbackId = kind === "outputs" ? DEFAULT_OUTPUT_SLOT_ID : DEFAULT_INPUT_SLOT_ID;
+  const fallback = slots.find((slot) => slot?.slotId === fallbackId);
+  return fallback || slots[0] || null;
+}
+
+function resolveSlotState(process, slotKind, slotDef) {
+  if (!process?.routing || !slotDef) return null;
+  const kind = slotKind === "outputs" ? "outputs" : "inputs";
+  const container = process.routing[kind];
+  if (!container || typeof container !== "object") return null;
+  const state = container[slotDef.slotId];
+  if (!state || typeof state !== "object") return null;
+  if (!Array.isArray(state.ordered)) state.ordered = [];
+  if (!state.enabled || typeof state.enabled !== "object") state.enabled = {};
+  return state;
+}
+
+function resolveEndpointIdForRouting(endpointId, process, context) {
+  if (!endpointId || typeof endpointId !== "string") return null;
+  const resolved = resolveFixedEndpointId(endpointId, process, context);
+  return resolved || endpointId;
+}
+
+function isEndpointValidForSlot(endpointId, candidates, processDef) {
+  if (!endpointId) return false;
+  if (isDropEndpoint(endpointId) && processDef?.supportsDropslot) return true;
+  if (!Array.isArray(candidates) || candidates.length === 0) return false;
+  return candidates.includes(endpointId);
+}
+
+function parseLeaderIdFromEndpoint(endpointId) {
+  if (!endpointId || typeof endpointId !== "string") return null;
+  if (!endpointId.startsWith("sys:pawn:")) return null;
+  const raw = endpointId.slice("sys:pawn:".length);
+  return raw.length ? raw : null;
+}
+
+function canOutputUseEndpoint(state, output, endpoint) {
+  if (!output || !endpoint) return false;
+  if (output.kind === "pool") {
+    return endpoint.kind === "pool";
+  }
+  if (output.kind === "item") {
+    if (endpoint.kind === "spawn") return true;
+    if (endpoint.kind !== "inventory") return false;
+    const dummy = buildDummyItemForAcceptance(output.itemId, output.tier);
+    return canOwnerAcceptItem(state, endpoint.ownerId, dummy);
+  }
+  if (output.kind === "resource") {
+    return endpoint.kind === "resource";
+  }
+  if (output.kind === "system") {
+    return endpoint.kind === "system";
+  }
+  return false;
+}
+
+function canProcessOutputsProceed(state, structure, process, systemId) {
+  if (!state || !structure || !process) return true;
+  const processDef = getProcessDefForInstance(process, structure, {
+    leaderId: process?.leaderId ?? null,
+  });
+  if (!processDef) return true;
+  const policy =
+    process?.completionPolicy ||
+    processDef?.transform?.completionPolicy ||
+    "none";
+  if (policy !== "none") return true;
+  const outputs = Array.isArray(processDef?.transform?.outputs)
+    ? processDef.transform.outputs
+    : [];
+  if (!outputs.length) return true;
+
+  ensureProcessRoutingState(process, processDef, {
+    leaderId: process?.leaderId ?? null,
+    target: structure,
+    systemId,
+  });
+
+  for (const output of outputs) {
+    if (!output || typeof output !== "object") continue;
+    const slotDef = resolveSlotDef(processDef, "outputs", output.slotId);
+    if (!slotDef) return false;
+    const slotState = resolveSlotState(process, "outputs", slotDef);
+    if (!slotState) return false;
+    const candidates = listCandidateEndpoints(state, process, slotDef, structure, {
+      leaderId: process?.leaderId ?? null,
+    });
+    const orderedList =
+      slotState.ordered.length > 0 ? slotState.ordered : candidates;
+
+    let canRoute = false;
+    for (const endpointRaw of orderedList || []) {
+      const enabled = slotState.enabled?.[endpointRaw];
+      if (enabled === false) continue;
+      const endpointId = resolveEndpointIdForRouting(endpointRaw, process, {
+        leaderId: process?.leaderId ?? null,
+      });
+      if (!endpointId) continue;
+      if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+      if (output.kind === "prestige") {
+        const leaderId = parseLeaderIdFromEndpoint(endpointId);
+        if (leaderId != null) {
+          canRoute = true;
+          break;
+        }
+        continue;
+      }
+      const endpoint = resolveEndpointTarget(state, endpointId);
+      if (!endpoint) continue;
+      if (canOutputUseEndpoint(state, output, endpoint)) {
+        canRoute = true;
+        break;
+      }
+    }
+
+    if (!canRoute) return false;
+  }
+
+  return true;
+}
+
+function normalizePopulationCount(value, fallback = 0) {
+  if (!Number.isFinite(value)) return Math.max(0, Math.floor(fallback));
+  return Math.max(0, Math.floor(value));
+}
+
+function getPopulationCount(state) {
+  return normalizePopulationCount(
+    state?.resources?.population,
+    INITIAL_POPULATION_DEFAULT
+  );
+}
+
+function setPopulationCount(state, population) {
+  if (!state || typeof state !== "object") return;
+  if (!state.resources || typeof state.resources !== "object") {
+    state.resources = { gold: 0, food: 0, population: 0 };
+  }
+  state.resources.population = normalizePopulationCount(population, 0);
+}
+
+function ensurePopulationTrackerState(state) {
+  if (!state || typeof state !== "object") return null;
+  const currentYear = Number.isFinite(state.year)
+    ? Math.max(1, Math.floor(state.year))
+    : 1;
+  if (
+    !state.populationTracker ||
+    typeof state.populationTracker !== "object"
+  ) {
+    state.populationTracker = {
+      year: currentYear,
+      mealAttempts: 0,
+      mealSuccesses: 0,
+    };
+  }
+  const tracker = state.populationTracker;
+  tracker.year = Number.isFinite(tracker.year)
+    ? Math.max(1, Math.floor(tracker.year))
+    : currentYear;
+  tracker.mealAttempts = normalizePopulationCount(tracker.mealAttempts, 0);
+  tracker.mealSuccesses = normalizePopulationCount(tracker.mealSuccesses, 0);
+  if (tracker.mealSuccesses > tracker.mealAttempts) {
+    tracker.mealSuccesses = tracker.mealAttempts;
+  }
+  return tracker;
+}
+
+function getStructureLabel(structure) {
+  if (!structure) return "Housing";
+  const def = hubStructureDefs?.[structure.defId];
+  return def?.name || structure.defId || "Housing";
+}
+
+function getResidentsHousingStructure(anchors) {
+  const list = Array.isArray(anchors) ? anchors : [];
+  for (const structure of list) {
+    if (!structure) continue;
+    const tags = Array.isArray(structure.tags) ? structure.tags : [];
+    if (!tags.includes("canHouse")) continue;
+    if (isTagDisabled(structure, "canHouse")) continue;
+    return structure;
+  }
+  return null;
+}
+
+function ensureRoutingTemplateSlotWithCandidates(slotState, candidates) {
+  if (!slotState || typeof slotState !== "object") return;
+  if (!Array.isArray(slotState.ordered)) slotState.ordered = [];
+  if (!slotState.enabled || typeof slotState.enabled !== "object") {
+    slotState.enabled = {};
+  }
+  if (Array.isArray(candidates) && candidates.length > 0) {
+    if (slotState.ordered.length === 0) {
+      slotState.ordered = candidates.slice();
+    } else {
+      for (const endpointId of candidates) {
+        if (!endpointId || typeof endpointId !== "string") continue;
+        if (slotState.ordered.includes(endpointId)) continue;
+        slotState.ordered.push(endpointId);
+      }
+    }
+  }
+  for (const endpointId of slotState.ordered) {
+    if (!endpointId || typeof endpointId !== "string") continue;
+    if (slotState.enabled[endpointId] === undefined) {
+      slotState.enabled[endpointId] = true;
+    }
+  }
+}
+
+function itemKindHasTag(kind, tagId) {
+  if (!kind || !tagId) return false;
+  const tags = Array.isArray(itemDefs?.[kind]?.baseTags)
+    ? itemDefs[kind].baseTags
+    : [];
+  return tags.includes(tagId);
+}
+
+function itemHasTag(item, tagId) {
+  if (!item || !tagId) return false;
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  if (tags.includes(tagId)) return true;
+  return itemKindHasTag(item.kind, tagId);
+}
+
+function countInventoryItemsByTag(state, tagId) {
+  if (!state?.ownerInventories || !tagId) return 0;
+  let total = 0;
+  for (const inv of Object.values(state.ownerInventories)) {
+    const items = Array.isArray(inv?.items) ? inv.items : [];
+    for (const item of items) {
+      if (!itemHasTag(item, tagId)) continue;
+      total += Math.max(0, Math.floor(item.quantity ?? 0));
+    }
+  }
+  return total;
+}
+
+function countByKindTierPoolForTag(byKindTier, tagId) {
+  if (!byKindTier || typeof byKindTier !== "object" || !tagId) return 0;
+  let total = 0;
+  for (const [kind, tierBucket] of Object.entries(byKindTier)) {
+    if (!itemKindHasTag(kind, tagId)) continue;
+    if (!tierBucket || typeof tierBucket !== "object") continue;
+    for (const qty of Object.values(tierBucket)) {
+      total += Math.max(0, Math.floor(qty ?? 0));
+    }
+  }
+  return total;
+}
+
+function countPooledItemsByTag(state, tagId) {
+  if (!state || !tagId) return 0;
+  const structures = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+  let total = 0;
+  for (const structure of structures) {
+    if (!structure || typeof structure !== "object") continue;
+    const systems = structure.systemState;
+    if (!systems || typeof systems !== "object") continue;
+    for (const systemState of Object.values(systems)) {
+      const byKindTier = systemState?.byKindTier;
+      total += countByKindTierPoolForTag(byKindTier, tagId);
+    }
+  }
+  return total;
+}
+
+function computeYearEndFoodTotals(state) {
+  const grainTotal =
+    countInventoryItemsByTag(state, "grain") + countPooledItemsByTag(state, "grain");
+  const edibleTotal =
+    countInventoryItemsByTag(state, "edible") + countPooledItemsByTag(state, "edible");
+  return {
+    grainTotal: Math.max(0, Math.floor(grainTotal)),
+    edibleTotal: Math.max(0, Math.floor(edibleTotal)),
+  };
+}
+
+function getYearEndSkillPointsAward(outcomeKind) {
+  const noChange = Number.isFinite(YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE)
+    ? Math.max(0, Math.floor(YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE))
+    : 0;
+  const changed = Number.isFinite(YEAR_END_SKILL_POINTS_POPULATION_CHANGE)
+    ? Math.max(0, Math.floor(YEAR_END_SKILL_POINTS_POPULATION_CHANGE))
+    : noChange;
+  const halving = Number.isFinite(YEAR_END_SKILL_POINTS_POPULATION_HALVING)
+    ? Math.max(0, Math.floor(YEAR_END_SKILL_POINTS_POPULATION_HALVING))
+    : noChange;
+  if (outcomeKind === "populationHalved") return halving;
+  if (outcomeKind === "populationChanged") return changed;
+  return noChange;
+}
+
+function getPoolTierQuantity(bucket, tier) {
+  if (!bucket || typeof bucket !== "object") return 0;
+  return Math.max(0, Math.floor(bucket[tier] ?? 0));
+}
+
+function consumeOneFromTierBucket(bucket, totalByTier = null) {
+  if (!bucket || typeof bucket !== "object") return false;
+  for (const tier of TIER_ASC) {
+    const qty = getPoolTierQuantity(bucket, tier);
+    if (qty <= 0) continue;
+    bucket[tier] = qty - 1;
+    if (totalByTier && typeof totalByTier === "object") {
+      const total = Math.max(0, Math.floor(totalByTier[tier] ?? 0));
+      totalByTier[tier] = Math.max(0, total - 1);
+    }
+    return true;
+  }
+  return false;
+}
+
+function getPoolTotalsByTier(endpoint) {
+  const owner = endpoint?.owner;
+  const systemId = endpoint?.systemId;
+  if (!owner || !systemId) return null;
+  const totals = owner?.systemState?.[systemId]?.totalByTier;
+  if (!totals || typeof totals !== "object") return null;
+  return totals;
+}
+
+function poolKindMatchesRequirement(kind, requirement) {
+  if (!kind || !requirement || typeof requirement !== "object") return false;
+  if (requirement.kind === "item" && requirement.itemId) {
+    return kind === requirement.itemId;
+  }
+  if (requirement.kind === "tag" && requirement.tag) {
+    return itemKindHasTag(kind, requirement.tag);
+  }
+  return false;
+}
+
+function consumeRequirementUnitFromPool(endpoint, requirement) {
+  if (!endpoint || endpoint.kind !== "pool") return false;
+  const pool = endpoint.target;
+  if (!pool || typeof pool !== "object") return false;
+
+  const totalByTier = getPoolTotalsByTier(endpoint);
+  const endpointItemId =
+    typeof endpoint.itemId === "string" && endpoint.itemId.length > 0
+      ? endpoint.itemId
+      : null;
+
+  if (endpointItemId) {
+    if (!poolKindMatchesRequirement(endpointItemId, requirement)) return false;
+    return consumeOneFromTierBucket(pool, totalByTier);
+  }
+
+  const kinds = Object.keys(pool).sort((a, b) => a.localeCompare(b));
+  for (const kind of kinds) {
+    if (!poolKindMatchesRequirement(kind, requirement)) continue;
+    const bucket = pool[kind];
+    if (!bucket || typeof bucket !== "object") continue;
+    if (consumeOneFromTierBucket(bucket, totalByTier)) return true;
+  }
+
+  return false;
+}
+
+function tryConsumeResidentMeal(endpoint) {
+  const requirement = {
+    kind: "tag",
+    tag: "edible",
+    consume: true,
+  };
+  if (!endpoint) return false;
+  if (endpoint.kind === "inventory") {
+    if (!canConsumeRequirementUnit(endpoint.target, requirement)) return false;
+    const consumed = consumeRequirementUnit(endpoint.target, requirement);
+    return !!consumed;
+  }
+  if (endpoint.kind === "pool") {
+    return consumeRequirementUnitFromPool(endpoint, requirement);
+  }
+  return false;
+}
+
+function consumeResidentsMealsOnSeasonChange(state, structure) {
+  const population = getPopulationCount(state);
+  const globalSkillMods = computeGlobalSkillMods(state);
+  const populationFoodMult = Number.isFinite(globalSkillMods?.populationFoodMult)
+    ? Math.max(0, globalSkillMods.populationFoodMult)
+    : 1;
+  const attempts = normalizePopulationCount(
+    Math.floor(population * populationFoodMult),
+    population
+  );
+  if (!structure || attempts <= 0) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+
+  const process = getTemplateProcessForSystem(structure, "residents", { state });
+  if (!process) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+  const context = { target: structure, systemId: "residents" };
+  const processDef = getProcessDefForInstance(process, structure, context);
+  if (!processDef) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+
+  ensureProcessRoutingState(process, processDef, context);
+  const template = ensureSystemRoutingTemplate(structure, "residents", processDef);
+  if (!template) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+
+  const slotDef = resolveSlotDef(processDef, "inputs", "food");
+  if (!slotDef) {
+    return { attempts, successes: 0, misses: attempts };
+  }
+  if (!template.inputs || typeof template.inputs !== "object") {
+    template.inputs = {};
+  }
+  if (!template.inputs[slotDef.slotId] || typeof template.inputs[slotDef.slotId] !== "object") {
+    template.inputs[slotDef.slotId] = { ordered: [], enabled: {} };
+  }
+  const slotState = template.inputs[slotDef.slotId];
+
+  const candidates = listCandidateEndpoints(
+    state,
+    process,
+    slotDef,
+    structure,
+    context
+  );
+  ensureRoutingTemplateSlotWithCandidates(slotState, candidates);
+
+  const ordered =
+    Array.isArray(slotState.ordered) && slotState.ordered.length > 0
+      ? slotState.ordered
+      : candidates;
+  let successes = 0;
+
+  for (let i = 0; i < attempts; i++) {
+    let consumed = false;
+    for (const endpointRaw of ordered) {
+      if (!endpointRaw || typeof endpointRaw !== "string") continue;
+      if (slotState.enabled?.[endpointRaw] === false) continue;
+      const endpointId = resolveEndpointIdForRouting(endpointRaw, process, context);
+      if (!endpointId) continue;
+      if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+      const endpoint = resolveEndpointTarget(state, endpointId);
+      if (!endpoint) continue;
+      if (!tryConsumeResidentMeal(endpoint)) continue;
+      consumed = true;
+      successes += 1;
+      break;
+    }
+    if (!consumed) continue;
+  }
+
+  const misses = Math.max(0, attempts - successes);
+  return { attempts, successes, misses };
+}
+
+function maybeApplyYearlyPopulationChange(state, tSec) {
+  const tracker = ensurePopulationTrackerState(state);
+  if (!tracker) return false;
+
+  const currentYear = Number.isFinite(state?.year)
+    ? Math.max(1, Math.floor(state.year))
+    : 1;
+  if (tracker.year >= currentYear) return false;
+
+  const previousPopulation = getPopulationCount(state);
+  const attempts = normalizePopulationCount(tracker.mealAttempts, 0);
+  const successes = normalizePopulationCount(tracker.mealSuccesses, 0);
+  const misses = Math.max(0, attempts - successes);
+
+  let nextPopulation = previousPopulation;
+  let outcomeText = "population held steady";
+  let outcomeKind = "populationUnchanged";
+  if (attempts > 0 && misses === 0) {
+    const growthRate = Number.isFinite(POPULATION_GROWTH_FULL_FEED_RATE)
+      ? Math.max(0, POPULATION_GROWTH_FULL_FEED_RATE)
+      : 0;
+    const growth = Math.max(1, Math.floor(previousPopulation * growthRate));
+    nextPopulation = previousPopulation + growth;
+    outcomeText = `full feeding growth (+${growth})`;
+    outcomeKind = "populationChanged";
+  } else if (attempts > 0 && successes === 0) {
+    const collapseMultiplier = Number.isFinite(POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
+      ? Math.max(0, POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
+      : 0.5;
+    nextPopulation = Math.floor(previousPopulation * collapseMultiplier);
+    outcomeText = "complete starvation collapse";
+    outcomeKind = "populationHalved";
+  } else if (attempts === 0) {
+    outcomeText = "no seasonal meal attempts";
+  } else {
+    outcomeText = "partial feeding";
+  }
+  nextPopulation = normalizePopulationCount(nextPopulation, previousPopulation);
+  setPopulationCount(state, nextPopulation);
+
+  const skillPointsPerLeader = getYearEndSkillPointsAward(outcomeKind);
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  let leaderCount = 0;
+  for (const pawn of pawns) {
+    if (!pawn || pawn.role !== PAWN_ROLE_LEADER) continue;
+    const current = Number.isFinite(pawn.skillPoints)
+      ? Math.max(0, Math.floor(pawn.skillPoints))
+      : 0;
+    pawn.skillPoints = current + skillPointsPerLeader;
+    leaderCount += 1;
+  }
+  const totalSkillPointsAwarded = leaderCount * skillPointsPerLeader;
+  const foodTotals = computeYearEndFoodTotals(state);
+
+  const priorYear = Math.max(1, currentYear - 1);
+  pushGameEvent(state, {
+    type: "populationYearlyUpdate",
+    tSec,
+    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText}), +${skillPointsPerLeader} skill points to each leader`,
+    data: {
+      year: priorYear,
+      previousPopulation,
+      nextPopulation,
+      mealAttempts: attempts,
+      mealSuccesses: successes,
+      mealMisses: misses,
+      populationOutcome: outcomeKind,
+      skillPointsPerLeader,
+      leaderCount,
+      totalSkillPointsAwarded,
+      grainTotal: foodTotals.grainTotal,
+      edibleTotal: foodTotals.edibleTotal,
+      yearEndPerformance: {
+        year: priorYear,
+        previousPopulation,
+        nextPopulation,
+        populationDelta: nextPopulation - previousPopulation,
+        populationOutcome: outcomeKind,
+        mealAttempts: attempts,
+        mealSuccesses: successes,
+        mealMisses: misses,
+        grainTotal: foodTotals.grainTotal,
+        edibleTotal: foodTotals.edibleTotal,
+        skillPointsPerLeader,
+        leaderCount,
+        totalSkillPointsAwarded,
+      },
+    },
+  });
+
+  tracker.year = currentYear;
+  tracker.mealAttempts = 0;
+  tracker.mealSuccesses = 0;
+  return true;
+}
+
+function runPopulationSeasonTick(state, tSec, anchors) {
+  if (!state || state._seasonChanged !== true) return false;
+
+  maybeApplyYearlyPopulationChange(state, tSec);
+
+  const tracker = ensurePopulationTrackerState(state);
+  if (!tracker) return false;
+
+  const structure = getResidentsHousingStructure(anchors);
+  const result = consumeResidentsMealsOnSeasonChange(state, structure);
+  const attempts = normalizePopulationCount(result.attempts, 0);
+  const successes = normalizePopulationCount(result.successes, 0);
+  const misses = Math.max(0, attempts - successes);
+
+  tracker.mealAttempts += attempts;
+  tracker.mealSuccesses += successes;
+
+  if (attempts <= 0) return true;
+
+  const seasonKey = getCurrentSeasonKey(state);
+  const seasonLabel = SEASON_DISPLAY?.[seasonKey] || seasonKey || "Season";
+  const structureLabel = structure ? getStructureLabel(structure) : "Housing";
+  const text = structure
+    ? `${structureLabel} residents consumed ${successes}/${attempts} meals in ${seasonLabel}`
+    : `Residents consumed ${successes}/${attempts} meals in ${seasonLabel} (no active housing)`;
+  pushGameEvent(state, {
+    type: "populationSeasonMeal",
+    tSec,
+    text,
+    data: {
+      focusKind: "hubStructure",
+      hubStructureId: structure?.instanceId ?? null,
+      mealAttempts: attempts,
+      mealSuccesses: successes,
+      mealMisses: misses,
+      seasonKey,
+    },
+  });
+  return true;
+}
+
+function resolveProcessTypeFromSystem(structure, effect) {
+  if (!effect || typeof effect !== "object") return null;
+  const systemId = typeof effect.system === "string" ? effect.system : null;
+  const key =
+    typeof effect.processTypeFromSystemKey === "string"
+      ? effect.processTypeFromSystemKey
+      : "selectedRecipeId";
+  if (!systemId) return null;
+  const selected = structure?.systemState?.[systemId]?.[key];
+  return typeof selected === "string" && selected.length > 0 ? selected : null;
+}
+
+function resolveIntentEffect(effect, structure) {
+  if (!effect) return null;
+  if (Array.isArray(effect)) {
+    const resolved = effect
+      .map((entry) => resolveIntentEffect(entry, structure))
+      .filter(Boolean);
+    return resolved.length ? resolved : null;
+  }
+  if (typeof effect !== "object") return effect;
+
+  if (!effect.processTypeFromSystemKey) return effect;
+
+  const processType = resolveProcessTypeFromSystem(structure, effect);
+  if (!processType) return null;
+
+  const resolved = { ...effect, processType };
+  if (resolved.op === "CreateWorkProcess") {
+    const durationMissing = !Number.isFinite(resolved.durationSec);
+    if (durationMissing) {
+      const recipe = recipeDefs?.[processType] || null;
+      if (recipe && Number.isFinite(recipe.durationSec)) {
+        resolved.durationSec = recipe.durationSec;
+      }
+    }
+  }
+
+  return resolved;
+}
+
+function canAdvanceWorkEffect(state, structure, effect) {
+  if (!state || !structure || !effect) return true;
+  if (effect.op !== "AdvanceWorkProcess") return true;
+  const systemId = effect.system;
+  if (!systemId || typeof systemId !== "string") return true;
+  const queueKey = effect.queueKey || "processes";
+  const processes = Array.isArray(structure?.systemState?.[systemId]?.[queueKey])
+    ? structure.systemState[systemId][queueKey]
+    : [];
+  if (processes.length === 0) return true;
+  const matches = effect.processType
+    ? processes.filter((proc) => proc?.type === effect.processType)
+    : processes.slice();
+  if (matches.length === 0) return true;
+  for (const proc of matches) {
+    if (canProcessOutputsProceed(state, structure, proc, systemId)) return true;
+  }
+  return false;
+}
+
+function canExecuteIntentEffect(state, structure, effect) {
+  if (!effect) return true;
+  if (Array.isArray(effect)) {
+    for (const eff of effect) {
+      if (!canExecuteIntentEffect(state, structure, eff)) return false;
+    }
+    return true;
+  }
+  if (effect.op === "AdvanceWorkProcess") {
+    return canAdvanceWorkEffect(state, structure, effect);
+  }
+  return true;
 }
 
 export function stepHubSecond(state, tSec) {
   if (!state || !state.hub) return;
 
   const anchors = Array.isArray(state.hub.anchors) ? state.hub.anchors : [];
+
+  runPopulationSeasonTick(state, tSec, anchors);
   if (!anchors.length) return;
 
   const seasonKey = getCurrentSeasonKey(state);
@@ -132,10 +1137,15 @@ export function stepHubSecond(state, tSec) {
     if (!tags.length) continue;
 
     const pawns = getPawnsOnHubAnchor(state, structure);
+    const contributingPawns = getContributingPawns(state, structure);
     const hasPawn = pawns.length > 0;
 
-    if (hasPawn && tags.includes("deposit") && !isTagDisabled(structure, "deposit")) {
-      applyGranaryDepositsForStructure(state, structure, pawns);
+    if (
+      hasPawn &&
+      tags.includes("depositable") &&
+      !isTagDisabled(structure, "depositable")
+    ) {
+      ensureDepositProcesses(state, structure, pawns, tSec);
     }
 
     const baseContext = {
@@ -145,6 +1155,7 @@ export function stepHubSecond(state, tSec) {
       tSec,
       hubCol,
       ownerId: structure.instanceId,
+      hubWorkers: contributingPawns,
     };
 
     for (const tagId of tags) {
@@ -196,14 +1207,23 @@ export function stepHubSecond(state, tSec) {
           ) {
             continue;
           }
-          if (intent.cost) {
-            const resolved = resolveCosts(intent.cost, pawnContext);
-            if (!resolved) continue;
-            if (!canAffordCosts(resolved, pawnContext)) continue;
-            applyCosts(resolved, pawnContext);
+          const resolvedEffect = resolveIntentEffect(intent.effect, structure);
+          if (!resolvedEffect) continue;
+          if (!canExecuteIntentEffect(state, structure, resolvedEffect)) {
+            continue;
           }
-          if (intent.effect) {
-            runEffect(state, intent.effect, { ...pawnContext });
+          if (intent.cost) {
+            const intentContext = {
+              ...pawnContext,
+              intentId: intent.id ?? null,
+            };
+            const resolved = resolveCosts(intent.cost, intentContext);
+            if (!resolved) continue;
+            if (!canAffordCosts(resolved, intentContext)) continue;
+            applyCosts(resolved, intentContext);
+          }
+          if (resolvedEffect) {
+            runEffect(state, resolvedEffect, { ...pawnContext });
           }
           executed = true;
           break;

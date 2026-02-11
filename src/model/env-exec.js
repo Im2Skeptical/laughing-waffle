@@ -10,10 +10,48 @@ import {
   ensurePawnSystems,
   rebuildBoardOccupancy,
 } from "./state.js";
+import { createRng } from "./rng.js";
 import { runEffect } from "./effects.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
+import { pushGameEvent } from "./event-feed.js";
 
 const EVENT_CADENCE_SEC = 5;
+
+function chooseArticle(noun) {
+  if (!noun || typeof noun !== "string") return "A";
+  return /^[aeiou]/i.test(noun.trim()) ? "An" : "A";
+}
+
+function formatEventAppearanceText(defId) {
+  const def = envEventDefs?.[defId];
+  const rawName =
+    (typeof def?.name === "string" && def.name) ||
+    (typeof def?.ui?.name === "string" && def.ui.name) ||
+    defId ||
+    "event";
+  const label = String(rawName).trim().toLowerCase() || "event";
+  return `${chooseArticle(label)} ${label} appeared`;
+}
+
+function findSpawnedEventAnchor(state, defId, tSec) {
+  const anchors = Array.isArray(state?.board?.layers?.event?.anchors)
+    ? state.board.layers.event.anchors
+    : [];
+  const sec = Number.isFinite(tSec) ? Math.floor(tSec) : 0;
+  const matches = [];
+  for (const anchor of anchors) {
+    if (!anchor || anchor.defId !== defId) continue;
+    if (Math.floor(anchor.createdSec ?? -1) !== sec) continue;
+    matches.push(anchor);
+  }
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => {
+    const ai = Number.isFinite(a?.instanceId) ? Math.floor(a.instanceId) : 0;
+    const bi = Number.isFinite(b?.instanceId) ? Math.floor(b.instanceId) : 0;
+    return ai - bi;
+  });
+  return matches[0];
+}
 
 function requirementsPass(requires, seasonKey, tile, hasPawn) {
   if (!requires || typeof requires !== "object") return true;
@@ -102,10 +140,10 @@ function isTagDisabled(tile, tagId) {
 
 function getPawnIdsOnEnvCol(state, col) {
   const out = [];
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
-  for (const ch of chars) {
-    const slot = Number.isFinite(ch?.envCol) ? Math.floor(ch.envCol) : null;
-    if (slot === col && ch?.id != null) out.push(ch.id);
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    const slot = Number.isFinite(pawn?.envCol) ? Math.floor(pawn.envCol) : null;
+    if (slot === col && pawn?.id != null) out.push(pawn.id);
   }
   return out;
 }
@@ -562,7 +600,14 @@ function collectRandomCandidateCols(state, span, placementSpec, whereSpec, colli
   return filtered;
 }
 
-function collectOriginColsByMode(state, spawnSpec, span, placementSpec, collisionMode) {
+function collectOriginColsByMode(
+  state,
+  spawnSpec,
+  span,
+  placementSpec,
+  collisionMode,
+  rng
+) {
   const boardCols = Number.isFinite(state?.board?.cols)
     ? Math.floor(state.board.cols)
     : 0;
@@ -596,6 +641,10 @@ function collectOriginColsByMode(state, spawnSpec, span, placementSpec, collisio
     collisionMode
   );
   if (!candidates.length) return [];
+  if (rng && typeof rng.nextInt === "function") {
+    const idx = rng.nextInt(0, candidates.length - 1);
+    return [candidates[idx]];
+  }
   if (typeof state.rngNextInt !== "function") return [candidates[0]];
   const idx = state.rngNextInt(0, candidates.length - 1);
   return [candidates[idx]];
@@ -662,6 +711,30 @@ function attemptPlacement(state, defId, span, tSec, originCol, placementSpec, co
   return { placed, needsRebuild: true };
 }
 
+function hashString(value) {
+  const str = String(value ?? "");
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash | 0;
+}
+
+function deriveEnvEventSeed(state, tSec, defId) {
+  const baseSeed = Number.isFinite(state?.rng?.baseSeed)
+    ? Math.floor(state.rng.baseSeed)
+    : Number.isFinite(state?.rng?.seed)
+      ? Math.floor(state.rng.seed)
+      : 0;
+  const sec = Number.isFinite(tSec) ? Math.floor(tSec) : 0;
+  const defHash = hashString(defId);
+  let seed = baseSeed | 0;
+  seed = Math.imul(seed ^ (sec + 0x9e3779b9), 0x85ebca6b);
+  seed = Math.imul(seed ^ defHash, 0xc2b2ae35);
+  return seed | 0;
+}
+
 function spawnEnvEventFromDef(state, defId, def, tSec) {
   const board = state?.board;
   if (!board) return { placedAny: false, needsRebuild: false };
@@ -679,12 +752,14 @@ function spawnEnvEventFromDef(state, defId, def, tSec) {
   const multiSpawn =
     spawnSpec.multiSpawn === "planThenApply" ? "planThenApply" : "independent";
 
+  const rng = createRng(deriveEnvEventSeed(state, tSec, defId));
   const originCols = collectOriginColsByMode(
     state,
     spawnSpec,
     span,
     placementSpec,
-    collision.mode
+    collision.mode,
+    rng
   );
   if (!originCols.length) return { placedAny: false, needsRebuild: false };
 
@@ -804,6 +879,23 @@ export function stepEnvSecond(state, tSec) {
       if (def) {
         const result = spawnEnvEventFromDef(state, entry.defId, def, tSec);
         if (result?.needsRebuild) needsRebuild = true;
+        if (result?.placedAny) {
+          const spawned = findSpawnedEventAnchor(state, entry.defId, tSec);
+          const envCol = Number.isFinite(spawned?.col)
+            ? Math.floor(spawned.col)
+            : null;
+          pushGameEvent(state, {
+            type: "envEventAppeared",
+            tSec,
+            text: formatEventAppearanceText(entry.defId),
+            data: {
+              focusKind: "tile",
+              envCol,
+              eventDefId: entry.defId,
+              eventInstanceId: spawned?.instanceId ?? null,
+            },
+          });
+        }
 
         const consumePolicy = def.spawn?.consumePolicy;
         if (consumePolicy === "onlyIfAnyPlaced" && !result?.placedAny) {
@@ -816,10 +908,10 @@ export function stepEnvSecond(state, tSec) {
 
   const cols = board.cols ?? 12;
   const tileOcc = board.occ?.tile;
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   const pawnById = new Map();
-  for (const ch of chars) {
-    if (ch?.id != null) pawnById.set(ch.id, ch);
+  for (const pawn of pawns) {
+    if (pawn?.id != null) pawnById.set(pawn.id, pawn);
   }
   for (let col = 0; col < cols; col++) {
     const tile = tileOcc?.[col];
@@ -889,10 +981,14 @@ export function stepEnvSecond(state, tSec) {
             continue;
           }
           if (intent.cost) {
-            const resolved = resolveCosts(intent.cost, pawnContext);
+            const intentContext = {
+              ...pawnContext,
+              intentId: intent.id ?? null,
+            };
+            const resolved = resolveCosts(intent.cost, intentContext);
             if (!resolved) continue;
-            if (!canAffordCosts(resolved, pawnContext)) continue;
-            applyCosts(resolved, pawnContext);
+            if (!canAffordCosts(resolved, intentContext)) continue;
+            applyCosts(resolved, intentContext);
           }
           if (intent.effect) {
             runEffect(state, intent.effect, { ...pawnContext });

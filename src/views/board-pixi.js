@@ -5,10 +5,14 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
+import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
+import { createHubPanels } from "./board/hub-structure-panels.js";
+import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
   BOARD_COLS,
   BOARD_COL_GAP,
@@ -69,6 +73,11 @@ export function createBoardView(opts) {
     queueActionWhenPaused,
     requestPauseForAction,
     setApDragWarning,
+    flashActionGhost,
+    onSystemIconHover,
+    onSystemIconOut,
+    onSystemIconClick,
+    getExternalFocus,
   } = opts;
 
   const tileViews = [];
@@ -78,6 +87,7 @@ export function createBoardView(opts) {
   /** @type {Map<number, BoardHubStructureView>} */
   const hubStructureViews = new Map();
   const hubSlotViews = [];
+  const hubExpandedTagById = new Map();
 
   if (tileLayer) tileLayer.sortableChildren = true;
   if (eventLayer) eventLayer.sortableChildren = true;
@@ -87,7 +97,6 @@ export function createBoardView(opts) {
   const tileInspectorLayer = inspectorLayer || hoverLayer || tileLayer;
 
   const TAG_DRAG_SCALE = 1.06;
-  const TAG_DRAG_BUMP = 6;
   const TAG_DRAG_RELEASE_PAD = 12;
   const AP_OVERLAY_ALPHA = 0.45;
   const AP_OVERLAY_FADE_IN = 14;
@@ -105,6 +114,8 @@ export function createBoardView(opts) {
   let activeTagDrag = null;
   let activeHubTagDrag = null;
   let activeHover = null;
+  let focusedTileCol = null;
+  let focusedHubCol = null;
   let apDragWarningActive = false;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
@@ -119,8 +130,20 @@ export function createBoardView(opts) {
     queueActionWhenPaused,
     dispatchAction,
     dropdownLayer: cropDropdownLayer,
+    flashActionGhost,
+  });
+  const hubPanels = createHubPanels({
+    app,
+    actionPlanner,
+    queueActionWhenPaused,
+    dispatchAction,
+    dropdownLayer: cropDropdownLayer,
+    flashActionGhost,
+    getGameState,
   });
   let tagUi = null;
+  let tileTagDragController = null;
+  let hubTagDragController = null;
 
   function setTextResolution(textNodes, resolution) {
     if (!Array.isArray(textNodes)) return;
@@ -174,6 +197,10 @@ export function createBoardView(opts) {
     baseTextResolution: BASE_TEXT_RESOLUTION,
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
+    toggleTag: dispatchTileTagToggle,
+    onSystemIconHover,
+    onSystemIconOut,
+    onSystemIconClick,
   });
 
   const hubTagUi = createHubTagUi({
@@ -182,6 +209,102 @@ export function createBoardView(opts) {
     setTextResolution,
     baseTextResolution: BASE_TEXT_RESOLUTION,
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
+    requestPauseForAction,
+    toggleTag: dispatchHubTagToggle,
+    openRecipeDropdown: hubPanels?.openRecipeDropdown,
+    onSystemIconHover,
+    onSystemIconOut,
+    onSystemIconClick,
+  });
+
+  tileTagDragController = createPillDragController({
+    app,
+    dragStateKey: "tagDrag",
+    dragScale: TAG_DRAG_SCALE,
+    dragAlpha: 0.95,
+    dragZIndex: 10,
+    dragCursor: "grabbing",
+    idleCursor: "grab",
+    getEntries: (view) => view.tagEntries || [],
+    getContainer: (view) => view.tagContainer,
+    getRowHeight: () => TAG_LAYOUT.PILL_HEIGHT,
+    getRowStep: () => TAG_LAYOUT.PILL_HEIGHT + TAG_LAYOUT.PILL_GAP,
+    layoutEntries: (view) => tagUi?.layoutTagEntries?.(view),
+    onCommit: (view, fromIndex, toIndex) => {
+      const tags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
+      if (tags.length === view.tagEntries.length) {
+        const [moved] = tags.splice(fromIndex, 1);
+        tags.splice(toIndex, 0, moved);
+        dispatchTagOrder(view.col, tags);
+      }
+    },
+    onDragStart: (view) => {
+      activeTagDrag = view;
+    },
+    onDragEnd: (view, drag, globalPos) => {
+      view.ignoreNextTagTap = !!drag?.moved;
+      if (activeTagDrag === view) activeTagDrag = null;
+      tagUi?.layoutTagEntries?.(view);
+
+      if (globalPos) {
+        const inside = isPointerInsideView(
+          view,
+          globalPos,
+          TAG_DRAG_RELEASE_PAD
+        );
+        if (!inside) {
+          clearTileHover(view);
+          if (activeHover?.view === view) activeHover = null;
+        } else {
+          holdHoverAfterTagDrag(view);
+        }
+      }
+    },
+  });
+
+  hubTagDragController = createPillDragController({
+    app,
+    dragStateKey: "tagDrag",
+    dragScale: TAG_DRAG_SCALE,
+    dragAlpha: 0.95,
+    dragZIndex: 10,
+    dragCursor: "grabbing",
+    idleCursor: "grab",
+    getEntries: (view) => view.tagEntries || [],
+    getContainer: (view) => view.tagContainer,
+    getRowHeight: () => HUB_TAG_LAYOUT.PILL_HEIGHT,
+    getRowStep: () => HUB_TAG_LAYOUT.PILL_HEIGHT + HUB_TAG_LAYOUT.PILL_GAP,
+    layoutEntries: (view) => hubTagUi?.layoutTagEntries?.(view),
+    onCommit: (view, fromIndex, toIndex) => {
+      const tags = Array.isArray(view.structure?.tags)
+        ? view.structure.tags.slice()
+        : [];
+      if (tags.length === view.tagEntries.length) {
+        const [moved] = tags.splice(fromIndex, 1);
+        tags.splice(toIndex, 0, moved);
+        dispatchHubTagOrder(view.col, tags);
+      }
+    },
+    onDragStart: (view) => {
+      activeHubTagDrag = view;
+    },
+    onDragEnd: (view, drag, globalPos) => {
+      view.ignoreNextTagTap = !!drag?.moved;
+      if (activeHubTagDrag === view) activeHubTagDrag = null;
+      hubTagUi?.layoutTagEntries?.(view);
+
+      if (globalPos) {
+        const inside = isPointerInsideView(
+          view,
+          globalPos,
+          TAG_DRAG_RELEASE_PAD
+        );
+        if (!inside) {
+          clearHubStructureHover(view);
+          if (activeHover?.view === view) activeHover = null;
+        }
+      }
+    },
   });
 
   function attachHoverFx(
@@ -360,6 +483,7 @@ export function createBoardView(opts) {
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
     view.holdHoverForOccupant = false;
+    view.isHovered = false;
     clearHoverContext();
     tooltipView?.hide?.();
     if (inventoryView && view.structureHasInventory?.()) {
@@ -468,20 +592,205 @@ export function createBoardView(opts) {
     );
   }
 
+  function setTileFocus(view, active) {
+    if (!view?.focusOutline) return;
+    const next = !!active;
+    if (view.isFocused === next) return;
+    view.isFocused = next;
+    view.focusOutline.visible = next;
+  }
+
+  function clearAllTileFocus() {
+    for (const view of tileViews) {
+      if (!view?.isFocused) continue;
+      setTileFocus(view, false);
+    }
+    focusedTileCol = null;
+  }
+
+  function setHubFocus(view, active) {
+    if (!view?.focusOutline) return;
+    const next = !!active;
+    if (view.isFocused === next) return;
+    view.isFocused = next;
+    view.focusOutline.visible = next;
+  }
+
+  function clearAllHubFocus() {
+    for (const view of hubStructureViews.values()) {
+      if (!view?.isFocused) continue;
+      setHubFocus(view, false);
+    }
+    focusedHubCol = null;
+  }
+
+  function findHubViewByCol(hubCol) {
+    const target = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
+    if (target == null) return null;
+    for (const view of hubStructureViews.values()) {
+      const anchorCol = Number.isFinite(view?.structure?.col)
+        ? Math.floor(view.structure.col)
+        : Number.isFinite(view?.col)
+        ? Math.floor(view.col)
+        : null;
+      if (anchorCol === target) return view;
+    }
+    return null;
+  }
+
+  function updatePlanFocus() {
+    if (!actionPlanner?.getFocusIntent) {
+      if (focusedTileCol != null) clearAllTileFocus();
+      if (focusedHubCol != null) clearAllHubFocus();
+      return;
+    }
+    const intent = actionPlanner.getFocusIntent?.();
+    const isTilePlan =
+      intent &&
+      (intent.kind === "tileTagOrder" ||
+        intent.kind === "tileTagToggle" ||
+        intent.kind === "tileCropSelect");
+    const isHubPlan =
+      intent &&
+      (intent.kind === "hubTagOrder" || intent.kind === "hubTagToggle");
+
+    const nextTileCol =
+      isTilePlan && Number.isFinite(intent.envCol)
+        ? Math.floor(intent.envCol)
+        : null;
+    const nextHubCol =
+      isHubPlan && Number.isFinite(intent.hubCol)
+        ? Math.floor(intent.hubCol)
+        : null;
+    const externalFocus =
+      typeof getExternalFocus === "function" ? getExternalFocus() : null;
+    const externalTileCol =
+      Number.isFinite(externalFocus?.envCol) &&
+      (externalFocus?.kind === "tile" || externalFocus?.kind === "event")
+        ? Math.floor(externalFocus.envCol)
+        : null;
+    const externalHubCol =
+      Number.isFinite(externalFocus?.hubCol) && externalFocus?.kind === "hub"
+        ? Math.floor(externalFocus.hubCol)
+        : null;
+    const resolvedTileCol = nextTileCol ?? externalTileCol;
+    const resolvedHubCol = nextHubCol ?? externalHubCol;
+
+    if (resolvedTileCol == null) {
+      if (focusedTileCol != null) clearAllTileFocus();
+    } else {
+      if (focusedTileCol !== resolvedTileCol) {
+        if (focusedTileCol != null) {
+          const prev = tileViews[focusedTileCol];
+          if (prev) setTileFocus(prev, false);
+        }
+        focusedTileCol = resolvedTileCol;
+      }
+      const view = tileViews[resolvedTileCol];
+      if (view) setTileFocus(view, true);
+    }
+
+    if (resolvedHubCol == null) {
+      if (focusedHubCol != null) clearAllHubFocus();
+    } else {
+      if (focusedHubCol !== resolvedHubCol) {
+        if (focusedHubCol != null) {
+          const prev = findHubViewByCol(focusedHubCol);
+          if (prev) setHubFocus(prev, false);
+        }
+        focusedHubCol = resolvedHubCol;
+      }
+      const view = findHubViewByCol(resolvedHubCol);
+      if (view) setHubFocus(view, true);
+    }
+  }
+
+  function applyHubStructureHover(view) {
+    if (!view?.container || !view?.structure) return;
+    const { title, lines } = getHubStructureUi(view.structure);
+    const def = hubStructureDefs[view.structure.defId];
+    const span =
+      Number.isFinite(view.structure?.span) && view.structure.span > 0
+        ? Math.floor(view.structure.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const width = HUB_STRUCTURE_WIDTH * span + HUB_COL_GAP * (span - 1);
+    const height = HUB_STRUCTURE_HEIGHT;
+    view.setHoverActive?.(true);
+    elevateForHover(view.container);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      width,
+      height,
+      GAMEPIECE_HOVER_SCALE
+    );
+    const anchorCol = Number.isFinite(view.structure?.col)
+      ? Math.floor(view.structure.col)
+      : Number.isFinite(view.col)
+      ? Math.floor(view.col)
+      : 0;
+    view.isHovered = true;
+    setHoverContext("hub", anchorCol, span, anchor);
+
+    tooltipView?.show?.(
+      { title, lines, scale: GAMEPIECE_HOVER_SCALE },
+      anchor
+    );
+
+    if (inventoryView && view.structureHasInventory?.()) {
+      inventoryView.showOnHover(view.structure.instanceId, {
+        x: anchor.x,
+        y: anchor.y,
+        width: anchor.width,
+        height: anchor.height,
+      });
+    }
+  }
+
   function restoreHoverAfterRebuild(pendingHover, pointerPos) {
     if (!pendingHover || !pointerPos) return;
     if (!interaction?.canShowHoverUI?.()) return;
-    if (pendingHover.kind !== "tile") return;
-    const view = tileViews[pendingHover.col];
-    if (!view) return;
-    if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
-    setActiveHover({
-      view,
-      kind: "tile",
-      col: pendingHover.col,
-      clear: () => clearTileHover(view),
-    });
-    applyTileHover(view);
+    if (pendingHover.kind === "tile") {
+      const view = tileViews[pendingHover.col];
+      if (!view) return;
+      if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
+      setActiveHover({
+        view,
+        kind: "tile",
+        col: pendingHover.col,
+        clear: () => clearTileHover(view),
+      });
+      applyTileHover(view);
+      return;
+    }
+    if (pendingHover.kind === "hub") {
+      const targetCol = Number.isFinite(pendingHover.col)
+        ? Math.floor(pendingHover.col)
+        : null;
+      if (targetCol == null) return;
+      let view = null;
+      for (const candidate of hubStructureViews.values()) {
+        const anchorCol = Number.isFinite(candidate?.structure?.col)
+          ? Math.floor(candidate.structure.col)
+          : Number.isFinite(candidate?.col)
+          ? Math.floor(candidate.col)
+          : null;
+        if (anchorCol === targetCol) {
+          view = candidate;
+          break;
+        }
+      }
+      if (!view) return;
+      if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
+      setActiveHover({
+        view,
+        kind: "hub",
+        col: targetCol,
+        clear: () => clearHubStructureHover(view),
+      });
+      applyHubStructureHover(view);
+    }
   }
 
   function removeFromParent(container) {
@@ -490,16 +799,86 @@ export function createBoardView(opts) {
 
   function dispatchTagOrder(envCol, tagIds) {
     const run = () => {
+      const tileName = getTileNameByCol(envCol);
+      const ghostSpec = {
+        description: `Tags > ${tileName} reorder`,
+        cost: getTilePlanCost(),
+      };
       if (actionPlanner?.setTileTagOrderIntent) {
-        return actionPlanner.setTileTagOrderIntent({ envCol, tagIds });
+        const res = actionPlanner.setTileTagOrderIntent({ envCol, tagIds });
+        if (res?.ok === false && res?.reason === "insufficientAP") {
+          flashTilePlanFailure(ghostSpec);
+        }
+        return res;
       }
       if (!dispatchAction) return { ok: false, reason: "noDispatch" };
-      dispatchAction(
+      const res = dispatchAction(
         ActionKinds.SET_TILE_TAG_ORDER,
         { envCol, tagIds },
         { apCost: 10 }
       );
-      return { ok: true };
+      if (res?.ok === false && res?.reason === "insufficientAP") {
+        flashTilePlanFailure(ghostSpec);
+      }
+      return res ?? { ok: true };
+    };
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
+    }
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
+      return { ok: false, reason: "mustBePaused" };
+    }
+    return run();
+  }
+
+  function dispatchTileTagToggle({ envCol, tagId, disabled } = {}) {
+    const run = () => {
+      const tileName = getTileNameByCol(envCol);
+      const tagName = envTagDefs?.[tagId]?.ui?.name || tagId || "Tag";
+      let nextDisabled = disabled;
+      if (typeof nextDisabled !== "boolean") {
+        if (actionPlanner?.getTileTagTogglePreview) {
+          const cur = actionPlanner.getTileTagTogglePreview({ envCol, tagId });
+          nextDisabled = cur == null ? true : !cur;
+        } else {
+          const state = getGameState?.();
+          const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+          const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
+          const cur = tile?.tagStates?.[tagId]?.disabled === true;
+          nextDisabled = !cur;
+        }
+      }
+      if (actionPlanner?.setTileTagToggleIntent) {
+        const res = actionPlanner.setTileTagToggleIntent({
+          envCol,
+          tagId,
+          disabled: nextDisabled,
+        });
+        if (res?.ok === false && res?.reason === "insufficientAP") {
+          flashTilePlanFailure({
+            description: `Tag ${tagName} > ${tileName}: ${
+              nextDisabled ? "Off" : "On"
+            }`,
+            cost: getTilePlanCost(),
+          });
+        }
+        return res;
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      const res = dispatchAction(
+        ActionKinds.TOGGLE_TILE_TAG,
+        { envCol, tagId, disabled: nextDisabled },
+        { apCost: 5 }
+      );
+      if (res?.ok === false && res?.reason === "insufficientAP") {
+        flashTilePlanFailure({
+          description: `Tag ${tagName} > ${tileName}: ${
+            nextDisabled ? "Off" : "On"
+          }`,
+          cost: getTilePlanCost(),
+        });
+      }
+      return res ?? { ok: true };
     };
     if (typeof queueActionWhenPaused === "function") {
       return queueActionWhenPaused(run);
@@ -512,47 +891,7 @@ export function createBoardView(opts) {
   // Tag + system UI helpers live in board/board-tag-ui.js.
 
   function endTagDrag(view, commit, globalPos = null) {
-    const drag = view.tagDrag;
-    if (!drag) return;
-
-    drag.entry.container.scale.set(1);
-    drag.entry.container.alpha = 1;
-    drag.entry.container.zIndex = 0;
-    drag.entry.container.cursor = "grab";
-
-    if (commit && drag.targetIndex !== drag.startIndex) {
-      const tags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
-      if (tags.length === view.tagEntries.length) {
-        const [moved] = tags.splice(drag.startIndex, 1);
-        tags.splice(drag.targetIndex, 0, moved);
-        dispatchTagOrder(view.col, tags);
-      }
-    }
-
-    if (drag.stageMove) {
-      app.stage.off("pointermove", drag.stageMove);
-      app.stage.off("pointerup", drag.stageUp);
-      app.stage.off("pointerupoutside", drag.stageUp);
-    }
-
-    view.tagDrag = null;
-    view.ignoreNextTagTap = !!drag.moved;
-    if (activeTagDrag === view) activeTagDrag = null;
-    tagUi?.layoutTagEntries?.(view);
-
-    if (globalPos) {
-      const inside = isPointerInsideView(
-        view,
-        globalPos,
-        TAG_DRAG_RELEASE_PAD
-      );
-      if (!inside) {
-        clearTileHover(view);
-        if (activeHover?.view === view) activeHover = null;
-      } else {
-        holdHoverAfterTagDrag(view);
-      }
-    }
+    tileTagDragController?.endDrag?.(view, commit, globalPos);
   }
 
   function dispatchHubTagOrder(hubCol, tagIds) {
@@ -577,48 +916,50 @@ export function createBoardView(opts) {
     return run();
   }
 
-  function endHubTagDrag(view, commit, globalPos = null) {
-    const drag = view.tagDrag;
-    if (!drag) return;
-
-    drag.entry.container.scale.set(1);
-    drag.entry.container.alpha = 1;
-    drag.entry.container.zIndex = 0;
-    drag.entry.container.cursor = "grab";
-
-    if (commit && drag.targetIndex !== drag.startIndex) {
-      const tags = Array.isArray(view.structure?.tags)
-        ? view.structure.tags.slice()
-        : [];
-      if (tags.length === view.tagEntries.length) {
-        const [moved] = tags.splice(drag.startIndex, 1);
-        tags.splice(drag.targetIndex, 0, moved);
-        dispatchHubTagOrder(view.col, tags);
+  function dispatchHubTagToggle({ hubCol, tagId, disabled } = {}) {
+    const run = () => {
+      let nextDisabled = disabled;
+      if (typeof nextDisabled !== "boolean") {
+        if (actionPlanner?.getHubTagTogglePreview) {
+          const cur = actionPlanner.getHubTagTogglePreview({ hubCol, tagId });
+          nextDisabled = cur == null ? true : !cur;
+        } else {
+          const state = getGameState?.();
+          const col = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
+          const structure =
+            col != null
+              ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure
+              : null;
+          const cur = structure?.tagStates?.[tagId]?.disabled === true;
+          nextDisabled = !cur;
+        }
       }
-    }
-
-    if (drag.stageMove) {
-      app.stage.off("pointermove", drag.stageMove);
-      app.stage.off("pointerup", drag.stageUp);
-      app.stage.off("pointerupoutside", drag.stageUp);
-    }
-
-    view.tagDrag = null;
-    view.ignoreNextTagTap = !!drag.moved;
-    if (activeHubTagDrag === view) activeHubTagDrag = null;
-    hubTagUi?.layoutTagEntries?.(view);
-
-    if (globalPos) {
-      const inside = isPointerInsideView(
-        view,
-        globalPos,
-        TAG_DRAG_RELEASE_PAD
+      if (actionPlanner?.setHubTagToggleIntent) {
+        return actionPlanner.setHubTagToggleIntent({
+          hubCol,
+          tagId,
+          disabled: nextDisabled,
+        });
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      dispatchAction(
+        ActionKinds.TOGGLE_HUB_TAG,
+        { hubCol, tagId, disabled: nextDisabled },
+        { apCost: 5 }
       );
-      if (!inside) {
-        clearHubStructureHover(view);
-        if (activeHover?.view === view) activeHover = null;
-      }
+      return { ok: true };
+    };
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
     }
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
+      return { ok: false, reason: "mustBePaused" };
+    }
+    return run();
+  }
+
+  function endHubTagDrag(view, commit, globalPos = null) {
+    hubTagDragController?.endDrag?.(view, commit, globalPos);
   }
 
   function startHubTagDrag(view, entry, ev) {
@@ -628,72 +969,11 @@ export function createBoardView(opts) {
     if (activeHubTagDrag && activeHubTagDrag !== view) {
       endHubTagDrag(activeHubTagDrag, false);
     }
+    if (activeTagDrag && activeTagDrag !== view) {
+      endTagDrag(activeTagDrag, false);
+    }
 
-    ev?.stopPropagation?.();
-
-    const entries = view.tagEntries || [];
-    const startIndex = entries.indexOf(entry);
-    if (startIndex < 0) return;
-
-    const local = view.tagContainer.toLocal(ev.data.global);
-    const offsetY = local.y - entry.container.y;
-
-    const dragState = {
-      entry,
-      startIndex,
-      targetIndex: startIndex,
-      offsetY,
-      startY: entry.container.y,
-      moved: false,
-      stageMove: null,
-      stageUp: null,
-    };
-
-    view.tagDrag = dragState;
-    activeHubTagDrag = view;
-
-    entry.container.scale.set(TAG_DRAG_SCALE);
-    entry.container.alpha = 0.95;
-    entry.container.zIndex = 10;
-    entry.container.cursor = "grabbing";
-
-    const onMove = (moveEv) => {
-      const drag = view.tagDrag;
-      if (!drag) return;
-      const localPos = view.tagContainer.toLocal(moveEv.data.global);
-      const rowStep = HUB_TAG_LAYOUT.PILL_HEIGHT + HUB_TAG_LAYOUT.PILL_GAP;
-      const maxY = Math.max(0, (entries.length - 1) * rowStep);
-      const nextY = Math.max(0, Math.min(maxY, localPos.y - drag.offsetY));
-      drag.entry.container.y = nextY;
-      if (Math.abs(nextY - drag.startY) > 2) {
-        drag.moved = true;
-      }
-
-      const centerY = nextY + HUB_TAG_LAYOUT.PILL_HEIGHT / 2;
-      const nextIndex = Math.max(
-        0,
-        Math.min(entries.length - 1, Math.floor(centerY / rowStep))
-      );
-
-      if (nextIndex !== drag.targetIndex) {
-        drag.targetIndex = nextIndex;
-        drag.moved = true;
-        hubTagUi?.layoutTagEntries?.(view);
-      }
-    };
-
-    const onUp = (upEv) => {
-      endHubTagDrag(view, true, upEv?.data?.global ?? null);
-    };
-
-    dragState.stageMove = onMove;
-    dragState.stageUp = onUp;
-
-    app.stage.on("pointermove", onMove);
-    app.stage.on("pointerup", onUp);
-    app.stage.on("pointerupoutside", onUp);
-
-    hubTagUi?.layoutTagEntries?.(view);
+    hubTagDragController?.startDrag?.(view, entry, ev);
   }
 
   function startTagDrag(view, entry, ev) {
@@ -703,72 +983,11 @@ export function createBoardView(opts) {
     if (activeTagDrag && activeTagDrag !== view) {
       endTagDrag(activeTagDrag, false);
     }
+    if (activeHubTagDrag && activeHubTagDrag !== view) {
+      endHubTagDrag(activeHubTagDrag, false);
+    }
 
-    ev?.stopPropagation?.();
-
-    const entries = view.tagEntries || [];
-    const startIndex = entries.indexOf(entry);
-    if (startIndex < 0) return;
-
-    const local = view.tagContainer.toLocal(ev.data.global);
-    const offsetY = local.y - entry.container.y;
-
-    const dragState = {
-      entry,
-      startIndex,
-      targetIndex: startIndex,
-      offsetY,
-      startY: entry.container.y,
-      moved: false,
-      stageMove: null,
-      stageUp: null,
-    };
-
-    view.tagDrag = dragState;
-    activeTagDrag = view;
-
-    entry.container.scale.set(TAG_DRAG_SCALE);
-    entry.container.alpha = 0.95;
-    entry.container.zIndex = 10;
-    entry.container.cursor = "grabbing";
-
-    const onMove = (moveEv) => {
-      const drag = view.tagDrag;
-      if (!drag) return;
-      const localPos = view.tagContainer.toLocal(moveEv.data.global);
-      const rowStep = TAG_LAYOUT.PILL_HEIGHT + TAG_LAYOUT.PILL_GAP;
-      const maxY = Math.max(0, (entries.length - 1) * rowStep);
-      const nextY = Math.max(0, Math.min(maxY, localPos.y - drag.offsetY));
-      drag.entry.container.y = nextY;
-      if (Math.abs(nextY - drag.startY) > 2) {
-        drag.moved = true;
-      }
-
-      const centerY = nextY + TAG_LAYOUT.PILL_HEIGHT / 2;
-      const nextIndex = Math.max(
-        0,
-        Math.min(entries.length - 1, Math.floor(centerY / rowStep))
-      );
-
-      if (nextIndex !== drag.targetIndex) {
-        drag.targetIndex = nextIndex;
-        drag.moved = true;
-        tagUi?.layoutTagEntries?.(view);
-      }
-    };
-
-    const onUp = (upEv) => {
-      endTagDrag(view, true, upEv?.data?.global ?? null);
-    };
-
-    dragState.stageMove = onMove;
-    dragState.stageUp = onUp;
-
-    app.stage.on("pointermove", onMove);
-    app.stage.on("pointerup", onUp);
-    app.stage.on("pointerupoutside", onUp);
-
-    tagUi?.layoutTagEntries?.(view);
+    tileTagDragController?.startDrag?.(view, entry, ev);
   }
 
   // --------------------------------------------------------
@@ -785,6 +1004,31 @@ export function createBoardView(opts) {
       : def?.color ?? 0x6f8a6f;
     const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
     return { def, title, desc, color, tags };
+  }
+
+  function getTileNameByCol(envCol) {
+    const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+    const state = getGameState?.();
+    const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
+    if (tile) {
+      const def = envTileDefs[tile.defId];
+      return def?.name || tile.defId || `Tile ${col}`;
+    }
+    return col != null ? `Tile ${col}` : "Tile";
+  }
+
+  function getTilePlanCost() {
+    return Math.max(
+      0,
+      Math.floor(
+        INTENT_AP_COSTS?.tilePlan ?? INTENT_AP_COSTS?.tileTagOrder ?? 0
+      )
+    );
+  }
+
+  function flashTilePlanFailure(spec) {
+    if (!spec || typeof flashActionGhost !== "function") return;
+    flashActionGhost(spec, "fail");
   }
 
 
@@ -806,8 +1050,26 @@ export function createBoardView(opts) {
     return { def, title, desc, color };
   }
 
+  function getBuildProcess(structureInst) {
+    const processes = Array.isArray(structureInst?.systemState?.build?.processes)
+      ? structureInst.systemState.build.processes
+      : [];
+    return processes.find((proc) => proc?.type === "build") ?? null;
+  }
+
   function getHubStructureUi(structureInst) {
     const def = hubStructureDefs[structureInst.defId];
+    const buildProcess = getBuildProcess(structureInst);
+    if (buildProcess) {
+      const name = def?.name || structureInst.defId || "Structure";
+      return {
+        def,
+        title: `${name} (Construction)`,
+        lines: ["Build in progress."],
+        color: 0x6f6f6f,
+        meters: [],
+      };
+    }
     const ui = def?.ui || {};
     const title =
       (typeof ui.title === "function"
@@ -896,6 +1158,93 @@ export function createBoardView(opts) {
     }
   }
 
+  function updateHubStructureViewUi(view, structureInst) {
+    if (!view || !structureInst) return false;
+    const ui = getHubStructureUi(structureInst);
+    const buildActive = !!getBuildProcess(structureInst);
+    const signature = `${ui.title}|${ui.lines.join("|")}|${ui.color}`;
+    if (signature === view.uiSignature) {
+      if (view.cancelButton) {
+        view.cancelButton.visible = buildActive;
+      }
+      return false;
+    }
+    view.uiSignature = signature;
+
+    if (view.cardFill && view.cardFillColor !== ui.color) {
+      view.cardFill.clear();
+      view.cardFill
+        .beginFill(ui.color)
+        .drawRoundedRect(3, 3, view.cardWidth - 6, view.cardHeight - 6, 8)
+        .endFill();
+      view.cardFillColor = ui.color;
+    }
+
+    if (view.titleText) {
+      view.titleText.text = ui.title;
+    }
+
+    if (Array.isArray(view.lineTextNodes)) {
+      for (const node of view.lineTextNodes) {
+        if (node?.parent) node.parent.removeChild(node);
+      }
+      view.lineTextNodes.length = 0;
+    } else {
+      view.lineTextNodes = [];
+    }
+
+    let y = view.titleText.y + view.titleText.height + 2;
+    const maxLineY = view.cardHeight - 40;
+    for (const line of ui.lines) {
+      const t = new PIXI.Text(line, {
+        fill: 0x000000,
+        fontSize: 10,
+        wordWrap: true,
+        wordWrapWidth: view.cardWidth - 12,
+      });
+      t.x = 6;
+      t.y = y;
+      view.content.addChild(t);
+      view.lineTextNodes.push(t);
+      y += t.height + 1;
+      if (y > maxLineY) break;
+    }
+
+    if (Array.isArray(view.hoverTextBaseNodes)) {
+      view.hoverTextBaseNodes.length = 0;
+      view.hoverTextBaseNodes.push(view.titleText, ...view.lineTextNodes);
+    }
+
+    if (Array.isArray(view.hoverTextNodes)) {
+      view.hoverTextNodes.length = 0;
+      if (Array.isArray(view.hoverTextBaseNodes)) {
+        view.hoverTextNodes.push(...view.hoverTextBaseNodes);
+      }
+      for (const meterView of view.meterViews || []) {
+        if (meterView?.labelText) view.hoverTextNodes.push(meterView.labelText);
+      }
+      for (const entry of view.tagEntries || []) {
+        if (entry?.labelText) view.hoverTextNodes.push(entry.labelText);
+        if (entry?.expandText) view.hoverTextNodes.push(entry.expandText);
+      }
+      setTextResolution(
+        view.hoverTextNodes,
+        view.isHovered ? HOVER_TEXT_RESOLUTION : BASE_TEXT_RESOLUTION
+      );
+    }
+
+    view.tagStartY = Math.min(y + 4, view.cardHeight - 12);
+    view.tagContainer.y = view.tagStartY;
+    view.tagMaxY = view.cardHeight - 6;
+    hubTagUi?.layoutTagEntries?.(view);
+
+    if (view.cancelButton) {
+      view.cancelButton.visible = buildActive;
+    }
+
+    return true;
+  }
+
   // --------------------------------------------------------
   // Tile view
   // --------------------------------------------------------
@@ -969,6 +1318,12 @@ export function createBoardView(opts) {
     const apOverlay = createApOverlay(TILE_WIDTH, TILE_HEIGHT, 8);
     content.addChild(apOverlay);
 
+    const focusOutline = new PIXI.Graphics();
+    focusOutline.lineStyle(2, 0x7fd0ff, 1);
+    focusOutline.drawRoundedRect(2, 2, TILE_WIDTH - 4, TILE_HEIGHT - 4, 6);
+    focusOutline.visible = false;
+    content.addChild(focusOutline);
+
     hoverTextBaseNodes.push(titleText, pawnText);
     hoverTextNodes.push(...hoverTextBaseNodes);
 
@@ -1024,12 +1379,14 @@ export function createBoardView(opts) {
         holdHover: false,
         hoverHoldMove: null,
         holdHoverForOccupant: false,
-        pawnBadge,
-        pawnText,
-        apOverlay,
-        apOverlayAlpha: 0,
-        apOverlayTarget: 0,
-      };
+      pawnBadge,
+      pawnText,
+      apOverlay,
+      apOverlayAlpha: 0,
+      apOverlayTarget: 0,
+      focusOutline,
+      isFocused: false,
+    };
 
     tagUi?.rebuildTileTags?.(view, tileInst);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
@@ -1192,7 +1549,7 @@ export function createBoardView(opts) {
   // Permanent view
   // --------------------------------------------------------
 
-  function buildHubStructureView(structureInst, col) {
+  function buildHubStructureView(structureInst, col, opts = {}) {
     const { title, lines, color, meters } =
       getHubStructureUi(structureInst);
     const span =
@@ -1207,6 +1564,7 @@ export function createBoardView(opts) {
     cont.cursor = "pointer";
     cont.zIndex = 1;
     const hoverTextNodes = [];
+    const hoverTextBaseNodes = [];
     const { content, setActive: setHoverActive } = attachHoverFx(
       cont,
       width,
@@ -1215,19 +1573,17 @@ export function createBoardView(opts) {
       () => hoverTextNodes
     );
 
-    content.addChild(
-      new PIXI.Graphics()
-        .beginFill(0x3a3a3a)
-        .drawRoundedRect(0, 0, width, height, 10)
-        .endFill()
-    );
+    const baseBg = new PIXI.Graphics()
+      .beginFill(0x3a3a3a)
+      .drawRoundedRect(0, 0, width, height, 10)
+      .endFill();
+    content.addChild(baseBg);
 
-    content.addChild(
-      new PIXI.Graphics()
-        .beginFill(color)
-        .drawRoundedRect(3, 3, width - 6, height - 6, 8)
-        .endFill()
-    );
+    const cardFill = new PIXI.Graphics()
+      .beginFill(color)
+      .drawRoundedRect(3, 3, width - 6, height - 6, 8)
+      .endFill();
+    content.addChild(cardFill);
 
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
@@ -1238,9 +1594,11 @@ export function createBoardView(opts) {
     titleText.x = 6;
     titleText.y = 6;
     content.addChild(titleText);
+    hoverTextBaseNodes.push(titleText);
     hoverTextNodes.push(titleText);
 
     let y = titleText.y + titleText.height + 2;
+    const lineTextNodes = [];
     for (const line of lines) {
       const t = new PIXI.Text(line, {
         fill: 0x000000,
@@ -1251,6 +1609,8 @@ export function createBoardView(opts) {
       t.x = 6;
       t.y = y;
       content.addChild(t);
+      lineTextNodes.push(t);
+      hoverTextBaseNodes.push(t);
       hoverTextNodes.push(t);
       y += t.height + 1;
       if (y > height - 40) break;
@@ -1285,6 +1645,67 @@ export function createBoardView(opts) {
     const apOverlay = createApOverlay(width, height, 10);
     content.addChild(apOverlay);
 
+    const focusOutline = new PIXI.Graphics();
+    focusOutline.lineStyle(2, 0x7fd0ff, 1);
+    focusOutline.drawRoundedRect(2, 2, width - 4, height - 4, 8);
+    focusOutline.visible = false;
+    content.addChild(focusOutline);
+
+    const cancelButton = new PIXI.Container();
+    cancelButton.eventMode = "static";
+    cancelButton.cursor = "pointer";
+    cancelButton.x = Math.max(6, width - 58);
+    cancelButton.y = 6;
+    cancelButton.visible = !!getBuildProcess(structureInst);
+
+    const cancelBg = new PIXI.Graphics()
+      .beginFill(0x8a1f2a, 0.9)
+      .drawRoundedRect(0, 0, 52, 16, 6)
+      .endFill();
+    cancelButton.addChild(cancelBg);
+
+    const cancelText = new PIXI.Text("Cancel", {
+      fill: 0xffffff,
+      fontSize: 9,
+      fontWeight: "bold",
+    });
+    cancelText.x = 6;
+    cancelText.y = 2;
+    cancelButton.addChild(cancelText);
+
+    cancelButton.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      if (typeof queueActionWhenPaused !== "function" || !dispatchAction) return;
+      const anchorCol = Number.isFinite(structureInst?.col)
+        ? Math.floor(structureInst.col)
+        : Number.isFinite(col)
+        ? Math.floor(col)
+        : 0;
+      queueActionWhenPaused(() => {
+        const state = getGameState?.();
+        const nowSec = Math.floor(state?.tSec ?? 0);
+        const buildProcess = getBuildProcess(structureInst);
+        const startedSec = Number.isFinite(buildProcess?.startSec)
+          ? Math.floor(buildProcess.startSec)
+          : null;
+        const isSameSec = startedSec != null && startedSec === nowSec;
+        const buildKey = `hub:${anchorCol}`;
+
+        if (isSameSec && actionPlanner?.removeIntent) {
+          const removeRes = actionPlanner.removeIntent(`build:${buildKey}`);
+          if (removeRes?.ok) return removeRes;
+        }
+
+        return dispatchAction(
+          ActionKinds.BUILD_CANCEL,
+          { hubCol: anchorCol, defId: structureInst.defId },
+          { apCost: 0 }
+        );
+      });
+    });
+
+    content.addChild(cancelButton);
+
     function structureHasInventory() {
       const s = getGameState?.();
       return !!s?.ownerInventories?.[structureInst.instanceId];
@@ -1292,10 +1713,15 @@ export function createBoardView(opts) {
 
     const view = {
       container: cont,
+      content,
       structure: structureInst,
       col,
+      isHovered: false,
       pawnCount: 0,
       meterViews,
+      lineTextNodes,
+      titleText,
+      hoverTextBaseNodes,
       tagContainer,
       tagStartY,
       tagMaxY,
@@ -1309,10 +1735,22 @@ export function createBoardView(opts) {
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
+      cardFill,
+      cardFillColor: color,
+      cardWidth: width,
+      cardHeight: height,
+      uiSignature: null,
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      focusOutline,
+      isFocused: false,
+      cancelButton,
     };
+
+    if (opts?.expandedTagId) {
+      view.expandedTagId = opts.expandedTagId;
+    }
 
     hubTagUi?.rebuildStructureTags?.(view, structureInst);
 
@@ -1325,29 +1763,8 @@ export function createBoardView(opts) {
         col,
         clear: () => clearHubStructureHover(view),
       });
-      setHoverActive(true);
-      elevateForHover(cont);
-      const anchor = getScaledAnchorRect(
-        cont,
-        width,
-        height,
-        GAMEPIECE_HOVER_SCALE
-      );
-      setHoverContext("hub", col, span, anchor);
-
-      tooltipView?.show?.(
-        { title, lines, scale: GAMEPIECE_HOVER_SCALE },
-        anchor
-      );
-
-      if (inventoryView && structureHasInventory()) {
-        inventoryView.showOnHover(structureInst.instanceId, {
-          x: anchor.x,
-          y: anchor.y,
-          width: anchor.width,
-          height: anchor.height,
-        });
-      }
+      if (view.isHovered) return;
+      applyHubStructureHover(view);
     });
 
     cont.on("pointerleave", () => {
@@ -1387,10 +1804,10 @@ export function createBoardView(opts) {
   function getPawnCountsByCol(state, cols) {
     const countLen = Number.isFinite(cols) ? Math.max(0, cols) : BOARD_COLS;
     const counts = new Array(countLen).fill(0);
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
-    for (const ch of chars) {
-      const col = Number.isFinite(ch?.envCol)
-        ? Math.floor(ch.envCol)
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    for (const pawn of pawns) {
+      const col = Number.isFinite(pawn?.envCol)
+        ? Math.floor(pawn.envCol)
         : null;
       if (col == null || col < 0 || col >= counts.length) continue;
       counts[col] += 1;
@@ -1401,10 +1818,10 @@ export function createBoardView(opts) {
   function getPawnCountsByHub(state, cols) {
     const countLen = Number.isFinite(cols) ? Math.max(0, cols) : HUB_COLS;
     const counts = new Array(countLen).fill(0);
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
-    for (const ch of chars) {
-      const col = Number.isFinite(ch?.hubCol)
-        ? Math.floor(ch.hubCol)
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    for (const pawn of pawns) {
+      const col = Number.isFinite(pawn?.hubCol)
+        ? Math.floor(pawn.hubCol)
         : null;
       if (col == null || col < 0 || col >= counts.length) continue;
       counts[col] += 1;
@@ -1620,7 +2037,14 @@ export function createBoardView(opts) {
           existing.structure.instanceId !== structureInst.instanceId
         ) {
           if (existing) removeFromParent(existing.container);
-          hubStructureViews.set(id, buildHubStructureView(structureInst, col));
+          const expandedTagId = hubExpandedTagById.get(structureInst.instanceId) ?? null;
+          hubStructureViews.set(
+            id,
+            buildHubStructureView(structureInst, col, { expandedTagId })
+          );
+        } else {
+          existing.structure = structureInst;
+          existing.col = anchorCol;
         }
     }
 
@@ -1634,6 +2058,7 @@ export function createBoardView(opts) {
     for (const view of hubStructureViews.values()) {
       const col = Number.isFinite(view.col) ? view.col : 0;
       view.pawnCount = pawnCounts[col] || 0;
+      updateHubStructureViewUi(view, view.structure);
       if (view.meterViews.length > 0) {
         updateMeters(view.meterViews, view.structure);
       }
@@ -1661,6 +2086,15 @@ export function createBoardView(opts) {
       ? { x: lastPointerPos.x, y: lastPointerPos.y }
       : null;
     if (activeHover) clearActiveHover();
+
+    hubExpandedTagById.clear();
+    for (const view of hubStructureViews.values()) {
+      const id = view?.structure?.instanceId;
+      if (id == null) continue;
+      if (view.expandedTagId) {
+        hubExpandedTagById.set(id, view.expandedTagId);
+      }
+    }
 
     tileLayer.removeChildren();
     eventLayer.removeChildren();
@@ -1692,8 +2126,8 @@ export function createBoardView(opts) {
 
   function updateApDragOverlays(dt) {
     const drag = interaction?.getDragged?.();
-    const isCharDrag = drag?.type === "character" && drag?.id != null;
-    const charId = isCharDrag ? drag.id : null;
+    const isPawnDrag = drag?.type === "pawn" && drag?.id != null;
+    const pawnId = isPawnDrag ? drag.id : null;
     const state = getGameState?.();
     const envCols = Number.isFinite(state?.board?.cols)
       ? Math.floor(state.board.cols)
@@ -1705,17 +2139,17 @@ export function createBoardView(opts) {
     const invalidEnv = new Set();
     const invalidHub = new Set();
 
-    if (isCharDrag && typeof actionPlanner?.getPawnMoveAffordability === "function") {
+    if (isPawnDrag && typeof actionPlanner?.getPawnMoveAffordability === "function") {
       for (let col = 0; col < envCols; col++) {
         const aff = actionPlanner.getPawnMoveAffordability({
-          charId,
+          pawnId,
           toEnvCol: col,
         });
         if (aff?.ok && aff.affordable === false) invalidEnv.add(col);
       }
       for (let col = 0; col < hubCols; col++) {
         const aff = actionPlanner.getPawnMoveAffordability({
-          charId,
+          pawnId,
           toHubCol: col,
         });
         if (aff?.ok && aff.affordable === false) invalidHub.add(col);
@@ -1725,7 +2159,7 @@ export function createBoardView(opts) {
     for (const view of tileViews) {
       if (!view) continue;
       const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
-      const isInvalid = isCharDrag && col != null && invalidEnv.has(col);
+      const isInvalid = isPawnDrag && col != null && invalidEnv.has(col);
       view.apOverlayTarget = isInvalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
     }
@@ -1748,7 +2182,7 @@ export function createBoardView(opts) {
       let invalid = false;
       for (let c = base; c < base + span; c++) {
         coveredHubCols.add(c);
-        if (isCharDrag && invalidHub.has(c)) invalid = true;
+        if (isPawnDrag && invalidHub.has(c)) invalid = true;
       }
       view.apOverlayTarget = invalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
@@ -1758,7 +2192,7 @@ export function createBoardView(opts) {
       if (!view) continue;
       const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
       const isInvalid =
-        isCharDrag &&
+        isPawnDrag &&
         col != null &&
         !coveredHubCols.has(col) &&
         invalidHub.has(col);
@@ -1767,7 +2201,7 @@ export function createBoardView(opts) {
     }
 
     let hoverInvalid = false;
-    if (isCharDrag && lastPointerPos) {
+    if (isPawnDrag && lastPointerPos) {
       for (const view of tileViews) {
         if (!view) continue;
         const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
@@ -1816,6 +2250,7 @@ export function createBoardView(opts) {
     syncTiles(s, cols);
     syncEvents(s, cols);
     syncHubStructures(s, hubCols);
+    updatePlanFocus();
 
     if (activeHover?.view?.holdHoverForOccupant) {
       const view = activeHover.view;
@@ -1840,7 +2275,25 @@ export function createBoardView(opts) {
     }
   }
 
-  return { init, rebuildAll, update };
+  function getInventoryOwnerAtGlobalPos(globalPos) {
+    if (!globalPos) return null;
+    for (const view of hubStructureViews.values()) {
+      if (!view?.container?.visible) continue;
+      if (!view.structureHasInventory?.()) continue;
+      const bounds = view.container.getBounds();
+      if (
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
+      ) {
+        return view.structure?.instanceId ?? null;
+      }
+    }
+    return null;
+  }
+
+  return { init, rebuildAll, update, getInventoryOwnerAtGlobalPos };
 }
 
 /**

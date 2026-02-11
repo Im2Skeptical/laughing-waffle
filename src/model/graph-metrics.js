@@ -73,6 +73,23 @@ export const GRAPH_METRICS = {
       },
     ],
   },
+  population: {
+    id: "population",
+    label: "Population",
+    series: [
+      {
+        id: "population",
+        label: "Population",
+        color: 0xb8a4ff,
+        getValue: (state, _subject) =>
+          state?.resources?.population ?? state?.population ?? 0,
+        getValueFromSnapshot: (snapshot, _subject) =>
+          snapshot?.resources?.population ?? snapshot?.population ?? 0,
+        formatValue: (value) =>
+          Number.isFinite(value) ? `${Math.floor(value)}` : "0",
+      },
+    ],
+  },
 };
 
 function mergeSeries(metrics) {
@@ -92,7 +109,12 @@ function mergeSeries(metrics) {
 GRAPH_METRICS.all = {
   id: "all",
   label: "All",
-  series: mergeSeries([GRAPH_METRICS.gold, GRAPH_METRICS.food, GRAPH_METRICS.ap]),
+  series: mergeSeries([
+    GRAPH_METRICS.gold,
+    GRAPH_METRICS.food,
+    GRAPH_METRICS.ap,
+    GRAPH_METRICS.population,
+  ]),
 };
 
 export function getGraphMetric(metricId) {

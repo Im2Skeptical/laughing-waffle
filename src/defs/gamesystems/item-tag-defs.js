@@ -1,30 +1,28 @@
 // item-tag-defs.js
 // Item tag registry (data only).
 
+import {
+  PERISHABLE_ROT_CHANCE_PER_SEC,
+  PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
+} from "../gamesettings/gamerules-defs.js";
+
 export const itemTagDefs = {
-  rotatable: {
-    id: "rotatable",
+  perishable: {
+    id: "perishable",
     kind: "itemTag",
-    ui: { name: "Rotatable", description: "Can decay into rot over time." },
-    systems: ["freshness"],
+    ui: { name: "Perishable", description: "Can decay into rot over time." },
+    systems: ["perishability"],
     passives: [
       {
         id: "rotTick",
         timing: { cadenceSec: 1 },
         effect: [
           {
-            op: "AddToSystemState",
-            target: { ref: "self" },
-            system: "freshness",
-            key: "ageSec",
-            amount: 1,
-          },
-          {
-            op: "CheckItemRot",
-            system: "freshness",
-            ageKey: "ageSec",
-            chanceFromDefKey: "rotChancePerSec",
-            rotKind: "rot",
+            op: "ExpireItemChance",
+            chance: PERISHABLE_ROT_CHANCE_PER_SEC,
+            tierSystemId: "perishability",
+            tierMultiplierByTier: PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
+            targetKind: "rot",
           },
         ],
       },
@@ -51,7 +49,7 @@ export const itemTagDefs = {
     id: "edible",
     kind: "itemTag",
     ui: { name: "Edible", description: "Can be eaten." },
-    systems: [],
+    systems: ["nourishment"],
     passives: [],
     intents: [],
   },
@@ -63,10 +61,10 @@ export const itemTagDefs = {
     passives: [],
     intents: [],
   },
-  crop: {
-    id: "crop",
+  seed: {
+    id: "seed",
     kind: "itemTag",
-    ui: { name: "Crop", description: "Agricultural good." },
+    ui: { name: "Seed", description: "Agricultural good." },
     systems: [],
     passives: [],
     intents: [],
@@ -76,6 +74,37 @@ export const itemTagDefs = {
     kind: "itemTag",
     ui: { name: "Grain", description: "Stored in granaries for prestige." },
     systems: [],
+    passives: [],
+    intents: [],
+  },
+  prestiged: {
+    id: "prestiged",
+    kind: "itemTag",
+    ui: {
+      name: "Prestiged",
+      description:
+        "Withdrawn from communal storage; does not count for prestige when redeposited.",
+    },
+    systems: [],
+    passives: [],
+    intents: [],
+  },
+  wearable: {
+    id: "wearable",
+    kind: "itemTag",
+    ui: { name: "Wearable", description: "Can be equipped by leaders." },
+    systems: ["wearable"],
+    passives: [],
+    intents: [],
+  },
+  portableStorage: {
+    id: "portableStorage",
+    kind: "itemTag",
+    ui: {
+      name: "Portable Storage",
+      description: "Provides a portable storage pool when equipped.",
+    },
+    systems: ["storage"],
     passives: [],
     intents: [],
   },

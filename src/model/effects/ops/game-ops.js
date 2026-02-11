@@ -248,8 +248,31 @@ export function handleSpawnFromDropTable(state, effect, context) {
   if (!table.length) return false;
 
   const entry = selectWeightedEntry(state, table, { tags });
-  if (!entry || !passesDropChance(state, entry)) return false;
-  if (!entry.kind) return false;
+  if (!entry) return false;
+
+  // IMPORTANT: chance failure is still a RESOLVED roll (treat as miss)
+  if (!passesDropChance(state, entry)) {
+    if (effect?.debug === true) {
+      console.log("[dropTable] resolved miss (chance fail)", {
+        tableKey,
+        sourceDefId: source?.defId,
+        entry,
+      });
+    }
+    return true;
+  }
+
+  // IMPORTANT: miss/null entry is also a RESOLVED roll (no spawn, but not a failure)
+  if (!entry.kind) {
+    if (effect?.debug === true) {
+      console.log("[dropTable] resolved miss (null entry)", {
+        tableKey,
+        sourceDefId: source?.defId,
+        entry,
+      });
+    }
+    return true;
+  }
 
   const kind = entry.kind;
   if (!kind || !itemDefs[kind]) return false;
@@ -264,22 +287,38 @@ export function handleSpawnFromDropTable(state, effect, context) {
         ? effect.tier
         : itemDefs[kind]?.defaultTier ?? "bronze";
 
-  const targetSpec = resolveDropTarget(effect, context);
-  if (!targetSpec) return false;
+  // If the effect doesn't specify a target, default to the acting pawn (if known)
+  // otherwise fall back to tile occupants.
+  const targets = resolveOwnerTargets(state, resolveDropTarget(effect, context), context);
 
-  return handleSpawnItem(
-    state,
-    {
-      op: "SpawnItem",
-      itemKind: kind,
-      amount: quantity,
-      target: targetSpec,
-      perOwner: effect.perOwner,
+  // If we rolled an actual item but have nowhere to put it, this is a real failure
+  // (keep returning false so upstream can surface/debug it).
+  if (!targets.length) return false;
+
+
+  let changed = false;
+  for (const target of targets) {
+    const ownerId = typeof target === "object" ? target.id : target;
+    if (ownerId == null) continue;
+    const added = addTieredUnits(state, ownerId, kind, tier, quantity);
+    if (added > 0) changed = true;
+  }
+
+  if (effect?.debug === true) {
+    console.log("[dropTable] spawned", {
+      tableKey,
+      sourceDefId: source?.defId,
+      kind,
+      quantity,
       tier,
-    },
-    context
-  );
+      changed,
+    });
+  }
+
+  // Spawn success should still return "changed" (true only if something was added).
+  return changed;
 }
+
 
 function sortItemsForConsumption(items, order) {
   const tierOrder = Array.isArray(order) ? order : TIER_ASC;
@@ -387,6 +426,13 @@ function maturedPoolHasAny(pool) {
   );
 }
 
+const DEFAULT_DROP_RARITY_WEIGHTS = Object.freeze({
+  bronze: 60,
+  silver: 35,
+  gold: 5,
+  diamond: 1,
+});
+
 function resolveDropTableForTile(source, tableKey) {
   const registry =
     tableKey && forageDropTables && typeof forageDropTables === "object"
@@ -395,13 +441,82 @@ function resolveDropTableForTile(source, tableKey) {
   if (!registry || typeof registry !== "object") return [];
 
   const tileDefId = typeof source?.defId === "string" ? source.defId : null;
-  const byTile =
-    tileDefId && Array.isArray(registry.byTile?.[tileDefId])
-      ? registry.byTile[tileDefId]
-      : null;
-  const table = byTile ?? registry.default;
-  return normalizeDropTable(table);
+  const tableDef =
+    tileDefId && registry.byTile && typeof registry.byTile === "object"
+      ? registry.byTile[tileDefId] ?? registry.default
+      : registry.default;
+
+  if (!tableDef || typeof tableDef !== "object") return [];
+  if (!Array.isArray(tableDef.drops) || tableDef.drops.length === 0) return [];
+
+  const compiled = compileTieredDropTable(tableDef, registry);
+  return normalizeDropTable(compiled);
 }
+
+function compileTieredDropTable(tableDef, registry) {
+  const tierWeights =
+    (tableDef.tierWeights && typeof tableDef.tierWeights === "object"
+      ? tableDef.tierWeights
+      : null) ??
+    (registry?.tierWeights && typeof registry.tierWeights === "object"
+      ? registry.tierWeights
+      : null) ??
+    DEFAULT_DROP_RARITY_WEIGHTS;
+
+  const nullWeightRaw =
+    Number.isFinite(tableDef.nullWeight) ? tableDef.nullWeight : null;
+  const registryNullRaw =
+    Number.isFinite(registry?.nullWeight) ? registry.nullWeight : null;
+  const nullWeight = Math.max(0, nullWeightRaw ?? registryNullRaw ?? 0);
+
+  const out = [];
+  let hasExplicitMiss = false;
+
+  for (const entry of tableDef.drops) {
+    if (!entry || typeof entry !== "object") continue;
+
+    const hasKind =
+      typeof entry.kind === "string" && entry.kind.trim().length > 0;
+    const isMiss = entry.miss === true || entry.empty === true || !hasKind;
+
+    // Escape hatch: allow explicit numeric weight.
+    let weight = Number.isFinite(entry.weight) ? Math.max(0, entry.weight) : null;
+
+    if (weight == null) {
+      const rarity = typeof entry.rarity === "string" ? entry.rarity : "bronze";
+      const base = Number.isFinite(tierWeights[rarity])
+        ? Math.max(0, tierWeights[rarity])
+        : 0;
+      const mul = Number.isFinite(entry.mul) ? Math.max(0, entry.mul) : 1;
+      weight = base * mul;
+    }
+
+    if (!Number.isFinite(weight) || weight <= 0) continue;
+
+    // Only count explicit miss if it actually contributes weight.
+    if (isMiss) hasExplicitMiss = true;
+
+    const compiled = {
+      kind: isMiss ? null : entry.kind.trim(),
+      weight,
+    };
+
+    if (Number.isFinite(entry.qtyMin)) compiled.qtyMin = entry.qtyMin;
+    if (Number.isFinite(entry.qtyMax)) compiled.qtyMax = entry.qtyMax;
+    if (Number.isFinite(entry.chance)) compiled.chance = entry.chance;
+    if (entry.requiresTag != null) compiled.requiresTag = entry.requiresTag;
+    if (typeof entry.tier === "string") compiled.tier = entry.tier;
+
+    out.push(compiled);
+  }
+
+  if (!hasExplicitMiss && nullWeight > 0) {
+    out.push({ kind: null, weight: nullWeight });
+  }
+
+  return out;
+}
+
 
 function normalizeDropTable(table) {
   const list = Array.isArray(table) ? table : [];

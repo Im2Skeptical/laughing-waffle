@@ -28,6 +28,45 @@ function getCurrencyGroupInfoForIntent(intent) {
   });
 }
 
+function getTilePlanKey(intent) {
+  if (!intent || typeof intent !== "object") return null;
+  if (
+    intent.kind === "tileTagOrder" ||
+    intent.kind === "tileTagToggle" ||
+    intent.kind === "tileCropSelect"
+  ) {
+    if (!Number.isFinite(intent.envCol)) return null;
+    return `tilePlan:${Math.floor(intent.envCol)}`;
+  }
+  return null;
+}
+
+function getHubPlanKey(intent) {
+  if (!intent || typeof intent !== "object") return null;
+  if (
+    intent.kind === "hubTagOrder" ||
+    intent.kind === "hubTagToggle" ||
+    intent.kind === "hubRecipeSelect"
+  ) {
+    if (!Number.isFinite(intent.hubCol)) return null;
+    return `hubPlan:${Math.floor(intent.hubCol)}`;
+  }
+  return null;
+}
+
+function getTilePlanCost() {
+  return INTENT_AP_COSTS.tilePlan ?? INTENT_AP_COSTS.tileTagOrder ?? 0;
+}
+
+function getHubPlanCost() {
+  return (
+    INTENT_AP_COSTS.hubPlan ??
+    INTENT_AP_COSTS.tilePlan ??
+    INTENT_AP_COSTS.hubTagOrder ??
+    0
+  );
+}
+
 export function estimateIntentApCost(intent, { stateStart } = {}) {
   if (!intent || typeof intent !== "object") return 0;
 
@@ -82,9 +121,21 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
       if (tagsEqual(intent.tagIds, intent.baselineTags)) return 0;
       return INTENT_AP_COSTS.hubTagOrder ?? INTENT_AP_COSTS.tileTagOrder ?? 0;
     }
+    case "tileTagToggle": {
+      if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) return 0;
+      return INTENT_AP_COSTS.tileTagToggle ?? INTENT_AP_COSTS.tileTagOrder ?? 0;
+    }
+    case "hubTagToggle": {
+      if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) return 0;
+      return INTENT_AP_COSTS.hubTagToggle ?? INTENT_AP_COSTS.hubTagOrder ?? 0;
+    }
     case "tileCropSelect": {
       if ((intent.cropId ?? null) === (intent.baselineCropId ?? null)) return 0;
       return INTENT_AP_COSTS.tileCropSelect ?? 0;
+    }
+    case "hubRecipeSelect": {
+      if ((intent.recipeId ?? null) === (intent.baselineRecipeId ?? null)) return 0;
+      return INTENT_AP_COSTS.hubRecipeSelect ?? INTENT_AP_COSTS.hubPlan ?? 0;
     }
     default:
       return 0;
@@ -97,6 +148,10 @@ export function computeIntentCostSummary(intents, ctx = {}) {
   let total = 0;
 
   const currencyGroups = new Map();
+  const tilePlanGroups = new Map();
+  const tilePlanIntentIds = new Set();
+  const hubPlanGroups = new Map();
+  const hubPlanIntentIds = new Set();
 
   for (const intent of list) {
     if (!intent) continue;
@@ -114,10 +169,58 @@ export function computeIntentCostSummary(intents, ctx = {}) {
   }
 
   for (const intent of list) {
+    const tilePlanKey = getTilePlanKey(intent);
+    if (tilePlanKey) {
+      const intentId = intent?.id ?? intent?.subjectKey ?? null;
+      if (intentId != null) tilePlanIntentIds.add(intentId);
+      const cost = estimateIntentApCost(intent, ctx);
+      if (cost > 0 && intentId != null) {
+        let group = tilePlanGroups.get(tilePlanKey);
+        if (!group) {
+          group = { intentIds: [], anchorId: null };
+          tilePlanGroups.set(tilePlanKey, group);
+        }
+        if (!group.intentIds.includes(intentId)) {
+          group.intentIds.push(intentId);
+        }
+        if (!group.anchorId) group.anchorId = intentId;
+      }
+    }
+  }
+
+  for (const intent of list) {
+    const hubPlanKey = getHubPlanKey(intent);
+    if (hubPlanKey) {
+      const intentId = intent?.id ?? intent?.subjectKey ?? null;
+      if (intentId != null) hubPlanIntentIds.add(intentId);
+      const cost = estimateIntentApCost(intent, ctx);
+      if (cost > 0 && intentId != null) {
+        let group = hubPlanGroups.get(hubPlanKey);
+        if (!group) {
+          group = { intentIds: [], anchorId: null };
+          hubPlanGroups.set(hubPlanKey, group);
+        }
+        if (!group.intentIds.includes(intentId)) {
+          group.intentIds.push(intentId);
+        }
+        if (!group.anchorId) group.anchorId = intentId;
+      }
+    }
+  }
+
+  for (const intent of list) {
     const cost = estimateIntentApCost(intent, ctx);
     const key = intent?.id ?? intent?.subjectKey ?? null;
     if (key == null) continue;
     if (getCurrencyGroupInfoForIntent(intent)) {
+      byId[key] = 0;
+      continue;
+    }
+    if (tilePlanIntentIds.has(key)) {
+      byId[key] = 0;
+      continue;
+    }
+    if (hubPlanIntentIds.has(key)) {
       byId[key] = 0;
       continue;
     }
@@ -133,6 +236,28 @@ export function computeIntentCostSummary(intents, ctx = {}) {
     const cost = estimateIntentApCost(baseIntent, ctx);
     byId[firstId] = cost;
     total += cost;
+  }
+
+  const tilePlanCost = getTilePlanCost();
+  if (tilePlanCost > 0) {
+    for (const group of tilePlanGroups.values()) {
+      if (!group || !group.intentIds?.length) continue;
+      const anchorId = group.anchorId ?? group.intentIds[0] ?? null;
+      if (!anchorId) continue;
+      byId[anchorId] = tilePlanCost;
+      total += tilePlanCost;
+    }
+  }
+
+  const hubPlanCost = getHubPlanCost();
+  if (hubPlanCost > 0) {
+    for (const group of hubPlanGroups.values()) {
+      if (!group || !group.intentIds?.length) continue;
+      const anchorId = group.anchorId ?? group.intentIds[0] ?? null;
+      if (!anchorId) continue;
+      byId[anchorId] = hubPlanCost;
+      total += hubPlanCost;
+    }
   }
 
   return { total, byId };

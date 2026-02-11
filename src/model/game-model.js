@@ -21,10 +21,12 @@ import {
   cmdTickSimulation,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
-  cmdPlaceCharacter,
+  cmdPlacePawn,
   cmdSetPaused,
   cmdSetTileTagOrder,
   cmdSetTileCropSelection,
+  cmdBuildDesignate,
+  cmdCancelBuild,
   canOwnerAcceptItem,
   cmdAdjustFollowerCount,
 } from "./commands.js";
@@ -57,8 +59,8 @@ export function tryMoveItemBetweenOwners(state, args) {
   return cmdMoveItemBetweenOwners(state, args);
 }
 
-export function placeCharacter(state, args) {
-  return cmdPlaceCharacter(state, args);
+export function placePawn(state, args) {
+  return cmdPlacePawn(state, args);
 }
 
 export function splitStackAndPlace(state, args) {
@@ -105,10 +107,12 @@ export {
   cmdTickSimulation,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
-  cmdPlaceCharacter,
+  cmdPlacePawn,
   cmdSetPaused,
   cmdSetTileTagOrder,
   cmdSetTileCropSelection,
+  cmdBuildDesignate,
+  cmdCancelBuild,
   cmdAdjustFollowerCount,
   canOwnerAcceptItem,
 };

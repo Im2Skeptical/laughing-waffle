@@ -1,78 +1,93 @@
 # Targeting Dictionary
 
-Reference for effect `target` specs and owner targeting. Use this when authoring env events, tags, and systems that need to point at tiles, events, hub structures, or characters.
+Reference for effect `target` specs used by effect ops.
 
-## Board Targets (tiles, events, hub structures)
-Used by board ops and system ops.
+## Board Targets (`resolveBoardTargets`)
+Used by system ops, tag ops, event ops, and prop ops.
 
-### Common Shapes
+### Supported layers
+- `tile`
+- `event`
+- `hub`
+
+### Common shapes
 - `{ all: true, layer: "tile" }`
 - `{ at: { layer: "tile", col: 3 } }`
 - `{ ref: "self" }`
 - `{ ref: "self", layer: "tile" }`
-- `{ ref: { kind: "tileWhere", where: {...} }, area: {...}, layer: "tile" }`
+- `{ ref: "pawn" }`
+- `{ ref: { kind: "tileWhere", where: { ... } }, layer: "tile" }`
+- `{ ref: "self", layer: "tile", area: { kind: "adjacent", radius: 1 } }`
+- `{ layer: "hub", where: { hasTag: "distributor" } }`
 
-### Layers
-- `"tile"`: env tiles
-- `"event"`: env events
-- `"hub"`: hub structures
+### Selection behavior
 
-### `ref` (reference sources)
-- `"self"`: uses `context.source`.
-  - With a `layer`, uses `source.col`/`source.span` to resolve cols on that layer.
-  - Without a `layer`, returns the source object directly.
-  - Span-aware: if the source has `span`, the ref covers all occupied cols.
-- `"pawn"`: resolves the interacting pawn from context.
-- `{ kind: "tileWhere", where: {...} }`: uses every tile that matches `where`.
+#### `all`
+- `{ all: true, layer }`
+- `tile` / `event`: scans occupancy array, dedupes by anchor/instance.
+- `hub`: uses `state.hub.anchors` when present, otherwise structures from `state.hub.slots`.
 
-### `area` (spatial expansion)
-- `{ kind: "adjacent", radius: N }`
-  - Expands `ref` cols by `-N..+N` (clamped to board).
-  - Union + dedupe by col.
-  - Returned in ascending col order.
+#### `at`
+- `{ at: { layer, col } }`
+- Returns the single target occupying that column (if any).
 
-### `where` (tile filters)
-Applies after `all/at/ref/area` selection. These checks target `target.defId`, `target.tags`, and `target.systemState`, so they are meaningful for any target with those fields.
+#### `ref`
+- `ref: "self"`
+  - If no `layer` and no `at`/`area`: returns `[context.source]`.
+  - With `layer`: uses `context.source.col` and `context.source.span` to resolve columns.
+- `ref: "pawn"`
+  - Resolves from `context.pawn`, else `context.pawnId`, else `context.ownerId`.
+- `ref: { kind: "tileWhere", where }`
+  - Builds reference columns from tiles matching `where`.
 
-- `where.tileId: string` (matches `target.defId`)
-- `where.hasTag: string`
-- `where.hasAllTags: string[]`
-- `where.hasAnyTags: string[]`
-- `where.notTag: string`
-- `where.excludeTags: string[]`
-- `where.systemAtLeast: { system, key, gte }`
-- `where.systemAtMost: { system, key, lte }`
-- `where.systemBetween: { system, key, min, max }`
+#### `area`
+- Supported shape: `{ kind: "adjacent", radius }`.
+- Applies to resolved ref columns and expands by `-radius..+radius`, clamped to board.
 
-### Determinism Notes
-- Column iteration is ascending.
-- Dedupe is by column (for `ref`/`area` expansions).
+#### `where`
+`where` filters the selected targets by `defId`, `tags`, and system-state numeric checks.
 
-### Examples
-```js
-// All farmable tiles
-{ all: true, layer: "tile", where: { hasTag: "farmable" } }
+- `tileId: string | string[]`
+- `hasTag: string | string[]`
+- `hasAllTags: string[]`
+- `hasAnyTags: string[]`
+- `notTag: string`
+- `excludeTags: string[]`
+- `systemAtLeast: { system, key, gte } | Array<...>`
+- `systemAtMost: { system, key, lte } | Array<...>`
+- `systemBetween: { system, key, min, max } | Array<...>`
 
-// The tile under the current event's span, plus one tile either side
-{ ref: "self", layer: "tile", area: { kind: "adjacent", radius: 1 } }
+### Determinism
+- Column scans are ascending.
+- Dedupe is stable by first encounter (instance id/object identity).
+- Ref/area column expansion is deterministic.
 
-// Any tile with hydration.sumRatio >= 50
-{ all: true, layer: "tile", where: { systemAtLeast: { system: "hydration", key: "sumRatio", gte: 50 } } }
-```
+## Owner Targets (`resolveOwnerTargets`)
+Used by `ConsumeItem`, `TransferUnits`, `SpawnItem`, `SpawnFromDropTable`.
 
-## Owner Targets (characters)
-Used by ops like `ConsumeItem`, `TransferUnits`, `SpawnItem`.
-
-### Shapes
+### Supported shapes
+- `{ ref: "selfInv" }`
+  - In `context.kind === "item"`: uses `context.ownerId`.
+  - Otherwise: uses `context.source.instanceId`.
 - `{ kind: "tileOccupants" }`
-  - Col resolution order: `target.envCol` -> `context.envCol` -> `context.source.col`.
-  - Deterministic owner order: `state.characters` array order.
-- Note: this only resolves env tile occupants (no hub occupant target spec).
-- `{ ref: "selfInv" }` (inventory of `context.source` instance)
-- `{ ownerId: 101 }`
-- `{ ownerIds: [101, 102, 103] }`
+  - If `context.pawn` exists: returns `[context.pawn]`.
+  - Else if `context.pawnId` or `context.ownerId` resolves to a character: returns that pawn only.
+  - Else resolves env column in this order:
+    - `target.envCol`
+    - `context.envCol`
+    - `context.source.col`
+  - Returns characters on that env col in `state.characters` order.
+- `{ ownerId: ... }`
+- `{ ownerIds: [...] }`
 
-### Example
-```js
-{ kind: "tileOccupants" }
-```
+### Return type notes
+- Resolver may return pawn objects or raw owner ids depending on spec.
+- Game ops normalize each target by using `target.id` when object, otherwise raw id.
+
+## Skill Tree Targeting Scope (Outside Effect Target Resolvers)
+- Skill tree node effects do not use `target` specs or `resolveBoardTargets` / `resolveOwnerTargets`.
+- Targeting is implied by effect bucket:
+  - `effects.characterMods`: applies only to the character that unlocked the node.
+  - `effects.globalMods`: aggregates across all characters and applies globally.
+  - `effects.unlocks.recipes` / `effects.unlocks.hubStructures`: global unlock gates for recipe and build availability.
+- Aggregation is deterministic (character and node id ordering is normalized in `src/model/skills.js`).

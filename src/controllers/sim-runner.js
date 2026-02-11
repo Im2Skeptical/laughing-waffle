@@ -40,6 +40,7 @@ export function createSimRunner({
   onInvalidate,
   onRebuildViews,
   onPlannerApReject,
+  setupId = "testing",
 }) {
   // State
   let timeline = null;
@@ -380,11 +381,14 @@ export function createSimRunner({
     if (!action || typeof action !== "object") return false;
     const kind = action.kind;
     if (
-      kind === "placeCharacter" ||
+      kind === "placePawn" ||
       kind === "buildDesignate" ||
       kind === "setTileTagOrder" ||
       kind === "setTileCropSelection" ||
-      kind === "setHubTagOrder"
+      kind === "setHubRecipeSelection" ||
+      kind === "setHubTagOrder" ||
+      kind === "toggleTileTag" ||
+      kind === "toggleHubTag"
     ) {
       return true;
     }
@@ -402,9 +406,12 @@ export function createSimRunner({
       const itemId = payload.itemId ?? payload.item?.id ?? null;
       return itemId != null ? `item:${itemId}` : null;
     }
-    if (action.kind === "placeCharacter") {
-      const charId = payload.charId ?? null;
-      return charId != null ? `pawn:${charId}` : null;
+    if (action.kind === "placePawn") {
+      const pawnId =
+        payload.pawnId != null
+          ? payload.pawnId
+          : null;
+      return pawnId != null ? `pawn:${pawnId}` : null;
     }
     if (action.kind === "buildDesignate") {
       const buildKey = payload.buildKey ?? payload.targetKey ?? null;
@@ -421,6 +428,27 @@ export function createSimRunner({
     if (action.kind === "setHubTagOrder") {
       const hubCol = payload.hubCol ?? null;
       return Number.isFinite(hubCol) ? `hubTags:${Math.floor(hubCol)}` : null;
+    }
+    if (action.kind === "setHubRecipeSelection") {
+      const hubCol = payload.hubCol ?? null;
+      const systemId = payload.systemId ?? null;
+      return Number.isFinite(hubCol) && systemId
+        ? `hubRecipe:${Math.floor(hubCol)}:${systemId}`
+        : null;
+    }
+    if (action.kind === "toggleTileTag") {
+      const envCol = payload.envCol ?? null;
+      const tagId = payload.tagId ?? null;
+      return Number.isFinite(envCol) && tagId
+        ? `tileTagToggle:${Math.floor(envCol)}:${tagId}`
+        : null;
+    }
+    if (action.kind === "toggleHubTag") {
+      const hubCol = payload.hubCol ?? null;
+      const tagId = payload.tagId ?? null;
+      return Number.isFinite(hubCol) && tagId
+        ? `hubTagToggle:${Math.floor(hubCol)}:${tagId}`
+        : null;
     }
     return null;
   }
@@ -634,7 +662,7 @@ export function createSimRunner({
   // API
   return {
     init() {
-      initGameState(gameState, "testing");
+      initGameState(gameState, setupId);
       cursorState = gameState;
 
       syncPhaseToPaused(cursorState);
@@ -852,7 +880,7 @@ export function createSimRunner({
       onRebuildViews?.();
       onInvalidate?.("actionDispatched");
 
-      return { ok: true };
+      return exec && typeof exec === "object" ? exec : { ok: true };
     },
 
     commitCursorSecond(tSec, stateData) {
@@ -947,6 +975,7 @@ export function createSimRunner({
     saveToSlot,
     loadFromSlot,
     getSaveSlotMeta,
+    getSetupId: () => setupId,
     getSaveSlotCount: () => saveSlotCount,
   };
 }

@@ -4,6 +4,7 @@
 import { ActionKinds } from "../../model/actions.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
+import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import {
   IntentKinds,
   makeItemTransferIntent,
@@ -12,6 +13,9 @@ import {
   makeTileTagOrderIntent,
   makeTileCropSelectIntent,
   makeHubTagOrderIntent,
+  makeHubRecipeSelectIntent,
+  makeTileTagToggleIntent,
+  makeHubTagToggleIntent,
   getIntentSubjectKey,
 } from "./action-intents.js";
 import {
@@ -19,6 +23,8 @@ import {
   computeIntentCostSummary,
 } from "./action-costs.js";
 import { placementEquals } from "./action-placement-utils.js";
+import { validateHubConstructionPlacement } from "../../model/build-helpers.js";
+import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
 
 function clonePlacement(p) {
   return p ? { ...p } : null;
@@ -43,6 +49,31 @@ function cloneTagList(tags) {
 function normalizeTagList(tags) {
   if (!Array.isArray(tags)) return [];
   return tags.filter((tag) => typeof tag === "string");
+}
+
+function getTagDisableState(target, tagId) {
+  if (!target || !tagId) {
+    return { disabled: false, playerDisabled: false, eventDisabledCount: 0 };
+  }
+  const entry = target.tagStates?.[tagId];
+  if (!entry || typeof entry !== "object") {
+    return { disabled: false, playerDisabled: false, eventDisabledCount: 0 };
+  }
+  const disabledBy =
+    entry.disabledBy && typeof entry.disabledBy === "object"
+      ? entry.disabledBy
+      : null;
+  const playerDisabled = disabledBy?.player === true;
+  const eventDisabledCount = Number.isFinite(disabledBy?.eventCount)
+    ? Math.max(0, Math.floor(disabledBy.eventCount))
+    : 0;
+  const legacyDisabled = entry.disabled === true && !disabledBy;
+  const disabled = legacyDisabled || playerDisabled || eventDisabledCount > 0;
+  return { disabled, playerDisabled, eventDisabledCount };
+}
+
+function isTagDisabled(target, tagId) {
+  return getTagDisableState(target, tagId).disabled === true;
 }
 
 function tagListsEqual(a, b) {
@@ -94,6 +125,27 @@ function normalizeCropId(value) {
   return String(value);
 }
 
+function normalizeRecipeId(value) {
+  if (value == null || value === "") return null;
+  return String(value);
+}
+
+function getRecipeKindForHubSystem(systemId) {
+  if (systemId === "fireplace") return "cook";
+  if (systemId === "workspace") return "craft";
+  return null;
+}
+
+function normalizeBuildHubCol(target) {
+  if (!target || typeof target !== "object") return null;
+  const raw =
+    target.hubCol ??
+    target.col ??
+    target.hub ??
+    null;
+  return Number.isFinite(raw) ? Math.floor(raw) : null;
+}
+
 export function createActionPlanner({
   getTimeline,
   getState,
@@ -117,7 +169,7 @@ export function createActionPlanner({
     apPreview: null,
     costSummary: null,
     previewByOwner: new Map(),
-    characterOverrides: new Map(),
+    pawnOverrides: new Map(),
   };
 
   function bump(reason) {
@@ -135,7 +187,7 @@ export function createActionPlanner({
     cache.apPreview = null;
     cache.costSummary = null;
     cache.previewByOwner.clear();
-    cache.characterOverrides.clear();
+    cache.pawnOverrides.clear();
   }
 
   function getTimelineSafe() {
@@ -293,9 +345,9 @@ export function createActionPlanner({
         continue;
       }
 
-      if (kind === ActionKinds.PLACE_CHARACTER) {
-        const charId = payload.charId ?? null;
-        if (charId == null) continue;
+      if (kind === ActionKinds.PLACE_PAWN) {
+        const pawnId = payload.pawnId != null ? payload.pawnId : null;
+        if (pawnId == null) continue;
 
         const toHubCol =
           payload.toHubCol ??
@@ -317,11 +369,11 @@ export function createActionPlanner({
           normalizePawnPlacement(payload.toPlacement) ??
           makePawnPlacement({ hubCol: toHubCol, envCol: toEnvCol });
 
-        const subjectKey = `pawn:${charId}`;
+        const subjectKey = `pawn:${pawnId}`;
         const intent = makePawnMoveIntent({
           id: subjectKey,
           subjectKey,
-          charId,
+          pawnId,
           fromPlacement,
           toPlacement,
           baselinePlacement: clonePlacement(toPlacement),
@@ -399,6 +451,54 @@ export function createActionPlanner({
         continue;
       }
 
+      if (kind === ActionKinds.TOGGLE_TILE_TAG) {
+        const envCol = payload.envCol ?? null;
+        const tagId = payload.tagId ?? null;
+        if (!Number.isFinite(envCol) || !tagId) continue;
+        const col = Math.floor(envCol);
+        const subjectKey = `tileTagToggle:${col}:${tagId}`;
+        const disabled = payload.disabled === true;
+        const intent = makeTileTagToggleIntent({
+          id: subjectKey,
+          subjectKey,
+          envCol: col,
+          tagId,
+          disabled,
+          baselineDisabled: disabled,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
+      if (kind === ActionKinds.TOGGLE_HUB_TAG) {
+        const hubCol = payload.hubCol ?? null;
+        const tagId = payload.tagId ?? null;
+        if (!Number.isFinite(hubCol) || !tagId) continue;
+        const col = Math.floor(hubCol);
+        const subjectKey = `hubTagToggle:${col}:${tagId}`;
+        const disabled = payload.disabled === true;
+        const intent = makeHubTagToggleIntent({
+          id: subjectKey,
+          subjectKey,
+          hubCol: col,
+          tagId,
+          disabled,
+          baselineDisabled: disabled,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
       if (kind === ActionKinds.SET_TILE_CROP_SELECTION) {
         const envCol = payload.envCol ?? null;
         if (!Number.isFinite(envCol)) continue;
@@ -411,6 +511,30 @@ export function createActionPlanner({
           envCol: col,
           cropId,
           baselineCropId: cropId,
+          apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
+          source: "timeline",
+        });
+
+        baselineIntents.set(subjectKey, intent);
+        intents.set(subjectKey, cloneIntent(intent));
+        if (!intentOrder.includes(subjectKey)) intentOrder.push(subjectKey);
+        continue;
+      }
+
+      if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) {
+        const hubCol = payload.hubCol ?? null;
+        const systemId = payload.systemId ?? null;
+        if (!Number.isFinite(hubCol) || !systemId) continue;
+        const col = Math.floor(hubCol);
+        const subjectKey = `hubRecipe:${col}:${systemId}`;
+        const recipeId = normalizeRecipeId(payload.recipeId);
+        const intent = makeHubRecipeSelectIntent({
+          id: subjectKey,
+          subjectKey,
+          hubCol: col,
+          systemId,
+          recipeId,
+          baselineRecipeId: recipeId,
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
           source: "timeline",
         });
@@ -449,7 +573,7 @@ export function createActionPlanner({
     };
 
     buildInventoryPreviewCaches();
-    buildCharacterOverrideCache();
+    buildPawnOverrideCache();
 
     cache.dirty = false;
   }
@@ -566,8 +690,8 @@ export function createActionPlanner({
     return entry;
   }
 
-  function buildCharacterOverrideCache() {
-    cache.characterOverrides.clear();
+  function buildPawnOverrideCache() {
+    cache.pawnOverrides.clear();
 
     for (const [key, baseIntent] of baselineIntents.entries()) {
       if (baseIntent.kind !== IntentKinds.PAWN_MOVE) continue;
@@ -576,8 +700,8 @@ export function createActionPlanner({
       const baseFrom = baseIntent.fromPlacement ?? null;
       if (!cur) {
         if (baseFrom) {
-          cache.characterOverrides.set(
-            baseIntent.charId,
+          cache.pawnOverrides.set(
+            baseIntent.pawnId,
             clonePlacement(baseFrom)
           );
         }
@@ -585,8 +709,8 @@ export function createActionPlanner({
       }
       const curTo = cur.toPlacement ?? null;
       if (curTo && !placementEquals(curTo, baseTo)) {
-        cache.characterOverrides.set(
-          baseIntent.charId,
+        cache.pawnOverrides.set(
+          baseIntent.pawnId,
           clonePlacement(curTo)
         );
       }
@@ -599,8 +723,8 @@ export function createActionPlanner({
       const baseFrom = curIntent.baselinePlacement ?? null;
       const curTo = curIntent.toPlacement ?? null;
       if (curTo && !placementEquals(curTo, baseFrom)) {
-        cache.characterOverrides.set(
-          curIntent.charId,
+        cache.pawnOverrides.set(
+          curIntent.pawnId,
           clonePlacement(curTo)
         );
       }
@@ -792,7 +916,7 @@ export function createActionPlanner({
   }
 
   function setPawnMoveIntent({
-    charId,
+    pawnId,
     fromHubCol,
     fromEnvCol,
     toHubCol,
@@ -801,7 +925,8 @@ export function createActionPlanner({
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
-    if (charId == null) return { ok: false, reason: "noChar" };
+    const resolvedPawnId = pawnId != null ? pawnId : null;
+    if (resolvedPawnId == null) return { ok: false, reason: "noPawn" };
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
     }
@@ -819,18 +944,18 @@ export function createActionPlanner({
       }
     }
 
-    const subjectKey = `pawn:${charId}`;
+    const subjectKey = `pawn:${resolvedPawnId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
 
     let fromPlacement = existing?.fromPlacement ?? null;
     let baselinePlacement = existing?.baselinePlacement ?? null;
 
     if (!fromPlacement) {
-      const ch = state.characters?.find((c) => c.id === charId);
-      if (ch) {
+      const pawn = state.pawns?.find((candidatePawn) => candidatePawn.id === resolvedPawnId);
+      if (pawn) {
         fromPlacement = makePawnPlacement({
-          hubCol: ch.hubCol,
-          envCol: ch.envCol,
+          hubCol: pawn.hubCol,
+          envCol: pawn.envCol,
         });
       }
     }
@@ -854,7 +979,7 @@ export function createActionPlanner({
     const intent = makePawnMoveIntent({
       id: subjectKey,
       subjectKey,
-      charId,
+      pawnId: resolvedPawnId,
       fromPlacement,
       toPlacement,
       baselinePlacement: baselinePlacement || clonePlacement(fromPlacement),
@@ -874,7 +999,7 @@ export function createActionPlanner({
   }
 
   function buildPawnMoveIntentForPreview({
-    charId,
+    pawnId,
     fromHubCol,
     fromEnvCol,
     toHubCol,
@@ -882,23 +1007,24 @@ export function createActionPlanner({
   }) {
     ensureActive();
     const state = getStateSafe();
-    if (charId == null) return { ok: false, reason: "noChar" };
+    const resolvedPawnId = pawnId != null ? pawnId : null;
+    if (resolvedPawnId == null) return { ok: false, reason: "noPawn" };
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
     }
 
-    const subjectKey = `pawn:${charId}`;
+    const subjectKey = `pawn:${resolvedPawnId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
 
     let fromPlacement = existing?.fromPlacement ?? null;
     let baselinePlacement = existing?.baselinePlacement ?? null;
 
     if (!fromPlacement) {
-      const ch = state?.characters?.find((c) => c.id === charId);
-      if (ch) {
+      const pawn = state?.pawns?.find((candidatePawn) => candidatePawn.id === resolvedPawnId);
+      if (pawn) {
         fromPlacement = makePawnPlacement({
-          hubCol: ch.hubCol,
-          envCol: ch.envCol,
+          hubCol: pawn.hubCol,
+          envCol: pawn.envCol,
         });
       }
     }
@@ -925,7 +1051,7 @@ export function createActionPlanner({
     const intent = makePawnMoveIntent({
       id: subjectKey,
       subjectKey,
-      charId,
+      pawnId: resolvedPawnId,
       fromPlacement,
       toPlacement,
       baselinePlacement: baselinePlacement || clonePlacement(fromPlacement),
@@ -1056,17 +1182,34 @@ export function createActionPlanner({
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
-    if (!buildKey) return { ok: false, reason: "noBuildKey" };
+    const targetCol = normalizeBuildHubCol(target);
+    const resolvedKey =
+      buildKey ||
+      (Number.isFinite(targetCol) ? `hub:${Math.floor(targetCol)}` : null);
+    if (!resolvedKey) return { ok: false, reason: "noBuildKey" };
+    if (!defId) return { ok: false, reason: "badDefId" };
 
-    const subjectKey = `build:${buildKey}`;
+    const placementCheck = validateHubConstructionPlacement(
+      state,
+      defId,
+      targetCol
+    );
+    if (!placementCheck?.ok) return placementCheck || { ok: false, reason: "badPlacement" };
+
+    const subjectKey = `build:${resolvedKey}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+
+    const normalizedTarget =
+      target && typeof target === "object"
+        ? { ...target, hubCol: placementCheck.hubCol }
+        : { hubCol: placementCheck.hubCol };
 
     const intent = makeBuildDesignateIntent({
       id: subjectKey,
       subjectKey,
-      buildKey,
+      buildKey: resolvedKey,
       defId: defId ?? existing?.defId ?? null,
-      target: target ?? existing?.target ?? null,
+      target: normalizedTarget ?? existing?.target ?? null,
       apCostOverride:
         existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
       source: existing?.source ?? "planner",
@@ -1156,6 +1299,127 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
+  function setTileTagToggleIntent({ envCol, tagId, disabled }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+    if (!tagId) return { ok: false, reason: "badTagId" };
+
+    const col = Math.floor(envCol);
+    const tile = state?.board?.occ?.tile?.[col];
+    if (!tile) return { ok: false, reason: "noTile" };
+    const tags = Array.isArray(tile.tags) ? tile.tags : [];
+    if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnTile" };
+
+    const subjectKey = `tileTagToggle:${col}:${tagId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const currentState = getTagDisableState(tile, tagId);
+    const baselineDisabled =
+      existing?.baselineDisabled ?? currentState.disabled;
+    const nextDisabled =
+      typeof disabled === "boolean" ? disabled : !baselineDisabled;
+    if (!nextDisabled && currentState.eventDisabledCount > 0) {
+      return { ok: false, reason: "tagLockedByEvent" };
+    }
+
+    const intent = makeTileTagToggleIntent({
+      id: subjectKey,
+      subjectKey,
+      envCol: col,
+      tagId,
+      disabled: nextDisabled,
+      baselineDisabled,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
+  function setHubTagToggleIntent({ hubCol, tagId, disabled }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+    if (!tagId) return { ok: false, reason: "badTagId" };
+
+    const col = Math.floor(hubCol);
+    const structure = getHubStructureAtCol(state, col);
+    if (!structure) return { ok: false, reason: "noHubStructure" };
+    const tags = Array.isArray(structure.tags) ? structure.tags : [];
+    if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnHub" };
+
+    const subjectKey = `hubTagToggle:${col}:${tagId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const currentState = getTagDisableState(structure, tagId);
+    const baselineDisabled =
+      existing?.baselineDisabled ?? currentState.disabled;
+    const nextDisabled =
+      typeof disabled === "boolean" ? disabled : !baselineDisabled;
+    if (!nextDisabled && currentState.eventDisabledCount > 0) {
+      return { ok: false, reason: "tagLockedByEvent" };
+    }
+
+    const intent = makeHubTagToggleIntent({
+      id: subjectKey,
+      subjectKey,
+      hubCol: col,
+      tagId,
+      disabled: nextDisabled,
+      baselineDisabled,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if ((intent.disabled ?? null) === (intent.baselineDisabled ?? null)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
+  function getTileTagTogglePreview({ envCol, tagId } = {}) {
+    ensureActive();
+    if (!Number.isFinite(envCol) || !tagId) return null;
+    const col = Math.floor(envCol);
+    const subjectKey = `tileTagToggle:${col}:${tagId}`;
+    const intent = intents.get(subjectKey);
+    if (intent && intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
+      return intent.disabled === true;
+    }
+    const state = getStateSafe();
+    const tile = state?.board?.occ?.tile?.[col];
+    return tile?.tagStates?.[tagId]?.disabled === true;
+  }
+
+  function getHubTagTogglePreview({ hubCol, tagId } = {}) {
+    ensureActive();
+    if (!Number.isFinite(hubCol) || !tagId) return null;
+    const col = Math.floor(hubCol);
+    const subjectKey = `hubTagToggle:${col}:${tagId}`;
+    const intent = intents.get(subjectKey);
+    if (intent && intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
+      return intent.disabled === true;
+    }
+    const state = getStateSafe();
+    const structure =
+      state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure ?? null;
+    return structure?.tagStates?.[tagId]?.disabled === true;
+  }
+
   function setTileCropSelectionIntent({ envCol, cropId }) {
     ensureActive();
     const state = getStateSafe();
@@ -1193,6 +1457,70 @@ export function createActionPlanner({
     });
 
     if ((intent.cropId ?? null) === (intent.baselineCropId ?? null)) {
+      return removeIntentByKey(subjectKey);
+    }
+
+    const afford = canAffordIntent(intent, existing?.id);
+    if (!afford.ok) return afford;
+
+    return setIntent(intent);
+  }
+
+  function setHubRecipeSelectionIntent({ hubCol, systemId, recipeId }) {
+    ensureActive();
+    const state = getStateSafe();
+    if (!state?.paused) return { ok: false, reason: "mustBePaused" };
+    if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+    if (!systemId) return { ok: false, reason: "badSystemId" };
+
+    const anchorCol = normalizeHubColForStructure(state, hubCol);
+    if (!Number.isFinite(anchorCol)) return { ok: false, reason: "badHubCol" };
+    const structure = getHubStructureAtCol(state, anchorCol);
+    if (!structure) return { ok: false, reason: "noHubStructure" };
+
+    const hasSystem =
+      structure.systemState?.[systemId] ||
+      Object.prototype.hasOwnProperty.call(structure.systemTiers || {}, systemId);
+    if (!hasSystem) return { ok: false, reason: "missingSystem" };
+
+    const nextRecipeId = normalizeRecipeId(recipeId);
+    if (nextRecipeId && !recipeDefs[nextRecipeId]) {
+      return { ok: false, reason: "badRecipeId" };
+    }
+    if (nextRecipeId) {
+      const availability = computeAvailableRecipesAndBuildings(state);
+      if (!availability.recipeIds?.has(nextRecipeId)) {
+        return { ok: false, reason: "recipeLocked" };
+      }
+    }
+    if (nextRecipeId) {
+      const expectedKind = getRecipeKindForHubSystem(systemId);
+      const actualKind = recipeDefs[nextRecipeId]?.kind ?? null;
+      if (expectedKind && actualKind && expectedKind !== actualKind) {
+        return { ok: false, reason: "badRecipeKind" };
+      }
+    }
+
+    const subjectKey = `hubRecipe:${anchorCol}:${systemId}`;
+    const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
+    const currentRecipeId =
+      structure.systemState?.[systemId]?.selectedRecipeId ?? null;
+    const baselineRecipeId =
+      existing?.baselineRecipeId ?? existing?.recipeId ?? currentRecipeId;
+
+    const intent = makeHubRecipeSelectIntent({
+      id: subjectKey,
+      subjectKey,
+      hubCol: anchorCol,
+      systemId,
+      recipeId: nextRecipeId,
+      baselineRecipeId,
+      apCostOverride:
+        existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
+      source: existing?.source ?? "planner",
+    });
+
+    if ((intent.recipeId ?? null) === (intent.baselineRecipeId ?? null)) {
       return removeIntentByKey(subjectKey);
     }
 
@@ -1245,7 +1573,7 @@ export function createActionPlanner({
             ? costById[intent.id]
             : estimateIntentApCost(intent, { stateStart: state });
         const payload = {
-          charId: intent.charId,
+          pawnId: intent.pawnId,
           fromPlacement: clonePlacement(intent.fromPlacement),
           toPlacement: clonePlacement(toPlacement),
         };
@@ -1260,7 +1588,7 @@ export function createActionPlanner({
           payload.fromEnvCol = intent.fromPlacement?.envCol ?? null;
         }
         actions.push({
-          kind: ActionKinds.PLACE_CHARACTER,
+          kind: ActionKinds.PLACE_PAWN,
           payload,
           apCost,
         });
@@ -1306,6 +1634,36 @@ export function createActionPlanner({
           },
           apCost,
         });
+      } else if (intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
+        if (!Number.isFinite(intent.envCol) || !intent.tagId) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.TOGGLE_TILE_TAG,
+          payload: {
+            envCol: Math.floor(intent.envCol),
+            tagId: intent.tagId,
+            disabled: intent.disabled === true,
+          },
+          apCost,
+        });
+      } else if (intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
+        if (!Number.isFinite(intent.hubCol) || !intent.tagId) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.TOGGLE_HUB_TAG,
+          payload: {
+            hubCol: Math.floor(intent.hubCol),
+            tagId: intent.tagId,
+            disabled: intent.disabled === true,
+          },
+          apCost,
+        });
       } else if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
         if (!Number.isFinite(intent.envCol)) continue;
         const apCost =
@@ -1317,6 +1675,21 @@ export function createActionPlanner({
           payload: {
             envCol: Math.floor(intent.envCol),
             cropId: intent.cropId ?? null,
+          },
+          apCost,
+        });
+      } else if (intent.kind === IntentKinds.HUB_RECIPE_SELECT) {
+        if (!Number.isFinite(intent.hubCol) || !intent.systemId) continue;
+        const apCost =
+          intent?.id != null && Number.isFinite(costById[intent.id])
+            ? costById[intent.id]
+            : estimateIntentApCost(intent, { stateStart: state });
+        actions.push({
+          kind: ActionKinds.SET_HUB_RECIPE_SELECTION,
+          payload: {
+            hubCol: Math.floor(intent.hubCol),
+            systemId: intent.systemId,
+            recipeId: intent.recipeId ?? null,
           },
           apCost,
         });
@@ -1400,13 +1773,13 @@ export function createActionPlanner({
         }
       );
     },
-    getCharacterOverridePlacement(charId) {
+    getPawnOverridePlacement(pawnId) {
       ensureCaches();
-      return cache.characterOverrides.get(charId) ?? null;
+      return cache.pawnOverrides.get(pawnId) ?? null;
     },
-    getCharacterOverrideHubCol(charId) {
+    getPawnOverrideHubCol(pawnId) {
       ensureCaches();
-      const placement = cache.characterOverrides.get(charId) ?? null;
+      const placement = cache.pawnOverrides.get(pawnId) ?? null;
       return placement?.hubCol ?? null;
     },
     hasItemTransferIntent(itemId) {
@@ -1425,7 +1798,12 @@ export function createActionPlanner({
     setBuildDesignationIntent,
     setTileTagOrderIntent,
     setHubTagOrderIntent,
+    setTileTagToggleIntent,
+    setHubTagToggleIntent,
+    getTileTagTogglePreview,
+    getHubTagTogglePreview,
     setTileCropSelectionIntent,
+    setHubRecipeSelectionIntent,
     removeIntent(intentId) {
       ensureActive();
       return removeIntentByKey(intentId);
