@@ -10,6 +10,9 @@ import {
   INITIAL_POPULATION_DEFAULT,
   POPULATION_GROWTH_FULL_FEED_RATE,
   POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER,
+  YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE,
+  YEAR_END_SKILL_POINTS_POPULATION_CHANGE,
+  YEAR_END_SKILL_POINTS_POPULATION_HALVING,
   SEASON_DISPLAY,
 } from "../defs/gamesettings/gamerules-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
@@ -663,6 +666,81 @@ function itemKindHasTag(kind, tagId) {
   return tags.includes(tagId);
 }
 
+function itemHasTag(item, tagId) {
+  if (!item || !tagId) return false;
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  if (tags.includes(tagId)) return true;
+  return itemKindHasTag(item.kind, tagId);
+}
+
+function countInventoryItemsByTag(state, tagId) {
+  if (!state?.ownerInventories || !tagId) return 0;
+  let total = 0;
+  for (const inv of Object.values(state.ownerInventories)) {
+    const items = Array.isArray(inv?.items) ? inv.items : [];
+    for (const item of items) {
+      if (!itemHasTag(item, tagId)) continue;
+      total += Math.max(0, Math.floor(item.quantity ?? 0));
+    }
+  }
+  return total;
+}
+
+function countByKindTierPoolForTag(byKindTier, tagId) {
+  if (!byKindTier || typeof byKindTier !== "object" || !tagId) return 0;
+  let total = 0;
+  for (const [kind, tierBucket] of Object.entries(byKindTier)) {
+    if (!itemKindHasTag(kind, tagId)) continue;
+    if (!tierBucket || typeof tierBucket !== "object") continue;
+    for (const qty of Object.values(tierBucket)) {
+      total += Math.max(0, Math.floor(qty ?? 0));
+    }
+  }
+  return total;
+}
+
+function countPooledItemsByTag(state, tagId) {
+  if (!state || !tagId) return 0;
+  const structures = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+  let total = 0;
+  for (const structure of structures) {
+    if (!structure || typeof structure !== "object") continue;
+    const systems = structure.systemState;
+    if (!systems || typeof systems !== "object") continue;
+    for (const systemState of Object.values(systems)) {
+      const byKindTier = systemState?.byKindTier;
+      total += countByKindTierPoolForTag(byKindTier, tagId);
+    }
+  }
+  return total;
+}
+
+function computeYearEndFoodTotals(state) {
+  const grainTotal =
+    countInventoryItemsByTag(state, "grain") + countPooledItemsByTag(state, "grain");
+  const edibleTotal =
+    countInventoryItemsByTag(state, "edible") + countPooledItemsByTag(state, "edible");
+  return {
+    grainTotal: Math.max(0, Math.floor(grainTotal)),
+    edibleTotal: Math.max(0, Math.floor(edibleTotal)),
+  };
+}
+
+function getYearEndSkillPointsAward(outcomeKind) {
+  const noChange = Number.isFinite(YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE)
+    ? Math.max(0, Math.floor(YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE))
+    : 0;
+  const changed = Number.isFinite(YEAR_END_SKILL_POINTS_POPULATION_CHANGE)
+    ? Math.max(0, Math.floor(YEAR_END_SKILL_POINTS_POPULATION_CHANGE))
+    : noChange;
+  const halving = Number.isFinite(YEAR_END_SKILL_POINTS_POPULATION_HALVING)
+    ? Math.max(0, Math.floor(YEAR_END_SKILL_POINTS_POPULATION_HALVING))
+    : noChange;
+  if (outcomeKind === "populationHalved") return halving;
+  if (outcomeKind === "populationChanged") return changed;
+  return noChange;
+}
+
 function getPoolTierQuantity(bucket, tier) {
   if (!bucket || typeof bucket !== "object") return 0;
   return Math.max(0, Math.floor(bucket[tier] ?? 0));
@@ -843,6 +921,7 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
 
   let nextPopulation = previousPopulation;
   let outcomeText = "population held steady";
+  let outcomeKind = "populationUnchanged";
   if (attempts > 0 && misses === 0) {
     const growthRate = Number.isFinite(POPULATION_GROWTH_FULL_FEED_RATE)
       ? Math.max(0, POPULATION_GROWTH_FULL_FEED_RATE)
@@ -850,12 +929,14 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
     const growth = Math.max(1, Math.floor(previousPopulation * growthRate));
     nextPopulation = previousPopulation + growth;
     outcomeText = `full feeding growth (+${growth})`;
+    outcomeKind = "populationChanged";
   } else if (attempts > 0 && successes === 0) {
     const collapseMultiplier = Number.isFinite(POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
       ? Math.max(0, POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
       : 0.5;
     nextPopulation = Math.floor(previousPopulation * collapseMultiplier);
     outcomeText = "complete starvation collapse";
+    outcomeKind = "populationHalved";
   } else if (attempts === 0) {
     outcomeText = "no seasonal meal attempts";
   } else {
@@ -864,17 +945,53 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
   nextPopulation = normalizePopulationCount(nextPopulation, previousPopulation);
   setPopulationCount(state, nextPopulation);
 
+  const skillPointsPerLeader = getYearEndSkillPointsAward(outcomeKind);
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  let leaderCount = 0;
+  for (const pawn of pawns) {
+    if (!pawn || pawn.role !== PAWN_ROLE_LEADER) continue;
+    const current = Number.isFinite(pawn.skillPoints)
+      ? Math.max(0, Math.floor(pawn.skillPoints))
+      : 0;
+    pawn.skillPoints = current + skillPointsPerLeader;
+    leaderCount += 1;
+  }
+  const totalSkillPointsAwarded = leaderCount * skillPointsPerLeader;
+  const foodTotals = computeYearEndFoodTotals(state);
+
   const priorYear = Math.max(1, currentYear - 1);
   pushGameEvent(state, {
     type: "populationYearlyUpdate",
     tSec,
-    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})`,
+    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText}), +${skillPointsPerLeader} skill points to each leader`,
     data: {
       year: priorYear,
       previousPopulation,
       nextPopulation,
       mealAttempts: attempts,
       mealSuccesses: successes,
+      mealMisses: misses,
+      populationOutcome: outcomeKind,
+      skillPointsPerLeader,
+      leaderCount,
+      totalSkillPointsAwarded,
+      grainTotal: foodTotals.grainTotal,
+      edibleTotal: foodTotals.edibleTotal,
+      yearEndPerformance: {
+        year: priorYear,
+        previousPopulation,
+        nextPopulation,
+        populationDelta: nextPopulation - previousPopulation,
+        populationOutcome: outcomeKind,
+        mealAttempts: attempts,
+        mealSuccesses: successes,
+        mealMisses: misses,
+        grainTotal: foodTotals.grainTotal,
+        edibleTotal: foodTotals.edibleTotal,
+        skillPointsPerLeader,
+        leaderCount,
+        totalSkillPointsAwarded,
+      },
     },
   });
 
