@@ -877,7 +877,7 @@ function resolveOwnerKind(state, ownerId) {
     if (!anchor) continue;
     if (String(anchor.instanceId) === String(ownerId)) return "env";
   }
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   for (const ch of chars) {
     if (!ch) continue;
     if (String(ch.id) === String(ownerId)) return "pawn";
@@ -1018,7 +1018,7 @@ function buildEndpointIdForStore(kind, store, target, systemId, poolKey) {
 
 function listOccupyingPawnIds(state, anchorInfo) {
   if (!state || !anchorInfo) return [];
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   const start = anchorInfo.col;
   const end = anchorInfo.col + Math.max(1, anchorInfo.span) - 1;
   const occupants = [];
@@ -1311,7 +1311,7 @@ function resolvePoolOwner(state, ownerKind, ownerId) {
     }
   }
   if (ownerKind === "pawn") {
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
     for (const ch of chars) {
       if (!ch) continue;
       if (String(ch.id) === String(ownerId)) return ch;
@@ -1376,7 +1376,7 @@ export function resolveEndpointTarget(state, endpointId) {
   }
   if (endpointId.startsWith("sys:pawn:")) {
     const id = endpointId.slice("sys:pawn:".length);
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
     for (const ch of chars) {
       if (ch?.id != null && String(ch.id) === String(id)) {
         return { kind: "system", target: ch };

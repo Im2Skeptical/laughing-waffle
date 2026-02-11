@@ -1,6 +1,6 @@
 function getCharsOnCol(state, col) {
   const out = [];
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   for (const ch of chars) {
     const envCol = Number.isFinite(ch?.envCol) ? Math.floor(ch.envCol) : null;
     if (envCol === col) out.push(ch);
@@ -30,7 +30,7 @@ export function resolveOwnerTargets(state, targetSpec, context) {
       const directId =
         context?.pawnId != null ? context.pawnId : context?.ownerId;
       if (directId != null) {
-        const chars = Array.isArray(state?.characters) ? state.characters : [];
+        const chars = Array.isArray(state?.pawns) ? state.pawns : [];
         for (const ch of chars) {
           if (ch?.id === directId) return [ch];
         }

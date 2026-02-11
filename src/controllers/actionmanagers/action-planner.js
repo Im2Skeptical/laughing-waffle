@@ -169,7 +169,7 @@ export function createActionPlanner({
     apPreview: null,
     costSummary: null,
     previewByOwner: new Map(),
-    characterOverrides: new Map(),
+    pawnOverrides: new Map(),
   };
 
   function bump(reason) {
@@ -187,7 +187,7 @@ export function createActionPlanner({
     cache.apPreview = null;
     cache.costSummary = null;
     cache.previewByOwner.clear();
-    cache.characterOverrides.clear();
+    cache.pawnOverrides.clear();
   }
 
   function getTimelineSafe() {
@@ -345,9 +345,14 @@ export function createActionPlanner({
         continue;
       }
 
-      if (kind === ActionKinds.PLACE_CHARACTER) {
-        const charId = payload.charId ?? null;
-        if (charId == null) continue;
+      if (kind === ActionKinds.PLACE_PAWN || kind === ActionKinds.PLACE_CHARACTER) {
+        const pawnId =
+          payload.pawnId != null
+            ? payload.pawnId
+            : payload.charId != null
+              ? payload.charId
+              : null;
+        if (pawnId == null) continue;
 
         const toHubCol =
           payload.toHubCol ??
@@ -369,11 +374,11 @@ export function createActionPlanner({
           normalizePawnPlacement(payload.toPlacement) ??
           makePawnPlacement({ hubCol: toHubCol, envCol: toEnvCol });
 
-        const subjectKey = `pawn:${charId}`;
+        const subjectKey = `pawn:${pawnId}`;
         const intent = makePawnMoveIntent({
           id: subjectKey,
           subjectKey,
-          charId,
+          pawnId,
           fromPlacement,
           toPlacement,
           baselinePlacement: clonePlacement(toPlacement),
@@ -573,7 +578,7 @@ export function createActionPlanner({
     };
 
     buildInventoryPreviewCaches();
-    buildCharacterOverrideCache();
+    buildPawnOverrideCache();
 
     cache.dirty = false;
   }
@@ -690,8 +695,8 @@ export function createActionPlanner({
     return entry;
   }
 
-  function buildCharacterOverrideCache() {
-    cache.characterOverrides.clear();
+  function buildPawnOverrideCache() {
+    cache.pawnOverrides.clear();
 
     for (const [key, baseIntent] of baselineIntents.entries()) {
       if (baseIntent.kind !== IntentKinds.PAWN_MOVE) continue;
@@ -700,8 +705,8 @@ export function createActionPlanner({
       const baseFrom = baseIntent.fromPlacement ?? null;
       if (!cur) {
         if (baseFrom) {
-          cache.characterOverrides.set(
-            baseIntent.charId,
+          cache.pawnOverrides.set(
+            baseIntent.pawnId,
             clonePlacement(baseFrom)
           );
         }
@@ -709,8 +714,8 @@ export function createActionPlanner({
       }
       const curTo = cur.toPlacement ?? null;
       if (curTo && !placementEquals(curTo, baseTo)) {
-        cache.characterOverrides.set(
-          baseIntent.charId,
+        cache.pawnOverrides.set(
+          baseIntent.pawnId,
           clonePlacement(curTo)
         );
       }
@@ -723,8 +728,8 @@ export function createActionPlanner({
       const baseFrom = curIntent.baselinePlacement ?? null;
       const curTo = curIntent.toPlacement ?? null;
       if (curTo && !placementEquals(curTo, baseFrom)) {
-        cache.characterOverrides.set(
-          curIntent.charId,
+        cache.pawnOverrides.set(
+          curIntent.pawnId,
           clonePlacement(curTo)
         );
       }
@@ -916,6 +921,7 @@ export function createActionPlanner({
   }
 
   function setPawnMoveIntent({
+    pawnId,
     charId,
     fromHubCol,
     fromEnvCol,
@@ -925,7 +931,9 @@ export function createActionPlanner({
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
-    if (charId == null) return { ok: false, reason: "noChar" };
+    const resolvedPawnId =
+      pawnId != null ? pawnId : charId != null ? charId : null;
+    if (resolvedPawnId == null) return { ok: false, reason: "noPawn" };
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
     }
@@ -943,14 +951,14 @@ export function createActionPlanner({
       }
     }
 
-    const subjectKey = `pawn:${charId}`;
+    const subjectKey = `pawn:${resolvedPawnId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
 
     let fromPlacement = existing?.fromPlacement ?? null;
     let baselinePlacement = existing?.baselinePlacement ?? null;
 
     if (!fromPlacement) {
-      const ch = state.characters?.find((c) => c.id === charId);
+      const ch = state.pawns?.find((c) => c.id === resolvedPawnId);
       if (ch) {
         fromPlacement = makePawnPlacement({
           hubCol: ch.hubCol,
@@ -978,7 +986,7 @@ export function createActionPlanner({
     const intent = makePawnMoveIntent({
       id: subjectKey,
       subjectKey,
-      charId,
+      pawnId: resolvedPawnId,
       fromPlacement,
       toPlacement,
       baselinePlacement: baselinePlacement || clonePlacement(fromPlacement),
@@ -998,6 +1006,7 @@ export function createActionPlanner({
   }
 
   function buildPawnMoveIntentForPreview({
+    pawnId,
     charId,
     fromHubCol,
     fromEnvCol,
@@ -1006,19 +1015,21 @@ export function createActionPlanner({
   }) {
     ensureActive();
     const state = getStateSafe();
-    if (charId == null) return { ok: false, reason: "noChar" };
+    const resolvedPawnId =
+      pawnId != null ? pawnId : charId != null ? charId : null;
+    if (resolvedPawnId == null) return { ok: false, reason: "noPawn" };
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
     }
 
-    const subjectKey = `pawn:${charId}`;
+    const subjectKey = `pawn:${resolvedPawnId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
 
     let fromPlacement = existing?.fromPlacement ?? null;
     let baselinePlacement = existing?.baselinePlacement ?? null;
 
     if (!fromPlacement) {
-      const ch = state?.characters?.find((c) => c.id === charId);
+      const ch = state?.pawns?.find((c) => c.id === resolvedPawnId);
       if (ch) {
         fromPlacement = makePawnPlacement({
           hubCol: ch.hubCol,
@@ -1049,7 +1060,7 @@ export function createActionPlanner({
     const intent = makePawnMoveIntent({
       id: subjectKey,
       subjectKey,
-      charId,
+      pawnId: resolvedPawnId,
       fromPlacement,
       toPlacement,
       baselinePlacement: baselinePlacement || clonePlacement(fromPlacement),
@@ -1571,7 +1582,7 @@ export function createActionPlanner({
             ? costById[intent.id]
             : estimateIntentApCost(intent, { stateStart: state });
         const payload = {
-          charId: intent.charId,
+          pawnId: intent.pawnId,
           fromPlacement: clonePlacement(intent.fromPlacement),
           toPlacement: clonePlacement(toPlacement),
         };
@@ -1586,7 +1597,7 @@ export function createActionPlanner({
           payload.fromEnvCol = intent.fromPlacement?.envCol ?? null;
         }
         actions.push({
-          kind: ActionKinds.PLACE_CHARACTER,
+          kind: ActionKinds.PLACE_PAWN,
           payload,
           apCost,
         });
@@ -1771,13 +1782,13 @@ export function createActionPlanner({
         }
       );
     },
-    getCharacterOverridePlacement(charId) {
+    getPawnOverridePlacement(pawnId) {
       ensureCaches();
-      return cache.characterOverrides.get(charId) ?? null;
+      return cache.pawnOverrides.get(pawnId) ?? null;
     },
-    getCharacterOverrideHubCol(charId) {
+    getPawnOverrideHubCol(pawnId) {
       ensureCaches();
-      const placement = cache.characterOverrides.get(charId) ?? null;
+      const placement = cache.pawnOverrides.get(pawnId) ?? null;
       return placement?.hubCol ?? null;
     },
     hasItemTransferIntent(itemId) {

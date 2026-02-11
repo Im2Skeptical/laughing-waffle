@@ -144,7 +144,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   edgeModeBtn.root.y = 192;
   root.addChild(edgeModeBtn.root);
 
-  let activeCharacterId = null;
+  let activeLeaderPawnId = null;
   let activeTreeId = null;
   let activeDefs = null;
   let bufferUnlockIds = new Set();
@@ -172,9 +172,13 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     return runner?.getCursorState?.() ?? runner?.getState?.() ?? null;
   }
 
-  function getCharacter(state) {
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
-    return chars.find((ch) => ch && ch.id === activeCharacterId) || null;
+  function getLeaderPawn(state) {
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    return (
+      pawns.find(
+        (pawn) => pawn && pawn.id === activeLeaderPawnId && pawn.role === "leader"
+      ) || null
+    );
   }
 
   function getActiveTreeDef() {
@@ -319,7 +323,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   }
 
   function getBufferedUnlockedSet(state) {
-    const unlocked = getUnlockedSkillSet(state, activeCharacterId);
+    const unlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
     for (const nodeId of bufferUnlockIds.values()) unlocked.add(nodeId);
     return unlocked;
   }
@@ -353,7 +357,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
       return;
     }
 
-    const unlockedSet = getUnlockedSkillSet(state, activeCharacterId);
+    const unlockedSet = getUnlockedSkillSet(state, activeLeaderPawnId);
     const isUnlocked = unlockedSet.has(nodeDef.id);
     const isPending = bufferUnlockIds.has(nodeDef.id);
     const status = isUnlocked ? "Unlocked" : isPending ? "Queued" : "Locked";
@@ -381,25 +385,25 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     infoText.text = lines.join("\n");
   }
 
-  function getProjectedUnlockContext(state, character) {
-    const unlocked = getUnlockedSkillSet(state, activeCharacterId);
+  function getProjectedUnlockContext(state, leaderPawn) {
+    const unlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
     for (const nodeId of bufferUnlockIds.values()) {
       unlocked.add(nodeId);
     }
-    const pointsNow = Number.isFinite(character?.skillPoints)
-      ? Math.max(0, floorInt(character.skillPoints))
+    const pointsNow = Number.isFinite(leaderPawn?.skillPoints)
+      ? Math.max(0, floorInt(leaderPawn.skillPoints))
       : 0;
     const pointsAfterBuffer = Math.max(0, pointsNow - getBufferedCost());
     return { unlocked, points: pointsAfterBuffer };
   }
 
-  function getNodeVisualState(state, character, nodeId) {
-    const baseUnlocked = getUnlockedSkillSet(state, activeCharacterId);
+  function getNodeVisualState(state, leaderPawn, nodeId) {
+    const baseUnlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
     if (baseUnlocked.has(nodeId)) return "unlocked";
     if (bufferUnlockIds.has(nodeId)) return "pending";
 
-    const projected = getProjectedUnlockContext(state, character);
-    const evalRes = evaluateSkillNodeUnlock(state, activeCharacterId, nodeId, {
+    const projected = getProjectedUnlockContext(state, leaderPawn);
+    const evalRes = evaluateSkillNodeUnlock(state, activeLeaderPawnId, nodeId, {
       unlockedSet: projected.unlocked,
       skillPoints: projected.points,
     });
@@ -408,9 +412,9 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
 
   function renderTree() {
     const state = getState();
-    const character = getCharacter(state);
+    const leaderPawn = getLeaderPawn(state);
     treeWorld.removeChildren();
-    if (!state || !character || !activeTreeId) return;
+    if (!state || !leaderPawn || !activeTreeId) return;
 
     const treeDef = getActiveTreeDef();
     const layout = getSkillTreeLayout(
@@ -430,7 +434,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     const orderedNodes = sortedStrings(Object.keys(positions));
     const nodeStatusById = new Map();
     for (const nodeId of orderedNodes) {
-      nodeStatusById.set(nodeId, getNodeVisualState(state, character, nodeId));
+      nodeStatusById.set(nodeId, getNodeVisualState(state, leaderPawn, nodeId));
     }
 
     const focusNodeId = getInfoNodeId();
@@ -623,8 +627,8 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
       applyCamera();
     }
 
-    const skillPoints = Number.isFinite(character.skillPoints)
-      ? Math.max(0, floorInt(character.skillPoints))
+    const skillPoints = Number.isFinite(leaderPawn.skillPoints)
+      ? Math.max(0, floorInt(leaderPawn.skillPoints))
       : 0;
     const totalCost = getBufferedCost();
     const remaining = Math.max(0, skillPoints - totalCost);
@@ -732,7 +736,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     for (const nodeId of order) {
       const res = runner?.dispatchAction?.(
         ActionKinds.UNLOCK_SKILL_NODE,
-        { characterId: activeCharacterId, nodeId },
+        { leaderPawnId: activeLeaderPawnId, pawnId: activeLeaderPawnId, nodeId },
         { apCost: 0 }
       );
       if (!res?.ok) {
@@ -744,16 +748,25 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     }
 
     const exitCb = onExit;
-    const characterId = activeCharacterId;
+    const leaderPawnId = activeLeaderPawnId;
     close();
-    exitCb?.({ saved: true, characterId, unlocked: order });
+    exitCb?.({
+      saved: true,
+      leaderPawnId,
+      pawnId: leaderPawnId,
+      unlocked: order,
+    });
   }
 
   function cancelAndExit() {
     const exitCb = onExit;
-    const characterId = activeCharacterId;
+    const leaderPawnId = activeLeaderPawnId;
     close();
-    exitCb?.({ saved: false, characterId });
+    exitCb?.({
+      saved: false,
+      leaderPawnId,
+      pawnId: leaderPawnId,
+    });
   }
 
   function openEditor() {
@@ -767,7 +780,8 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     }
     const res = onOpenEditor({
       treeId: activeTreeId,
-      characterId: activeCharacterId,
+      leaderPawnId: activeLeaderPawnId,
+      pawnId: activeLeaderPawnId,
       defsInput: activeDefs,
     });
     if (!res?.ok) {
@@ -775,22 +789,41 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
       return;
     }
     const exitCb = onExit;
-    const characterId = activeCharacterId;
+    const leaderPawnId = activeLeaderPawnId;
     const treeId = activeTreeId;
     close();
-    exitCb?.({ saved: false, characterId, openEditor: true, treeId });
+    exitCb?.({
+      saved: false,
+      leaderPawnId,
+      pawnId: leaderPawnId,
+      openEditor: true,
+      treeId,
+    });
   }
 
-  function open({ characterId, defs = null, onExit: onExitCb } = {}) {
+  function open({ leaderPawnId, pawnId, defs = null, onExit: onExitCb } = {}) {
     const state = getState();
     if (!state) return { ok: false, reason: "noState" };
-    if (!Number.isFinite(characterId)) return { ok: false, reason: "badCharacterId" };
+    const resolvedLeaderPawnId =
+      Number.isFinite(leaderPawnId)
+        ? Math.floor(leaderPawnId)
+        : Number.isFinite(pawnId)
+          ? Math.floor(pawnId)
+          : null;
+    if (resolvedLeaderPawnId == null) {
+      return { ok: false, reason: "badLeaderPawnId" };
+    }
+    const leader = (Array.isArray(state?.pawns) ? state.pawns : []).find(
+      (pawn) => pawn && pawn.id === resolvedLeaderPawnId
+    );
+    if (!leader) return { ok: false, reason: "noPawn" };
+    if (leader.role !== "leader") return { ok: false, reason: "notLeaderPawn" };
 
     const trees = getSkillTreeDefs(defs);
     const treeIds = sortedStrings(Object.keys(trees || {}));
     if (!treeIds.length) return { ok: false, reason: "noSkillTrees" };
 
-    activeCharacterId = Math.floor(characterId);
+    activeLeaderPawnId = resolvedLeaderPawnId;
     activeTreeId = treeIds[0];
     activeDefs = defs;
     bufferUnlockIds = new Set();
@@ -809,7 +842,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     root.visible = false;
     endPan();
     treeWorld.removeChildren();
-    activeCharacterId = null;
+    activeLeaderPawnId = null;
     activeTreeId = null;
     activeDefs = null;
     bufferUnlockIds.clear();

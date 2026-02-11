@@ -339,17 +339,18 @@ function openSkillTreeEditorForTree({ treeId, defsInput = null } = {}) {
   return { ok: true };
 }
 
-function openSkillTreeForCharacter(characterId) {
+function openSkillTreeForLeaderPawn(leaderPawnId) {
   if (!skillTreeView) return { ok: false, reason: "noSkillTreeView" };
   if (skillTreeView.isOpen?.()) return { ok: false, reason: "alreadyOpen" };
   if (skillTreeEditorView?.isOpen?.()) return { ok: false, reason: "editorOpen" };
-  if (!Number.isFinite(characterId)) {
-    return { ok: false, reason: "badCharacterId" };
+  if (!Number.isFinite(leaderPawnId)) {
+    return { ok: false, reason: "badLeaderPawnId" };
   }
 
   requestPauseForAction();
   const openRes = skillTreeView.open({
-    characterId: Math.floor(characterId),
+    leaderPawnId: Math.floor(leaderPawnId),
+    pawnId: Math.floor(leaderPawnId),
     onExit: (result) => {
       if (result?.openEditor && result?.treeId) {
         const editorRes = openSkillTreeEditorForTree({ treeId: result.treeId });
@@ -394,11 +395,16 @@ function resolveOwnerIdFromScenarioSelector(state, selector) {
 
   const type =
     typeof selector.type === "string" ? selector.type : typeof selector.kind === "string" ? selector.kind : null;
-  if (type === "character") {
+  if (type === "leaderPawn" || type === "pawn" || type === "character") {
     if (Number.isFinite(selector.id)) return Math.floor(selector.id);
-    const chars = Array.isArray(state.characters) ? state.characters : [];
+    const pawns = Array.isArray(state.pawns) ? state.pawns : [];
+    if (type === "leaderPawn") {
+      const leaders = pawns.filter((pawn) => pawn?.role === "leader");
+      const idx = toSafeIndex(selector.index ?? 0, 0);
+      return leaders[idx]?.id ?? null;
+    }
     const idx = toSafeIndex(selector.index ?? 0, 0);
-    return chars[idx]?.id ?? null;
+    return pawns[idx]?.id ?? null;
   }
 
   if (type === "hubStructure" || type === "hubSlot") {
@@ -415,21 +421,31 @@ function resolveOwnerIdFromScenarioSelector(state, selector) {
   return null;
 }
 
-function resolveCharacterIdFromScenarioSelector(state, selector) {
+function resolveLeaderPawnIdFromScenarioSelector(state, selector) {
   if (!state || selector == null) return null;
   const direct = toSafeNumericId(selector);
   if (direct != null) return direct;
   if (typeof selector !== "object") return null;
 
   if (Number.isFinite(selector.id)) return Math.floor(selector.id);
+  const pawns = Array.isArray(state.pawns) ? state.pawns : [];
   if (
+    selector.type === "leaderPawn" ||
+    selector.kind === "leaderPawn"
+  ) {
+    const leaders = pawns.filter((pawn) => pawn?.role === "leader");
+    const idx = toSafeIndex(selector.index ?? 0, 0);
+    return leaders[idx]?.id ?? null;
+  }
+  if (
+    selector.type === "pawn" ||
+    selector.kind === "pawn" ||
     selector.type === "character" ||
     selector.kind === "character" ||
     Number.isFinite(selector.index)
   ) {
-    const chars = Array.isArray(state.characters) ? state.characters : [];
     const idx = toSafeIndex(selector.index ?? 0, 0);
-    return chars[idx]?.id ?? null;
+    return pawns[idx]?.id ?? null;
   }
   return null;
 }
@@ -460,10 +476,13 @@ function applyScenarioDevUiBootstrap() {
     devUi.openSkillTreeEditor != null && devUi.openSkillTreeEditor !== false;
 
   if (!shouldOpenSkillTreeEditor && devUi.openSkillTree != null && devUi.openSkillTree !== false) {
-    const selector = devUi.openSkillTree === true ? { type: "character", index: 0 } : devUi.openSkillTree;
-    const characterId = resolveCharacterIdFromScenarioSelector(state, selector);
-    if (characterId != null) {
-      openSkillTreeForCharacter(characterId);
+    const selector =
+      devUi.openSkillTree === true
+        ? { type: "leaderPawn", index: 0 }
+        : devUi.openSkillTree;
+    const leaderPawnId = resolveLeaderPawnIdFromScenarioSelector(state, selector);
+    if (leaderPawnId != null) {
+      openSkillTreeForLeaderPawn(leaderPawnId);
     }
   }
 
@@ -647,7 +666,7 @@ function findHubStructureAtCol(snapshot, col) {
 }
 
 function findPawnById(snapshot, id) {
-  const chars = snapshot?.characters;
+  const chars = snapshot?.pawns;
   if (!Array.isArray(chars)) return null;
   for (const ch of chars) {
     if (ch?.id === id) return ch;
@@ -828,7 +847,7 @@ function buildSystemSeriesForTarget(target, state) {
     }
   } else if (target.kind === "pawn") {
     const id = target.id;
-    const pawn = state?.characters?.find((c) => c.id === id);
+    const pawn = state?.pawns?.find((c) => c.id === id);
     label = pawn?.name || `Pawn ${id}`;
     targetKey = `pawn:${id}`;
 
@@ -844,7 +863,7 @@ function buildSystemSeriesForTarget(target, state) {
         label: sysLabel,
         color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
         getValue: (snap) => {
-          const p = snap?.characters?.find((c) => c.id === id);
+          const p = snap?.pawns?.find((c) => c.id === id);
           const sysState = p?.systemState?.[systemId];
           if (Number.isFinite(sysState?.cur)) return sysState.cur;
           if (Number.isFinite(sysState?.value)) return sysState.value;
@@ -911,8 +930,8 @@ inventoryView = createInventoryView({
       const def = hubStructureDefs[structure.defId];
       return def?.name || def?.id || `Hub ${ownerId}`;
     }
-    const ch = state.characters.find((c) => c.id === ownerId);
-    if (ch) return ch.name || `Char ${ownerId}`;
+    const ch = state.pawns.find((c) => c.id === ownerId);
+    if (ch) return ch.name || `Pawn ${ownerId}`;
     return `Owner ${ownerId}`;
   },
   getInventoryForOwner(ownerId) {
@@ -942,7 +961,8 @@ inventoryView = createInventoryView({
   getFocusIntent: () =>
     runner.isPreviewing?.() ? null : actionPlanner?.getFocusIntent?.() ?? null,
   getExternalFocusOwners: () => getExternalFocusOwners(),
-  openSkillTree: ({ characterId }) => openSkillTreeForCharacter(characterId),
+  openSkillTree: ({ leaderPawnId, pawnId }) =>
+    openSkillTreeForLeaderPawn(leaderPawnId ?? pawnId ?? null),
   onGhostClick: (intentId) => actionPlanner?.toggleFocus?.(intentId),
   hasItemTransferIntent: (itemId) =>
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
@@ -1120,7 +1140,7 @@ const charactersView = createCharactersView({
   app,
   layer: uiLayers.characterLayer,
   hoverLayer: uiLayers.hoverLayer,
-  getCharacters: () => runner.getState().characters,
+  getCharacters: () => runner.getState().pawns,
   getHubSlots: () => runner.getState().hub.slots,
   getGameState: () => runner.getState(),
   interaction: interactionController,
@@ -1138,15 +1158,16 @@ const charactersView = createCharactersView({
     },
   setDragGhost: (spec) => actionLogView?.setDragGhost?.(spec),
   resolveDragGhost: (status) => actionLogView?.resolveDragGhost?.(status),
-  getPreviewHubCol: (charId) =>
+  getPreviewHubCol: (pawnId) =>
     runner.isPreviewing?.()
       ? null
-      : actionPlanner?.getCharacterOverrideHubCol?.(charId) ?? null,
-  getPreviewPlacement: (charId) =>
+      : actionPlanner?.getPawnOverrideHubCol?.(pawnId) ?? null,
+  getPreviewPlacement: (pawnId) =>
     runner.isPreviewing?.()
       ? null
-      : actionPlanner?.getCharacterOverridePlacement?.(charId) ?? null,
-  onCharacterDropped({ charId, dropPos }) {
+      : actionPlanner?.getPawnOverridePlacement?.(pawnId) ?? null,
+  onCharacterDropped({ pawnId, dropPos }) {
+    if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();
     const envCols = Number.isFinite(state?.board?.cols)
       ? Math.floor(state.board.cols)
@@ -1182,7 +1203,7 @@ const charactersView = createCharactersView({
       return queueActionWhenPaused(
         () =>
           actionPlanner?.setPawnMoveIntent?.({
-            charId,
+            pawnId,
             toEnvCol: bestIndex,
           }) || { ok: false, reason: "noPlanner" }
       );
@@ -1191,7 +1212,7 @@ const charactersView = createCharactersView({
     return queueActionWhenPaused(
       () =>
         actionPlanner?.setPawnMoveIntent?.({
-          charId,
+          pawnId,
           toHubCol: bestIndex,
         }) || { ok: false, reason: "noPlanner" }
     );
@@ -1376,8 +1397,8 @@ actionLogView = createActionLogView({
       const def = hubStructureDefs[structure.defId];
       return def?.name || def?.id || `Hub ${ownerId}`;
     }
-    const ch = state.characters.find((c) => c.id === ownerId);
-    if (ch) return ch.name || `Char ${ownerId}`;
+    const ch = state.pawns.find((c) => c.id === ownerId);
+    if (ch) return ch.name || `Pawn ${ownerId}`;
     return `Owner ${ownerId}`;
   },
   getState: () => runner.getState(),

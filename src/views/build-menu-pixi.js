@@ -130,14 +130,14 @@ export function createBuildMenuView(opts) {
         ? getSelectedLeaderId()
         : null;
     if (leaderId == null) return null;
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
     const leader = chars.find((c) => c?.id === leaderId) || null;
     if (!leader || leader.role !== "leader") return null;
     return leader;
   }
 
   function computeOptions(state) {
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
     const availability = computeAvailableRecipesAndBuildings(state);
     const leaders = chars.filter((c) => c?.role === "leader");
     const buildable = new Set();
@@ -277,8 +277,8 @@ export function createBuildMenuView(opts) {
     if (!defId) return { ok: false, reason: "noBuildSelected" };
 
     const previewPlacement =
-      typeof actionPlanner.getCharacterOverridePlacement === "function"
-        ? actionPlanner.getCharacterOverridePlacement(leader.id)
+      typeof actionPlanner.getPawnOverridePlacement === "function"
+        ? actionPlanner.getPawnOverridePlacement(leader.id)
         : null;
     const currentHubCol = Number.isFinite(previewPlacement?.hubCol)
       ? Math.floor(previewPlacement.hubCol)
@@ -300,7 +300,7 @@ export function createBuildMenuView(opts) {
       let moveRes = { ok: true };
       if (!alreadyThere) {
         moveRes = actionPlanner.setPawnMoveIntent({
-          charId: leader.id,
+          pawnId: leader.id,
           toHubCol: col,
         });
         if (!moveRes?.ok) {

@@ -46,9 +46,9 @@ function formatOwnerName(ownerId, getOwnerLabel) {
   return `Owner ${ownerId}`;
 }
 
-function formatPawnName(charId, state) {
-  const ch = state?.characters?.find((c) => c.id === charId);
-  return ch?.name || `Char ${charId}`;
+function formatPawnName(pawnId, state) {
+  const ch = state?.pawns?.find((c) => c.id === pawnId);
+  return ch?.name || `Pawn ${pawnId}`;
 }
 
 function formatHubName(hubCol, state) {
@@ -194,7 +194,7 @@ function describeIntent(intent, state, getOwnerLabel) {
       return `${fallback} > ${dest}`;
     }
     case IntentKinds.PAWN_MOVE: {
-      const pawnName = formatPawnName(intent.charId, state);
+      const pawnName = formatPawnName(intent.pawnId, state);
       const dest = formatPlacementName(intent.toPlacement, state);
       return `${pawnName} > ${dest}`;
     }
@@ -610,8 +610,10 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
         : `Item ${payload.itemId ?? ""}`.trim();
       const dest = formatOwnerName(payload.toOwnerId, getOwnerLabel);
       desc = `${itemName} > ${dest}`;
-    } else if (kind === ActionKinds.PLACE_CHARACTER) {
-      const pawnName = formatPawnName(payload.charId, state);
+    } else if (kind === ActionKinds.PLACE_PAWN || kind === ActionKinds.PLACE_CHARACTER) {
+      const pawnId =
+        payload.pawnId != null ? payload.pawnId : payload.charId;
+      const pawnName = formatPawnName(pawnId, state);
       const placement = resolvePlacementFromPayload(payload);
       const dest = formatPlacementName(placement, state);
       desc = `${pawnName} > ${dest}`;
@@ -651,9 +653,13 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       const recipeName = formatRecipeName(payload.recipeId);
       desc = `Recipe > ${hubName}: ${recipeName}`;
     } else if (kind === ActionKinds.UNLOCK_SKILL_NODE) {
-      const characterId =
-        payload.characterId != null ? payload.characterId : payload.pawnId;
-      const pawnName = formatPawnName(characterId, state);
+      const leaderPawnId =
+        payload.leaderPawnId != null
+          ? payload.leaderPawnId
+          : payload.pawnId != null
+            ? payload.pawnId
+            : payload.characterId;
+      const pawnName = formatPawnName(leaderPawnId, state);
       const skillName = formatSkillNodeName(payload.nodeId);
       desc = `Skill > ${pawnName}: ${skillName}`;
     }
@@ -685,7 +691,7 @@ function isLogAction(action) {
     const toOwner = payload.toOwnerId;
     return fromOwner != null && toOwner != null && fromOwner !== toOwner;
   }
-  if (kind === ActionKinds.PLACE_CHARACTER) return true;
+  if (kind === ActionKinds.PLACE_PAWN || kind === ActionKinds.PLACE_CHARACTER) return true;
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
   if (kind === ActionKinds.BUILD_CANCEL) return true;
   if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;

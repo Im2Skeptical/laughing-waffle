@@ -619,7 +619,7 @@ export function createProcessWidgetView({
   }
 
   function findPawnById(state, id) {
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
     for (const ch of chars) {
       if (!ch) continue;
       if (String(ch.id) === String(id)) return ch;

@@ -20,15 +20,15 @@ import {
   getDeterministicCommitOrder,
 } from "./skills/layout-engine.js";
 
-function getCharacterById(state, characterId) {
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
-  const idNum = Number.isFinite(characterId) ? Math.floor(characterId) : null;
+function getPawnById(state, pawnId) {
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const idNum = Number.isFinite(pawnId) ? Math.floor(pawnId) : null;
   for (const ch of chars) {
     if (!ch) continue;
     if (idNum != null && Number.isFinite(ch.id) && Math.floor(ch.id) === idNum) {
       return ch;
     }
-    if (String(ch.id) === String(characterId)) return ch;
+    if (String(ch.id) === String(pawnId)) return ch;
   }
   return null;
 }
@@ -129,15 +129,15 @@ export function getDefaultSkillPointsForPawnDefId(pawnDefId, defsInput = null) {
   return Math.max(0, fallback);
 }
 
-export function getUnlockedSkillSet(state, characterId) {
-  const ch = getCharacterById(state, characterId);
+export function getUnlockedSkillSet(state, pawnId) {
+  const ch = getPawnById(state, pawnId);
   if (!ch) return new Set();
   return new Set(uniqueSortedStrings(ch.unlockedSkillNodeIds));
 }
 
-export function evaluateSkillNodeUnlock(state, characterId, nodeId, opts = {}) {
-  const ch = getCharacterById(state, characterId);
-  if (!ch) return { ok: false, reason: "noCharacter" };
+export function evaluateSkillNodeUnlock(state, pawnId, nodeId, opts = {}) {
+  const ch = getPawnById(state, pawnId);
+  if (!ch) return { ok: false, reason: "noPawn" };
 
   const nodeDef = getSkillNodeDef(null, nodeId);
   if (!nodeDef) return { ok: false, reason: "unknownNode" };
@@ -148,7 +148,7 @@ export function evaluateSkillNodeUnlock(state, characterId, nodeId, opts = {}) {
   const unlockedSet =
     opts.unlockedSet instanceof Set
       ? new Set(opts.unlockedSet)
-      : getUnlockedSkillSet(state, characterId);
+      : getUnlockedSkillSet(state, pawnId);
 
   if (unlockedSet.has(nodeDef.id)) {
     return { ok: false, reason: "alreadyUnlocked", nodeDef, treeDef };
@@ -182,7 +182,7 @@ export function evaluateSkillNodeUnlock(state, characterId, nodeId, opts = {}) {
   };
 }
 
-export function getUnlockableSkillNodes(state, characterId, treeId = null) {
+export function getUnlockableSkillNodes(state, pawnId, treeId = null) {
   const trees = getSkillTrees();
   const treeIds = treeId ? [treeId] : sortStrings(Object.keys(trees || {}));
 
@@ -190,14 +190,14 @@ export function getUnlockableSkillNodes(state, characterId, treeId = null) {
   for (const id of treeIds) {
     const nodes = getTreeNodes(id);
     for (const node of nodes) {
-      const check = evaluateSkillNodeUnlock(state, characterId, node.id);
+      const check = evaluateSkillNodeUnlock(state, pawnId, node.id);
       if (check.ok) unlockable.push(node.id);
     }
   }
   return sortStrings(unlockable);
 }
 
-export function computeCharacterSkillMods(state, characterId) {
+export function computeCharacterSkillMods(state, pawnId) {
   const out = {
     forageTierBonus: 0,
     forageStaminaCostDelta: 0,
@@ -206,7 +206,7 @@ export function computeCharacterSkillMods(state, characterId) {
     restStaminaBonusMult: 1,
   };
 
-  const unlocked = sortStrings(Array.from(getUnlockedSkillSet(state, characterId).values()));
+  const unlocked = sortStrings(Array.from(getUnlockedSkillSet(state, pawnId).values()));
   for (const nodeId of unlocked) {
     const node = getSkillNodeDef(null, nodeId);
     const mods = isObject(node?.effects?.characterMods) ? node.effects.characterMods : null;
@@ -233,6 +233,8 @@ export function computeCharacterSkillMods(state, characterId) {
   return out;
 }
 
+export const computePawnSkillMods = computeCharacterSkillMods;
+
 export function computeGlobalSkillMods(state) {
   const out = {
     apCapBonus: 0,
@@ -242,7 +244,7 @@ export function computeGlobalSkillMods(state) {
     unlockedHubStructures: new Set(getDefaultUnlockedHubStructures()),
   };
 
-  const chars = Array.isArray(state?.characters) ? state.characters.slice() : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns.slice() : [];
   chars.sort((a, b) => {
     const aid = Number.isFinite(a?.id) ? Math.floor(a.id) : 0;
     const bid = Number.isFinite(b?.id) ? Math.floor(b.id) : 0;

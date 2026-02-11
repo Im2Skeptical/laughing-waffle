@@ -108,7 +108,7 @@ function itemHasTag(kind, tag) {
 function getPawnLabel(target, fallbackPawn) {
   const pawn = target ?? fallbackPawn ?? null;
   if (!pawn) return "Pawn";
-  return pawn.name || `Char ${pawn.id ?? ""}`.trim();
+  return pawn.name || `Pawn ${pawn.id ?? ""}`.trim();
 }
 
 function isPawnLikeTarget(target, fallbackPawn) {

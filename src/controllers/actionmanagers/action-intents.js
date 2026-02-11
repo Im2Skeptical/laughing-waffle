@@ -31,11 +31,13 @@ export function makeItemTransferIntent(spec = {}) {
 }
 
 export function makePawnMoveIntent(spec = {}) {
+  const pawnId =
+    spec.pawnId != null ? spec.pawnId : spec.charId != null ? spec.charId : null;
   return {
     kind: IntentKinds.PAWN_MOVE,
     id: spec.id ?? null,
     subjectKey: spec.subjectKey ?? null,
-    charId: spec.charId ?? null,
+    pawnId,
     fromPlacement: spec.fromPlacement ?? null,
     toPlacement: spec.toPlacement ?? null,
     baselinePlacement: spec.baselinePlacement ?? null,
@@ -149,7 +151,7 @@ export function getIntentSubjectKey(intent) {
     case IntentKinds.ITEM_TRANSFER:
       return intent.itemId != null ? `item:${intent.itemId}` : null;
     case IntentKinds.PAWN_MOVE:
-      return intent.charId != null ? `pawn:${intent.charId}` : null;
+      return intent.pawnId != null ? `pawn:${intent.pawnId}` : null;
     case IntentKinds.BUILD_DESIGNATE:
       return intent.buildKey != null ? `build:${intent.buildKey}` : null;
     case IntentKinds.TILE_TAG_ORDER:

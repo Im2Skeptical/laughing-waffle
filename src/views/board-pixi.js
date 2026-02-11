@@ -1804,7 +1804,7 @@ export function createBoardView(opts) {
   function getPawnCountsByCol(state, cols) {
     const countLen = Number.isFinite(cols) ? Math.max(0, cols) : BOARD_COLS;
     const counts = new Array(countLen).fill(0);
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
     for (const ch of chars) {
       const col = Number.isFinite(ch?.envCol)
         ? Math.floor(ch.envCol)
@@ -1818,7 +1818,7 @@ export function createBoardView(opts) {
   function getPawnCountsByHub(state, cols) {
     const countLen = Number.isFinite(cols) ? Math.max(0, cols) : HUB_COLS;
     const counts = new Array(countLen).fill(0);
-    const chars = Array.isArray(state?.characters) ? state.characters : [];
+    const chars = Array.isArray(state?.pawns) ? state.pawns : [];
     for (const ch of chars) {
       const col = Number.isFinite(ch?.hubCol)
         ? Math.floor(ch.hubCol)
@@ -2126,8 +2126,10 @@ export function createBoardView(opts) {
 
   function updateApDragOverlays(dt) {
     const drag = interaction?.getDragged?.();
-    const isCharDrag = drag?.type === "character" && drag?.id != null;
-    const charId = isCharDrag ? drag.id : null;
+    const isPawnDrag =
+      (drag?.type === "pawn" || drag?.type === "character") &&
+      drag?.id != null;
+    const pawnId = isPawnDrag ? drag.id : null;
     const state = getGameState?.();
     const envCols = Number.isFinite(state?.board?.cols)
       ? Math.floor(state.board.cols)
@@ -2139,17 +2141,17 @@ export function createBoardView(opts) {
     const invalidEnv = new Set();
     const invalidHub = new Set();
 
-    if (isCharDrag && typeof actionPlanner?.getPawnMoveAffordability === "function") {
+    if (isPawnDrag && typeof actionPlanner?.getPawnMoveAffordability === "function") {
       for (let col = 0; col < envCols; col++) {
         const aff = actionPlanner.getPawnMoveAffordability({
-          charId,
+          pawnId,
           toEnvCol: col,
         });
         if (aff?.ok && aff.affordable === false) invalidEnv.add(col);
       }
       for (let col = 0; col < hubCols; col++) {
         const aff = actionPlanner.getPawnMoveAffordability({
-          charId,
+          pawnId,
           toHubCol: col,
         });
         if (aff?.ok && aff.affordable === false) invalidHub.add(col);
@@ -2159,7 +2161,7 @@ export function createBoardView(opts) {
     for (const view of tileViews) {
       if (!view) continue;
       const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
-      const isInvalid = isCharDrag && col != null && invalidEnv.has(col);
+      const isInvalid = isPawnDrag && col != null && invalidEnv.has(col);
       view.apOverlayTarget = isInvalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
     }
@@ -2182,7 +2184,7 @@ export function createBoardView(opts) {
       let invalid = false;
       for (let c = base; c < base + span; c++) {
         coveredHubCols.add(c);
-        if (isCharDrag && invalidHub.has(c)) invalid = true;
+        if (isPawnDrag && invalidHub.has(c)) invalid = true;
       }
       view.apOverlayTarget = invalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
@@ -2192,7 +2194,7 @@ export function createBoardView(opts) {
       if (!view) continue;
       const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
       const isInvalid =
-        isCharDrag &&
+        isPawnDrag &&
         col != null &&
         !coveredHubCols.has(col) &&
         invalidHub.has(col);
@@ -2201,7 +2203,7 @@ export function createBoardView(opts) {
     }
 
     let hoverInvalid = false;
-    if (isCharDrag && lastPointerPos) {
+    if (isPawnDrag && lastPointerPos) {
       for (const view of tileViews) {
         if (!view) continue;
         const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;

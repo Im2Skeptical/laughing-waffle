@@ -199,7 +199,7 @@ export function createInventoryView({
 
   function getLeaderForOwner(ownerId) {
     const state = getStateSafe();
-    const chars = state?.characters;
+    const chars = state?.pawns;
     if (!Array.isArray(chars)) return null;
     const ch = chars.find((c) => c?.id === ownerId);
     return ch && ch.role === "leader" ? ch : null;
@@ -207,14 +207,14 @@ export function createInventoryView({
 
   function getCharacterForOwner(ownerId) {
     const state = getStateSafe();
-    const chars = state?.characters;
+    const chars = state?.pawns;
     if (!Array.isArray(chars)) return null;
     return chars.find((c) => c?.id === ownerId) || null;
   }
 
   function getFollowersForLeader(state, leaderId) {
     if (!state || leaderId == null) return [];
-    const chars = Array.isArray(state.characters) ? state.characters : [];
+    const chars = Array.isArray(state.pawns) ? state.pawns : [];
     return chars.filter(
       (c) => c && c.role === "follower" && c.leaderId === leaderId
     );
@@ -506,7 +506,11 @@ export function createInventoryView({
       if (typeof openSkillTree !== "function") return;
       const ch = getCharacterForOwner(ownerId);
       if (!ch || !Number.isFinite(ch.id)) return;
-      openSkillTree({ characterId: Math.floor(ch.id), ownerId });
+      openSkillTree({
+        leaderPawnId: Math.floor(ch.id),
+        pawnId: Math.floor(ch.id),
+        ownerId,
+      });
     });
 
     return { root, bg, text };
@@ -991,8 +995,8 @@ export function createInventoryView({
     if (!defId) return { ok: false, reason: "noBuildSelected" };
 
     const previewPlacement =
-      typeof actionPlanner.getCharacterOverridePlacement === "function"
-        ? actionPlanner.getCharacterOverridePlacement(leader.id)
+      typeof actionPlanner.getPawnOverridePlacement === "function"
+        ? actionPlanner.getPawnOverridePlacement(leader.id)
         : null;
     const currentHubCol = Number.isFinite(previewPlacement?.hubCol)
       ? Math.floor(previewPlacement.hubCol)
@@ -1014,7 +1018,7 @@ export function createInventoryView({
       let moveRes = { ok: true };
       if (!alreadyThere) {
         moveRes = actionPlanner.setPawnMoveIntent({
-          charId: leader.id,
+          pawnId: leader.id,
           toHubCol: col,
         });
         if (!moveRes?.ok) {

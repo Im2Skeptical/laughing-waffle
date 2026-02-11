@@ -172,7 +172,7 @@ function itemPassiveRequirementsPass(requires, ctx = {}) {
 }
 
 function listEquippedBasketPoolsForPawn(state, pawn, locationOverride = null) {
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   const out = [];
   const location = normalizeLocation(locationOverride ?? pawn);
   let order = 0;
@@ -331,7 +331,7 @@ function buildPawnContext(state, pawn, tSec, locationOverride = null) {
 
 function getPawnLabel(pawn) {
   if (!pawn) return "Pawn";
-  return pawn.name || `Char ${pawn.id ?? ""}`.trim();
+  return pawn.name || `Pawn ${pawn.id ?? ""}`.trim();
 }
 
 function itemHasTagByKind(kind, tagId) {
@@ -688,8 +688,8 @@ function findRestMoveCandidates(state, pawn) {
   return candidates.map((entry) => entry.placement);
 }
 
-function tryMovePawnViaCommand(state, pawn, placement, placeCharacter) {
-  if (typeof placeCharacter !== "function") return false;
+function tryMovePawnViaCommand(state, pawn, placement, placePawn) {
+  if (typeof placePawn !== "function") return false;
   if (!placement || !Number.isFinite(placement.col)) return false;
 
   const toPlacement =
@@ -697,8 +697,8 @@ function tryMovePawnViaCommand(state, pawn, placement, placeCharacter) {
       ? { envCol: Math.floor(placement.col) }
       : { hubCol: Math.floor(placement.col) };
 
-  const res = placeCharacter(state, {
-    charId: pawn.id,
+  const res = placePawn(state, {
+    pawnId: pawn.id,
     toPlacement,
     skipAutoSuppress: true,
   });
@@ -752,11 +752,15 @@ function pushPawnSeekMoveEvent(state, pawn, tSec, mode, placement) {
 }
 
 export function stepPawnSecond(state, tSec, options = {}) {
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   if (!chars.length) return;
 
-  const placeCharacter =
-    typeof options?.placeCharacter === "function" ? options.placeCharacter : null;
+  const placePawn =
+    typeof options?.placePawn === "function"
+      ? options.placePawn
+      : typeof options?.placeCharacter === "function"
+        ? options.placeCharacter
+        : null;
 
   for (const pawn of chars) {
     if (!pawn) continue;
@@ -846,7 +850,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
       if (!canEatInPlace && !suppressed) {
         const candidates = findEatMoveCandidates(state, pawn, tSec, eatIntent);
         for (const placement of candidates) {
-          if (!tryMovePawnViaCommand(state, pawn, placement, placeCharacter)) continue;
+          if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
           context = buildPawnContext(state, pawn, tSec);
           pushPawnSeekMoveEvent(state, pawn, tSec, "eat", placement);
           break;
@@ -857,7 +861,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
       if (!atRestSpot && !suppressed) {
         const candidates = findRestMoveCandidates(state, pawn);
         for (const placement of candidates) {
-          if (!tryMovePawnViaCommand(state, pawn, placement, placeCharacter)) continue;
+          if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
           context = buildPawnContext(state, pawn, tSec);
           pushPawnSeekMoveEvent(state, pawn, tSec, "rest", placement);
           break;

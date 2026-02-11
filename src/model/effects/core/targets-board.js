@@ -19,7 +19,7 @@ function getPawnFromContext(state, context) {
   if (context?.pawn && typeof context.pawn === "object") return context.pawn;
   const pawnId = context?.pawnId != null ? context.pawnId : context?.ownerId;
   if (pawnId == null) return null;
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   for (const ch of chars) {
     if (ch?.id === pawnId) return ch;
   }

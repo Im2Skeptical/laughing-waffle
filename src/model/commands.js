@@ -357,7 +357,7 @@ export function cmdTickSimulation(state, dt) {
 
   if (didAdvanceSecond) {
     processSecondChangeForItems(state);
-    stepPawnSecond(state, state.tSec, { placeCharacter: cmdPlaceCharacter });
+    stepPawnSecond(state, state.tSec, { placePawn: cmdPlacePawn });
     stepEnvSecond(state, state.tSec);
     stepHubSecond(state, state.tSec);
     enforcePrestigeFollowerCap(state);
@@ -1483,7 +1483,7 @@ export function cmdMoveProcessBufferItem(
 // INVENTORY COMMANDS
 // =============================================================================
 
-function resolveCharacterOwnerId(ownerId) {
+function resolvePawnOwnerId(ownerId) {
   if (typeof ownerId === "number") return ownerId;
   if (typeof ownerId === "string" && !ownerId.startsWith("inv:process:")) {
     const asNum = Number(ownerId);
@@ -1493,16 +1493,16 @@ function resolveCharacterOwnerId(ownerId) {
 }
 
 function getLeaderByOwnerId(state, ownerId) {
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
-  const normalized = resolveCharacterOwnerId(ownerId);
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const normalized = resolvePawnOwnerId(ownerId);
   const pawn = chars.find((ch) => ch && ch.id === normalized);
   if (!pawn || pawn.role !== "leader") return null;
   return pawn;
 }
 
-function getCharacterById(state, ownerId) {
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
-  const normalized = resolveCharacterOwnerId(ownerId);
+function getPawnById(state, ownerId) {
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
+  const normalized = resolvePawnOwnerId(ownerId);
   return chars.find((ch) => ch && ch.id === normalized) || null;
 }
 
@@ -2007,21 +2007,28 @@ export function cmdDiscardItemFromOwner(state, { ownerId, itemId } = {}) {
 
 export function cmdUnlockSkillNode(
   state,
-  { characterId, pawnId, nodeId } = {}
+  { leaderPawnId, pawnId, characterId, nodeId } = {}
 ) {
-  const resolvedCharacterId =
-    characterId != null ? characterId : pawnId != null ? pawnId : null;
-  if (resolvedCharacterId == null) {
-    return { ok: false, reason: "badCharacterId" };
+  const resolvedPawnId =
+    leaderPawnId != null
+      ? leaderPawnId
+      : pawnId != null
+        ? pawnId
+        : characterId != null
+          ? characterId
+          : null;
+  if (resolvedPawnId == null) {
+    return { ok: false, reason: "badPawnId" };
   }
   if (typeof nodeId !== "string" || nodeId.length === 0) {
     return { ok: false, reason: "badNodeId" };
   }
 
-  const character = getCharacterById(state, resolvedCharacterId);
-  if (!character) return { ok: false, reason: "noCharacter" };
+  const leaderPawn = getPawnById(state, resolvedPawnId);
+  if (!leaderPawn) return { ok: false, reason: "noPawn" };
+  if (leaderPawn.role !== "leader") return { ok: false, reason: "notLeaderPawn" };
 
-  const evaluation = evaluateSkillNodeUnlock(state, character.id, nodeId);
+  const evaluation = evaluateSkillNodeUnlock(state, leaderPawn.id, nodeId);
   if (!evaluation?.ok) {
     return { ok: false, reason: evaluation?.reason || "notUnlockable" };
   }
@@ -2029,23 +2036,23 @@ export function cmdUnlockSkillNode(
   const cost = Number.isFinite(evaluation.cost)
     ? Math.max(0, Math.floor(evaluation.cost))
     : 0;
-  const currentPoints = Number.isFinite(character.skillPoints)
-    ? Math.max(0, Math.floor(character.skillPoints))
+  const currentPoints = Number.isFinite(leaderPawn.skillPoints)
+    ? Math.max(0, Math.floor(leaderPawn.skillPoints))
     : 0;
   if (currentPoints < cost) {
     return { ok: false, reason: "insufficientSkillPoints" };
   }
 
-  const nextUnlocked = Array.isArray(character.unlockedSkillNodeIds)
-    ? character.unlockedSkillNodeIds.slice()
+  const nextUnlocked = Array.isArray(leaderPawn.unlockedSkillNodeIds)
+    ? leaderPawn.unlockedSkillNodeIds.slice()
     : [];
   if (!nextUnlocked.includes(nodeId)) {
     nextUnlocked.push(nodeId);
   }
   nextUnlocked.sort((a, b) => String(a).localeCompare(String(b)));
 
-  character.skillPoints = currentPoints - cost;
-  character.unlockedSkillNodeIds = nextUnlocked;
+  leaderPawn.skillPoints = currentPoints - cost;
+  leaderPawn.unlockedSkillNodeIds = nextUnlocked;
 
   const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
   state.actionPointCap = getApCapForSecond(state, nowSec);
@@ -2057,10 +2064,11 @@ export function cmdUnlockSkillNode(
   return {
     ok: true,
     result: "skillNodeUnlocked",
-    characterId: character.id,
+    leaderPawnId: leaderPawn.id,
+    pawnId: leaderPawn.id,
     nodeId,
     spent: cost,
-    remainingSkillPoints: character.skillPoints,
+    remainingSkillPoints: leaderPawn.skillPoints,
   };
 }
 
@@ -2084,10 +2092,19 @@ export function cmdAdjustFollowerCount(state, payload = {}) {
 // CHARACTER PLACEMENT
 // =============================================================================
 
-export function cmdPlaceCharacter(state, payload = {}) {
-  const { charId, hubCol } = payload;
-  const ch = state.characters.find((c) => c.id === charId);
-  if (!ch) return { ok: false, reason: "noCharacter" };
+export function cmdPlacePawn(state, payload = {}) {
+  const { pawnId, charId, hubCol } = payload;
+  const resolvedPawnId =
+    Number.isFinite(pawnId) ? Math.floor(pawnId) : Number.isFinite(charId) ? Math.floor(charId) : null;
+  const pawns = Array.isArray(state?.pawns)
+    ? state.pawns
+    : Array.isArray(state?.characters)
+      ? state.characters
+      : [];
+  if (!Array.isArray(state?.pawns)) state.pawns = pawns;
+  if (!Array.isArray(state?.characters)) state.characters = pawns;
+  const pawn = pawns.find((c) => c.id === resolvedPawnId);
+  if (!pawn) return { ok: false, reason: "noPawn" };
 
   const toPlacement =
     payload.toPlacement ||
@@ -2157,22 +2174,22 @@ export function cmdPlaceCharacter(state, payload = {}) {
     nextHubCol = hubTargetCol;
   }
 
-  ch.hubCol = nextHubCol;
-  ch.envCol = nextEnvCol;
-  ensurePawnAI(ch);
+  pawn.hubCol = nextHubCol;
+  pawn.envCol = nextEnvCol;
+  ensurePawnAI(pawn);
   if (payload.skipAutoSuppress !== true) {
     const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
-    ch.ai.mode = null;
-    ch.ai.suppressAutoUntilSec =
+    pawn.ai.mode = null;
+    pawn.ai.suppressAutoUntilSec =
       nowSec + PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC;
   }
 
-  maybeAutoFollowLeader(state, ch);
+  maybeAutoFollowLeader(state, pawn);
 
   return {
     ok: true,
     result: "placed",
-    charId,
+    pawnId: resolvedPawnId,
     envCol: nextEnvCol,
     hubCol: nextHubCol,
   };
@@ -2184,7 +2201,7 @@ function shouldFollowersAutoFollow(leader) {
 }
 
 function getFollowersForLeaderSorted(state, leaderId) {
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   const followers = chars.filter(
     (c) => c && c.role === "follower" && c.leaderId === leaderId
   );
@@ -2313,8 +2330,8 @@ function getOwnerKindAndDef(state, ownerId) {
     }
   }
 
-  const ch = state.characters.find((c) => c.id === normalizedOwnerId);
-  if (ch) return { kind: "character", def: null };
+  const ch = state.pawns.find((c) => c.id === normalizedOwnerId);
+  if (ch) return { kind: "pawn", def: null };
 
   return { kind: null, def: null };
 }
@@ -2328,7 +2345,7 @@ function itemHasAnyTag(item, tags) {
 export function canOwnerAcceptItem(state, ownerId, item) {
   const { kind, def, structure } = getOwnerKindAndDef(state, ownerId);
 
-  if (kind === "character") {
+  if (kind === "pawn") {
     const tags = Array.isArray(item?.tags) ? item.tags : [];
     if (tags.includes("waste")) return false;
     return true;

@@ -3,7 +3,7 @@
 // Centralizes dispatch and validation.
 
 import {
-  cmdPlaceCharacter,
+  cmdPlacePawn,
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
@@ -36,6 +36,8 @@ import {
 } from "./commands.js";
 
 export const ActionKinds = {
+  PLACE_PAWN: "placePawn",
+  // Legacy alias for existing timelines.
   PLACE_CHARACTER: "placeCharacter",
   INVENTORY_MOVE: "inventoryMove",
   INVENTORY_SPLIT: "inventorySplit",
@@ -81,6 +83,7 @@ function getActionApCost(action) {
 
   const kind = action?.kind;
   if (
+    kind === ActionKinds.PLACE_PAWN ||
     kind === ActionKinds.PLACE_CHARACTER ||
     kind === ActionKinds.INVENTORY_MOVE ||
     kind === ActionKinds.INVENTORY_SPLIT ||
@@ -160,8 +163,9 @@ export function applyAction(state, action, context = {}) {
   let result;
 
   switch (kind) {
+    case ActionKinds.PLACE_PAWN:
     case ActionKinds.PLACE_CHARACTER:
-      result = cmdPlaceCharacter(state, payload);
+      result = cmdPlacePawn(state, payload);
       break;
 
     case ActionKinds.INVENTORY_MOVE:

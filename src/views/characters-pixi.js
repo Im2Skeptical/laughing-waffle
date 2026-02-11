@@ -128,7 +128,7 @@ export function createCharactersView(opts) {
     if (typeof getCharacters === "function") return getCharacters() || [];
     const s = getStateSafe();
     // Support likely state shapes
-    return s?.characters || s?.chars || s?.characterList || s?.party || [];
+    return s?.pawns || s?.party || [];
   }
 
   function getEnvColsSafe() {
@@ -355,7 +355,7 @@ export function createCharactersView(opts) {
     if (!char) return null;
     const state = getStateSafe();
     const target = getDropTargetFromPos(globalPos);
-    const pawnName = char?.name || `Char ${char?.id ?? ""}`.trim() || "Pawn";
+    const pawnName = char?.name || `Pawn ${char?.id ?? ""}`.trim() || "Pawn";
     const intentId = char?.id != null ? `pawn:${char.id}` : null;
     if (!target || !state) {
       return { description: pawnName, cost: 0, intentId };
@@ -370,8 +370,8 @@ export function createCharactersView(opts) {
     if (typeof getPawnMoveAffordability === "function") {
       const aff =
         target.row === "env"
-          ? getPawnMoveAffordability({ charId: char.id, toEnvCol: target.col })
-          : getPawnMoveAffordability({ charId: char.id, toHubCol: target.col });
+          ? getPawnMoveAffordability({ pawnId: char.id, toEnvCol: target.col })
+          : getPawnMoveAffordability({ pawnId: char.id, toHubCol: target.col });
       if (Number.isFinite(aff?.cost)) cost = Math.floor(aff.cost);
     }
 
@@ -455,7 +455,7 @@ export function createCharactersView(opts) {
   function makeCharTooltipSpec(char) {
     const systemLines = getPawnSystemLines(char);
     return {
-      title: char.name || `Character ${char.id ?? ""}`,
+      title: char.name || `Pawn ${char.id ?? ""}`,
       lines: [
         "Moves between hub and env tiles.",
         "Activates the hub structure it sits on in the hub.",
@@ -539,7 +539,8 @@ export function createCharactersView(opts) {
       : null;
 
     const draggedId =
-      draggedPayload && draggedPayload.type === "character"
+      draggedPayload &&
+      (draggedPayload.type === "pawn" || draggedPayload.type === "character")
         ? draggedPayload.id
         : null;
 
@@ -803,7 +804,7 @@ export function createCharactersView(opts) {
 
     function tryStartDrag() {
       dragging = true;
-      interactionSafe.startDrag?.({ type: "character", id: char.id });
+      interactionSafe.startDrag?.({ type: "pawn", id: char.id });
       requestPauseForAction?.();
       view.selfHover = false;
       view.attachedScale = 1;
@@ -852,7 +853,7 @@ export function createCharactersView(opts) {
       const g = ev.data.global;
 
       if (!wasDragging) {
-        onCharacterClicked?.({ charId: char.id });
+        onCharacterClicked?.({ pawnId: char.id });
         // click -> toggle pinned inventory (optional)
         const inv = getInvSafe();
         inv?.togglePinned?.(char.id);
@@ -863,7 +864,7 @@ export function createCharactersView(opts) {
       }
 
       const dropResult = emitDropped({
-        charId: char.id,
+        pawnId: char.id,
         dropPos: { x: g.x, y: g.y },
       });
 
@@ -942,7 +943,7 @@ export function createCharactersView(opts) {
         ? Math.floor(external.pawnId)
         : null;
     const nextFocused =
-      intent && intent.kind === "pawnMove" ? intent.charId : null;
+      intent && intent.kind === "pawnMove" ? intent.pawnId : null;
     const resolvedFocused = nextFocused ?? externalFocused;
     if (focusedCharId !== resolvedFocused) {
       focusedCharId = resolvedFocused;
@@ -987,8 +988,8 @@ export function createCharactersView(opts) {
       getCharsSafe().map((char) => [char?.id, char]).filter((entry) => entry[0] != null)
     );
     for (const view of viewsById.values()) {
-      const latestChar = charsById.get(view?.char?.id);
-      if (latestChar) view.char = latestChar;
+      const latestPawn = charsById.get(view?.char?.id);
+      if (latestPawn) view.char = latestPawn;
       const nextLabel = getLabelForChar(view.char);
       if (view.label && view.label.text !== nextLabel) {
         view.label.text = nextLabel;

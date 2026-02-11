@@ -15,7 +15,7 @@ export const InteractionPhase = {
 
 export function createInteractionController({ getPhase }) {
   const state = {
-    dragged: null, // { type, id }  e.g. { type: "character", id: "char-1" }
+    dragged: null, // { type, id }  e.g. { type: "pawn", id: "pawn-1" }
     hovered: null, // anchor hover (tile/hub/event)
     hoveredPawn: null,
     lastHovered: null,
@@ -46,7 +46,7 @@ export function createInteractionController({ getPhase }) {
 
   /**
    * Start dragging something.
-   * payload: { type: "character" | "item" | "window" | string, id: string }
+   * payload: { type: "pawn" | "item" | "window" | string, id: string }
    */
   function startDrag(payload) {
     state.dragged = payload;
@@ -102,8 +102,8 @@ export function createInteractionController({ getPhase }) {
 
   // --- policy helpers (what the rest of the UI really cares about) ---------
 
-  // Can we start dragging a character right now?
-  function canDragCharacter() {
+  // Can we start dragging a pawn right now?
+  function canDragPawn() {
     return true;
   }
 
@@ -115,40 +115,40 @@ export function createInteractionController({ getPhase }) {
     return !isDragging();
   }
 
-  // --- character helpers -------------------------------------------------------
+  // --- pawn helpers -------------------------------------------------------
 
-  let draggingCharacter = null;
+  let draggingPawn = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
 
-  function beginCharacterDrag(view, globalPos) {
-    draggingCharacter = view;
+  function beginPawnDrag(view, globalPos) {
+    draggingPawn = view;
     const parent = view.container.parent;
     const local = parent.toLocal(globalPos);
     dragOffsetX = view.container.x - local.x;
     dragOffsetY = view.container.y - local.y;
   }
 
-  function updateCharacterDrag(globalPos) {
-    if (!draggingCharacter) return;
-    const parent = draggingCharacter.container.parent;
+  function updatePawnDrag(globalPos) {
+    if (!draggingPawn) return;
+    const parent = draggingPawn.container.parent;
     const local = parent.toLocal(globalPos);
-    draggingCharacter.container.x = local.x + dragOffsetX;
-    draggingCharacter.container.y = local.y + dragOffsetY;
+    draggingPawn.container.x = local.x + dragOffsetX;
+    draggingPawn.container.y = local.y + dragOffsetY;
   }
 
-  function endCharacterDrag(globalPos) {
-    const v = draggingCharacter;
-    draggingCharacter = null;
+  function endPawnDrag(globalPos) {
+    const v = draggingPawn;
+    draggingPawn = null;
     return v;
   }
 
-  function isDraggingCharacter() {
-    return !!draggingCharacter;
+  function isDraggingPawn() {
+    return !!draggingPawn;
   }
 
-  function getDraggingCharacter() {
-    return draggingCharacter;
+  function getDraggingPawn() {
+    return draggingPawn;
   }
 
   return {
@@ -177,15 +177,21 @@ export function createInteractionController({ getPhase }) {
     getLastHovered,
 
     // policies
-    canDragCharacter,
+    canDragPawn,
+    canDragCharacter: canDragPawn,
     canShowHoverUI,
 
-    // character helpers
-    beginCharacterDrag,
-    updateCharacterDrag,
-    endCharacterDrag,
-    isDraggingCharacter,
-    getDraggingCharacter,
+    // pawn helpers
+    beginPawnDrag,
+    updatePawnDrag,
+    endPawnDrag,
+    isDraggingPawn,
+    getDraggingPawn,
+    beginCharacterDrag: beginPawnDrag,
+    updateCharacterDrag: updatePawnDrag,
+    endCharacterDrag: endPawnDrag,
+    isDraggingCharacter: isDraggingPawn,
+    getDraggingCharacter: getDraggingPawn,
     canShowHoverUI,
   };
 }

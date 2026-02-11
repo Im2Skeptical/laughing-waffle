@@ -182,7 +182,7 @@ function getPawnsOnHubAnchor(state, anchor) {
       ? Math.floor(anchor.span)
       : 1;
   if (col == null) return out;
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   const maxCol = col + span - 1;
   for (const ch of chars) {
     if (!ch) continue;

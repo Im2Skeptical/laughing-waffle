@@ -9,7 +9,7 @@ export const setupDefs = {
 
     // Optional dev-time UI bootstrap:
     // - openInventories: owner selectors opened/pinned on boot
-    // - openSkillTree: false | true | character selector ({ type: "character", index })
+    // - openSkillTree: false | true | leader pawn selector ({ type: "leaderPawn", index })
     // - openSkillTreeEditor: false | true | { treeId: "..." }
     devUi: {
       //openInventories: [{ type: "hubStructure", hubCol: 0 }],
@@ -46,15 +46,15 @@ export const setupDefs = {
       ],
     },
 
-    // characters placed by board column
-    characters: [
-      { name: "Char 1", color: 0xff9999, hubCol: 5, role: "leader" },
-      { name: "Char 2", color: 0x9999ff, hubCol: 5, role: "leader" },
+    // pawns placed by board column
+    pawns: [
+      { name: "Pawn 1", color: 0xff9999, hubCol: 5, role: "leader" },
+      { name: "Pawn 2", color: 0x9999ff, hubCol: 5, role: "leader" },
     ],
 
     // inventories keyed by owner selector:
     // owner: { type: "hubStructure", hubCol: 6 } means "hub structure at column 6"
-    // owner: { type: "character", index: 0 } means "1st character in characters array"
+    // owner: { type: "pawn", index: 0 } means "1st pawn in pawns array"
     inventories: [
       {
         owner: { type: "hubStructure", hubCol: 0 },
@@ -108,7 +108,7 @@ export const setupDefs = {
         ],
       },
       {
-        owner: { type: "character", index: 0 },
+        owner: { type: "pawn", index: 0 },
         items: [
           { kind: "reeds", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
@@ -117,7 +117,7 @@ export const setupDefs = {
         ],
       },
       {
-        owner: { type: "character", index: 1 },
+        owner: { type: "pawn", index: 1 },
         items: [
           { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
@@ -161,15 +161,15 @@ export const setupDefs = {
       ],
     },
 
-    // characters placed by board column
-    characters: [
-      { name: "Char 1", color: 0xff9999, hubCol: 5, role: "leader" },
-      { name: "Char 2", color: 0x9999ff, hubCol: 5, role: "leader" },
+    // pawns placed by board column
+    pawns: [
+      { name: "Pawn 1", color: 0xff9999, hubCol: 5, role: "leader" },
+      { name: "Pawn 2", color: 0x9999ff, hubCol: 5, role: "leader" },
     ],
 
     // inventories keyed by owner selector:
     // owner: { type: "hubStructure", hubCol: 6 } means "hub structure at column 6"
-    // owner: { type: "character", index: 0 } means "1st character in characters array"
+    // owner: { type: "pawn", index: 0 } means "1st pawn in pawns array"
     inventories: [
       {
         owner: { type: "hubStructure", hubCol: 0 },
@@ -215,7 +215,7 @@ export const setupDefs = {
         ],
       },
       {
-        owner: { type: "character", index: 0 },
+        owner: { type: "pawn", index: 0 },
         items: [
           { kind: "reeds", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
@@ -224,7 +224,7 @@ export const setupDefs = {
         ],
       },
       {
-        owner: { type: "character", index: 1 },
+        owner: { type: "pawn", index: 1 },
         items: [
           { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
@@ -267,15 +267,15 @@ export const setupDefs = {
       ],
     },
 
-    // characters placed by board column
-    characters: [
-      { name: "Char 1", color: 0xff9999, hubCol: 5, role: "leader" },
-      { name: "Char 2", color: 0x9999ff, hubCol: 5, role: "leader" },
+    // pawns placed by board column
+    pawns: [
+      { name: "Pawn 1", color: 0xff9999, hubCol: 5, role: "leader" },
+      { name: "Pawn 2", color: 0x9999ff, hubCol: 5, role: "leader" },
     ],
 
     // inventories keyed by owner selector:
     // owner: { type: "hubStructure", hubCol: 6 } means "hub structure at column 6"
-    // owner: { type: "character", index: 0 } means "1st character in characters array"
+    // owner: { type: "pawn", index: 0 } means "1st pawn in pawns array"
     inventories: [
       {
         owner: { type: "hubStructure", hubCol: 0 },
@@ -321,7 +321,7 @@ export const setupDefs = {
         ],
       },
       {
-        owner: { type: "character", index: 0 },
+        owner: { type: "pawn", index: 0 },
         items: [
           { kind: "reeds", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
@@ -330,7 +330,7 @@ export const setupDefs = {
         ],
       },
       {
-        owner: { type: "character", index: 1 },
+        owner: { type: "pawn", index: 1 },
         items: [
           { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
           { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },

@@ -95,6 +95,39 @@ function ensureBoardState(state) {
   }
 }
 
+function ensurePawnCollectionState(state) {
+  if (!state || typeof state !== "object") return [];
+
+  const pawnList = Array.isArray(state.pawns) ? state.pawns : null;
+  const legacyList = Array.isArray(state.characters) ? state.characters : null;
+
+  if (pawnList && legacyList) {
+    const canonical = pawnList.length > 0 ? pawnList : legacyList;
+    state.pawns = canonical;
+    state.characters = canonical;
+    return canonical;
+  }
+
+  if (pawnList) {
+    state.characters = pawnList;
+    return pawnList;
+  }
+
+  if (legacyList) {
+    state.pawns = legacyList;
+    state.characters = legacyList;
+    return legacyList;
+  }
+
+  state.pawns = [];
+  state.characters = state.pawns;
+  return state.pawns;
+}
+
+export function getPawns(state) {
+  return ensurePawnCollectionState(state);
+}
+
 export function ensureHubState(state) {
   if (!state.hub || typeof state.hub !== "object") {
     state.hub = createHubState();
@@ -346,7 +379,9 @@ export function createEmptyState(seed = 123456789) {
 
     nextItemId: 1,
 
-    characters: [],
+    pawns: [],
+    nextPawnId: 101,
+    // Legacy save alias.
     nextCharacterId: 101,
     nextFollowerCreationOrderIndex: 1,
     gameEventFeed: [],
@@ -354,6 +389,8 @@ export function createEmptyState(seed = 123456789) {
 
     rng: { seed, baseSeed: seed },
   };
+
+  state.characters = state.pawns;
 
   attachRngHelpers(state);
   return state;
@@ -840,7 +877,7 @@ export function deserializeGameState(data) {
   if (state.envSlots) delete state.envSlots;
   if (state.envSlotsEnabled != null) delete state.envSlotsEnabled;
   if (!state.hub || typeof state.hub !== "object") state.hub = createHubState();
-  if (!state.characters) state.characters = [];
+  const pawns = ensurePawnCollectionState(state);
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
   if (!Array.isArray(state.gameEventFeed)) state.gameEventFeed = [];
@@ -872,7 +909,7 @@ export function deserializeGameState(data) {
     : 1;
   let maxFollowerIndex = 0;
 
-  for (const ch of state.characters) {
+  for (const ch of pawns) {
     ensurePawnSystems(ch);
     if (ch?.role !== "leader" && ch?.role !== "follower") {
       ch.role = "leader";
@@ -889,7 +926,7 @@ export function deserializeGameState(data) {
     nextFollowerIndex = maxFollowerIndex + 1;
   }
 
-  for (const ch of state.characters) {
+  for (const ch of pawns) {
     if (ch?.role === "follower" && !Number.isFinite(ch.followerCreationOrderIndex)) {
       ensurePawnRoleFields(state, ch, nextFollowerIndex++);
       continue;
@@ -909,6 +946,12 @@ export function deserializeGameState(data) {
   if (state.nextHubStructureInstanceId == null) {
     state.nextHubStructureInstanceId = 1;
   }
+  if (!Number.isFinite(state.nextPawnId)) {
+    state.nextPawnId = Number.isFinite(state.nextCharacterId)
+      ? Math.floor(state.nextCharacterId)
+      : 101;
+  }
+  state.nextCharacterId = Math.floor(state.nextPawnId);
   if (!state.apCapOverride || typeof state.apCapOverride !== "object") {
     state.apCapOverride = null;
   } else if (state.apCapOverride.enabled === false) {
@@ -993,25 +1036,25 @@ export function validateState(state) {
   }
   const hubCols = Array.isArray(hub?.slots) ? hub.slots.length : 0;
 
-  const chars = Array.isArray(state.characters) ? state.characters : [];
+  const chars = getPawns(state);
   for (const ch of chars) {
     const hasHub = Number.isFinite(ch?.hubCol);
     const hasEnv = Number.isFinite(ch?.envCol);
     if (hasHub && hasEnv) {
       warnings.push(
-        `character has both hubCol and envCol: ${ch.id ?? "unknown"}`
+        `pawn has both hubCol and envCol: ${ch.id ?? "unknown"}`
       );
     }
     if (hasHub) {
       const col = Math.floor(ch.hubCol);
       if (col < 0 || col >= hubCols) {
-        errors.push(`character hubCol out of bounds: ${ch.id ?? "unknown"}`);
+        errors.push(`pawn hubCol out of bounds: ${ch.id ?? "unknown"}`);
       }
     }
     if (hasEnv) {
       const col = Math.floor(ch.envCol);
       if (col < 0 || col >= cols) {
-        errors.push(`character envCol out of bounds: ${ch.id ?? "unknown"}`);
+        errors.push(`pawn envCol out of bounds: ${ch.id ?? "unknown"}`);
       }
     }
   }

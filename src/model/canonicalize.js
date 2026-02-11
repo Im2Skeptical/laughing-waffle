@@ -6,6 +6,7 @@ import {
   rebuildBoardOccupancy,
   syncPhaseToPaused,
   ensurePawnSkillFields,
+  getPawns,
 } from "./state.js";
 
 export function canonicalizeSnapshot(state) {
@@ -15,7 +16,7 @@ export function canonicalizeSnapshot(state) {
   state.simTime = typeof state.simTime === "number" ? state.simTime : 0;
 
   rebuildBoardOccupancy(state);
-  const chars = Array.isArray(state.characters) ? state.characters : [];
+  const chars = getPawns(state);
   for (const pawn of chars) {
     ensurePawnSkillFields(pawn);
   }

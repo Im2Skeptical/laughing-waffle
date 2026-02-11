@@ -1225,7 +1225,7 @@ function listHubWorkers(state, structure) {
         : 1;
   if (col == null) return [];
   const maxCol = col + span - 1;
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   const out = [];
   for (const ch of chars) {
     if (!ch) continue;
@@ -1487,7 +1487,7 @@ export function handleCreateWorkProcess(state, effect, context) {
 function countEnvWorkers(state, envCol) {
   const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
   if (col == null) return 0;
-  const chars = Array.isArray(state?.characters) ? state.characters : [];
+  const chars = Array.isArray(state?.pawns) ? state.pawns : [];
   let n = 0;
   for (const ch of chars) {
     if (!ch) continue;
