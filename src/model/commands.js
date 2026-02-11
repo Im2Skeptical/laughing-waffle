@@ -2007,16 +2007,14 @@ export function cmdDiscardItemFromOwner(state, { ownerId, itemId } = {}) {
 
 export function cmdUnlockSkillNode(
   state,
-  { leaderPawnId, pawnId, characterId, nodeId } = {}
+  { leaderPawnId, pawnId, nodeId } = {}
 ) {
   const resolvedPawnId =
     leaderPawnId != null
       ? leaderPawnId
       : pawnId != null
         ? pawnId
-        : characterId != null
-          ? characterId
-          : null;
+        : null;
   if (resolvedPawnId == null) {
     return { ok: false, reason: "badPawnId" };
   }
@@ -2089,20 +2087,15 @@ export function cmdAdjustFollowerCount(state, payload = {}) {
 }
 
 // =============================================================================
-// CHARACTER PLACEMENT
+// PAWN PLACEMENT
 // =============================================================================
 
 export function cmdPlacePawn(state, payload = {}) {
-  const { pawnId, charId, hubCol } = payload;
+  const { pawnId, hubCol } = payload;
   const resolvedPawnId =
-    Number.isFinite(pawnId) ? Math.floor(pawnId) : Number.isFinite(charId) ? Math.floor(charId) : null;
-  const pawns = Array.isArray(state?.pawns)
-    ? state.pawns
-    : Array.isArray(state?.characters)
-      ? state.characters
-      : [];
+    Number.isFinite(pawnId) ? Math.floor(pawnId) : null;
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   if (!Array.isArray(state?.pawns)) state.pawns = pawns;
-  if (!Array.isArray(state?.characters)) state.characters = pawns;
   const pawn = pawns.find((c) => c.id === resolvedPawnId);
   if (!pawn) return { ok: false, reason: "noPawn" };
 

@@ -37,8 +37,6 @@ import {
 
 export const ActionKinds = {
   PLACE_PAWN: "placePawn",
-  // Legacy alias for existing timelines.
-  PLACE_CHARACTER: "placeCharacter",
   INVENTORY_MOVE: "inventoryMove",
   INVENTORY_SPLIT: "inventorySplit",
   INVENTORY_STACK: "inventoryStack",
@@ -84,7 +82,6 @@ function getActionApCost(action) {
   const kind = action?.kind;
   if (
     kind === ActionKinds.PLACE_PAWN ||
-    kind === ActionKinds.PLACE_CHARACTER ||
     kind === ActionKinds.INVENTORY_MOVE ||
     kind === ActionKinds.INVENTORY_SPLIT ||
     kind === ActionKinds.INVENTORY_STACK ||
@@ -164,7 +161,6 @@ export function applyAction(state, action, context = {}) {
 
   switch (kind) {
     case ActionKinds.PLACE_PAWN:
-    case ActionKinds.PLACE_CHARACTER:
       result = cmdPlacePawn(state, payload);
       break;
 

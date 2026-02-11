@@ -110,7 +110,7 @@ export function createInteractionController({ getPhase }) {
   // Should hover tooltips / inventories be allowed to show?
   function canShowHoverUI() {
     // While *anything* is being dragged, we want to suppress hover popups.
-    // (This is what stops the “character tooltip reappears while dragging”
+    // (This is what stops the "pawn tooltip reappears while dragging"
     //  bug you described.)
     return !isDragging();
   }
@@ -178,7 +178,6 @@ export function createInteractionController({ getPhase }) {
 
     // policies
     canDragPawn,
-    canDragCharacter: canDragPawn,
     canShowHoverUI,
 
     // pawn helpers
@@ -187,11 +186,5 @@ export function createInteractionController({ getPhase }) {
     endPawnDrag,
     isDraggingPawn,
     getDraggingPawn,
-    beginCharacterDrag: beginPawnDrag,
-    updateCharacterDrag: updatePawnDrag,
-    endCharacterDrag: endPawnDrag,
-    isDraggingCharacter: isDraggingPawn,
-    getDraggingCharacter: getDraggingPawn,
-    canShowHoverUI,
   };
 }

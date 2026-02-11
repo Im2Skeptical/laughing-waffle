@@ -114,9 +114,9 @@ export function recomputeLeaderPrestigeBase(leader) {
 
 export function getLeaderById(state, leaderId) {
   if (!state || leaderId == null) return null;
-  const chars = Array.isArray(state.pawns) ? state.pawns : [];
-  for (const ch of chars) {
-    if (ch?.id === leaderId) return ch;
+  const pawns = Array.isArray(state.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    if (pawn?.id === leaderId) return pawn;
   }
   return null;
 }
@@ -124,12 +124,12 @@ export function getLeaderById(state, leaderId) {
 export function getFollowersForLeader(state, leaderId) {
   const out = [];
   if (!state || leaderId == null) return out;
-  const chars = Array.isArray(state.pawns) ? state.pawns : [];
-  for (const ch of chars) {
-    if (!ch) continue;
-    if (ch.role !== PAWN_ROLE_FOLLOWER) continue;
-    if (ch.leaderId !== leaderId) continue;
-    out.push(ch);
+  const pawns = Array.isArray(state.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    if (!pawn) continue;
+    if (pawn.role !== PAWN_ROLE_FOLLOWER) continue;
+    if (pawn.leaderId !== leaderId) continue;
+    out.push(pawn);
   }
   return out;
 }
@@ -461,10 +461,10 @@ export function applyFollowerHungerDebt(state, follower) {
 
 export function enforcePrestigeFollowerCap(state) {
   if (!state) return { ok: false, despawned: 0 };
-  const chars = Array.isArray(state.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state.pawns) ? state.pawns : [];
   let totalDespawned = 0;
 
-  for (const leader of chars) {
+  for (const leader of pawns) {
     if (!leader || leader.role !== PAWN_ROLE_LEADER) continue;
     ensureLeaderPrestigeFields(leader);
 
@@ -506,9 +506,7 @@ export function spawnFollowerForLeader(state, leader) {
       : null;
 
   if (!Number.isFinite(state.nextPawnId)) {
-    state.nextPawnId = Number.isFinite(state.nextCharacterId)
-      ? Math.floor(state.nextCharacterId)
-      : 101;
+    state.nextPawnId = 101;
   }
   const nextPawnId = Math.floor(state.nextPawnId);
   const follower = {
@@ -525,7 +523,6 @@ export function spawnFollowerForLeader(state, leader) {
     leaderId: leader.id,
     followerCreationOrderIndex: state.nextFollowerCreationOrderIndex++,
   };
-  state.nextCharacterId = state.nextPawnId;
 
   ensureFollowerFields(follower, follower.followerCreationOrderIndex);
 
@@ -558,8 +555,7 @@ export function despawnFollower(state, leader, follower, options = {}) {
     return { ok: true, blocked: true, followerId: follower.id, remainingItems: remaining };
   }
 
-  state.pawns = state.pawns.filter((ch) => ch?.id !== follower.id);
-  state.characters = state.pawns;
+  state.pawns = state.pawns.filter((pawn) => pawn?.id !== follower.id);
   delete state.ownerInventories[follower.id];
 
   return {

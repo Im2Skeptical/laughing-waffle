@@ -70,7 +70,6 @@ export function createInitialState(scenario = "testing", seed = null) {
   state.nextEnvInstanceId = 1;
   state.nextItemId = 1;
   state.nextPawnId = 101;
-  state.nextCharacterId = state.nextPawnId;
   state.nextFollowerCreationOrderIndex = 1;
 
   const boardCols = getBoardColsFromSetup(setup, state);
@@ -88,9 +87,7 @@ export function createInitialState(scenario = "testing", seed = null) {
 
   // pawns
   const pawnSpecs =
-    (Array.isArray(setup.pawns) ? setup.pawns : null) ||
-    (Array.isArray(setup.characters) ? setup.characters : null) ||
-    [];
+    (Array.isArray(setup.pawns) ? setup.pawns : null) || [];
   const created = [];
   for (let index = 0; index < pawnSpecs.length; index++) {
     const c = pawnSpecs[index];
@@ -159,8 +156,6 @@ export function createInitialState(scenario = "testing", seed = null) {
   }
 
   state.pawns = created;
-  state.characters = state.pawns;
-  state.nextCharacterId = state.nextPawnId;
 
   // inventories
   state.ownerInventories = {};
@@ -241,7 +236,7 @@ function applySetupInventories(state, setup) {
         ];
     } else if (owner.type === "leaderPawn") {
       ownerId = leaderPawnIdsInOrder[owner.index];
-    } else if (owner.type === "pawn" || owner.type === "character") {
+    } else if (owner.type === "pawn") {
       ownerId = pawnIdsInOrder[owner.index];
     }
 

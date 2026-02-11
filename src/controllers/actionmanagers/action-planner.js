@@ -345,13 +345,8 @@ export function createActionPlanner({
         continue;
       }
 
-      if (kind === ActionKinds.PLACE_PAWN || kind === ActionKinds.PLACE_CHARACTER) {
-        const pawnId =
-          payload.pawnId != null
-            ? payload.pawnId
-            : payload.charId != null
-              ? payload.charId
-              : null;
+      if (kind === ActionKinds.PLACE_PAWN) {
+        const pawnId = payload.pawnId != null ? payload.pawnId : null;
         if (pawnId == null) continue;
 
         const toHubCol =
@@ -922,7 +917,6 @@ export function createActionPlanner({
 
   function setPawnMoveIntent({
     pawnId,
-    charId,
     fromHubCol,
     fromEnvCol,
     toHubCol,
@@ -931,8 +925,7 @@ export function createActionPlanner({
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
-    const resolvedPawnId =
-      pawnId != null ? pawnId : charId != null ? charId : null;
+    const resolvedPawnId = pawnId != null ? pawnId : null;
     if (resolvedPawnId == null) return { ok: false, reason: "noPawn" };
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
@@ -1007,7 +1000,6 @@ export function createActionPlanner({
 
   function buildPawnMoveIntentForPreview({
     pawnId,
-    charId,
     fromHubCol,
     fromEnvCol,
     toHubCol,
@@ -1015,8 +1007,7 @@ export function createActionPlanner({
   }) {
     ensureActive();
     const state = getStateSafe();
-    const resolvedPawnId =
-      pawnId != null ? pawnId : charId != null ? charId : null;
+    const resolvedPawnId = pawnId != null ? pawnId : null;
     if (resolvedPawnId == null) return { ok: false, reason: "noPawn" };
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };

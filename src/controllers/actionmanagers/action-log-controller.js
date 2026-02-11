@@ -610,9 +610,8 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
         : `Item ${payload.itemId ?? ""}`.trim();
       const dest = formatOwnerName(payload.toOwnerId, getOwnerLabel);
       desc = `${itemName} > ${dest}`;
-    } else if (kind === ActionKinds.PLACE_PAWN || kind === ActionKinds.PLACE_CHARACTER) {
-      const pawnId =
-        payload.pawnId != null ? payload.pawnId : payload.charId;
+    } else if (kind === ActionKinds.PLACE_PAWN) {
+      const pawnId = payload.pawnId;
       const pawnName = formatPawnName(pawnId, state);
       const placement = resolvePlacementFromPayload(payload);
       const dest = formatPlacementName(placement, state);
@@ -658,7 +657,7 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
           ? payload.leaderPawnId
           : payload.pawnId != null
             ? payload.pawnId
-            : payload.characterId;
+            : null;
       const pawnName = formatPawnName(leaderPawnId, state);
       const skillName = formatSkillNodeName(payload.nodeId);
       desc = `Skill > ${pawnName}: ${skillName}`;
@@ -691,7 +690,7 @@ function isLogAction(action) {
     const toOwner = payload.toOwnerId;
     return fromOwner != null && toOwner != null && fromOwner !== toOwner;
   }
-  if (kind === ActionKinds.PLACE_PAWN || kind === ActionKinds.PLACE_CHARACTER) return true;
+  if (kind === ActionKinds.PLACE_PAWN) return true;
   if (kind === ActionKinds.BUILD_DESIGNATE) return true;
   if (kind === ActionKinds.BUILD_CANCEL) return true;
   if (kind === ActionKinds.SET_TILE_TAG_ORDER) return true;

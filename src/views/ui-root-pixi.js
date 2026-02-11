@@ -15,7 +15,7 @@ import { runDeterminismSuite } from "../model/tests/determinism.js";
 import { createInteractionController } from "./interaction-controler-pixi.js";
 import { createTooltipView } from "./tooltip-pixi.js";
 import { createInventoryView } from "./inventory-pixi.js";
-import { createCharactersView } from "./characters-pixi.js";
+import { createPawnsView } from "./pawns-pixi.js";
 import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
@@ -85,7 +85,7 @@ const runner = createSimRunner({
     tooltipView?.hide?.();
     refreshOpenInventoryWindows();
     boardView.rebuildAll();
-    charactersView.rebuildAll();
+    pawnsView.rebuildAll();
     chromeView.refresh?.();
   },
   onPlannerApReject: () => {
@@ -184,7 +184,7 @@ const uiLayers = {
   tileLayer: new PIXI.Container(),
   eventLayer: new PIXI.Container(),
   hubStructuresLayer: new PIXI.Container(),
-  characterLayer: new PIXI.Container(),
+  pawnLayer: new PIXI.Container(),
   controlsLayer: new PIXI.Container(),
   hoverLayer: new PIXI.Container(),
   inventoryLayer: new PIXI.Container(),
@@ -200,7 +200,7 @@ app.stage.addChild(
   uiLayers.tileLayer,
   uiLayers.eventLayer,
   uiLayers.hubStructuresLayer,
-  uiLayers.characterLayer,
+  uiLayers.pawnLayer,
   uiLayers.controlsLayer,
   uiLayers.hoverLayer,
   uiLayers.inventoryLayer,
@@ -304,7 +304,7 @@ function setMainUiVisible(visible) {
   uiLayers.tileLayer.visible = visible;
   uiLayers.eventLayer.visible = visible;
   uiLayers.hubStructuresLayer.visible = visible;
-  uiLayers.characterLayer.visible = visible;
+  uiLayers.pawnLayer.visible = visible;
   uiLayers.controlsLayer.visible = visible;
   uiLayers.hoverLayer.visible = visible;
   uiLayers.inventoryLayer.visible = visible;
@@ -400,7 +400,7 @@ function resolveOwnerIdFromScenarioSelector(state, selector) {
 
   const type =
     typeof selector.type === "string" ? selector.type : typeof selector.kind === "string" ? selector.kind : null;
-  if (type === "leaderPawn" || type === "pawn" || type === "character") {
+  if (type === "leaderPawn" || type === "pawn") {
     if (Number.isFinite(selector.id)) return Math.floor(selector.id);
     const pawns = Array.isArray(state.pawns) ? state.pawns : [];
     if (type === "leaderPawn") {
@@ -445,8 +445,6 @@ function resolveLeaderPawnIdFromScenarioSelector(state, selector) {
   if (
     selector.type === "pawn" ||
     selector.kind === "pawn" ||
-    selector.type === "character" ||
-    selector.kind === "character" ||
     Number.isFinite(selector.index)
   ) {
     const idx = toSafeIndex(selector.index ?? 0, 0);
@@ -1061,7 +1059,7 @@ inventoryView = createInventoryView({
       affordable: true,
     },
   getDropTargetOwnerAt: (pos) =>
-    charactersView?.getInventoryOwnerAtGlobalPos?.(pos) ??
+    pawnsView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     processWidgetView?.getDropTargetOwnerAtGlobalPos?.(pos) ??
     boardView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     null,
@@ -1245,11 +1243,11 @@ const boardView = createBoardView({
   getExternalFocus: () => getExternalUiFocus(),
 });
 
-const charactersView = createCharactersView({
+const pawnsView = createPawnsView({
   app,
-  layer: uiLayers.characterLayer,
+  layer: uiLayers.pawnLayer,
   hoverLayer: uiLayers.hoverLayer,
-  getCharacters: () => runner.getState().pawns,
+  getPawns: () => runner.getState().pawns,
   getHubSlots: () => runner.getState().hub.slots,
   getGameState: () => runner.getState(),
   interaction: interactionController,
@@ -1275,7 +1273,7 @@ const charactersView = createCharactersView({
     runner.isPreviewing?.()
       ? null
       : actionPlanner?.getPawnOverridePlacement?.(pawnId) ?? null,
-  onCharacterDropped({ pawnId, dropPos }) {
+  onPawnDropped({ pawnId, dropPos }) {
     if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();
     const envCols = Number.isFinite(state?.board?.cols)
@@ -1549,7 +1547,7 @@ interactionController.init();
 tooltipView.init();
 inventoryView.init();
 boardView.init();
-charactersView.init();
+pawnsView.init();
 processWidgetView.init();
 chromeView.init();
 sunMoonDisksView.init(); // NEW
@@ -1595,7 +1593,7 @@ app.ticker.add((delta) => {
   flushQueuedActions();
   interactionController.update(frameDt);
   boardView.update(frameDt);
-  charactersView.update(frameDt);
+  pawnsView.update(frameDt);
   tooltipView.update(frameDt);
   inventoryView.update(frameDt);
   processWidgetView.update(frameDt);
@@ -1662,3 +1660,4 @@ window.__DBG__ = {
     runner.getLastPlannerCommitError?.() ?? null,
   test: runDeterminismSuite,
 };
+

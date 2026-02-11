@@ -2126,9 +2126,7 @@ export function createBoardView(opts) {
 
   function updateApDragOverlays(dt) {
     const drag = interaction?.getDragged?.();
-    const isPawnDrag =
-      (drag?.type === "pawn" || drag?.type === "character") &&
-      drag?.id != null;
+    const isPawnDrag = drag?.type === "pawn" && drag?.id != null;
     const pawnId = isPawnDrag ? drag.id : null;
     const state = getGameState?.();
     const envCols = Number.isFinite(state?.board?.cols)

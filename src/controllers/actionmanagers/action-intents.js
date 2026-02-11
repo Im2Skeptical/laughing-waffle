@@ -31,13 +31,11 @@ export function makeItemTransferIntent(spec = {}) {
 }
 
 export function makePawnMoveIntent(spec = {}) {
-  const pawnId =
-    spec.pawnId != null ? spec.pawnId : spec.charId != null ? spec.charId : null;
   return {
     kind: IntentKinds.PAWN_MOVE,
     id: spec.id ?? null,
     subjectKey: spec.subjectKey ?? null,
-    pawnId,
+    pawnId: spec.pawnId ?? null,
     fromPlacement: spec.fromPlacement ?? null,
     toPlacement: spec.toPlacement ?? null,
     baselinePlacement: spec.baselinePlacement ?? null,

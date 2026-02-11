@@ -382,7 +382,6 @@ export function createSimRunner({
     const kind = action.kind;
     if (
       kind === "placePawn" ||
-      kind === "placeCharacter" ||
       kind === "buildDesignate" ||
       kind === "setTileTagOrder" ||
       kind === "setTileCropSelection" ||
@@ -407,13 +406,11 @@ export function createSimRunner({
       const itemId = payload.itemId ?? payload.item?.id ?? null;
       return itemId != null ? `item:${itemId}` : null;
     }
-    if (action.kind === "placePawn" || action.kind === "placeCharacter") {
+    if (action.kind === "placePawn") {
       const pawnId =
         payload.pawnId != null
           ? payload.pawnId
-          : payload.charId != null
-            ? payload.charId
-            : null;
+          : null;
       return pawnId != null ? `pawn:${pawnId}` : null;
     }
     if (action.kind === "buildDesignate") {

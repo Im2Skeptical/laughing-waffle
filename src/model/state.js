@@ -97,30 +97,8 @@ function ensureBoardState(state) {
 
 function ensurePawnCollectionState(state) {
   if (!state || typeof state !== "object") return [];
-
-  const pawnList = Array.isArray(state.pawns) ? state.pawns : null;
-  const legacyList = Array.isArray(state.characters) ? state.characters : null;
-
-  if (pawnList && legacyList) {
-    const canonical = pawnList.length > 0 ? pawnList : legacyList;
-    state.pawns = canonical;
-    state.characters = canonical;
-    return canonical;
-  }
-
-  if (pawnList) {
-    state.characters = pawnList;
-    return pawnList;
-  }
-
-  if (legacyList) {
-    state.pawns = legacyList;
-    state.characters = legacyList;
-    return legacyList;
-  }
-
+  if (Array.isArray(state.pawns)) return state.pawns;
   state.pawns = [];
-  state.characters = state.pawns;
   return state.pawns;
 }
 
@@ -381,16 +359,12 @@ export function createEmptyState(seed = 123456789) {
 
     pawns: [],
     nextPawnId: 101,
-    // Legacy save alias.
-    nextCharacterId: 101,
     nextFollowerCreationOrderIndex: 1,
     gameEventFeed: [],
     nextGameEventFeedId: 1,
 
     rng: { seed, baseSeed: seed },
   };
-
-  state.characters = state.pawns;
 
   attachRngHelpers(state);
   return state;
@@ -947,11 +921,8 @@ export function deserializeGameState(data) {
     state.nextHubStructureInstanceId = 1;
   }
   if (!Number.isFinite(state.nextPawnId)) {
-    state.nextPawnId = Number.isFinite(state.nextCharacterId)
-      ? Math.floor(state.nextCharacterId)
-      : 101;
+    state.nextPawnId = 101;
   }
-  state.nextCharacterId = Math.floor(state.nextPawnId);
   if (!state.apCapOverride || typeof state.apCapOverride !== "object") {
     state.apCapOverride = null;
   } else if (state.apCapOverride.enabled === false) {

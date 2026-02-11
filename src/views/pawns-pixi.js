@@ -1,14 +1,13 @@
-// characters-pixi.js
+// pawns-pixi.js
 //
-// Responsible for rendering characters and wiring their UI behaviour
+// Responsible for rendering pawns and wiring their UI behaviour
 // (hover tooltip, hover inventory, click-to-toggle inventory, dragging).
 //
 // VIEW-ONLY: does NOT depend on model slot.x/slot.y. Positions are derived
 // from the same layout math used by board-pixi.js.
 //
 // Wiring:
-// - opts { getCharacters, getHubSlots, interaction, tooltipView, inventoryView, onCharacterDropped }
-// - Or opts { getGameState, onDropCharacter } (used by current ui-root-pixi.js)
+// - opts { getPawns, getHubSlots, interaction, tooltipView, inventoryView, onPawnDropped }
 
 import {
   BOARD_COLS,
@@ -34,28 +33,23 @@ import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 
-export function createCharactersView(opts) {
+export function createPawnsView(opts) {
   const {
     app,
     layer,
     hoverLayer,
-
-    // old shape
-    getCharacters,
+    getPawns,
     getHubSlots,
     interaction,
     tooltipView,
     inventoryView,
-    onCharacterDropped,
-    onCharacterClicked,
+    onPawnDropped,
+    onPawnClicked,
     requestPauseForAction,
     getPawnMoveAffordability,
     setDragGhost,
     resolveDragGhost,
-
-    // newer shape
     getGameState,
-    onDropCharacter,
     getFocusIntent,
     getExternalFocus,
     getPreviewHubCol,
@@ -68,7 +62,7 @@ export function createCharactersView(opts) {
   const RADIUS = 20;
   const LEADER_DIAMOND_SCALE = 1.15;
   let focusGhost = null;
-  let focusedCharId = null;
+  let focusedPawnId = null;
 
   function clamp01(value) {
     if (!Number.isFinite(value)) return 0;
@@ -108,7 +102,7 @@ export function createCharactersView(opts) {
   const interactionSafe = interaction || {
     canShowHoverUI: () => true,
     isDragging: () => false,
-    canDragCharacter: () => true,
+    canDragPawn: () => true,
     startDrag: () => {},
     endDrag: () => {},
     getDragged: () => null,
@@ -124,8 +118,8 @@ export function createCharactersView(opts) {
     return typeof getGameState === "function" ? getGameState() : null;
   }
 
-  function getCharsSafe() {
-    if (typeof getCharacters === "function") return getCharacters() || [];
+  function getPawnsSafe() {
+    if (typeof getPawns === "function") return getPawns() || [];
     const s = getStateSafe();
     // Support likely state shapes
     return s?.pawns || s?.party || [];
@@ -158,7 +152,7 @@ export function createCharactersView(opts) {
   }
 
   function emitDropped(payload) {
-    const cb = onCharacterDropped || onDropCharacter || null;
+    const cb = onPawnDropped || null;
     if (typeof cb === "function") return cb(payload);
     return { ok: false, reason: "noDropHandler" };
   }
@@ -210,7 +204,7 @@ export function createCharactersView(opts) {
     return Math.max(attached, hover);
   }
 
-  function applyCharacterScale(view) {
+  function applyPawnScale(view) {
     const scale = getEffectiveScale(view);
     view.container.scale.set(scale);
     view.shadow.visible = scale > 1 && GAMEPIECE_SHADOW_ALPHA > 0;
@@ -468,7 +462,7 @@ export function createCharactersView(opts) {
   function getFollowerOrdinal(char) {
     if (!char || char.role !== "follower") return null;
     const leaderId = char.leaderId ?? null;
-    const chars = getCharsSafe();
+    const chars = getPawnsSafe();
     const followers = chars
       .filter((c) => c && c.role === "follower" && c.leaderId === leaderId)
       .slice()
@@ -529,18 +523,17 @@ export function createCharactersView(opts) {
   }
 
   // ---------------------------------------------------------------------------
-  // Layout helper: fan characters when multiple occupy a slot
+  // Layout helper: fan pawns when multiple occupy a slot
   // ---------------------------------------------------------------------------
-  function layoutAllCharacters() {
-    const chars = getCharsSafe();
+  function layoutAllPawns() {
+    const chars = getPawnsSafe();
 
     const draggedPayload = interactionSafe.getDragged
       ? interactionSafe.getDragged()
       : null;
 
     const draggedId =
-      draggedPayload &&
-      (draggedPayload.type === "pawn" || draggedPayload.type === "character")
+      draggedPayload && draggedPayload.type === "pawn"
         ? draggedPayload.id
         : null;
 
@@ -612,15 +605,15 @@ export function createCharactersView(opts) {
         view.container.x = scaledPos.x;
         view.container.y = scaledPos.y;
         view.attachedScale = scaledPos.scale;
-        applyCharacterScale(view);
+        applyPawnScale(view);
       });
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Create a single character view
+  // Create a single pawn view
   // ---------------------------------------------------------------------------
-  function createCharacterView(char) {
+  function createPawnView(char) {
     const container = new PIXI.Container();
 
     const pos = Number.isFinite(char.envCol)
@@ -728,7 +721,7 @@ export function createCharactersView(opts) {
       if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI())
         return;
       view.selfHover = true;
-      applyCharacterScale(view);
+      applyPawnScale(view);
 
       const tt = getTooltipSafe();
       const scale = getEffectiveScale(view);
@@ -758,7 +751,7 @@ export function createCharactersView(opts) {
 
     function hideHover() {
       view.selfHover = false;
-      applyCharacterScale(view);
+      applyPawnScale(view);
       const inv = getInvSafe();
       inv?.hideOnHoverOut?.(char.id);
 
@@ -786,8 +779,8 @@ export function createCharactersView(opts) {
 
     container.on("pointerdown", (ev) => {
       if (
-        interactionSafe.canDragCharacter &&
-        !interactionSafe.canDragCharacter()
+        interactionSafe.canDragPawn &&
+        !interactionSafe.canDragPawn()
       ) {
         flashDragBlocked(view);
         return;
@@ -808,7 +801,7 @@ export function createCharactersView(opts) {
       requestPauseForAction?.();
       view.selfHover = false;
       view.attachedScale = 1;
-      applyCharacterScale(view);
+      applyPawnScale(view);
       hideHover();
       if (pointerDownPos) {
         updatePawnDragGhost(char, pointerDownPos);
@@ -853,7 +846,7 @@ export function createCharactersView(opts) {
       const g = ev.data.global;
 
       if (!wasDragging) {
-        onCharacterClicked?.({ pawnId: char.id });
+        onPawnClicked?.({ pawnId: char.id });
         // click -> toggle pinned inventory (optional)
         const inv = getInvSafe();
         inv?.togglePinned?.(char.id);
@@ -869,8 +862,8 @@ export function createCharactersView(opts) {
       });
 
       // If no handler, restore layout.
-      if (!onCharacterDropped && !onDropCharacter) {
-        layoutAllCharacters();
+      if (!onPawnDropped) {
+        layoutAllPawns();
         if (typeof setDragGhost === "function") {
           setDragGhost(null);
         }
@@ -884,7 +877,7 @@ export function createCharactersView(opts) {
         dropResult.reason === "insufficientAP"
       ) {
         flashDragBlocked(view);
-        layoutAllCharacters();
+        layoutAllPawns();
         resolveDragGhost?.("fail");
         return;
       }
@@ -898,7 +891,7 @@ export function createCharactersView(opts) {
       }
     }
 
-    applyCharacterScale(view);
+    applyPawnScale(view);
     updateStaminaVisual(view, char);
     viewsById.set(char.id, view);
   }
@@ -915,8 +908,8 @@ export function createCharactersView(opts) {
     layer.removeChildren();
     viewsById.clear();
 
-    for (const char of getCharsSafe()) {
-      createCharacterView(char);
+    for (const char of getPawnsSafe()) {
+      createPawnView(char);
     }
 
     if (focusGhost && focusGhost.parent) {
@@ -924,11 +917,11 @@ export function createCharactersView(opts) {
     }
     focusGhost = null;
 
-    layoutAllCharacters();
+    layoutAllPawns();
   }
 
   function updatePositionsFromModel() {
-    layoutAllCharacters();
+    layoutAllPawns();
   }
 
   function init() {}
@@ -945,12 +938,12 @@ export function createCharactersView(opts) {
     const nextFocused =
       intent && intent.kind === "pawnMove" ? intent.pawnId : null;
     const resolvedFocused = nextFocused ?? externalFocused;
-    if (focusedCharId !== resolvedFocused) {
-      focusedCharId = resolvedFocused;
+    if (focusedPawnId !== resolvedFocused) {
+      focusedPawnId = resolvedFocused;
     }
 
     for (const [id, view] of viewsById.entries()) {
-      const isFocused = focusedCharId != null && id === focusedCharId;
+      const isFocused = focusedPawnId != null && id === focusedPawnId;
       view.outline.tint = isFocused ? 0xffff66 : 0x000000;
     }
 
@@ -983,12 +976,12 @@ export function createCharactersView(opts) {
   }
 
   function update() {
-    layoutAllCharacters();
-    const charsById = new Map(
-      getCharsSafe().map((char) => [char?.id, char]).filter((entry) => entry[0] != null)
+    layoutAllPawns();
+    const pawnsById = new Map(
+      getPawnsSafe().map((pawn) => [pawn?.id, pawn]).filter((entry) => entry[0] != null)
     );
     for (const view of viewsById.values()) {
-      const latestPawn = charsById.get(view?.char?.id);
+      const latestPawn = pawnsById.get(view?.char?.id);
       if (latestPawn) view.char = latestPawn;
       const nextLabel = getLabelForChar(view.char);
       if (view.label && view.label.text !== nextLabel) {
@@ -1033,3 +1026,4 @@ export function createCharactersView(opts) {
     getInventoryOwnerAtGlobalPos,
   };
 }
+

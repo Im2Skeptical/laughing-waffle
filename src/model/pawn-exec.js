@@ -758,9 +758,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
   const placePawn =
     typeof options?.placePawn === "function"
       ? options.placePawn
-      : typeof options?.placeCharacter === "function"
-        ? options.placeCharacter
-        : null;
+      : null;
 
   for (const pawn of chars) {
     if (!pawn) continue;

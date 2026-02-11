@@ -1,7 +1,7 @@
 //
 // inventory-pixi.js
 // Inventory UI system (Pixi).
-// - Renders inventories for generic "owners" (hub structures, characters, etc.)
+// - Renders inventories for generic "owners" (hub structures, pawns, etc.)
 // - Handles drag/drop + stack splitting.
 // - Does NOT contain game rules; delegates legality + mutation to the model.
 //
@@ -205,7 +205,7 @@ export function createInventoryView({
     return ch && ch.role === "leader" ? ch : null;
   }
 
-  function getCharacterForOwner(ownerId) {
+  function getPawnForOwner(ownerId) {
     const state = getStateSafe();
     const chars = state?.pawns;
     if (!Array.isArray(chars)) return null;
@@ -504,7 +504,7 @@ export function createInventoryView({
       ev?.stopPropagation?.();
       if (uiBlocked) return;
       if (typeof openSkillTree !== "function") return;
-      const ch = getCharacterForOwner(ownerId);
+      const ch = getPawnForOwner(ownerId);
       if (!ch || !Number.isFinite(ch.id)) return;
       openSkillTree({
         leaderPawnId: Math.floor(ch.id),
@@ -1124,7 +1124,7 @@ export function createInventoryView({
     const rows = inv?.rows ?? DEFAULT_ROWS;
     const cellSize = DEFAULT_CELL_SIZE;
     const leader = getLeaderForOwner(ownerId);
-    const ownerCharacter = getCharacterForOwner(ownerId);
+    const ownerPawn = getPawnForOwner(ownerId);
 
     const gridWidth = cols * cellSize;
     const binSize = cellSize * BIN_CELL_SIZE;
@@ -1207,7 +1207,7 @@ export function createInventoryView({
     const pinText = headerUi.pinText;
     const closeText = headerUi.closeText;
     const skillsButton =
-      ownerCharacter && typeof openSkillTree === "function"
+      ownerPawn && typeof openSkillTree === "function"
         ? createSkillsButton(ownerId, w)
         : null;
     if (skillsButton?.root) {
