@@ -62,7 +62,6 @@ let externalUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
-let yearEndPreviewDismissedEventId = null;
 const liveSeenYearEndEventIds = new Set();
 
 const runner = createSimRunner({
@@ -580,22 +579,7 @@ function getLatestYearEndEventAtSecond(state, tSec) {
   return null;
 }
 
-function handleYearEndPerformanceClose(info) {
-  const previewing = runner.isPreviewing?.() ?? false;
-  if (!previewing) {
-    yearEndPreviewDismissedEventId = null;
-    return;
-  }
-  const state = runner.getState?.();
-  const currentSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : -1;
-  const eventSec = Number.isFinite(info?.eventSec) ? Math.floor(info.eventSec) : -2;
-  const eventId = Number.isFinite(info?.eventId) ? Math.floor(info.eventId) : null;
-  if (eventId != null && eventSec === currentSec) {
-    yearEndPreviewDismissedEventId = eventId;
-    return;
-  }
-  yearEndPreviewDismissedEventId = null;
-}
+function handleYearEndPerformanceClose() {}
 
 function toggleYearEndPerformanceFromEventLog(entry) {
   if (!hasYearEndPerformanceData(entry)) return;
@@ -603,7 +587,6 @@ function toggleYearEndPerformanceFromEventLog(entry) {
     yearEndPerformanceView.close("eventLogToggle");
     return;
   }
-  yearEndPreviewDismissedEventId = null;
   yearEndPerformanceView?.openForEntry?.(entry, { source: "eventLog" });
 }
 
@@ -620,34 +603,11 @@ function syncYearEndPerformancePopup() {
   const yearEndEntry = getLatestYearEndEventAtSecond(state, tSec);
 
   if (previewing) {
-    if (!yearEndEntry) {
-      yearEndPreviewDismissedEventId = null;
-      if (yearEndPerformanceView?.isOpen?.()) {
-        yearEndPerformanceView.close("scrubPast");
-      }
-      return;
-    }
-    if (
-      Number.isFinite(yearEndEntry.id) &&
-      yearEndPreviewDismissedEventId === yearEndEntry.id
-    ) {
-      if (
-        yearEndPerformanceView?.isOpen?.() &&
-        !yearEndPerformanceView?.isOpenForEvent?.(yearEndEntry.id)
-      ) {
-        yearEndPerformanceView.close("scrubSwitch");
-      }
-      return;
-    }
-    if (!yearEndPerformanceView?.isOpenForEvent?.(yearEndEntry.id)) {
-      yearEndPerformanceView?.openForEntry?.(yearEndEntry, {
-        source: "scrub",
-      });
+    if (yearEndPerformanceView?.isOpen?.()) {
+      yearEndPerformanceView.close("scrub");
     }
     return;
   }
-
-  yearEndPreviewDismissedEventId = null;
 
   if (!yearEndEntry || !Number.isFinite(yearEndEntry.id)) return;
   if (liveSeenYearEndEventIds.has(yearEndEntry.id)) return;
@@ -1525,7 +1485,7 @@ eventLogView = createEventLogView({
 yearEndPerformanceView = createYearEndPerformanceView({
   app,
   layer: uiLayers.controlsLayer,
-  onClose: (info) => handleYearEndPerformanceClose(info),
+  onClose: handleYearEndPerformanceClose,
 });
 
 skillTreeView = createSkillTreeView({

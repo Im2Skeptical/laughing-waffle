@@ -73,6 +73,8 @@ export function createYearEndPerformanceView({ app, layer, onClose } = {}) {
   root.addChild(blocker);
 
   const panel = new PIXI.Container();
+  panel.eventMode = "static";
+  panel.cursor = "pointer";
   root.addChild(panel);
 
   const panelBg = new PIXI.Graphics();
@@ -162,6 +164,7 @@ export function createYearEndPerformanceView({ app, layer, onClose } = {}) {
 
     panel.x = Math.floor((app.screen.width - PANEL_WIDTH) / 2);
     panel.y = Math.floor((app.screen.height - PANEL_HEIGHT) / 2);
+    panel.hitArea = new PIXI.Rectangle(0, 0, PANEL_WIDTH, PANEL_HEIGHT);
 
     title.x = PANEL_PAD_X;
     title.y = 18;
@@ -237,6 +240,13 @@ export function createYearEndPerformanceView({ app, layer, onClose } = {}) {
     ev?.stopPropagation?.();
   });
   blocker.on("pointertap", (ev) => {
+    ev?.stopPropagation?.();
+    close("click");
+  });
+  panel.on("pointerdown", (ev) => {
+    ev?.stopPropagation?.();
+  });
+  panel.on("pointertap", (ev) => {
     ev?.stopPropagation?.();
     close("click");
   });
