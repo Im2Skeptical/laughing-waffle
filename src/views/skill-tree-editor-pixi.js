@@ -21,6 +21,9 @@ const VIEWPORT_Y = 20;
 const VIEWPORT_WIDTH = 1410;
 const VIEWPORT_HEIGHT = 1040;
 const PANEL_X = 1450;
+const EDGE_EDIT_MODE_NONE = "none";
+const EDGE_EDIT_MODE_ADD = "add";
+const EDGE_EDIT_MODE_REMOVE = "remove";
 
 function roundPos(value) {
   return Number.isFinite(value) ? Math.round(value) : 0;
@@ -128,7 +131,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   root.addChild(validationText);
 
   const helpText = new PIXI.Text(
-    "Canvas: drag nodes to move, wheel to zoom, drag empty space to pan.",
+    "Canvas: drag nodes to move, wheel to zoom, drag empty space to pan.\nHotkeys: E add edge, R remove edge, Esc exits edge mode.",
     {
       fill: 0x91a7cc,
       fontSize: 11,
@@ -172,7 +175,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   let validation = { ok: true, errors: [], warnings: [] };
   let selectedNodeId = null;
   let hoverNodeId = null;
-  let connectMode = false;
+  let edgeEditMode = EDGE_EDIT_MODE_NONE;
   let connectSourceId = null;
   let activeTreeId = null;
   let activeDefs = null;
@@ -195,6 +198,22 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     moved: false,
   };
   const uiButtons = {};
+
+  function isTypingTarget(target) {
+    if (!target || typeof target !== "object") return false;
+    const tag = target.tagName;
+    return (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      target.isContentEditable === true
+    );
+  }
+
+  function edgeModeLabel(mode = edgeEditMode) {
+    if (mode === EDGE_EDIT_MODE_ADD) return "Add Edge";
+    if (mode === EDGE_EDIT_MODE_REMOVE) return "Remove Edge";
+    return "Select/Move";
+  }
 
   function setError(text) {
     errorText.text = typeof text === "string" ? text : "";
@@ -272,8 +291,8 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     }
     const nodeCount = getNodeIds(graph).length;
     const edgeCount = Array.isArray(graph.edges) ? graph.edges.length : 0;
-    const modeText = connectMode ? "Connect" : "Select/Move";
-    const sourceText = connectSourceId ? ` | Link source: ${connectSourceId}` : "";
+    const modeText = edgeModeLabel();
+    const sourceText = connectSourceId ? ` | Edge source: ${connectSourceId}` : "";
     statusText.text = [
       `Tree: ${graph.treeId}`,
       `Nodes: ${nodeCount} | Edges: ${edgeCount}`,
@@ -335,10 +354,29 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     uiButtons.togglePin?.setLabel?.(node.editorPinned ? "Unpin" : "Pin");
   }
 
-  function setConnectMode(enabled) {
-    connectMode = enabled === true;
-    if (!connectMode) connectSourceId = null;
-    uiButtons.connectMode?.setLabel?.(connectMode ? "Connect: On" : "Connect: Off");
+  function updateEdgeModeButtons() {
+    uiButtons.addEdgeMode?.setLabel?.(
+      edgeEditMode === EDGE_EDIT_MODE_ADD ? "Add Edge: On" : "Add Edge: Off"
+    );
+    uiButtons.removeEdgeMode?.setLabel?.(
+      edgeEditMode === EDGE_EDIT_MODE_REMOVE
+        ? "Remove Edge: On"
+        : "Remove Edge: Off"
+    );
+  }
+
+  function setEdgeEditMode(mode) {
+    if (
+      mode !== EDGE_EDIT_MODE_ADD &&
+      mode !== EDGE_EDIT_MODE_REMOVE &&
+      mode !== EDGE_EDIT_MODE_NONE
+    ) {
+      mode = EDGE_EDIT_MODE_NONE;
+    }
+    edgeEditMode = mode;
+    if (edgeEditMode === EDGE_EDIT_MODE_NONE) connectSourceId = null;
+    updateEdgeModeButtons();
+    updateStatusText();
   }
 
   function recalcAndRender({ save = true } = {}) {
@@ -417,7 +455,8 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       container.x = node.editorPos.x;
       container.y = node.editorPos.y;
       container.eventMode = "static";
-      container.cursor = connectMode ? "crosshair" : "pointer";
+      container.cursor =
+        edgeEditMode === EDGE_EDIT_MODE_NONE ? "pointer" : "crosshair";
 
       const isSelected = selectedNodeId === nodeId;
       const isHovered = hoverNodeId === nodeId;
@@ -449,7 +488,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
 
       container.on("pointerdown", (ev) => {
         ev?.stopPropagation?.();
-        if (connectMode) return;
+        if (edgeEditMode !== EDGE_EDIT_MODE_NONE) return;
         const world = globalToWorld(ev?.data?.global || { x: 0, y: 0 });
         nodeDrag.active = true;
         nodeDrag.nodeId = nodeId;
@@ -475,13 +514,22 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
         if (nodeDrag.active || nodeDrag.moved) return;
         selectedNodeId = nodeId;
         setError("");
-        if (connectMode) {
+        if (edgeEditMode !== EDGE_EDIT_MODE_NONE) {
           if (!connectSourceId) {
             connectSourceId = nodeId;
           } else if (connectSourceId === nodeId) {
             connectSourceId = null;
+          } else if (edgeEditMode === EDGE_EDIT_MODE_ADD) {
+            const changed = addEdge(connectSourceId, nodeId);
+            if (!changed) {
+              setError(`Edge already exists: ${connectSourceId} <-> ${nodeId}`);
+            }
+            connectSourceId = nodeId;
           } else {
-            toggleEdge(connectSourceId, nodeId);
+            const changed = removeEdge(connectSourceId, nodeId);
+            if (!changed) {
+              setError(`Edge not found: ${connectSourceId} <-> ${nodeId}`);
+            }
             connectSourceId = nodeId;
           }
         }
@@ -581,25 +629,38 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     zoomAtGlobal(stagePoint.x, stagePoint.y, factor);
   }
 
-  function toggleEdge(a, b) {
+  function addEdge(a, b) {
     if (!graph || !a || !b || a === b) return;
     if (!graph.nodesById?.[a] || !graph.nodesById?.[b]) return;
     if (!Array.isArray(graph.edges)) graph.edges = [];
     const exists = edgeExists(graph, a, b);
-    if (exists) {
-      const key = getEdgeKey(a, b);
-      graph.edges = graph.edges.filter((edge) => getEdgeKey(edge.a, edge.b) !== key);
-    } else {
-      graph.edges.push(
-        String(a) <= String(b)
-          ? { a: String(a), b: String(b) }
-          : { a: String(b), b: String(a) }
-      );
-    }
+    if (exists) return false;
+    graph.edges.push(
+      String(a) <= String(b)
+        ? { a: String(a), b: String(b) }
+        : { a: String(b), b: String(a) }
+    );
     graph.edges.sort((left, right) => {
       if (left.a !== right.a) return left.a.localeCompare(right.a);
       return left.b.localeCompare(right.b);
     });
+    return true;
+  }
+
+  function removeEdge(a, b) {
+    if (!graph || !a || !b || a === b) return false;
+    if (!Array.isArray(graph.edges)) graph.edges = [];
+    const key = getEdgeKey(a, b);
+    const nextEdges = graph.edges.filter(
+      (edge) => getEdgeKey(edge.a, edge.b) !== key
+    );
+    if (nextEdges.length === graph.edges.length) return false;
+    graph.edges = nextEdges;
+    graph.edges.sort((left, right) => {
+      if (left.a !== right.a) return left.a.localeCompare(right.a);
+      return left.b.localeCompare(right.b);
+    });
+    return true;
   }
 
   function renameNodeId(oldId, nextId) {
@@ -793,22 +854,49 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     place("resetDefs", "b");
     place("autoLayout", "a");
     place("editLayout", "b");
-    place("connectMode", "a");
-    place("addNode", "b");
-    place("deleteNode", "a");
-    place("editId", "b");
-    place("editName", "a");
-    place("editDesc", "b");
-    place("editTags", "a");
-    place("editRing", "b");
-    place("editCost", "a");
-    place("editNotes", "b");
-    place("togglePin", "a");
-    place("exportRuntime", "b");
-    place("exportLayout", "a");
-    place("exportEditor", "b");
-    place("importEditor", "a");
+    place("addEdgeMode", "a");
+    place("removeEdgeMode", "b");
+    place("addNode", "a");
+    place("deleteNode", "b");
+    place("editId", "a");
+    place("editName", "b");
+    place("editDesc", "a");
+    place("editTags", "b");
+    place("editRing", "a");
+    place("editCost", "b");
+    place("editNotes", "a");
+    place("togglePin", "b");
+    place("exportRuntime", "a");
+    place("exportLayout", "b");
+    place("exportEditor", "a");
+    place("importEditor", "b");
   }
+
+  function handleGlobalKeyDown(ev) {
+    if (!root.visible || !ev || ev.repeat) return;
+    if (isTypingTarget(ev.target)) return;
+    const key = typeof ev.key === "string" ? ev.key.toLowerCase() : "";
+    if (key === "e") {
+      ev.preventDefault();
+      setEdgeEditMode(EDGE_EDIT_MODE_ADD);
+      recalcAndRender({ save: false });
+      return;
+    }
+    if (key === "r") {
+      ev.preventDefault();
+      setEdgeEditMode(EDGE_EDIT_MODE_REMOVE);
+      recalcAndRender({ save: false });
+      return;
+    }
+    if ((ev.code || "") === "Escape" || key === "escape") {
+      if (edgeEditMode === EDGE_EDIT_MODE_NONE) return;
+      ev.preventDefault();
+      setEdgeEditMode(EDGE_EDIT_MODE_NONE);
+      recalcAndRender({ save: false });
+    }
+  }
+
+  window.addEventListener("keydown", handleGlobalKeyDown);
 
   addButton("exit", "Back", 196, () => {
     const exitCb = onExit;
@@ -842,8 +930,20 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       setError("Invalid layout JSON.");
     }
   });
-  addButton("connectMode", "Connect: Off", 196, () => {
-    setConnectMode(!connectMode);
+  addButton("addEdgeMode", "Add Edge: Off", 196, () => {
+    const nextMode =
+      edgeEditMode === EDGE_EDIT_MODE_ADD
+        ? EDGE_EDIT_MODE_NONE
+        : EDGE_EDIT_MODE_ADD;
+    setEdgeEditMode(nextMode);
+    recalcAndRender({ save: false });
+  });
+  addButton("removeEdgeMode", "Remove Edge: Off", 196, () => {
+    const nextMode =
+      edgeEditMode === EDGE_EDIT_MODE_REMOVE
+        ? EDGE_EDIT_MODE_NONE
+        : EDGE_EDIT_MODE_REMOVE;
+    setEdgeEditMode(nextMode);
     recalcAndRender({ save: false });
   });
   addButton("addNode", "Add Node", 196, () => addNodeAtCenter());
@@ -969,7 +1069,8 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     }
     selectedNodeId = null;
     hoverNodeId = null;
-    connectSourceId = connectMode ? connectSourceId : null;
+    connectSourceId =
+      edgeEditMode === EDGE_EDIT_MODE_NONE ? null : connectSourceId;
     setError("");
     updateSelectedText();
     renderGraph();
@@ -1029,7 +1130,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     selectedNodeId = null;
     hoverNodeId = null;
     connectSourceId = null;
-    setConnectMode(false);
+    setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     setError("");
     root.visible = true;
     fitCameraToGraph();
@@ -1048,7 +1149,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     selectedNodeId = null;
     hoverNodeId = null;
     connectSourceId = null;
-    setConnectMode(false);
+    setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     activeTreeId = null;
     activeDefs = null;
     onExit = null;
