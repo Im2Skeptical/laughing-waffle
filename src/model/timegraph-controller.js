@@ -13,7 +13,11 @@ import { GRAPH_METRICS } from "./graph-metrics.js";
 import { deserializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
-import { getActionSecondsInRange, getStateDataAtSecond } from "./timeline.js";
+import {
+  getActionSecondsInRange,
+  getActionSecondsInRangeSampled,
+  getStateDataAtSecond,
+} from "./timeline.js";
 import {
   perfEnabled,
   perfNowMs,
@@ -373,7 +377,35 @@ function collectHistorySampleSeconds(historyEndSec, strideSec) {
 }
 
 function collectActionSecondsInRange(tl, startSec, endSec) {
-  return getActionSecondsInRange(tl, startSec, endSec);
+  return getActionSecondsInRange(tl, startSec, endSec, { copy: false });
+}
+
+function collectActionSecondsForSampling(
+  tl,
+  startSec,
+  endSec,
+  { focus = false, cursorSec = null } = {}
+) {
+  const baseCap =
+    (focus ? FOCUS_ACTION_SAMPLE_MAX : NORMAL_ACTION_SAMPLE_MAX) * 6;
+  const sampled = getActionSecondsInRangeSampled(tl, startSec, endSec, baseCap, {
+    copy: false,
+  });
+
+  if (!Number.isFinite(cursorSec)) return sampled;
+
+  const radiusSec = focus ? FOCUS_NEAR_CURSOR_HALFSPAN_SEC * 2 : 30;
+  const near = getActionSecondsInRange(
+    tl,
+    cursorSec - radiusSec,
+    cursorSec + radiusSec,
+    { copy: false }
+  );
+  if (!near.length) return sampled;
+
+  const merged = new Set(sampled);
+  for (const sec of near) merged.add(sec);
+  return Array.from(merged.values()).sort((a, b) => a - b);
 }
 
 function collectHistorySampleSecondsInRange(tl, startSec, endSec, strideSec) {
@@ -1445,7 +1477,7 @@ export function createTimeGraphController({
         if (graphCache.stateDataByBoundary) {
           graphCache.stateDataByBoundary.clear();
         }
-        if (graphCache.sampleCache) {
+        if (graphCache.sampleCache && tl?._lastMutationChangedActionSeconds) {
           graphCache.sampleCache.clear();
         }
         graphCache.version = ++cacheVersion;
@@ -1587,12 +1619,17 @@ export function createTimeGraphController({
     if (end < start) return { ok: true, points: [], seconds: [] };
 
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    const actionSecs = getActionSecondsInRange(tl, start, end);
+    const actionSecs = collectActionSecondsForSampling(tl, start, end, {
+      focus: !!focus,
+      cursorSec,
+    });
+    const actionSecondsVersion = Math.floor(tl?._actionSecondsVersion ?? 0);
     const samplingSig = getSamplingModeSignature(!!focus, end - start);
     const metricId = metricDef?.id ?? metricDef?.label ?? "metric";
     const subjectKeyTag = subjectKey ?? "__global__";
-    const revision = Math.floor(tl?.revision ?? 0);
-    const cacheKey = `${metricId}|${subjectKeyTag}|${samplingSig}|${start}:${end}|${historyEndSec}|r${revision}`;
+    const cacheKey =
+      `${metricId}|${subjectKeyTag}|${samplingSig}|` +
+      `${start}:${end}|${historyEndSec}|a${actionSecondsVersion}`;
 
     let sampleSecs = graphCache.sampleCache?.get(cacheKey) ?? null;
     if (!sampleSecs) {

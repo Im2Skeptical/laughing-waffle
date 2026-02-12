@@ -288,8 +288,18 @@ export function createDebugOverlay({
     fontWeight: "bold",
   });
   perfHeader.x = 10;
-  perfHeader.y = graphBtn.y + 30;
+  perfHeader.y = graphBtn.y + 42;
   panel.addChild(perfHeader);
+
+  const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {
+    fontSize: 9,
+    fill: 0xb8c2dd,
+    wordWrap: true,
+    wordWrapWidth: PANEL_WIDTH - 20,
+  });
+  perfMeta.x = 10;
+  perfMeta.y = graphBtn.y + 28;
+  panel.addChild(perfMeta);
 
   const perfRows = [];
   for (let i = 0; i < TOP_VIEW_UPDATES_COUNT; i++) {
@@ -314,10 +324,43 @@ export function createDebugOverlay({
       typeof getPerfSnapshot === "function" ? getPerfSnapshot() : null;
     if (snapshot?.ok === false) {
       const reason = typeof snapshot.reason === "string" ? snapshot.reason : "unavailable";
+      perfMeta.text = "act --/--  plan --/--  scrub --";
       perfRows[0].text = `perf ${reason}`;
       for (let i = 1; i < perfRows.length; i++) perfRows[i].text = "";
       return;
     }
+    const runtime = snapshot?.runtime ?? null;
+    const actionLast = Number.isFinite(runtime?.actionDispatchLastMs)
+      ? runtime.actionDispatchLastMs.toFixed(1)
+      : "--";
+    const actionMax = Number.isFinite(runtime?.actionDispatchMaxMs)
+      ? runtime.actionDispatchMaxMs.toFixed(1)
+      : "--";
+    const plannerLast = Number.isFinite(runtime?.plannerCommitLastMs)
+      ? runtime.plannerCommitLastMs.toFixed(1)
+      : "--";
+    const plannerMax = Number.isFinite(runtime?.plannerCommitMaxMs)
+      ? runtime.plannerCommitMaxMs.toFixed(1)
+      : "--";
+    const scrubLast = Number.isFinite(runtime?.scrubCommitLastMs)
+      ? runtime.scrubCommitLastMs.toFixed(1)
+      : "--";
+    const timeline = snapshot?.timeline ?? null;
+    const actionsCount = Number.isFinite(timeline?.actions)
+      ? Math.floor(timeline.actions)
+      : 0;
+    const checkpointsCount = Number.isFinite(timeline?.checkpoints)
+      ? Math.floor(timeline.checkpoints)
+      : 0;
+    const memoSize = Number.isFinite(timeline?.memoSize)
+      ? Math.floor(timeline.memoSize)
+      : 0;
+    perfMeta.text =
+      `act ${actionLast}/${actionMax}  ` +
+      `plan ${plannerLast}/${plannerMax}  ` +
+      `scrub ${scrubLast}  ` +
+      `A ${actionsCount} CP ${checkpointsCount} M ${memoSize}`;
+
     const viewUpdates = snapshot?.runtime?.viewUpdates;
     if (!viewUpdates || typeof viewUpdates !== "object") {
       perfRows[0].text = "perf runtime unavailable";

@@ -66,6 +66,12 @@ const perf = {
       commitMaxMs: 0,
       committedActionsLast: 0,
     },
+    actionDispatch: {
+      calls: 0,
+      failed: 0,
+      lastMs: 0,
+      maxMs: 0,
+    },
     frame: {
       count: 0,
       lastMs: 0,
@@ -201,6 +207,17 @@ export function recordPlannerCommit({ ok = true, ms = 0, committed = 0 } = {}) {
     : 0;
 }
 
+export function recordActionDispatch({ ok = true, ms = 0 } = {}) {
+  if (!isPerfActive()) return;
+  const elapsed = Number.isFinite(ms) && ms >= 0 ? ms : 0;
+  perf.runtime.actionDispatch.calls += 1;
+  if (!ok) perf.runtime.actionDispatch.failed += 1;
+  perf.runtime.actionDispatch.lastMs = elapsed;
+  if (elapsed > perf.runtime.actionDispatch.maxMs) {
+    perf.runtime.actionDispatch.maxMs = elapsed;
+  }
+}
+
 export function getPerfCounters() {
   return perf;
 }
@@ -310,6 +327,10 @@ export function getPerfSnapshot({ timeline, controllers } = {}) {
       plannerCommitLastMs: perf.runtime.planner.commitLastMs,
       plannerCommitMaxMs: perf.runtime.planner.commitMaxMs,
       plannerCommittedActionsLast: perf.runtime.planner.committedActionsLast,
+      actionDispatchCalls: perf.runtime.actionDispatch.calls,
+      actionDispatchFailed: perf.runtime.actionDispatch.failed,
+      actionDispatchLastMs: perf.runtime.actionDispatch.lastMs,
+      actionDispatchMaxMs: perf.runtime.actionDispatch.maxMs,
       viewUpdates,
     },
   };

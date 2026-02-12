@@ -4,7 +4,10 @@
 
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
 import { perfEnabled, perfNowMs, recordGraphRender } from "../model/perf.js";
-import { getActionSecondsInRange } from "../model/timeline.js";
+import {
+  getActionSecondsInRange,
+  getActionSecondsInRangeSampled,
+} from "../model/timeline.js";
 
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {
@@ -154,9 +157,14 @@ export function createMetricGraphView({
   let statusNote = "";
   let lastScrubSignature = "";
   let cachedActionSecs = [];
-  let lastActionRevision = null;
+  let lastActionSecondsVersion = null;
   let lastActionRangeKey = "";
+  let cachedMarkerActionSecs = [];
+  let lastMarkerActionSecondsVersion = null;
+  let lastMarkerRangeKey = "";
+  let lastMarkerCap = 0;
   const ACTION_SNAP_THRESHOLD_SEC = 0.75;
+  const MAX_ACTION_MARKERS_DENSITY = 2;
 
   function clampInt(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v | 0));
@@ -223,16 +231,68 @@ export function createMetricGraphView({
 
   function getActionSecs(startSec, endSec) {
     const tl = getTimeline?.();
-    const rev = Math.floor(tl?.revision ?? -1);
+    const actionSecondsVersion = Math.floor(tl?._actionSecondsVersion ?? -1);
     const start = Math.max(0, Math.floor(startSec ?? 0));
     const end = Math.max(0, Math.floor(endSec ?? 0));
     const rangeKey = `${start}:${end}`;
-    if (rev !== lastActionRevision || rangeKey !== lastActionRangeKey) {
-      lastActionRevision = rev;
+    if (
+      actionSecondsVersion !== lastActionSecondsVersion ||
+      rangeKey !== lastActionRangeKey
+    ) {
+      lastActionSecondsVersion = actionSecondsVersion;
       lastActionRangeKey = rangeKey;
-      cachedActionSecs = getActionSecondsInRange(tl, start, end);
+      cachedActionSecs = getActionSecondsInRange(tl, start, end, {
+        copy: false,
+      });
     }
     return cachedActionSecs;
+  }
+
+  function getMarkerActionSecs(startSec, endSec, markerCap) {
+    const tl = getTimeline?.();
+    const actionSecondsVersion = Math.floor(tl?._actionSecondsVersion ?? -1);
+    const start = Math.max(0, Math.floor(startSec ?? 0));
+    const end = Math.max(0, Math.floor(endSec ?? 0));
+    const rangeKey = `${start}:${end}`;
+    const cap = Math.max(64, Math.floor(markerCap ?? 64));
+    if (
+      actionSecondsVersion !== lastMarkerActionSecondsVersion ||
+      rangeKey !== lastMarkerRangeKey ||
+      cap !== lastMarkerCap
+    ) {
+      lastMarkerActionSecondsVersion = actionSecondsVersion;
+      lastMarkerRangeKey = rangeKey;
+      lastMarkerCap = cap;
+      cachedMarkerActionSecs = getActionSecondsInRangeSampled(
+        tl,
+        start,
+        end,
+        cap * 2,
+        { copy: false }
+      );
+    }
+    return cachedMarkerActionSecs;
+  }
+
+  function getMarkerSeconds(actionSecs) {
+    const list = Array.isArray(actionSecs) ? actionSecs : [];
+    if (!list.length) return [];
+    const maxMarkers = Math.max(
+      64,
+      Math.floor(plot.w * MAX_ACTION_MARKERS_DENSITY)
+    );
+    if (list.length <= maxMarkers) return list;
+
+    const stride = Math.max(1, Math.ceil(list.length / maxMarkers));
+    const sampled = [];
+    for (let i = 0; i < list.length; i += stride) {
+      sampled.push(list[i]);
+    }
+    const last = list[list.length - 1];
+    if (sampled[sampled.length - 1] !== last) {
+      sampled.push(last);
+    }
+    return sampled;
   }
 
   function updateZoomButton() {
@@ -431,11 +491,16 @@ export function createMetricGraphView({
     }
 
     // Markers (actions)
-    const actionSecs = getActionSecs(minSec, maxSec);
-    if (actionSecs.length) {
+    const markerActionSecs = getMarkerActionSecs(
+      minSec,
+      maxSec,
+      Math.floor(plot.w * MAX_ACTION_MARKERS_DENSITY)
+    );
+    const markerSecs = getMarkerSeconds(markerActionSecs);
+    if (markerSecs.length) {
       plotG.beginFill(0x55ff55);
       plotG.lineStyle(0);
-      for (const t of actionSecs) {
+      for (const t of markerSecs) {
         if (t >= minSec && t <= maxSec) {
           const x = timeToX(t);
           plotG.drawCircle(x, plot.y + plot.h - 3, 3);

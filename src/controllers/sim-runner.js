@@ -13,7 +13,6 @@ import {
 import {
   createTimelineFromInitialState,
   appendActionAtCursor,
-  truncateActionsAfterSecond,
   truncateCheckpointsAfterSecond,
   truncateTimelineAfterSecond,
   replaceActionsAtSecond,
@@ -34,6 +33,7 @@ import { createActionPlanner } from "./actionmanagers/action-planner.js";
 import {
   perfEnabled,
   perfNowMs,
+  recordActionDispatch,
   recordPlannerCommit,
   recordScrubBrowse,
   recordScrubCommit,
@@ -66,6 +66,51 @@ export function createSimRunner({
 
   let pauseRequested = false;
   let lastPlannerCommitError = null;
+  let plannerBoundaryCache = null;
+
+  function clearPlannerBoundaryCache() {
+    plannerBoundaryCache = null;
+  }
+
+  function getPlannerBoundaryStateData(tSec) {
+    if (!timeline) return { ok: false, reason: "noTimeline" };
+    const sec = Math.max(0, Math.floor(tSec ?? 0));
+    const historyEndSec = Math.floor(timeline.historyEndSec ?? 0);
+    const baseRef = timeline.baseStateData;
+
+    if (
+      plannerBoundaryCache &&
+      plannerBoundaryCache.tSec === sec &&
+      plannerBoundaryCache.historyEndSec === historyEndSec &&
+      plannerBoundaryCache.baseStateDataRef === baseRef &&
+      plannerBoundaryCache.stateData != null
+    ) {
+      return { ok: true, stateData: plannerBoundaryCache.stateData, cacheHit: true };
+    }
+
+    let stateData = null;
+    if (sec <= 0) {
+      stateData = baseRef;
+    } else {
+      const rebuiltPrev = rebuildStateAtSecond(timeline, sec - 1);
+      if (!rebuiltPrev?.ok) return rebuiltPrev || { ok: false, reason: "rebuildFailed" };
+      const boundaryState = rebuiltPrev.state;
+      boundaryState.paused = false;
+      for (let i = 0; i < TICKS_PER_SEC; i++) {
+        updateGame(SIM_DT_STEP, boundaryState);
+      }
+      stateData = serializeGameState(boundaryState);
+    }
+
+    plannerBoundaryCache = {
+      tSec: sec,
+      historyEndSec,
+      baseStateDataRef: baseRef,
+      stateData,
+    };
+
+    return { ok: true, stateData, cacheHit: false };
+  }
 
   const actionPlanner = createActionPlanner({
     getTimeline: () => timeline,
@@ -211,6 +256,7 @@ export function createSimRunner({
     simAccumulator = 0;
 
     timeline = nextTimeline;
+    clearPlannerBoundaryCache();
 
     loadIntoGameState(data.state);
     cursorState = gameState;
@@ -323,6 +369,7 @@ export function createSimRunner({
 
     pauseRequested = false;
     dragPreviewState = null;
+    clearPlannerBoundaryCache();
 
     let usedCachedState = false;
     if (stateData != null) {
@@ -575,41 +622,36 @@ export function createSimRunner({
       orderedAtSec.push(action);
     }
 
-    // Validate planner commit from local frontier state:
-    // 1) rebuild to tSec-1 from existing timeline (fast via memo/checkpoints),
-    // 2) advance one second to boundary tSec without old sec actions,
-    // 3) apply replacement sec actions in order.
-    let validationState = null;
-    if (tSec <= 0) {
-      validationState = deserializeGameState(timeline.baseStateData);
-      canonicalizeSnapshot(validationState);
-      validationState.paused = false;
-    } else {
-      const rebuiltPrev = rebuildStateAtSecond(timeline, tSec - 1);
-      if (!rebuiltPrev?.ok) {
-        lastPlannerCommitError = {
-          reason: rebuiltPrev?.reason ?? "rebuildFailed",
-          detail: rebuiltPrev?.detail ?? null,
-          tSec,
-          commitReason: reason || "commit",
-        };
-        console.warn("Planner commit failed:", lastPlannerCommitError);
-        actionPlanner.resetToTimeline?.();
-        onRebuildViews?.("plannerCommitFailed");
-        onInvalidate?.("plannerCommitFailed");
-        recordPlannerCommit({ ok: false, ms: perfEnabled() ? perfNowMs() - perfStart : 0, committed: 0 });
-        return {
-          ok: false,
-          reason: "commitFailed",
-          detail: lastPlannerCommitError,
-        };
-      }
-      validationState = rebuiltPrev.state;
-      validationState.paused = false;
-      for (let i = 0; i < TICKS_PER_SEC; i++) {
-        updateGame(SIM_DT_STEP, validationState);
-      }
+    // Validate planner commit from the second boundary state at tSec:
+    // state after replaying through tSec-1 and advancing one simulation second,
+    // but before applying any actions at tSec.
+    const boundaryRes = getPlannerBoundaryStateData(tSec);
+    if (!boundaryRes?.ok || boundaryRes?.stateData == null) {
+      lastPlannerCommitError = {
+        reason: boundaryRes?.reason ?? "boundaryMissing",
+        detail: boundaryRes?.detail ?? null,
+        tSec,
+        commitReason: reason || "commit",
+      };
+      console.warn("Planner commit failed:", lastPlannerCommitError);
+      actionPlanner.resetToTimeline?.();
+      onRebuildViews?.("plannerCommitFailed");
+      onInvalidate?.("plannerCommitFailed");
+      recordPlannerCommit({
+        ok: false,
+        ms: perfEnabled() ? perfNowMs() - perfStart : 0,
+        committed: 0,
+      });
+      return {
+        ok: false,
+        reason: "commitFailed",
+        detail: lastPlannerCommitError,
+      };
     }
+
+    const validationState = deserializeGameState(boundaryRes.stateData);
+    canonicalizeSnapshot(validationState);
+    validationState.paused = false;
 
     for (const action of orderedAtSec) {
       const res = applyAction(validationState, action, { isReplay: true });
@@ -649,6 +691,8 @@ export function createSimRunner({
     playbackActive = false;
     seekPlaybackIndex(tSec);
     maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
+    // Replacing actions at this exact second preserves the boundary state.
+    // Keep cache warm for subsequent planner edits at the same tSec.
 
     actionPlanner.markCommitted?.({
       tSec,
@@ -656,10 +700,9 @@ export function createSimRunner({
     });
 
     onRebuildViews?.("plannerCommit");
-    const invalidateReason =
-      typeof reason === "string" && reason.startsWith("edit:")
-        ? `planner:${reason}`
-        : `plannerCommit:${reason || "commit"}`;
+    // Always emit plannerCommit so graph controllers can apply
+    // incremental replace-action invalidation instead of full fallback rebuild.
+    const invalidateReason = `plannerCommit:${reason || "commit"}`;
     onInvalidate?.(invalidateReason);
     recordPlannerCommit({
       ok: true,
@@ -709,6 +752,7 @@ export function createSimRunner({
     seekPlaybackIndex(tSec);
 
     actionPlanner.resetToTimeline?.();
+    clearPlannerBoundaryCache();
     onRebuildViews?.("plannerClear");
     onInvalidate?.("plannerClear");
 
@@ -725,6 +769,7 @@ export function createSimRunner({
       syncPhaseToPaused(cursorState);
 
       timeline = createTimelineFromInitialState(cursorState);
+      clearPlannerBoundaryCache();
 
       // Ensure cursors match genesis
       timeline.cursorSec = 0;
@@ -869,6 +914,14 @@ export function createSimRunner({
     },
 
     dispatchAction(kind, payload, opts = {}) {
+      const perfStart = perfEnabled() ? perfNowMs() : 0;
+      const finishDispatch = (res) => {
+        recordActionDispatch({
+          ok: !!res?.ok,
+          ms: perfEnabled() ? perfNowMs() - perfStart : 0,
+        });
+        return res;
+      };
       dragPreviewState = null;
       simAccumulator = 0;
       pauseRequested = false;
@@ -881,17 +934,17 @@ export function createSimRunner({
       if (tSec < prevHistoryEnd) {
         truncateTimelineAfterSecond(timeline, tSec);
       } else {
+        let normalizedByMutator = false;
         if (Array.isArray(timeline.actions) && timeline.actions.length) {
           const lastAction = timeline.actions[timeline.actions.length - 1];
           const lastActionSec = Math.floor(lastAction?.tSec ?? -1);
           if (lastActionSec > tSec) {
-            timeline.actions = truncateActionsAfterSecond(
-              timeline.actions,
-              tSec
-            );
+            truncateTimelineAfterSecond(timeline, tSec);
+            normalizedByMutator = true;
           }
         }
         if (
+          !normalizedByMutator &&
           Array.isArray(timeline.checkpoints) &&
           timeline.checkpoints.length
         ) {
@@ -916,7 +969,7 @@ export function createSimRunner({
         payload,
         apCost: opts.apCost,
       });
-      if (!exec?.ok) return exec || { ok: false, reason: "cmdFailed" };
+      if (!exec?.ok) return finishDispatch(exec || { ok: false, reason: "cmdFailed" });
 
       // Record with tSec
       const rec = appendActionAtCursor(
@@ -929,7 +982,7 @@ export function createSimRunner({
         },
         cursorState
       );
-      if (!rec.ok) return rec;
+      if (!rec.ok) return finishDispatch(rec);
 
       seekPlaybackIndex(tSec);
       maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
@@ -937,7 +990,7 @@ export function createSimRunner({
       onRebuildViews?.("actionDispatched");
       onInvalidate?.("actionDispatched");
 
-      return exec && typeof exec === "object" ? exec : { ok: true };
+      return finishDispatch(exec && typeof exec === "object" ? exec : { ok: true });
     },
 
     commitCursorSecond(tSec, stateData) {

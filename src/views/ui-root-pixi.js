@@ -1401,8 +1401,8 @@ let popGraphView = createMetricGraphView({
 });
 
 let lastSystemGraphTargetKey = null;
-const SYSTEM_GRAPH_TARGET_UPDATE_MS = 120;
-const SYSTEM_GRAPH_TARGET_STABLE_MS = 320;
+const SYSTEM_GRAPH_TARGET_UPDATE_MS = 30;
+const SYSTEM_GRAPH_TARGET_STABLE_MS = 80;
 let nextSystemGraphTargetUpdateAtMs = 0;
 let pendingSystemGraphTargetKey = null;
 let pendingSystemGraphTargetSinceMs = 0;
@@ -1571,7 +1571,8 @@ actionLogView.init();
 eventLogView.init();
 yearEndPerformanceView.init();
 applyScenarioDevUiBootstrap();
-const devAutoOpenGraphs = globalThis?.__DBG_AUTO_OPEN_GRAPHS__ === true;
+// Default-on for dev UX; set __DBG_AUTO_OPEN_GRAPHS__ = false to opt out.
+const devAutoOpenGraphs = globalThis?.__DBG_AUTO_OPEN_GRAPHS__ !== false;
 if (devAutoOpenGraphs) {
   apGraphView.open();
   systemGraphView.open();
