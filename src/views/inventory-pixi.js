@@ -3409,7 +3409,7 @@ export function createInventoryView({
       }
 
       const v = inv.version ?? 0;
-      const last = lastVersionByOwner.get(ownerId) ?? 0;
+      const last = lastVersionByOwner.get(ownerId) ?? -1;
 
       if (v !== last || previewChanged) {
         rebuildWindow(ownerId);
@@ -3441,6 +3441,9 @@ export function createInventoryView({
 
     rebuildWindow,
     ensureWindow,
+    invalidateAllWindowVersions: () => {
+      lastVersionByOwner.clear();
+    },
 
     windows,
   };

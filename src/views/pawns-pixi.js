@@ -63,6 +63,8 @@ export function createPawnsView(opts) {
   const LEADER_DIAMOND_SCALE = 1.15;
   let focusGhost = null;
   let focusedPawnId = null;
+  let followerOrdinalByPawnIdCache = new Map();
+  let followerOrdinalSignature = "";
 
   function clamp01(value) {
     if (!Number.isFinite(value)) return 0;
@@ -459,14 +461,52 @@ export function createPawnsView(opts) {
     };
   }
 
-  function getFollowerOrdinal(pawn) {
-    if (!pawn || pawn.role !== "follower") return null;
-    const leaderId = pawn.leaderId ?? null;
-    const pawns = getPawnsSafe();
-    const followers = pawns
-      .filter((c) => c && c.role === "follower" && c.leaderId === leaderId)
-      .slice()
-      .sort((a, b) => {
+  function hashIdentityValue(value) {
+    if (Number.isFinite(value)) {
+      return (Math.floor(value) >>> 0) || 1;
+    }
+    const text = String(value ?? "");
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function computeFollowerOrdinalSignature(pawns) {
+    let count = 0;
+    let hash = 2166136261;
+    for (const pawn of pawns || []) {
+      if (!pawn || pawn.role !== "follower" || pawn.id == null) continue;
+      count += 1;
+      const order = Number.isFinite(pawn?.followerCreationOrderIndex)
+        ? Math.floor(pawn.followerCreationOrderIndex)
+        : 0;
+      const idHash = hashIdentityValue(pawn.id);
+      const leaderHash = hashIdentityValue(pawn.leaderId ?? 0);
+      hash ^= idHash;
+      hash = Math.imul(hash, 16777619);
+      hash ^= leaderHash;
+      hash = Math.imul(hash, 16777619);
+      hash ^= (order >>> 0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${count}:${hash >>> 0}`;
+  }
+
+  function buildFollowerOrdinalByPawnId(pawns) {
+    const byLeader = new Map();
+    for (const pawn of pawns || []) {
+      if (!pawn || pawn.role !== "follower" || pawn.id == null) continue;
+      const leaderId = pawn.leaderId ?? null;
+      if (!byLeader.has(leaderId)) byLeader.set(leaderId, []);
+      byLeader.get(leaderId).push(pawn);
+    }
+
+    const out = new Map();
+    for (const followers of byLeader.values()) {
+      followers.sort((a, b) => {
         const ai = Number.isFinite(a?.followerCreationOrderIndex)
           ? a.followerCreationOrderIndex
           : 0;
@@ -476,15 +516,29 @@ export function createPawnsView(opts) {
         if (ai !== bi) return ai - bi;
         return (a?.id ?? 0) - (b?.id ?? 0);
       });
-    for (let i = 0; i < followers.length; i++) {
-      if (followers[i]?.id === pawn.id) return i + 1;
+      for (let i = 0; i < followers.length; i++) {
+        const followerId = followers[i]?.id;
+        if (followerId != null) out.set(followerId, i + 1);
+      }
     }
-    return null;
+    return out;
   }
 
-  function getLabelForPawn(pawn) {
+  function getFollowerOrdinalByPawnId(pawns) {
+    const signature = computeFollowerOrdinalSignature(pawns);
+    if (signature !== followerOrdinalSignature) {
+      followerOrdinalByPawnIdCache = buildFollowerOrdinalByPawnId(pawns);
+      followerOrdinalSignature = signature;
+    }
+    return followerOrdinalByPawnIdCache;
+  }
+
+  function getLabelForPawn(pawn, followerOrdinalByPawnId = null) {
     if (pawn?.role === "follower") {
-      const ordinal = getFollowerOrdinal(pawn);
+      const ordinal =
+        followerOrdinalByPawnId instanceof Map
+          ? followerOrdinalByPawnId.get(pawn.id)
+          : null;
       return ordinal != null ? `F${ordinal}` : "F";
     }
     return pawn?.name || "";
@@ -525,8 +579,8 @@ export function createPawnsView(opts) {
   // ---------------------------------------------------------------------------
   // Layout helper: fan pawns when multiple occupy a slot
   // ---------------------------------------------------------------------------
-  function layoutAllPawns() {
-    const pawns = getPawnsSafe();
+  function layoutAllPawns(pawnsInput = null) {
+    const pawns = Array.isArray(pawnsInput) ? pawnsInput : getPawnsSafe();
 
     const draggedPayload = interactionSafe.getDragged
       ? interactionSafe.getDragged()
@@ -613,7 +667,7 @@ export function createPawnsView(opts) {
   // ---------------------------------------------------------------------------
   // Create a single pawn view
   // ---------------------------------------------------------------------------
-  function createPawnView(pawn) {
+  function createPawnView(pawn, followerOrdinalByPawnId = null) {
     const container = new PIXI.Container();
 
     const pos = Number.isFinite(pawn.envCol)
@@ -681,7 +735,7 @@ export function createPawnsView(opts) {
     drawPawnShape(outline, { isLeader, radius: shapeRadius + 1 });
     container.addChild(outline);
 
-    const label = new PIXI.Text(getLabelForPawn(pawn), {
+    const label = new PIXI.Text(getLabelForPawn(pawn, followerOrdinalByPawnId), {
       fill: 0xffffff,
       fontSize: 16,
       fontWeight: "bold",
@@ -718,6 +772,7 @@ export function createPawnsView(opts) {
     // Hover UI
     // -----------------------------------------------------------------------
     function showHover() {
+      const pawnData = view.pawn || pawn;
       if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI())
         return;
       view.selfHover = true;
@@ -732,15 +787,15 @@ export function createPawnsView(opts) {
         RADIUS * 2,
         scale
       );
-      tt?.show?.({ ...makePawnTooltipSpec(pawn), scale }, anchor);
+      tt?.show?.({ ...makePawnTooltipSpec(pawnData), scale }, anchor);
 
       const inv = getInvSafe();
-      inv?.showOnHover?.(pawn.id, anchor);
+      inv?.showOnHover?.(pawnData.id, anchor);
 
-      const placement = getHoverPlacementForPawn(pawn);
+      const placement = getHoverPlacementForPawn(pawnData);
       interactionSafe.setHoveredPawn?.({
         kind: "pawn",
-        id: pawn.id,
+        id: pawnData.id,
         envCol: placement.envCol,
         hubCol: placement.hubCol,
         centerX: container.x,
@@ -796,19 +851,21 @@ export function createPawnsView(opts) {
     });
 
     function tryStartDrag() {
+      const pawnData = view.pawn || pawn;
       dragging = true;
-      interactionSafe.startDrag?.({ type: "pawn", id: pawn.id });
+      interactionSafe.startDrag?.({ type: "pawn", id: pawnData.id });
       requestPauseForAction?.();
       view.selfHover = false;
       view.attachedScale = 1;
       applyPawnScale(view);
       hideHover();
       if (pointerDownPos) {
-        updatePawnDragGhost(pawn, pointerDownPos);
+        updatePawnDragGhost(pawnData, pointerDownPos);
       }
     }
 
     function onMove(ev) {
+      const pawnData = view.pawn || pawn;
       if (!pointerDownPos) return;
 
       const g = ev.data.global;
@@ -826,7 +883,7 @@ export function createPawnsView(opts) {
 
       container.x = g.x + dragOffset.x;
       container.y = g.y + dragOffset.y;
-      updatePawnDragGhost(pawn, g);
+      updatePawnDragGhost(pawnData, g);
     }
 
     function onUp(ev) {
@@ -846,18 +903,20 @@ export function createPawnsView(opts) {
       const g = ev.data.global;
 
       if (!wasDragging) {
-        onPawnClicked?.({ pawnId: pawn.id });
+        const pawnData = view.pawn || pawn;
+        onPawnClicked?.({ pawnId: pawnData.id });
         // click -> toggle pinned inventory (optional)
         const inv = getInvSafe();
-        inv?.togglePinned?.(pawn.id);
+        inv?.togglePinned?.(pawnData.id);
         if (typeof setDragGhost === "function") {
           setDragGhost(null);
         }
         return;
       }
 
+      const pawnData = view.pawn || pawn;
       const dropResult = emitDropped({
-        pawnId: pawn.id,
+        pawnId: pawnData.id,
         dropPos: { x: g.x, y: g.y },
       });
 
@@ -899,17 +958,54 @@ export function createPawnsView(opts) {
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
-  function rebuildAll() {
-    for (const view of viewsById.values()) {
-      if (view.container?.parent) {
-        view.container.parent.removeChild(view.container);
+  function removePawnView(pawnId) {
+    const view = viewsById.get(pawnId);
+    if (!view) return;
+    if (view.flashTimeout) {
+      clearTimeout(view.flashTimeout);
+      view.flashTimeout = null;
+    }
+    if (view.container?.parent) {
+      view.container.parent.removeChild(view.container);
+    }
+    view.container?.removeAllListeners?.();
+    view.container?.destroy?.({ children: true });
+    viewsById.delete(pawnId);
+  }
+
+  function syncPawnViews(pawns, followerOrdinalByPawnId = null) {
+    const liveIds = new Set();
+    for (const pawn of pawns || []) {
+      const pawnId = pawn?.id;
+      if (pawnId == null) continue;
+      liveIds.add(pawnId);
+      const existing = viewsById.get(pawnId);
+      if (existing) {
+        existing.pawn = pawn;
+      } else {
+        createPawnView(pawn, followerOrdinalByPawnId);
       }
     }
-    layer.removeChildren();
-    viewsById.clear();
 
-    for (const pawn of getPawnsSafe()) {
-      createPawnView(pawn);
+    const stale = [];
+    for (const [pawnId] of viewsById.entries()) {
+      if (!liveIds.has(pawnId)) stale.push(pawnId);
+    }
+    for (const pawnId of stale) {
+      removePawnView(pawnId);
+    }
+  }
+
+  function rebuildAll() {
+    const existingIds = Array.from(viewsById.keys());
+    for (const pawnId of existingIds) {
+      removePawnView(pawnId);
+    }
+
+    const pawns = getPawnsSafe();
+    const followerOrdinalByPawnId = getFollowerOrdinalByPawnId(pawns);
+    for (const pawn of pawns) {
+      createPawnView(pawn, followerOrdinalByPawnId);
     }
 
     if (focusGhost && focusGhost.parent) {
@@ -917,11 +1013,14 @@ export function createPawnsView(opts) {
     }
     focusGhost = null;
 
-    layoutAllPawns();
+    layoutAllPawns(pawns);
   }
 
   function updatePositionsFromModel() {
-    layoutAllPawns();
+    const pawns = getPawnsSafe();
+    const followerOrdinalByPawnId = getFollowerOrdinalByPawnId(pawns);
+    syncPawnViews(pawns, followerOrdinalByPawnId);
+    layoutAllPawns(pawns);
   }
 
   function init() {}
@@ -976,14 +1075,12 @@ export function createPawnsView(opts) {
   }
 
   function update() {
-    layoutAllPawns();
-    const pawnsById = new Map(
-      getPawnsSafe().map((pawn) => [pawn?.id, pawn]).filter((entry) => entry[0] != null)
-    );
+    const pawns = getPawnsSafe();
+    const followerOrdinalByPawnId = getFollowerOrdinalByPawnId(pawns);
+    syncPawnViews(pawns, followerOrdinalByPawnId);
+    layoutAllPawns(pawns);
     for (const view of viewsById.values()) {
-      const latestPawn = pawnsById.get(view?.pawn?.id);
-      if (latestPawn) view.pawn = latestPawn;
-      const nextLabel = getLabelForPawn(view.pawn);
+      const nextLabel = getLabelForPawn(view.pawn, followerOrdinalByPawnId);
       if (view.label && view.label.text !== nextLabel) {
         view.label.text = nextLabel;
       }

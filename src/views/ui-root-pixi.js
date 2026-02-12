@@ -67,8 +67,6 @@ const liveSeenYearEndEventIds = new Set();
 const FULL_VIEW_REBUILD_REASONS = new Set([
   "init",
   "saveLoad",
-  "scrubCommit",
-  "scrubBrowse",
   "plannerClear",
 ]);
 
@@ -77,18 +75,21 @@ const runner = createSimRunner({
   onInvalidate: (reason) => {
     const plannerOnlyReason =
       typeof reason === "string" && reason.startsWith("planner:");
-    if (!plannerOnlyReason) {
+    const cursorOnlyReason =
+      reason === "scrubBrowse" || reason === "scrubCommit";
+    if (!plannerOnlyReason && !cursorOnlyReason) {
       goldGraphController.handleInvalidate(reason);
       foodGraphController.handleInvalidate(reason);
       apGraphController.handleInvalidate(reason);
       popGraphController.handleInvalidate(reason);
       systemGraphController.handleInvalidate(reason);
     }
-    // Force a check on inventory UI in case state changed
-    inventoryView?.update?.();
   },
   onRebuildViews: (reason = "unknown") => {
     tooltipView?.hide?.();
+    if (reason === "scrubCommit") {
+      refreshOpenInventoryWindows();
+    }
     if (FULL_VIEW_REBUILD_REASONS.has(reason)) {
       refreshOpenInventoryWindows();
       boardView.rebuildAll();
@@ -220,7 +221,9 @@ app.stage.addChild(
 
 function refreshOpenInventoryWindows() {
   if (!inventoryView?.windows || !inventoryView?.rebuildWindow) return;
-  for (const ownerId of inventoryView.windows.keys()) {
+  inventoryView.invalidateAllWindowVersions?.();
+  for (const [ownerId, win] of inventoryView.windows.entries()) {
+    if (!win?.container?.visible) continue;
     inventoryView.rebuildWindow(ownerId);
   }
 }

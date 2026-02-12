@@ -56,6 +56,7 @@ const PILL_GAP = 6;
 const PILL_PAD_X = 8;
 const TOGGLE_SIZE = 10;
 const TOGGLE_PAD = 6;
+const WINDOW_IDLE_DESTROY_FRAMES = 180;
 
 const GROUP_SYSTEM_IDS = new Set([
   "growth",
@@ -3504,6 +3505,7 @@ export function createProcessWidgetView({
       hasPosition: false,
       anchorRect: getTargetAnchorRect(target),
       offsetIndex: Number.isFinite(offsetIndex) ? Math.floor(offsetIndex) : 0,
+      idleFrames: 0,
     };
     windows.set(windowId, win);
     if (!win.anchorRect) {
@@ -3648,8 +3650,17 @@ export function createProcessWidgetView({
           : !!win.pinned || !!win.hovered;
         if (!visible) {
           win.container.visible = false;
+          if (!win.pinned && !win.hovered && !win.externalFocused) {
+            win.idleFrames = (win.idleFrames ?? 0) + 1;
+            if (win.idleFrames >= WINDOW_IDLE_DESTROY_FRAMES) {
+              destroyWindow(windowId);
+            }
+          } else {
+            win.idleFrames = 0;
+          }
           continue;
         }
+        win.idleFrames = 0;
 
         const signatureKey = `${windowId}|${getTargetKey(target)}`;
         let signature = null;
@@ -3781,8 +3792,17 @@ export function createProcessWidgetView({
         : !!win.pinned || !!win.hovered;
       if (!visible) {
         win.container.visible = false;
+        if (!win.pinned && !win.hovered && !win.externalFocused) {
+          win.idleFrames = (win.idleFrames ?? 0) + 1;
+          if (win.idleFrames >= WINDOW_IDLE_DESTROY_FRAMES) {
+            destroyWindow(windowId);
+          }
+        } else {
+          win.idleFrames = 0;
+        }
         continue;
       }
+      win.idleFrames = 0;
 
       const entries = [{ ...entry, processDef }];
       const signatureKey = `${windowId}|${getTargetKey(target)}`;

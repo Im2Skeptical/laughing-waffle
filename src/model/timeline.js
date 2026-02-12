@@ -19,13 +19,16 @@ const MICROSTEP_DT = 1 / TICKS_PER_SEC;
 
 // Checkpoint Strategy Constants
 const CP_STRIDE_SEC = 2;
-const CP_WINDOW_BACK = 1800;
-const CP_WINDOW_FWD = 1500;
-const CP_COLD_STRIDE_SEC = 30;
+const CP_WINDOW_BACK = 900;
+const CP_WINDOW_FWD = 300;
+const CP_COLD_STRIDE_SEC = 120;
 const CP_MAINTENANCE_CADENCE_SEC = 5;
+const DEFAULT_CHECKPOINT_MAX_BYTES = 24 * 1024 * 1024;
+const ACTION_SECONDS_RANGE_CACHE_MAX = 256;
 
 // Memo cache defaults (non-serialized derived fields stored on timeline object)
-const DEFAULT_MEMO_CAP = 512;
+const DEFAULT_MEMO_MAX_BYTES = 24 * 1024 * 1024;
+const DEFAULT_STATE_DATA_ESTIMATE_BYTES = 32 * 1024;
 
 export function isValidTimeline(tl) {
   if (!tl || typeof tl !== "object") return false;
@@ -73,8 +76,13 @@ function bumpRevision(tl) {
   // Clear memo eagerly to prevent growth; revision-keying also invalidates hits.
   if (tl.memoStateBySec) tl.memoStateBySec.clear();
   if (tl.memoFifo) tl.memoFifo.length = 0;
+  if (tl.memoBytesByKey) tl.memoBytesByKey.clear();
+  tl.memoBytesTotal = 0;
   if (tl._actionSecondsRangeCache) {
     tl._actionSecondsRangeCache = null;
+  }
+  if (tl._actionSecondsIndexCache) {
+    tl._actionSecondsIndexCache = null;
   }
   if (tl._checkpointIndexCache) {
     tl._checkpointIndexCache = null;
@@ -85,10 +93,14 @@ function bumpRevision(tl) {
 function ensureMemo(tl) {
   if (!tl.memoStateBySec) tl.memoStateBySec = new Map();
   if (!tl.memoFifo) tl.memoFifo = [];
-  if (!Number.isFinite(tl.memoCap) || tl.memoCap <= 0) {
-    tl.memoCap = DEFAULT_MEMO_CAP;
+  if (!tl.memoBytesByKey) tl.memoBytesByKey = new Map();
+  if (!Number.isFinite(tl.memoBytesTotal) || tl.memoBytesTotal < 0) {
+    tl.memoBytesTotal = 0;
+  }
+  if (!Number.isFinite(tl.memoMaxBytes) || tl.memoMaxBytes <= 0) {
+    tl.memoMaxBytes = DEFAULT_MEMO_MAX_BYTES;
   } else {
-    tl.memoCap = Math.floor(tl.memoCap);
+    tl.memoMaxBytes = Math.floor(tl.memoMaxBytes);
   }
 }
 
@@ -102,19 +114,57 @@ function memoGetStateData(tl, sec) {
   return tl.memoStateBySec.get(memoKey(tl, sec)) ?? null;
 }
 
+function estimateStateDataBytes(tl, stateData) {
+  if (!tl || stateData == null) return DEFAULT_STATE_DATA_ESTIMATE_BYTES;
+
+  const samplesTaken = Math.floor(tl._stateDataSizeSamples ?? 0);
+  const shouldSample = samplesTaken < 8 || samplesTaken % 8 === 0;
+
+  const avg = Number.isFinite(tl._stateDataAvgBytes)
+    ? Math.max(512, Math.floor(tl._stateDataAvgBytes))
+    : DEFAULT_STATE_DATA_ESTIMATE_BYTES;
+
+  if (!shouldSample) {
+    tl._stateDataSizeSamples = samplesTaken + 1;
+    return avg;
+  }
+
+  let bytes = avg;
+  try {
+    bytes = Math.max(512, JSON.stringify(stateData).length);
+  } catch (_) {
+    bytes = avg;
+  }
+
+  tl._stateDataSizeSamples = samplesTaken + 1;
+  tl._stateDataAvgBytes = Number.isFinite(tl._stateDataAvgBytes)
+    ? Math.floor(tl._stateDataAvgBytes * 0.75 + bytes * 0.25)
+    : bytes;
+
+  return bytes;
+}
+
 function memoPutStateData(tl, sec, stateData) {
   ensureMemo(tl);
   const key = memoKey(tl, sec);
+  const bytes = estimateStateDataBytes(tl, stateData);
+  const existingBytes = tl.memoBytesByKey.get(key) ?? 0;
 
   if (!tl.memoStateBySec.has(key)) {
     tl.memoFifo.push(key);
   }
   tl.memoStateBySec.set(key, stateData);
+  tl.memoBytesByKey.set(key, bytes);
+  tl.memoBytesTotal += bytes - existingBytes;
 
-  const cap = tl.memoCap ?? DEFAULT_MEMO_CAP;
-  while (tl.memoFifo.length > cap) {
+  const maxBytes = tl.memoMaxBytes ?? DEFAULT_MEMO_MAX_BYTES;
+  while (tl.memoBytesTotal > maxBytes && tl.memoFifo.length > 0) {
     const oldest = tl.memoFifo.shift();
-    if (oldest != null) tl.memoStateBySec.delete(oldest);
+    if (oldest == null) continue;
+    const removedBytes = tl.memoBytesByKey.get(oldest) ?? 0;
+    tl.memoStateBySec.delete(oldest);
+    tl.memoBytesByKey.delete(oldest);
+    tl.memoBytesTotal = Math.max(0, tl.memoBytesTotal - removedBytes);
   }
 }
 
@@ -169,10 +219,60 @@ function ensureActionsBySecFresh(tl) {
 function ensureActionSecondsRangeCache(tl) {
   const rev = ensureRevision(tl);
   const cache = tl._actionSecondsRangeCache;
-  if (!cache || cache.revision !== rev || !cache.map) {
-    tl._actionSecondsRangeCache = { revision: rev, map: new Map() };
+  if (!cache || cache.revision !== rev || !cache.map || !Number.isFinite(cache.max)) {
+    tl._actionSecondsRangeCache = {
+      revision: rev,
+      map: new Map(),
+      max: ACTION_SECONDS_RANGE_CACHE_MAX,
+    };
   }
-  return tl._actionSecondsRangeCache.map;
+  return tl._actionSecondsRangeCache;
+}
+
+function ensureActionSecondsIndex(tl) {
+  const rev = ensureRevision(tl);
+  const cache = tl._actionSecondsIndexCache;
+  if (cache && cache.revision === rev && Array.isArray(cache.secs)) {
+    return cache.secs;
+  }
+  const secs = Array.from(tl.actionsBySec?.keys?.() ?? [])
+    .map((secRaw) => Math.max(0, Math.floor(secRaw)))
+    .sort((a, b) => a - b);
+  tl._actionSecondsIndexCache = { revision: rev, secs };
+  return secs;
+}
+
+function lowerBoundSorted(list, target) {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function upperBoundSorted(list, target) {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] <= target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function putActionSecondsRangeCache(cache, key, secs) {
+  if (!cache || !cache.map || key == null) return;
+  cache.map.delete(key);
+  cache.map.set(key, secs);
+  while (cache.map.size > cache.max) {
+    const oldest = cache.map.keys().next().value;
+    if (oldest == null) break;
+    cache.map.delete(oldest);
+  }
 }
 
 function ensureCheckpointIndex(tl) {
@@ -285,6 +385,81 @@ function upsertCheckpointSorted(checkpoints, cpData) {
 
   checkpoints.splice(lo, 0, cpData);
   return true;
+}
+
+function estimateCheckpointBytes(tl, cp) {
+  if (!cp || cp.stateData == null) return DEFAULT_STATE_DATA_ESTIMATE_BYTES;
+  return estimateStateDataBytes(tl, cp.stateData);
+}
+
+function checkpointMaxCountByBudget(tl, fallbackStateData) {
+  const maxBytes = Number.isFinite(tl?.checkpointMaxBytes)
+    ? Math.max(1024 * 1024, Math.floor(tl.checkpointMaxBytes))
+    : DEFAULT_CHECKPOINT_MAX_BYTES;
+  const avgBytes = Number.isFinite(tl?._checkpointAvgBytes)
+    ? Math.max(1024, Math.floor(tl._checkpointAvgBytes))
+    : Math.max(1024, estimateStateDataBytes(tl, fallbackStateData));
+  return Math.max(16, Math.floor(maxBytes / avgBytes));
+}
+
+function trimCheckpointsToBudget(
+  tl,
+  checkpoints,
+  {
+    currentSec,
+    historyEndSec,
+    hotMin,
+    hotMax,
+    fallbackStateData,
+  } = {}
+) {
+  if (!Array.isArray(checkpoints) || checkpoints.length <= 1) return false;
+
+  const maxCount = checkpointMaxCountByBudget(tl, fallbackStateData);
+  if (checkpoints.length <= maxCount) return false;
+
+  const protectedSecs = new Set([
+    0,
+    Math.max(0, Math.floor(currentSec ?? 0)),
+    Math.max(0, Math.floor(historyEndSec ?? 0)),
+  ]);
+  const hotStart = Math.max(0, Math.floor(hotMin ?? 0));
+  const hotEnd = Math.max(0, Math.floor(hotMax ?? 0));
+  const isHot = (sec) => sec >= hotStart && sec <= hotEnd;
+  const isProtected = (sec) => protectedSecs.has(sec);
+
+  let changed = false;
+  while (checkpoints.length > maxCount) {
+    let removeIdx = -1;
+
+    // First choice: oldest non-protected checkpoint outside hot window.
+    for (let i = 0; i < checkpoints.length; i++) {
+      const sec = Math.floor(checkpoints[i]?.checkpointSec ?? -1);
+      if (sec < 0) continue;
+      if (isProtected(sec)) continue;
+      if (!isHot(sec)) {
+        removeIdx = i;
+        break;
+      }
+    }
+
+    // Fallback: oldest non-protected checkpoint.
+    if (removeIdx < 0) {
+      for (let i = 0; i < checkpoints.length; i++) {
+        const sec = Math.floor(checkpoints[i]?.checkpointSec ?? -1);
+        if (sec < 0) continue;
+        if (isProtected(sec)) continue;
+        removeIdx = i;
+        break;
+      }
+    }
+
+    if (removeIdx < 0) break;
+    checkpoints.splice(removeIdx, 1);
+    changed = true;
+  }
+
+  return changed;
 }
 
 // -----------------------------------------------------------------------------
@@ -470,6 +645,10 @@ export function maintainCheckpoints(tl, state, opts = {}) {
       appliedThroughSec: currentSec,
       stateData: ensureCurrentStateData(),
     };
+    const cpBytes = estimateCheckpointBytes(tl, cpData);
+    tl._checkpointAvgBytes = Number.isFinite(tl._checkpointAvgBytes)
+      ? Math.floor(tl._checkpointAvgBytes * 0.8 + cpBytes * 0.2)
+      : cpBytes;
 
     checkpointsChanged = upsertCheckpointSorted(tl.checkpoints, cpData) || checkpointsChanged;
   }
@@ -494,7 +673,15 @@ export function maintainCheckpoints(tl, state, opts = {}) {
       return false;
     });
 
-    if (tl.checkpoints.length !== beforeLen) checkpointsChanged = true;
+    const budgetTrimmed = trimCheckpointsToBudget(tl, tl.checkpoints, {
+      currentSec,
+      historyEndSec,
+      hotMin,
+      hotMax,
+      fallbackStateData: currentStateData,
+    });
+
+    if (tl.checkpoints.length !== beforeLen || budgetTrimmed) checkpointsChanged = true;
   }
 
   if (checkpointsChanged) {
@@ -655,26 +842,32 @@ export function getActionSecondsInRange(tl, startSec, endSec) {
   // Ensure actionsBySec is fresh and revision cache is valid.
   ensureRevisionFreshAgainstOutOfBandMutations(tl);
 
-  const cacheMap = ensureActionSecondsRangeCache(tl);
+  const cache = ensureActionSecondsRangeCache(tl);
+  const cacheMap = cache.map;
   const key = `${start}:${end}`;
   const cached = cacheMap.get(key);
   if (cached) return cached.slice();
 
   const actionsBySec = tl.actionsBySec;
   if (!actionsBySec || typeof actionsBySec.keys !== "function") {
-    cacheMap.set(key, []);
+    putActionSecondsRangeCache(cache, key, []);
     return [];
   }
 
-  const secs = [];
-  for (const secRaw of actionsBySec.keys()) {
-    const sec = Math.max(0, Math.floor(secRaw));
-    if (sec < start || sec > end) continue;
-    secs.push(sec);
+  const allSecs = ensureActionSecondsIndex(tl);
+  if (!allSecs.length) {
+    putActionSecondsRangeCache(cache, key, []);
+    return [];
   }
-  if (secs.length > 1) secs.sort((a, b) => a - b);
 
-  cacheMap.set(key, secs);
+  const startIdx = lowerBoundSorted(allSecs, start);
+  const endIdxExcl = upperBoundSorted(allSecs, end);
+  const secs =
+    startIdx < endIdxExcl
+      ? allSecs.slice(startIdx, endIdxExcl)
+      : [];
+
+  putActionSecondsRangeCache(cache, key, secs);
   return secs.slice();
 }
 

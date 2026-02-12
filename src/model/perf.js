@@ -119,6 +119,9 @@ export function getPerfSnapshot({ timeline, controllers } = {}) {
     tl?.memoStateBySec && typeof tl.memoStateBySec.size === "number"
       ? tl.memoStateBySec.size
       : 0;
+  const memoBytes = Number.isFinite(tl?.memoBytesTotal)
+    ? Math.max(0, Math.floor(tl.memoBytesTotal))
+    : 0;
   const actionsBySecSize =
     tl?.actionsBySec && typeof tl.actionsBySec.size === "number"
       ? tl.actionsBySec.size
@@ -143,6 +146,18 @@ export function getPerfSnapshot({ timeline, controllers } = {}) {
       : 0;
     return Math.max(acc, cap);
   }, 0);
+  const maxForecastBytes = controllerData.reduce((acc, d) => {
+    const bytes = Number.isFinite(d?.projectionCacheApproxBytes)
+      ? d.projectionCacheApproxBytes
+      : 0;
+    return Math.max(acc, bytes);
+  }, 0);
+  const maxForecastMaxBytes = controllerData.reduce((acc, d) => {
+    const bytes = Number.isFinite(d?.projectionCacheMaxBytes)
+      ? d.projectionCacheMaxBytes
+      : 0;
+    return Math.max(acc, bytes);
+  }, 0);
 
   return {
     ok: true,
@@ -151,11 +166,14 @@ export function getPerfSnapshot({ timeline, controllers } = {}) {
       actions: actionsCount,
       checkpoints: checkpointsCount,
       memoSize,
+      memoBytes,
       actionsBySecSize,
     },
     graphs: {
       forecastCacheSize: maxForecastCache,
       forecastCacheCap: maxForecastCap,
+      forecastCacheBytes: maxForecastBytes,
+      forecastCacheMaxBytes: maxForecastMaxBytes,
       lastHistoryBuildMs: perf.projection.history.lastMs,
       lastForecastBuildMs: perf.projection.forecast.lastMs,
       lastHistoryPoints: perf.projection.history.lastPoints,

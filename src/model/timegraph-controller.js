@@ -7,8 +7,6 @@ import {
   buildProjectionStateStepWindowFromTimeline,
   buildProjectionStateStepWindowFromStateData,
   buildProjectionStateWindowFromStateData,
-  buildProjectionSeriesStepWindowFromTimeline,
-  getStateAtSecond,
 } from "./projection.js";
 
 import { GRAPH_METRICS } from "./graph-metrics.js";
@@ -26,7 +24,8 @@ import {
 } from "./perf.js";
 import { computeGlobalSkillMods } from "./skills.js";
 
-const DEFAULT_PROJECTION_CACHE_MAX_SECS = 2048;
+const DEFAULT_PROJECTION_CACHE_MAX_BYTES = 48 * 1024 * 1024;
+const DEFAULT_STATE_DATA_ESTIMATE_BYTES = 32 * 1024;
 const DEFAULT_FORECAST_STEP_SEC = 5;
 const MAX_HISTORY_POINTS = 2000;
 const NORMAL_SAMPLE_TARGET = 320;
@@ -248,10 +247,9 @@ function alignForecastSampleSeconds(seconds, historyEndSec, stepSec, endSec) {
       continue;
     }
 
-    let snapped =
-      historyEnd + Math.floor((sec - historyEnd) / step) * step;
+    let snapped = Math.floor(sec / step) * step;
     if (snapped <= historyEnd) {
-      snapped = historyEnd + step;
+      snapped = Math.ceil((historyEnd + 1) / step) * step;
     }
     if (snapped > end) {
       snapped = end;
@@ -394,19 +392,13 @@ function shouldCacheForecastSec(sec, historyEndSec) {
 }
 
 function cacheForecastStateData(stateDataByBoundary, sec, historyEndSec, stateData) {
-  if (!stateDataByBoundary || stateData == null) return;
-  if (!shouldCacheForecastSec(sec, historyEndSec)) return;
-  stateDataByBoundary.set(clampSec(sec), stateData);
+  // Forecast state snapshots are owned by the shared projection cache.
+  // Controllers should not duplicate serialized state data.
+  return;
 }
 
 function purgePastStateData(stateDataByBoundary, historyEndSec) {
-  if (!stateDataByBoundary) return;
-  const cutoff = clampSec(historyEndSec);
-  for (const sec of stateDataByBoundary.keys()) {
-    if (clampSec(sec) <= cutoff) {
-      stateDataByBoundary.delete(sec);
-    }
-  }
+  return;
 }
 
 function cacheSampleSeconds(sampleCache, key, secs) {
@@ -446,17 +438,27 @@ function signatureEquals(a, b) {
   );
 }
 
-function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS } = {}) {
+function createProjectionCache({
+  maxBytes = DEFAULT_PROJECTION_CACHE_MAX_BYTES,
+  maxEntries = null,
+} = {}) {
   let signature = null;
   let forecastBaseSec = 0;
   let forecastEndSec = 0;
   let forecastStepSec = 1;
   let forecastDtStep = null;
   const stateDataBySecond = new Map();
+  const bytesBySecond = new Map();
 
-  const limit = Number.isFinite(maxEntries)
+  const maxBytesBudget = Number.isFinite(maxBytes) && maxBytes > 0
+    ? Math.max(1024 * 1024, Math.floor(maxBytes))
+    : DEFAULT_PROJECTION_CACHE_MAX_BYTES;
+  const maxEntriesBudget = Number.isFinite(maxEntries) && maxEntries > 0
     ? Math.max(256, Math.floor(maxEntries))
-    : DEFAULT_PROJECTION_CACHE_MAX_SECS;
+    : Number.POSITIVE_INFINITY;
+
+  let approxBytesTotal = 0;
+  let avgStateDataBytes = DEFAULT_STATE_DATA_ESTIMATE_BYTES;
 
   function reset(nextSignature) {
     signature = nextSignature || null;
@@ -465,6 +467,8 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     forecastStepSec = 1;
     forecastDtStep = null;
     stateDataBySecond.clear();
+    bytesBySecond.clear();
+    approxBytesTotal = 0;
   }
 
   function touch(sec) {
@@ -475,20 +479,57 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     return data;
   }
 
-  function set(sec, data) {
-    stateDataBySecond.delete(sec);
-    stateDataBySecond.set(sec, data);
+  function estimateBytes(stateData) {
+    let bytes = Math.max(512, Math.floor(avgStateDataBytes));
+    try {
+      bytes = Math.max(512, JSON.stringify(stateData).length);
+    } catch (_) {
+      bytes = Math.max(512, Math.floor(avgStateDataBytes));
+    }
+    avgStateDataBytes = Math.floor(avgStateDataBytes * 0.75 + bytes * 0.25);
+    return bytes;
+  }
 
-    while (stateDataBySecond.size > limit) {
+  function removeSec(sec) {
+    if (!stateDataBySecond.has(sec)) return;
+    const removedBytes = bytesBySecond.get(sec) ?? 0;
+    stateDataBySecond.delete(sec);
+    bytesBySecond.delete(sec);
+    approxBytesTotal = Math.max(0, approxBytesTotal - removedBytes);
+  }
+
+  function set(sec, data) {
+    const t = clampSec(sec);
+    const prevBytes = bytesBySecond.get(t) ?? 0;
+    const nextBytes = estimateBytes(data);
+    stateDataBySecond.delete(t);
+    stateDataBySecond.set(t, data);
+    bytesBySecond.set(t, nextBytes);
+    approxBytesTotal += nextBytes - prevBytes;
+
+    while (
+      stateDataBySecond.size > maxEntriesBudget ||
+      approxBytesTotal > maxBytesBudget
+    ) {
       const oldest = stateDataBySecond.keys().next().value;
-      stateDataBySecond.delete(oldest);
+      if (oldest == null) break;
+      removeSec(oldest);
     }
   }
 
-  function setForecastState(sec, baseSec, data) {
+  function purgePastForecast(historyEndSec) {
+    const cutoff = clampSec(historyEndSec);
+    for (const sec of stateDataBySecond.keys()) {
+      if (clampSec(sec) <= cutoff) {
+        removeSec(sec);
+      }
+    }
+  }
+
+  function setForecastState(sec, historyEndSec, data) {
     const t = clampSec(sec);
-    const base = clampSec(baseSec);
-    if (t <= base) return;
+    const historyEnd = clampSec(historyEndSec);
+    if (t <= historyEnd) return;
     set(t, data);
   }
 
@@ -505,15 +546,25 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
-    const baseSec = clampSec(tl.historyEndSec ?? 0);
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
+    const baseSec = Math.floor(historyEndSec / step) * step;
     const target = clampSec(targetEndSec);
     const horizonSec = Math.max(0, target - baseSec);
     const targetBoundaryEnd =
       baseSec + Math.floor(horizonSec / step) * step;
 
-    if (targetBoundaryEnd <= baseSec) {
+    purgePastForecast(historyEndSec);
+
+    if (
+      forecastStepSec !== step ||
+      (forecastDtStep != null && dtStep != null && forecastDtStep !== dtStep)
+    ) {
+      reset(signature);
+    }
+
+    if (targetBoundaryEnd <= historyEndSec) {
       forecastBaseSec = baseSec;
-      forecastEndSec = baseSec;
+      forecastEndSec = historyEndSec;
       forecastStepSec = step;
       forecastDtStep = dtStep;
       return { ok: true };
@@ -554,7 +605,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
         });
         if (!extend.ok) return extend;
         for (const [sec, sd] of extend.stateDataBySecond.entries()) {
-          setForecastState(sec, baseSec, sd);
+          setForecastState(sec, historyEndSec, sd);
         }
         forecastEndSec = extend.window.endSec;
         forecastStepSec = step;
@@ -581,7 +632,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
           });
           if (!extend.ok) return extend;
           for (const [sec, sd] of extend.stateDataBySecond.entries()) {
-            setForecastState(sec, baseSec, sd);
+            setForecastState(sec, historyEndSec, sd);
           }
           forecastEndSec = extend.window.endSec;
         }
@@ -605,7 +656,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     if (!winRes.ok) return winRes;
 
     for (const [sec, sd] of winRes.stateDataBySecond.entries()) {
-      setForecastState(sec, baseSec, sd);
+      setForecastState(sec, historyEndSec, sd);
     }
 
     forecastBaseSec = baseSec;
@@ -632,7 +683,6 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
       if (!sdRes.ok) {
         return { ok: false, reason: sdRes.reason || "rebuildFailed" };
       }
-      set(t, sdRes.stateData);
       return { ok: true, stateData: sdRes.stateData };
     }
 
@@ -645,7 +695,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     const forecastData = touch(t);
     if (forecastData != null) return { ok: true, stateData: forecastData };
 
-    if (t >= forecastBaseSec && t <= forecastEndSec && step > 0) {
+    if (t >= forecastBaseSec && step > 0) {
       const offset = t - forecastBaseSec;
       const anchorSec =
         forecastBaseSec + Math.floor(offset / step) * step;
@@ -658,18 +708,18 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
         const delta = t - anchorSec;
         if (delta > 0) {
           const win = buildProjectionStateWindowFromStateData(anchorData, anchorSec, {
-            horizonSec: delta,
-            dtStep: forecastDtStep ?? dtStep,
-          });
+              horizonSec: delta,
+              dtStep: forecastDtStep ?? dtStep,
+            });
           if (win.ok) {
             const sd = win.stateDataBySecond.get(t);
             if (sd != null) {
-              setForecastState(t, forecastBaseSec, sd);
+              setForecastState(t, historyEnd, sd);
               return { ok: true, stateData: sd };
             }
           }
         } else if (delta === 0) {
-          setForecastState(t, forecastBaseSec, anchorData);
+          setForecastState(t, historyEnd, anchorData);
           return { ok: true, stateData: anchorData };
         }
       }
@@ -690,7 +740,9 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     },
     clear: () => reset(-1),
     getSize: () => stateDataBySecond.size,
-    maxEntries: limit,
+    getApproxBytes: () => approxBytesTotal,
+    maxBytes: maxBytesBudget,
+    maxEntries: Number.isFinite(maxEntriesBudget) ? maxEntriesBudget : null,
   };
 }
 
@@ -1491,6 +1543,8 @@ export function createTimeGraphController({
       cacheVersion: graphCache?.version ?? cacheVersion,
       projectionCacheSize: projection.getSize?.(),
       projectionCacheCap: projection.maxEntries,
+      projectionCacheApproxBytes: projection.getApproxBytes?.(),
+      projectionCacheMaxBytes: projection.maxBytes,
     };
   }
 
@@ -1613,30 +1667,52 @@ export function createTimeGraphController({
       graphCache.window.forecastValuesBySec instanceof Map;
 
     if (!canReuse) {
-      const horizonSec = Math.max(0, maxSec - baseSec);
-      const res = buildProjectionSeriesStepWindowFromTimeline(tl, baseSec, {
-        horizonSec,
-        stepSec,
-        series: activeSeries,
-        subject,
-        resolverFactory,
-      });
-      if (!res?.ok) {
+      const forecastRes = projection.ensureForecastWindow(
+        tl,
+        maxSec,
+        undefined,
+        stepSec
+      );
+      if (!forecastRes?.ok) {
         graphCache.window.forecastValuesBySec = new Map();
         graphCache.window.forecastValuesMeta = null;
         return null;
       }
-      graphCache.window.forecastValuesBySec =
-        res.valuesBySecond instanceof Map ? res.valuesBySecond : new Map();
+      graphCache.window.forecastValuesBySec = new Map();
       graphCache.window.forecastValuesMeta = {
         baseSec,
         historyEndSec: baseSec,
-        endSec: res.window?.endSec ?? baseSec,
+        endSec: maxSec,
         stepSec,
         seriesSig,
         subjectKey: key,
         valuesRevision,
       };
+    }
+
+    const valuesBySec = graphCache.window.forecastValuesBySec;
+    for (const sec of requested) {
+      if (valuesBySec.has(sec)) continue;
+      const stateRes = projection.ensureStateAtSecond(
+        tl,
+        sec,
+        undefined,
+        stepSec
+      );
+      if (!stateRes?.ok) continue;
+      const values = computeValuesFromStateData(
+        stateRes.stateData,
+        activeSeries,
+        subject,
+        resolverFactory
+      );
+      valuesBySec.set(sec, values);
+    }
+    if (graphCache.window.forecastValuesMeta) {
+      graphCache.window.forecastValuesMeta.endSec = Math.max(
+        graphCache.window.forecastValuesMeta.endSec ?? 0,
+        maxSec
+      );
     }
 
     return graphCache.window.forecastValuesBySec;
@@ -1694,25 +1770,12 @@ export function createTimeGraphController({
 
       let stateData = null;
       if (shouldCacheForecastSec(sec, historyEndSec)) {
-        if (graphCache.stateDataByBoundary?.has?.(sec)) {
+        const cachedProjectionData = projection.getStateData?.(sec) ?? null;
+        if (cachedProjectionData != null) {
           recordTimegraphCacheHit();
-          stateData = graphCache.stateDataByBoundary.get(sec);
+          stateData = cachedProjectionData;
         } else {
           recordTimegraphCacheMiss();
-        }
-      }
-      if (stateData == null) {
-        if (shouldCacheForecastSec(sec, historyEndSec)) {
-          const cachedProjectionData = projection.getStateData?.(sec) ?? null;
-          if (cachedProjectionData != null) {
-            stateData = cachedProjectionData;
-            cacheForecastStateData(
-              graphCache.stateDataByBoundary,
-              sec,
-              historyEndSec,
-              stateData
-            );
-          }
         }
       }
       if (stateData == null) {
@@ -1728,12 +1791,6 @@ export function createTimeGraphController({
           continue;
         }
         stateData = res.stateData ?? null;
-        cacheForecastStateData(
-          graphCache.stateDataByBoundary,
-          sec,
-          historyEndSec,
-          stateData
-        );
       }
 
       const values = computeValuesFromStateData(
@@ -1759,9 +1816,10 @@ export function createTimeGraphController({
     const sec = clampSec(tSec);
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
     if (shouldCacheForecastSec(sec, historyEndSec)) {
-      if (graphCache?.stateDataByBoundary?.has?.(sec)) {
+      const cachedProjectionData = projection.getStateData?.(sec) ?? null;
+      if (cachedProjectionData != null) {
         recordTimegraphCacheHit();
-        return graphCache.stateDataByBoundary.get(sec);
+        return cachedProjectionData;
       }
       recordTimegraphCacheMiss();
     }
@@ -1772,14 +1830,7 @@ export function createTimeGraphController({
       forecastStepSecCur
     );
     if (!res.ok) return null;
-    const stateData = res.stateData ?? null;
-    cacheForecastStateData(
-      graphCache?.stateDataByBoundary,
-      sec,
-      historyEndSec,
-      stateData
-    );
-    return stateData;
+    return res.stateData ?? null;
   }
 
   function getStateAt(tSec) {
