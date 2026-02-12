@@ -257,7 +257,7 @@ export function buildMetricGraphHistoryCacheFromTimeline(tl, opts = null) {
   if (perfEnabled()) {
     recordProjectionStateWindowBuild({
       ms: perfNowMs() - perfStart,
-      points: stateDataBySecond.size,
+      points: stateDataByBoundary.size,
     });
   }
   return {

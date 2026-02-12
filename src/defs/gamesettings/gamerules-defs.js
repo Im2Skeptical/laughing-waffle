@@ -4,7 +4,7 @@
 import "../env-defs-dev.js";
 import "../skill-defs-dev.js";
 
-export const BASE_PROJECTION_HORIZON_SEC = 350;
+export const BASE_PROJECTION_HORIZON_SEC = 1200;
 
 export const SEASON_DURATION_SEC = 32; // seconds of simulation per season
 export const SEASONS = ["spring", "summer", "autumn", "winter"];
@@ -16,9 +16,9 @@ export const SEASON_DISPLAY = {
 };
 
 // --- Moon / Action Point Cap ---
-export const MOON_CYCLE_SEC = 300;
+export const MOON_CYCLE_SEC = 30;
 export const MOON_PHASE_OFFSET_SEC = 15;
-export const AP_CAP_MIN = 30;
+export const AP_CAP_MIN = 80;
 export const AP_CAP_MAX = 120;
 export const AP_INCOME_PER_SEC = 1;
 export const AP_INCOME_MULT_WAXING = 8;

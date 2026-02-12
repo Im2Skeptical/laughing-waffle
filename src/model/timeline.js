@@ -23,7 +23,7 @@ const CP_WINDOW_BACK = 1800;
 const CP_WINDOW_FWD = 1500;
 
 // Memo cache defaults (non-serialized derived fields stored on timeline object)
-const DEFAULT_MEMO_CAP = 512;
+const DEFAULT_MEMO_CAP = 2048;
 
 export function isValidTimeline(tl) {
   if (!tl || typeof tl !== "object") return false;
@@ -73,6 +73,9 @@ function bumpRevision(tl) {
   if (tl.memoFifo) tl.memoFifo.length = 0;
   if (tl._actionSecondsRangeCache) {
     tl._actionSecondsRangeCache = null;
+  }
+  if (tl._checkpointIndexCache) {
+    tl._checkpointIndexCache = null;
   }
   return tl.revision;
 }
@@ -170,29 +173,76 @@ function ensureActionSecondsRangeCache(tl) {
   return tl._actionSecondsRangeCache.map;
 }
 
+function ensureCheckpointIndex(tl) {
+  const rev = ensureRevision(tl);
+  const cache = tl._checkpointIndexCache;
+  if (
+    cache &&
+    cache.revision === rev &&
+    cache.bySec &&
+    Array.isArray(cache.secs)
+  ) {
+    return cache;
+  }
+
+  const bySec = new Map();
+  const secs = [];
+  const cps = Array.isArray(tl.checkpoints) ? tl.checkpoints : [];
+  for (const cp of cps) {
+    const sec = Math.floor(cp?.checkpointSec ?? -1);
+    if (!Number.isFinite(sec) || sec < 0) continue;
+    if (cp?.stateData == null) continue;
+    if (!bySec.has(sec)) secs.push(sec);
+    bySec.set(sec, cp);
+  }
+  if (secs.length > 1) secs.sort((a, b) => a - b);
+
+  const next = { revision: rev, bySec, secs };
+  tl._checkpointIndexCache = next;
+  return next;
+}
+
+function findNearestCheckpointAtOrBefore(index, targetSec) {
+  const target = Math.max(0, Math.floor(targetSec ?? 0));
+  const secs = Array.isArray(index?.secs) ? index.secs : [];
+  if (!secs.length) return null;
+
+  let lo = 0;
+  let hi = secs.length - 1;
+  let best = -1;
+
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const sec = secs[mid];
+    if (sec <= target) {
+      best = sec;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  if (best < 0) return null;
+  return index.bySec.get(best) ?? null;
+}
+
 // -----------------------------------------------------------------------------
 // Defensive invalidation guard (Stage 3 exit requirement)
 // -----------------------------------------------------------------------------
 
 function computeTimelineMutationSig(tl) {
   const acts = Array.isArray(tl.actions) ? tl.actions : [];
-  const cps = Array.isArray(tl.checkpoints) ? tl.checkpoints : [];
 
   const aLen = acts.length;
-  const cLen = cps.length;
 
   const aLast = aLen ? acts[aLen - 1] : null;
-  const cLast = cLen ? cps[cLen - 1] : null;
 
   const baseRef = tl.baseStateData;
   const aRef = tl.actions;
-  const cRef = tl.checkpoints;
 
   const aLastRef = aLast;
-  const cLastRef = cLast;
 
   const aLastSec = aLast ? Math.floor(aLast.tSec ?? 0) : 0;
-  const cLastSec = cLast ? Math.floor(cLast.checkpointSec ?? 0) : 0;
 
   return {
     baseRef,
@@ -200,10 +250,6 @@ function computeTimelineMutationSig(tl) {
     aLen,
     aLastRef,
     aLastSec,
-    cRef,
-    cLen,
-    cLastRef,
-    cLastSec,
   };
 }
 
@@ -214,11 +260,7 @@ function mutationSigEquals(a, b) {
     a.aRef === b.aRef &&
     a.aLen === b.aLen &&
     a.aLastRef === b.aLastRef &&
-    a.aLastSec === b.aLastSec &&
-    a.cRef === b.cRef &&
-    a.cLen === b.cLen &&
-    a.cLastRef === b.cLastRef &&
-    a.cLastSec === b.cLastSec
+    a.aLastSec === b.aLastSec
   );
 }
 
@@ -328,6 +370,10 @@ export function maintainCheckpoints(tl, state) {
   const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const currentSec = Math.floor(state.tSec ?? 0);
+  const currentStateData = serializeGameState(state);
+
+  // Keep a hot, revision-keyed snapshot for direct scrub reads.
+  memoPutStateData(tl, currentSec, currentStateData);
 
   tl.cursorSec = currentSec;
   // Cursor is the current playback/inspection point; historyEndSec is the
@@ -346,7 +392,7 @@ export function maintainCheckpoints(tl, state) {
     const cpData = {
       checkpointSec: currentSec,
       appliedThroughSec: currentSec,
-      stateData: serializeGameState(state),
+      stateData: currentStateData,
     };
 
     if (existingIndex !== -1) {
@@ -376,9 +422,8 @@ export function maintainCheckpoints(tl, state) {
   if (tl.checkpoints.length !== beforeLen) checkpointsChanged = true;
 
   if (checkpointsChanged) {
-    // Revision bump here is for memo/index invalidation only; checkpoint churn
-    // does not imply action history changed.
-    bumpRevision(tl);
+    // Checkpoint churn should not invalidate memoized history snapshots.
+    tl._checkpointIndexCache = null;
     tl._memoGuardSig = computeTimelineMutationSig(tl);
   }
 
@@ -419,15 +464,8 @@ export function rebuildStateAtSecond(tl, targetSec) {
   }
 
   // 1) Find nearest checkpoint <= target
-  let bestCp = null;
-  for (const cp of tl.checkpoints) {
-    const s = cp.checkpointSec ?? -1;
-    if (s >= 0 && s <= target) {
-      if (!bestCp || s > (bestCp.checkpointSec ?? -1)) {
-        bestCp = cp;
-      }
-    }
-  }
+  const checkpointIndex = ensureCheckpointIndex(tl);
+  const bestCp = findNearestCheckpointAtOrBefore(checkpointIndex, target);
 
   const startSec = bestCp ? bestCp.checkpointSec ?? 0 : 0;
   const startStateData = bestCp ? bestCp.stateData : tl.baseStateData;
@@ -501,11 +539,11 @@ export function getStateDataAtSecond(tl, targetSec) {
   const target = Math.floor(targetSec);
 
   // Exact checkpoint fast-path.
-  for (const cp of tl.checkpoints || []) {
-    if (Math.floor(cp?.checkpointSec ?? -1) === target && cp?.stateData != null) {
-      memoPutStateData(tl, target, cp.stateData);
-      return { ok: true, stateData: cp.stateData, source: "checkpoint" };
-    }
+  const checkpointIndex = ensureCheckpointIndex(tl);
+  const exact = checkpointIndex.bySec.get(target);
+  if (exact?.stateData != null) {
+    memoPutStateData(tl, target, exact.stateData);
+    return { ok: true, stateData: exact.stateData, source: "checkpoint" };
   }
 
   // Memo fast-path.
