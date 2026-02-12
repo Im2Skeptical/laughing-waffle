@@ -64,28 +64,36 @@ let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
 const liveSeenYearEndEventIds = new Set();
+const FULL_VIEW_REBUILD_REASONS = new Set([
+  "init",
+  "saveLoad",
+  "scrubCommit",
+  "scrubBrowse",
+  "plannerClear",
+]);
 
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
   onInvalidate: (reason) => {
-    goldGraphController.handleInvalidate(reason);
-    foodGraphController.handleInvalidate(reason);
-    apGraphController.handleInvalidate(reason);
-    popGraphController.handleInvalidate(reason);
-    systemGraphController.handleInvalidate(reason);
-    if (goldGraphView?.isOpen()) goldGraphView.render();
-    if (foodGraphView?.isOpen()) foodGraphView.render();
-    if (apGraphView?.isOpen()) apGraphView.render();
-    if (popGraphView?.isOpen()) popGraphView.render();
-    if (systemGraphView?.isOpen()) systemGraphView.render();
+    const plannerOnlyReason =
+      typeof reason === "string" && reason.startsWith("planner:");
+    if (!plannerOnlyReason) {
+      goldGraphController.handleInvalidate(reason);
+      foodGraphController.handleInvalidate(reason);
+      apGraphController.handleInvalidate(reason);
+      popGraphController.handleInvalidate(reason);
+      systemGraphController.handleInvalidate(reason);
+    }
     // Force a check on inventory UI in case state changed
     inventoryView?.update?.();
   },
-  onRebuildViews: () => {
+  onRebuildViews: (reason = "unknown") => {
     tooltipView?.hide?.();
-    refreshOpenInventoryWindows();
-    boardView.rebuildAll();
-    pawnsView.rebuildAll();
+    if (FULL_VIEW_REBUILD_REASONS.has(reason)) {
+      refreshOpenInventoryWindows();
+      boardView.rebuildAll();
+      pawnsView.rebuildAll();
+    }
     chromeView.refresh?.();
   },
   onPlannerApReject: () => {

@@ -12,6 +12,7 @@ import {
   serializeGameState,
   deserializeGameState,
   loadIntoGameState,
+  loadStateObjectIntoGameState,
 } from "./state.js";
 
 import { initGameState, createInitialState } from "./init.js";
@@ -91,6 +92,7 @@ export {
   serializeGameState,
   deserializeGameState,
   loadIntoGameState,
+  loadStateObjectIntoGameState,
 
   // init helpers
   initGameState,

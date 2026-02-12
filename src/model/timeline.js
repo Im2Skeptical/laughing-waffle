@@ -21,9 +21,11 @@ const MICROSTEP_DT = 1 / TICKS_PER_SEC;
 const CP_STRIDE_SEC = 2;
 const CP_WINDOW_BACK = 1800;
 const CP_WINDOW_FWD = 1500;
+const CP_COLD_STRIDE_SEC = 30;
+const CP_MAINTENANCE_CADENCE_SEC = 5;
 
 // Memo cache defaults (non-serialized derived fields stored on timeline object)
-const DEFAULT_MEMO_CAP = 2048;
+const DEFAULT_MEMO_CAP = 512;
 
 export function isValidTimeline(tl) {
   if (!tl || typeof tl !== "object") return false;
@@ -226,6 +228,65 @@ function findNearestCheckpointAtOrBefore(index, targetSec) {
   return index.bySec.get(best) ?? null;
 }
 
+function findCheckpointIndexBySec(checkpoints, checkpointSec) {
+  if (!Array.isArray(checkpoints) || checkpoints.length === 0) return -1;
+  const sec = Math.max(0, Math.floor(checkpointSec ?? 0));
+
+  const lastIdx = checkpoints.length - 1;
+  const lastSec = Math.floor(checkpoints[lastIdx]?.checkpointSec ?? -1);
+  if (lastSec === sec) return lastIdx;
+
+  let lo = 0;
+  let hi = lastIdx;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const midSec = Math.floor(checkpoints[mid]?.checkpointSec ?? -1);
+    if (midSec === sec) return mid;
+    if (midSec < sec) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return -1;
+}
+
+function upsertCheckpointSorted(checkpoints, cpData) {
+  if (!Array.isArray(checkpoints) || !cpData) return false;
+  const sec = Math.max(0, Math.floor(cpData.checkpointSec ?? 0));
+  cpData.checkpointSec = sec;
+  cpData.appliedThroughSec = sec;
+
+  if (checkpoints.length === 0) {
+    checkpoints.push(cpData);
+    return true;
+  }
+
+  const lastIdx = checkpoints.length - 1;
+  const lastSec = Math.floor(checkpoints[lastIdx]?.checkpointSec ?? -1);
+  if (lastSec === sec) {
+    checkpoints[lastIdx] = cpData;
+    return true;
+  }
+  if (lastSec < sec) {
+    checkpoints.push(cpData);
+    return true;
+  }
+
+  let lo = 0;
+  let hi = lastIdx;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const midSec = Math.floor(checkpoints[mid]?.checkpointSec ?? -1);
+    if (midSec === sec) {
+      checkpoints[mid] = cpData;
+      return true;
+    }
+    if (midSec < sec) lo = mid + 1;
+    else hi = mid - 1;
+  }
+
+  checkpoints.splice(lo, 0, cpData);
+  return true;
+}
+
 // -----------------------------------------------------------------------------
 // Defensive invalidation guard (Stage 3 exit requirement)
 // -----------------------------------------------------------------------------
@@ -364,62 +425,77 @@ export function replaceActionsAtSecond(tl, tSec, actionsAtSec, opts = {}) {
 // Checkpoint Management
 // -----------------------------------------------------------------------------
 
-export function maintainCheckpoints(tl, state) {
+export function maintainCheckpoints(tl, state, opts = {}) {
   if (!tl || !state) return;
+  const writeMemo = opts.writeMemo !== false;
+  const captureCheckpoint = opts.captureCheckpoint !== false;
+  const allowPrune = opts.prune !== false;
 
   const perfStart = perfEnabled() ? perfNowMs() : 0;
 
   const currentSec = Math.floor(state.tSec ?? 0);
-  const currentStateData = serializeGameState(state);
+  let currentStateData = null;
+  const ensureCurrentStateData = () => {
+    if (currentStateData == null) {
+      currentStateData = serializeGameState(state);
+    }
+    return currentStateData;
+  };
 
   // Keep a hot, revision-keyed snapshot for direct scrub reads.
-  memoPutStateData(tl, currentSec, currentStateData);
+  if (writeMemo) {
+    memoPutStateData(tl, currentSec, ensureCurrentStateData());
+  }
 
   tl.cursorSec = currentSec;
   // Cursor is the current playback/inspection point; historyEndSec is the
   // farthest realized second on this branch (future is truncated on edits).
   tl.historyEndSec = Math.max(tl.historyEndSec ?? 0, currentSec);
 
-  const isStride = currentSec > 0 && currentSec % CP_STRIDE_SEC === 0;
+  const isStride =
+    captureCheckpoint &&
+    currentSec > 0 &&
+    currentSec % CP_STRIDE_SEC === 0;
 
   let checkpointsChanged = false;
 
-  const existingIndex = tl.checkpoints.findIndex(
-    (c) => c.checkpointSec === currentSec
-  );
+  tl.checkpoints = Array.isArray(tl.checkpoints) ? tl.checkpoints : [];
+  const existingIndex = captureCheckpoint
+    ? findCheckpointIndexBySec(tl.checkpoints, currentSec)
+    : -1;
 
-  if (isStride || existingIndex !== -1) {
+  if (captureCheckpoint && (isStride || existingIndex >= 0)) {
     const cpData = {
       checkpointSec: currentSec,
       appliedThroughSec: currentSec,
-      stateData: currentStateData,
+      stateData: ensureCurrentStateData(),
     };
 
-    if (existingIndex !== -1) {
-      tl.checkpoints[existingIndex] = cpData;
-      checkpointsChanged = true;
-    } else {
-      tl.checkpoints.push(cpData);
-      tl.checkpoints.sort(
-        (a, b) => (a.checkpointSec ?? 0) - (b.checkpointSec ?? 0)
-      );
-      checkpointsChanged = true;
-    }
+    checkpointsChanged = upsertCheckpointSorted(tl.checkpoints, cpData) || checkpointsChanged;
   }
 
-  const beforeLen = tl.checkpoints.length;
+  const shouldPruneNow =
+    allowPrune &&
+    (checkpointsChanged || currentSec % CP_MAINTENANCE_CADENCE_SEC === 0);
+  if (shouldPruneNow) {
+    const beforeLen = tl.checkpoints.length;
+    const hotMin = currentSec - CP_WINDOW_BACK;
+    const hotMax = currentSec + CP_WINDOW_FWD;
+    const historyEndSec = Math.floor(tl.historyEndSec ?? currentSec);
 
-  tl.checkpoints = tl.checkpoints.filter((cp) => {
-    const s = cp.checkpointSec ?? 0;
-    if (s === 0) return true;
-    if (s % CP_STRIDE_SEC === 0) return true;
-    if (s >= currentSec - CP_WINDOW_BACK && s <= currentSec + CP_WINDOW_FWD)
-      return true;
-    if (s === tl.historyEndSec) return true;
-    return false;
-  });
+    tl.checkpoints = tl.checkpoints.filter((cp) => {
+      const s = Math.floor(cp?.checkpointSec ?? -1);
+      if (s < 0) return false;
+      if (s === 0) return true;
+      if (s === currentSec) return true;
+      if (s === historyEndSec) return true;
+      if (s >= hotMin && s <= hotMax) return true;
+      if (s % CP_COLD_STRIDE_SEC === 0) return true;
+      return false;
+    });
 
-  if (tl.checkpoints.length !== beforeLen) checkpointsChanged = true;
+    if (tl.checkpoints.length !== beforeLen) checkpointsChanged = true;
+  }
 
   if (checkpointsChanged) {
     // Checkpoint churn should not invalidate memoized history snapshots.

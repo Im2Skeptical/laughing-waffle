@@ -6,6 +6,7 @@ import {
   updateGame,
   setPaused,
   loadIntoGameState,
+  loadStateObjectIntoGameState,
   gameState,
 } from "../model/game-model.js";
 
@@ -35,6 +36,11 @@ const TIME_SCALE_MAX = 16;
 const TIME_SCALE_EASE_PER_SEC = 10;
 const SAVE_SCHEMA_VERSION = 2;
 const SAVE_KEY_PREFIX = "civsurvivor.save";
+const ACTION_PATH_CHECKPOINT_OPTS = Object.freeze({
+  writeMemo: false,
+  captureCheckpoint: false,
+  prune: false,
+});
 
 export function createSimRunner({
   onInvalidate,
@@ -203,7 +209,7 @@ export function createSimRunner({
     if (Math.floor(cursorState.tSec ?? 0) !== desiredSec) {
       const rebuilt = rebuildStateAtSecond(timeline, desiredSec);
       if (!rebuilt?.ok) return rebuilt;
-      loadIntoGameState(serializeGameState(rebuilt.state));
+      loadStateObjectIntoGameState(rebuilt.state);
       cursorState = gameState;
     }
 
@@ -214,7 +220,7 @@ export function createSimRunner({
     playbackActive = desiredSec < Math.floor(timeline.historyEndSec ?? 0);
     actionPlanner.resetToTimeline?.();
 
-    onRebuildViews?.();
+    onRebuildViews?.("saveLoad");
     onInvalidate?.("saveLoad");
     return { ok: true, meta };
   }
@@ -315,7 +321,7 @@ export function createSimRunner({
       const rebuilt = rebuildStateAtSecond(timeline, t);
       if (!rebuilt.ok) return rebuilt;
 
-      loadIntoGameState(serializeGameState(rebuilt.state));
+      loadStateObjectIntoGameState(rebuilt.state);
       cursorState = gameState;
     }
 
@@ -575,7 +581,7 @@ export function createSimRunner({
       };
       console.warn("Planner commit failed:", lastPlannerCommitError);
       actionPlanner.resetToTimeline?.();
-      onRebuildViews?.();
+      onRebuildViews?.("plannerCommitFailed");
       onInvalidate?.("plannerCommitFailed");
       return { ok: false, reason: "commitFailed", detail: lastPlannerCommitError };
     }
@@ -593,22 +599,26 @@ export function createSimRunner({
     timeline.cursorSec = tSec;
 
     const wasPaused = !!cursorState.paused;
-    loadIntoGameState(serializeGameState(rebuilt.state));
+    loadStateObjectIntoGameState(rebuilt.state);
     cursorState = gameState;
     setPaused(cursorState, wasPaused);
     syncPhaseToPaused(cursorState);
 
     playbackActive = false;
     seekPlaybackIndex(tSec);
-    maintainCheckpoints(timeline, cursorState);
+    maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
 
     actionPlanner.markCommitted?.({
       tSec,
       revision: timeline.revision ?? 0,
     });
 
-    onRebuildViews?.();
-    onInvalidate?.(`plannerCommit:${reason || "commit"}`);
+    onRebuildViews?.("plannerCommit");
+    const invalidateReason =
+      typeof reason === "string" && reason.startsWith("edit:")
+        ? `planner:${reason}`
+        : `plannerCommit:${reason || "commit"}`;
+    onInvalidate?.(invalidateReason);
 
     return { ok: true, committed: actionsWithTSec.length };
   }
@@ -643,7 +653,7 @@ export function createSimRunner({
     if (!rebuilt?.ok) return rebuilt;
 
     const wasPaused = !!cursorState.paused;
-    loadIntoGameState(serializeGameState(rebuilt.state));
+    loadStateObjectIntoGameState(rebuilt.state);
     cursorState = gameState;
     setPaused(cursorState, wasPaused);
     syncPhaseToPaused(cursorState);
@@ -652,7 +662,7 @@ export function createSimRunner({
     seekPlaybackIndex(tSec);
 
     actionPlanner.resetToTimeline?.();
-    onRebuildViews?.();
+    onRebuildViews?.("plannerClear");
     onInvalidate?.("plannerClear");
 
     return { ok: true };
@@ -693,7 +703,7 @@ export function createSimRunner({
       maintainCheckpoints(timeline, cursorState);
       seekPlaybackIndex(Math.floor(cursorState.tSec ?? 0));
 
-      onRebuildViews?.();
+      onRebuildViews?.("init");
       onInvalidate?.("init");
     },
 
@@ -719,7 +729,7 @@ export function createSimRunner({
           timeScaleTarget === 0
         );
         if (moved) {
-          onRebuildViews?.();
+          onRebuildViews?.("scrubCommit");
           onInvalidate?.("scrubCommit");
         }
         return;
@@ -802,7 +812,7 @@ export function createSimRunner({
       }
 
       if (playbackAppliedThisUpdate) {
-        onRebuildViews?.();
+        onRebuildViews?.("playbackApply");
         onInvalidate?.("playbackApply");
       }
 
@@ -875,9 +885,9 @@ export function createSimRunner({
       if (!rec.ok) return rec;
 
       seekPlaybackIndex(tSec);
-      maintainCheckpoints(timeline, cursorState);
+      maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
 
-      onRebuildViews?.();
+      onRebuildViews?.("actionDispatched");
       onInvalidate?.("actionDispatched");
 
       return exec && typeof exec === "object" ? exec : { ok: true };
@@ -895,7 +905,7 @@ export function createSimRunner({
       timeScaleCurrent = 0;
       rewindAccumulatorSec = 0;
 
-      onRebuildViews?.();
+      onRebuildViews?.("scrubCommit");
       onInvalidate?.("scrubCommit");
 
       return { ok: true };
@@ -908,7 +918,7 @@ export function createSimRunner({
       });
       if (!res.ok) return res;
 
-      onRebuildViews?.();
+      onRebuildViews?.("scrubBrowse");
       onInvalidate?.("scrubBrowse");
       return { ok: true };
     },

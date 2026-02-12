@@ -63,6 +63,26 @@ function collectSeriesValues(series, state) {
   return values;
 }
 
+function collectSeriesValuesForGraph(series, state, subject, resolverFactory) {
+  const list = Array.isArray(series) ? series : [];
+  const values = {};
+  let resolver = null;
+  if (typeof resolverFactory === "function") {
+    resolver = resolverFactory(state, subject);
+  }
+  for (const s of list) {
+    if (!s) continue;
+    if (typeof s.getValueFromSnapshot === "function") {
+      values[s.id] = safeNumber(s.getValueFromSnapshot(state, subject, resolver));
+      continue;
+    }
+    if (typeof s.getValue === "function") {
+      values[s.id] = safeNumber(s.getValue(state, subject, resolver));
+    }
+  }
+  return values;
+}
+
 function checkpointMapBySecFromTimeline(tl) {
   const m = new Map();
   const cps = Array.isArray(tl?.checkpoints) ? tl.checkpoints : [];
@@ -520,6 +540,80 @@ export function buildProjectionStateStepWindowFromTimeline(
       horizon: steps,
     },
     stateDataBySecond,
+  };
+}
+
+// Lightweight projection window for graph rendering.
+// Stores computed series values only (no per-point full-state snapshots).
+export function buildProjectionSeriesStepWindowFromTimeline(
+  tl,
+  baseBoundary,
+  opts = null
+) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+
+  const dtRes = resolveDtStepStrict(opts?.dtStep);
+  if (!dtRes.ok) return dtRes;
+  const dtStep = dtRes.dt;
+
+  const horizonSec =
+    typeof opts?.horizonSec === "number" && opts.horizonSec >= 0
+      ? Math.floor(opts.horizonSec)
+      : 0;
+
+  const stepSec =
+    typeof opts?.stepSec === "number" && opts.stepSec > 0
+      ? Math.floor(opts.stepSec)
+      : 1;
+
+  const series = normalizeSeries(opts?.series);
+  const subject = opts?.subject ?? null;
+  const resolverFactory =
+    typeof opts?.resolverFactory === "function" ? opts.resolverFactory : null;
+
+  const baseSec = clampSec(
+    typeof opts?.baseSec === "number" ? opts.baseSec : baseBoundary
+  );
+
+  const baseRes = getStateAtSecond(tl, baseSec);
+  if (!baseRes.ok)
+    return { ok: false, reason: baseRes.reason || "baseStateFailed" };
+
+  const s = baseRes.state;
+  normalizeStateForProjection(s, baseSec);
+
+  const valuesBySecond = new Map();
+  valuesBySecond.set(
+    baseSec,
+    collectSeriesValuesForGraph(series, s, subject, resolverFactory)
+  );
+
+  const steps = Math.floor(horizonSec / stepSec);
+  let curSec = baseSec;
+  for (let i = 1; i <= steps; i++) {
+    const sim = simulateForwardSecondsInPlace(s, stepSec, dtStep);
+    if (!sim.ok) break;
+
+    curSec = baseSec + i * stepSec;
+    canonicalizeSnapshot(s);
+    valuesBySecond.set(
+      curSec,
+      collectSeriesValuesForGraph(series, s, subject, resolverFactory)
+    );
+  }
+
+  return {
+    ok: true,
+    window: {
+      baseSec,
+      endSec: baseSec + horizonSec,
+      horizonSec,
+      stepSec,
+      dtStep,
+      mode: "seriesStepWindow",
+      horizon: steps,
+    },
+    valuesBySecond,
   };
 }
 

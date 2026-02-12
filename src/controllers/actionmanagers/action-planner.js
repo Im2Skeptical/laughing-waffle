@@ -168,6 +168,7 @@ export function createActionPlanner({
     dirty: true,
     apPreview: null,
     costSummary: null,
+    plannerBudget: 0,
     previewByOwner: new Map(),
     pawnOverrides: new Map(),
   };
@@ -186,6 +187,7 @@ export function createActionPlanner({
     cache.dirty = true;
     cache.apPreview = null;
     cache.costSummary = null;
+    cache.plannerBudget = 0;
     cache.previewByOwner.clear();
     cache.pawnOverrides.clear();
   }
@@ -560,11 +562,21 @@ export function createActionPlanner({
     const costSummary = computeIntentCostSummary(intentList, {
       stateStart: state,
     });
+    const baselineList = [];
+    for (const intent of baselineIntents.values()) {
+      if (intent) baselineList.push(intent);
+    }
+    const baselineSummary =
+      baselineList.length > 0
+        ? computeIntentCostSummary(baselineList, { stateStart: state })
+        : { total: 0 };
+    const baselineCost = baselineSummary?.total ?? 0;
 
     const remaining = Math.max(0, Math.floor(state?.actionPoints ?? 0));
     const baseAp = Math.max(remaining, Math.floor(apCap));
 
     cache.costSummary = costSummary;
+    cache.plannerBudget = remaining + baselineCost;
     cache.apPreview = {
       base: baseAp,
       remaining,
@@ -763,12 +775,44 @@ export function createActionPlanner({
   }
 
   function canAffordIntent(intent, existingId, opts = {}) {
-    ensureActive();
+    ensureCaches();
     const state = getStateSafe();
-    const budgetInfo = getPlannerBudget();
-    const budget = budgetInfo.budget ?? 0;
+    const budget = Math.max(
+      0,
+      Number.isFinite(cache.plannerBudget) ? cache.plannerBudget : 0
+    );
     const key = intent?.id ?? intent?.subjectKey ?? existingId ?? null;
     const notify = opts?.notify !== false;
+
+    if (intent?.kind === IntentKinds.PAWN_MOVE) {
+      const total = Math.max(0, Math.floor(cache.costSummary?.total ?? 0));
+      const existingCost =
+        key != null && Number.isFinite(cache.costSummary?.byId?.[key])
+          ? Math.max(0, Math.floor(cache.costSummary.byId[key]))
+          : 0;
+      const nextCost = Math.max(
+        0,
+        Math.floor(estimateIntentApCost(intent, { stateStart: state }))
+      );
+      const needed = total - existingCost + nextCost;
+      if (needed > budget) {
+        if (notify && typeof onInsufficientAp === "function") {
+          onInsufficientAp({
+            intent,
+            needed,
+            current: budget,
+            budget,
+          });
+        }
+        return {
+          ok: false,
+          reason: "insufficientAP",
+          needed,
+          current: budget,
+        };
+      }
+      return { ok: true };
+    }
 
     const nextList = [];
     const ordered = getOrderedIntents();
