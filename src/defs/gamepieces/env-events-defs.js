@@ -272,6 +272,9 @@ export const envEventDefs = {
         systems: ["growth", "hydration"],
       },
     ],
+    onExit: [
+      { op: "EnableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+    ],
   },
   event_bloom: {
     id: "event_bloom",

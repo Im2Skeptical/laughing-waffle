@@ -280,7 +280,7 @@ function computeValuesFromStateData(stateData, series, subject, resolverFactory)
   const list = Array.isArray(series) ? series : [];
   if (!list.length) return {};
 
-  const allFast = list.every(
+  const allFastSeries = list.every(
     (s) => s && typeof s.getValueFromSnapshot === "function"
   );
 
@@ -298,8 +298,17 @@ function computeValuesFromStateData(stateData, series, subject, resolverFactory)
     resolver = resolverFactory(raw, subject);
   }
 
+  const unresolvedFastSubject =
+    resolver &&
+    typeof resolver === "object" &&
+    ((resolver.kind === "pawn" && !resolver.pawn) ||
+      (resolver.kind === "tile" && !resolver.tile) ||
+      (resolver.kind === "hub" && !resolver.hubStructure));
+
+  const useFastSnapshotPath = allFastSeries && !unresolvedFastSubject;
+
   let state = null;
-  if (!allFast) {
+  if (!useFastSnapshotPath) {
     state = deserializeGameState(stateData);
     canonicalizeSnapshot(state);
   }
@@ -307,7 +316,7 @@ function computeValuesFromStateData(stateData, series, subject, resolverFactory)
   const values = {};
   for (const s of list) {
     if (!s || typeof s.getValue !== "function") continue;
-    if (typeof s.getValueFromSnapshot === "function") {
+    if (useFastSnapshotPath && typeof s.getValueFromSnapshot === "function") {
       values[s.id] = safeNumber(s.getValueFromSnapshot(raw, subject, resolver));
     } else {
       values[s.id] = safeNumber(s.getValue(state, subject, resolver));
