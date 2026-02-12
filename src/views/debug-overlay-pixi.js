@@ -5,8 +5,18 @@ import { ActionKinds } from "../model/actions.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 
 const DESIGN_WIDTH = 1920;
+const PANEL_WIDTH = 200;
+const PANEL_HEIGHT = 392;
+const TOP_VIEW_UPDATES_COUNT = 5;
+const PERF_REFRESH_MS = 250;
+const SLOT_META_REFRESH_MS = 1000;
 
-export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
+export function createDebugOverlay({
+  layer,
+  runner,
+  onOpenSystemGraph,
+  getPerfSnapshot,
+}) {
   const root = new PIXI.Container();
   root.x = DESIGN_WIDTH - 220;
   root.y = 10;
@@ -42,7 +52,7 @@ export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
 
   const panelBg = new PIXI.Graphics();
   panelBg.beginFill(0x222222, 0.9);
-  panelBg.drawRoundedRect(0, 0, 200, 300, 8);
+  panelBg.drawRoundedRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 8);
   panelBg.endFill();
   panel.addChild(panelBg);
 
@@ -70,6 +80,9 @@ export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
   const slotCount = runner.getSaveSlotCount?.() ?? 3;
   const slotStartY = 50;
   const slotRowGap = 40;
+  let lastPerfReadMs = 0;
+  let lastSlotMetaReadMs = 0;
+  const cachedSlotMetaByIndex = new Map();
 
   function buildSlotRow(slotIndex) {
     const row = new PIXI.Container();
@@ -269,6 +282,74 @@ export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
     onOpenSystemGraph?.();
   });
 
+  const perfHeader = new PIXI.Text("Top View Updates", {
+    fontSize: 10,
+    fill: 0xffffff,
+    fontWeight: "bold",
+  });
+  perfHeader.x = 10;
+  perfHeader.y = graphBtn.y + 30;
+  panel.addChild(perfHeader);
+
+  const perfRows = [];
+  for (let i = 0; i < TOP_VIEW_UPDATES_COUNT; i++) {
+    const row = new PIXI.Text("--", {
+      fontSize: 9,
+      fill: 0xc7d2ee,
+      wordWrap: true,
+      wordWrapWidth: PANEL_WIDTH - 20,
+    });
+    row.x = 10;
+    row.y = perfHeader.y + 14 + i * 14;
+    panel.addChild(row);
+    perfRows.push(row);
+  }
+
+  function updatePerfRows() {
+    const now = performance.now();
+    if (now - lastPerfReadMs < PERF_REFRESH_MS) return;
+    lastPerfReadMs = now;
+
+    const snapshot =
+      typeof getPerfSnapshot === "function" ? getPerfSnapshot() : null;
+    if (snapshot?.ok === false) {
+      const reason = typeof snapshot.reason === "string" ? snapshot.reason : "unavailable";
+      perfRows[0].text = `perf ${reason}`;
+      for (let i = 1; i < perfRows.length; i++) perfRows[i].text = "";
+      return;
+    }
+    const viewUpdates = snapshot?.runtime?.viewUpdates;
+    if (!viewUpdates || typeof viewUpdates !== "object") {
+      perfRows[0].text = "perf runtime unavailable";
+      for (let i = 1; i < perfRows.length; i++) perfRows[i].text = "";
+      return;
+    }
+
+    const top = Object.entries(viewUpdates)
+      .filter((entry) => entry && entry[1] && Number.isFinite(entry[1].avgMs))
+      .sort((a, b) => (b[1].avgMs ?? 0) - (a[1].avgMs ?? 0))
+      .slice(0, TOP_VIEW_UPDATES_COUNT);
+
+    if (!top.length) {
+      perfRows[0].text = "no samples yet";
+      for (let i = 1; i < perfRows.length; i++) perfRows[i].text = "";
+      return;
+    }
+
+    for (let i = 0; i < perfRows.length; i++) {
+      const item = top[i];
+      if (!item) {
+        perfRows[i].text = "";
+        continue;
+      }
+      const id = item[0];
+      const stat = item[1] || {};
+      const avgMs = Number.isFinite(stat.avgMs) ? stat.avgMs.toFixed(2) : "0.00";
+      const maxMs = Number.isFinite(stat.maxMs) ? stat.maxMs.toFixed(2) : "0.00";
+      perfRows[i].text = `${i + 1}. ${id} ${avgMs}ms (${maxMs})`;
+    }
+  }
+
   return {
     update: () => {
       const state = runner.getState();
@@ -282,9 +363,21 @@ export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
         apText.text = ``;
         apText.style.fill = cur < 20 ? 0xff5555 : 0xffd700;
       }
+      if (!panel.visible) return;
+
+      const now = performance.now();
+      if (now - lastSlotMetaReadMs >= SLOT_META_REFRESH_MS) {
+        lastSlotMetaReadMs = now;
+        for (const row of slotRows) {
+          cachedSlotMetaByIndex.set(
+            row.slotIndex,
+            runner.getSaveSlotMeta?.(row.slotIndex) ?? null
+          );
+        }
+      }
 
       for (const row of slotRows) {
-        const meta = runner.getSaveSlotMeta?.(row.slotIndex) ?? null;
+        const meta = cachedSlotMetaByIndex.get(row.slotIndex) ?? null;
         if (meta) {
           const tSec = Number.isFinite(meta.tSec) ? meta.tSec : 0;
           const season = meta.seasonKey || "?";
@@ -313,6 +406,10 @@ export function createDebugOverlay({ layer, runner, onOpenSystemGraph }) {
         eventName.text = label;
         spawnBtn.alpha = 1;
         spawnBtn.eventMode = "static";
+      }
+
+      if (panel.visible) {
+        updatePerfRows();
       }
     },
   };

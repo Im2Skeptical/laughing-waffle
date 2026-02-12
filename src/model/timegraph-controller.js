@@ -449,6 +449,7 @@ function createProjectionCache({
   let forecastDtStep = null;
   const stateDataBySecond = new Map();
   const bytesBySecond = new Map();
+  let stateDataSizeSamples = 0;
 
   const maxBytesBudget = Number.isFinite(maxBytes) && maxBytes > 0
     ? Math.max(1024 * 1024, Math.floor(maxBytes))
@@ -469,6 +470,7 @@ function createProjectionCache({
     stateDataBySecond.clear();
     bytesBySecond.clear();
     approxBytesTotal = 0;
+    stateDataSizeSamples = 0;
   }
 
   function touch(sec) {
@@ -480,11 +482,21 @@ function createProjectionCache({
   }
 
   function estimateBytes(stateData) {
-    let bytes = Math.max(512, Math.floor(avgStateDataBytes));
-    try {
-      bytes = Math.max(512, JSON.stringify(stateData).length);
-    } catch (_) {
-      bytes = Math.max(512, Math.floor(avgStateDataBytes));
+    const avg = Math.max(512, Math.floor(avgStateDataBytes));
+    const sampleCount = Math.floor(stateDataSizeSamples ?? 0);
+    const shouldSample = sampleCount < 8 || sampleCount % 8 === 0;
+    stateDataSizeSamples = sampleCount + 1;
+    if (!shouldSample) return avg;
+
+    let bytes = avg;
+    if (typeof stateData === "string") {
+      bytes = Math.max(512, stateData.length);
+    } else {
+      try {
+        bytes = Math.max(512, JSON.stringify(stateData).length);
+      } catch (_) {
+        bytes = avg;
+      }
     }
     avgStateDataBytes = Math.floor(avgStateDataBytes * 0.75 + bytes * 0.25);
     return bytes;

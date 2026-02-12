@@ -31,6 +31,7 @@ export function createMetricGraphView({
   clearPreviewState,
   commitSecond,
   openPosition,
+  historyWindowSec = null,
 }) {
   let metricDef = GRAPH_METRICS.gold;
   let series = GRAPH_METRICS.gold.series;
@@ -151,6 +152,7 @@ export function createMetricGraphView({
   let lastRestoreMs = 0;
   const RESTORE_THROTTLE_MS = 33;
   let statusNote = "";
+  let lastScrubSignature = "";
   let cachedActionSecs = [];
   let lastActionRevision = null;
   let lastActionRangeKey = "";
@@ -286,6 +288,10 @@ export function createMetricGraphView({
 
     const historyEnd = tl?.historyEndSec ?? 0;
     const currentT = Math.floor(cs?.tSec ?? 0);
+    const rollingWindow =
+      Number.isFinite(historyWindowSec) && historyWindowSec > 0
+        ? Math.floor(historyWindowSec)
+        : null;
 
     if (zoomed) {
       const halfSpan = Math.max(1, Math.floor(horizonSec / 4));
@@ -301,8 +307,10 @@ export function createMetricGraphView({
       minSec = min;
       maxSec = Math.max(min + span, max);
     } else {
-      minSec = 0;
-      maxSec = Math.max(historyEnd, currentT) + horizonSec;
+      const liveMax = Math.max(historyEnd, currentT);
+      minSec =
+        rollingWindow != null ? Math.max(0, liveMax - rollingWindow) : 0;
+      maxSec = liveMax + horizonSec;
     }
 
     if (!isScrubbing) {
@@ -447,7 +455,6 @@ export function createMetricGraphView({
 
   function drawScrub() {
     resolveMetric();
-    scrubG.clear();
     const cs = getCursorState?.();
     const tl = getTimeline?.();
 
@@ -455,6 +462,14 @@ export function createMetricGraphView({
 
     const curT = Math.floor(cs.tSec ?? 0);
     const historyEnd = tl?.historyEndSec ?? 0;
+    const metricLabel = getMetricLabel();
+    const signature =
+      `${isScrubbing ? 1 : 0}|${scrubSec}|${curT}|${historyEnd}|` +
+      `${minSec}:${maxSec}|${statusNote}|${metricLabel}`;
+    if (signature === lastScrubSignature) return;
+    lastScrubSignature = signature;
+
+    scrubG.clear();
 
     const x = timeToX(scrubSec);
 
@@ -475,7 +490,6 @@ export function createMetricGraphView({
     const zone = scrubSec <= historyEnd ? "History" : "Forecast";
     const note = statusNote ? ` • ${statusNote}` : "";
 
-    const metricLabel = getMetricLabel();
     text.text = `${metricLabel} • Time: ${scrubSec}s (${zone}) • Live: ${curT}s${note}`;
   }
 

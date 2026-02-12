@@ -57,6 +57,7 @@ const PILL_PAD_X = 8;
 const TOGGLE_SIZE = 10;
 const TOGGLE_PAD = 6;
 const WINDOW_IDLE_DESTROY_FRAMES = 180;
+const WITHDRAW_UI_CACHE_MAX = 256;
 
 const GROUP_SYSTEM_IDS = new Set([
   "growth",
@@ -2715,6 +2716,33 @@ export function createProcessWidgetView({
     return withdrawUiStateByTarget.get(key);
   }
 
+  function pruneWithdrawUiStateCache(state) {
+    if (withdrawUiStateByTarget.size <= WITHDRAW_UI_CACHE_MAX) return;
+    const keep = new Set();
+
+    for (const win of windows.values()) {
+      const target = resolveTargetFromRef(state, win?.targetRef);
+      const key = getTargetKey(target);
+      if (key) keep.add(key);
+    }
+
+    const hoverTarget = resolveTargetFromRef(state, hoverContext?.targetRef);
+    const externalTarget = resolveTargetFromRef(
+      state,
+      externalFocusContext?.targetRef
+    );
+    const hoverKey = getTargetKey(hoverTarget);
+    const externalKey = getTargetKey(externalTarget);
+    if (hoverKey) keep.add(hoverKey);
+    if (externalKey) keep.add(externalKey);
+
+    for (const key of withdrawUiStateByTarget.keys()) {
+      if (withdrawUiStateByTarget.size <= WITHDRAW_UI_CACHE_MAX) break;
+      if (keep.has(key)) continue;
+      withdrawUiStateByTarget.delete(key);
+    }
+  }
+
   function canWithdrawFromTarget(target) {
     const info = getDepositPoolTarget(target);
     if (!info) return false;
@@ -3823,6 +3851,7 @@ export function createProcessWidgetView({
       positionWindowAtAnchor(win);
       win.container.visible = true;
     }
+    pruneWithdrawUiStateCache(state);
   }
 
   function getDropTargetOwnerAtGlobalPos(globalPos) {

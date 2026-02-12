@@ -40,11 +40,23 @@ import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
 } from "./sunandmoon-disks-pixi.js";
-import { getPerfSnapshot } from "../model/perf.js";
+import {
+  getPerfSnapshot,
+  perfEnabled,
+  perfNowMs,
+  recordViewFrame,
+  recordViewUpdate,
+} from "../model/perf.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
 const BOOT_SETUP_ID = "testing";
+if (
+  typeof globalThis !== "undefined" &&
+  globalThis.__PERF_ENABLED__ == null
+) {
+  globalThis.__PERF_ENABLED__ = true;
+}
 
 export const app = new PIXI.Application({
   width: DESIGN_WIDTH,
@@ -1351,6 +1363,7 @@ let systemGraphView = createMetricGraphView({
   clearPreviewState: () => runner.clearPreviewState(),
   commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 220 },
+  historyWindowSec: 600,
 });
 
 let apGraphView = createMetricGraphView({
@@ -1388,12 +1401,27 @@ let popGraphView = createMetricGraphView({
 });
 
 let lastSystemGraphTargetKey = null;
+const SYSTEM_GRAPH_TARGET_UPDATE_MS = 120;
+const SYSTEM_GRAPH_TARGET_STABLE_MS = 320;
+let nextSystemGraphTargetUpdateAtMs = 0;
+let pendingSystemGraphTargetKey = null;
+let pendingSystemGraphTargetSinceMs = 0;
 
-function updateSystemGraphTarget() {
+function updateSystemGraphTarget(nowMs = performance.now()) {
   const target = getSystemGraphTarget();
   const nextKey = getSystemGraphTargetKey(target);
+  if (nextKey !== pendingSystemGraphTargetKey) {
+    pendingSystemGraphTargetKey = nextKey;
+    pendingSystemGraphTargetSinceMs = nowMs;
+    return false;
+  }
+  if (nowMs - pendingSystemGraphTargetSinceMs < SYSTEM_GRAPH_TARGET_STABLE_MS) {
+    return false;
+  }
   if (nextKey === lastSystemGraphTargetKey) return false;
   lastSystemGraphTargetKey = nextKey;
+  pendingSystemGraphTargetKey = null;
+  pendingSystemGraphTargetSinceMs = 0;
   const state = runner.getCursorState?.();
   const resolved = buildSystemSeriesForTarget(target, state);
   systemGraphController.setSeries?.(resolved.series, resolved.label);
@@ -1406,7 +1434,13 @@ function openSystemGraphForHover() {
     systemGraphView.close();
     return { ok: true, closed: true };
   }
-  updateSystemGraphTarget();
+  const now = performance.now();
+  const initialTarget = getSystemGraphTarget();
+  const initialKey = getSystemGraphTargetKey(initialTarget);
+  pendingSystemGraphTargetKey = initialKey;
+  pendingSystemGraphTargetSinceMs = now - SYSTEM_GRAPH_TARGET_STABLE_MS;
+  nextSystemGraphTargetUpdateAtMs = 0;
+  updateSystemGraphTarget(now);
   runner.clearPreviewState();
   systemGraphView.open();
   return { ok: true, opened: true };
@@ -1455,6 +1489,16 @@ const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
   onOpenSystemGraph: () => openSystemGraphForHover(),
+  getPerfSnapshot: () =>
+    getPerfSnapshot({
+      timeline: runner.getTimeline(),
+      controllers: [
+        goldGraphController,
+        foodGraphController,
+        apGraphController,
+        systemGraphController,
+      ],
+    }),
 });
 
 actionLogView = createActionLogView({
@@ -1527,8 +1571,11 @@ actionLogView.init();
 eventLogView.init();
 yearEndPerformanceView.init();
 applyScenarioDevUiBootstrap();
-apGraphView.open();
-systemGraphView.open();
+const devAutoOpenGraphs = globalThis?.__DBG_AUTO_OPEN_GRAPHS__ === true;
+if (devAutoOpenGraphs) {
+  apGraphView.open();
+  systemGraphView.open();
+}
 
 function isTypingTarget(target) {
   if (!target || typeof target !== "object") return false;
@@ -1560,24 +1607,36 @@ function handleGlobalKeyDown(ev) {
 window.addEventListener("keydown", handleGlobalKeyDown);
 
 app.ticker.add((delta) => {
+  const perfOn = perfEnabled();
+  const perfFrameStart = perfOn ? perfNowMs() : 0;
+  const runTimed = (id, fn) => {
+    if (!perfOn) {
+      fn();
+      return;
+    }
+    const start = perfNowMs();
+    fn();
+    recordViewUpdate(id, perfNowMs() - start);
+  };
+
   const frameDt = delta / 60;
-  runner.update(frameDt);
-  flushQueuedActions();
-  interactionController.update(frameDt);
-  boardView.update(frameDt);
-  pawnsView.update(frameDt);
-  tooltipView.update(frameDt);
-  inventoryView.update(frameDt);
-  processWidgetView.update(frameDt);
-  chromeView.update(frameDt);
-  sunMoonDisksView.update(frameDt); // NEW
-  actionLogView.update(frameDt);
-  syncYearEndPerformancePopup();
-  eventLogView.update(frameDt);
-  yearEndPerformanceView.update(frameDt);
-  skillTreeView?.update?.(frameDt);
-  skillTreeEditorView?.update?.(frameDt);
-  debugView.update();
+  runTimed("runner.update", () => runner.update(frameDt));
+  runTimed("queuedActions.flush", () => flushQueuedActions());
+  runTimed("interaction.update", () => interactionController.update(frameDt));
+  runTimed("board.update", () => boardView.update(frameDt));
+  runTimed("pawns.update", () => pawnsView.update(frameDt));
+  runTimed("tooltip.update", () => tooltipView.update(frameDt));
+  runTimed("inventory.update", () => inventoryView.update(frameDt));
+  runTimed("processWidget.update", () => processWidgetView.update(frameDt));
+  runTimed("chrome.update", () => chromeView.update(frameDt));
+  runTimed("sunMoon.update", () => sunMoonDisksView.update(frameDt)); // NEW
+  runTimed("actionLog.update", () => actionLogView.update(frameDt));
+  runTimed("yearEnd.sync", () => syncYearEndPerformancePopup());
+  runTimed("eventLog.update", () => eventLogView.update(frameDt));
+  runTimed("yearEnd.update", () => yearEndPerformanceView.update(frameDt));
+  runTimed("skillTree.update", () => skillTreeView?.update?.(frameDt));
+  runTimed("skillTreeEditor.update", () => skillTreeEditorView?.update?.(frameDt));
+  runTimed("debug.update", () => debugView.update());
 
   const anyMetricGraphOpen =
     goldGraphView.isOpen() ||
@@ -1590,31 +1649,39 @@ app.ticker.add((delta) => {
   popGraphController.setActive?.(popGraphView.isOpen());
   if (anyMetricGraphOpen) {
     if (goldGraphView.isOpen()) {
-      goldGraphController.update();
-      goldGraphView.render();
+      runTimed("graph.gold.controllerUpdate", () => goldGraphController.update());
+      runTimed("graph.gold.render", () => goldGraphView.render());
     }
     if (foodGraphView.isOpen()) {
-      foodGraphController.update();
-      foodGraphView.render();
+      runTimed("graph.food.controllerUpdate", () => foodGraphController.update());
+      runTimed("graph.food.render", () => foodGraphView.render());
     }
     if (apGraphView.isOpen()) {
-      apGraphController.update();
-      apGraphView.render();
+      runTimed("graph.ap.controllerUpdate", () => apGraphController.update());
+      runTimed("graph.ap.render", () => apGraphView.render());
     }
     if (popGraphView.isOpen()) {
-      popGraphController.update();
-      popGraphView.render();
+      runTimed("graph.pop.controllerUpdate", () => popGraphController.update());
+      runTimed("graph.pop.render", () => popGraphView.render());
     }
   }
 
   const systemGraphOpen = systemGraphView.isOpen();
   systemGraphController.setActive?.(systemGraphOpen);
   if (systemGraphOpen) {
-    if (updateSystemGraphTarget()) {
-      runner.clearPreviewState();
+    const now = performance.now();
+    if (now >= nextSystemGraphTargetUpdateAtMs) {
+      nextSystemGraphTargetUpdateAtMs = now + SYSTEM_GRAPH_TARGET_UPDATE_MS;
+      if (updateSystemGraphTarget(now)) {
+        runner.clearPreviewState();
+      }
     }
-    systemGraphController.update();
-    systemGraphView.render();
+    runTimed("graph.system.controllerUpdate", () => systemGraphController.update());
+    runTimed("graph.system.render", () => systemGraphView.render());
+  }
+
+  if (perfOn) {
+    recordViewFrame(perfNowMs() - perfFrameStart);
   }
 });
 

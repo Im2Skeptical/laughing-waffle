@@ -1,18 +1,24 @@
 // src/model/perf.js
-// DEV-only perf counters and snapshot helpers (no UI imports).
+// Perf counters and snapshot helpers (no UI imports).
 
 const DEV =
   (typeof globalThis !== "undefined" && globalThis.__DEV__ === true) ||
   (typeof process !== "undefined" &&
     process.env &&
     process.env.NODE_ENV !== "production");
+const MAX_VIEW_UPDATE_IDS = 64;
 
 function nowMs() {
-  if (!DEV) return 0;
   if (typeof performance !== "undefined" && performance.now) {
     return performance.now();
   }
   return Date.now();
+}
+
+function isPerfActive() {
+  const forcedOn =
+    typeof globalThis !== "undefined" && globalThis.__PERF_ENABLED__ === true;
+  return forcedOn || DEV;
 }
 
 const perf = {
@@ -42,10 +48,35 @@ const perf = {
     lastPoints: 0,
     lastMetric: null,
   },
+  runtime: {
+    scrub: {
+      commitCalls: 0,
+      commitMoved: 0,
+      commitFailed: 0,
+      commitLastMs: 0,
+      browseCalls: 0,
+      browseMoved: 0,
+      browseFailed: 0,
+      browseLastMs: 0,
+    },
+    planner: {
+      commitCalls: 0,
+      commitFailed: 0,
+      commitLastMs: 0,
+      commitMaxMs: 0,
+      committedActionsLast: 0,
+    },
+    frame: {
+      count: 0,
+      lastMs: 0,
+      maxMs: 0,
+    },
+    viewUpdates: new Map(),
+  },
 };
 
 export function perfEnabled() {
-  return DEV;
+  return isPerfActive();
 }
 
 export function perfNowMs() {
@@ -53,7 +84,7 @@ export function perfNowMs() {
 }
 
 export function recordTimelineRebuild({ ms, memoHit }) {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.timeline.rebuild.count += 1;
   if (memoHit) perf.timeline.rebuild.memoHits += 1;
   else perf.timeline.rebuild.memoMisses += 1;
@@ -61,25 +92,25 @@ export function recordTimelineRebuild({ ms, memoHit }) {
 }
 
 export function recordCheckpointMaintenance(ms) {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.timeline.checkpoints.count += 1;
   perf.timeline.checkpoints.lastMs = Number.isFinite(ms) ? ms : 0;
 }
 
 export function recordProjectionHistoryBuild({ ms, points }) {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.projection.history.lastMs = Number.isFinite(ms) ? ms : 0;
   perf.projection.history.lastPoints = Number.isFinite(points) ? points : 0;
 }
 
 export function recordProjectionForecastBuild({ ms, points }) {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.projection.forecast.lastMs = Number.isFinite(ms) ? ms : 0;
   perf.projection.forecast.lastPoints = Number.isFinite(points) ? points : 0;
 }
 
 export function recordProjectionStateWindowBuild({ ms, points }) {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.projection.stateWindow.lastMs = Number.isFinite(ms) ? ms : 0;
   perf.projection.stateWindow.lastPoints = Number.isFinite(points)
     ? points
@@ -87,20 +118,87 @@ export function recordProjectionStateWindowBuild({ ms, points }) {
 }
 
 export function recordTimegraphCacheHit() {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.timegraph.cacheHits += 1;
 }
 
 export function recordTimegraphCacheMiss() {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.timegraph.cacheMisses += 1;
 }
 
 export function recordGraphRender({ ms, points, metric }) {
-  if (!DEV) return;
+  if (!isPerfActive()) return;
   perf.view.lastMs = Number.isFinite(ms) ? ms : 0;
   perf.view.lastPoints = Number.isFinite(points) ? points : 0;
   perf.view.lastMetric = metric ?? null;
+}
+
+function ensureViewUpdateStat(id) {
+  if (typeof id !== "string" || id.length === 0) return null;
+  let stat = perf.runtime.viewUpdates.get(id);
+  if (!stat) {
+    if (perf.runtime.viewUpdates.size >= MAX_VIEW_UPDATE_IDS) return null;
+    stat = {
+      count: 0,
+      totalMs: 0,
+      lastMs: 0,
+      maxMs: 0,
+    };
+    perf.runtime.viewUpdates.set(id, stat);
+  }
+  return stat;
+}
+
+export function recordViewUpdate(id, ms) {
+  if (!isPerfActive()) return;
+  const stat = ensureViewUpdateStat(id);
+  if (!stat) return;
+  const value = Number.isFinite(ms) && ms >= 0 ? ms : 0;
+  stat.count += 1;
+  stat.totalMs += value;
+  stat.lastMs = value;
+  if (value > stat.maxMs) stat.maxMs = value;
+}
+
+export function recordViewFrame(ms) {
+  if (!isPerfActive()) return;
+  const value = Number.isFinite(ms) && ms >= 0 ? ms : 0;
+  perf.runtime.frame.count += 1;
+  perf.runtime.frame.lastMs = value;
+  if (value > perf.runtime.frame.maxMs) perf.runtime.frame.maxMs = value;
+}
+
+export function recordScrubCommit({ moved = false, ok = true, ms = 0 } = {}) {
+  if (!isPerfActive()) return;
+  perf.runtime.scrub.commitCalls += 1;
+  if (moved) perf.runtime.scrub.commitMoved += 1;
+  if (!ok) perf.runtime.scrub.commitFailed += 1;
+  perf.runtime.scrub.commitLastMs =
+    Number.isFinite(ms) && ms >= 0 ? ms : 0;
+}
+
+export function recordScrubBrowse({ moved = false, ok = true, ms = 0 } = {}) {
+  if (!isPerfActive()) return;
+  perf.runtime.scrub.browseCalls += 1;
+  if (moved) perf.runtime.scrub.browseMoved += 1;
+  if (!ok) perf.runtime.scrub.browseFailed += 1;
+  perf.runtime.scrub.browseLastMs =
+    Number.isFinite(ms) && ms >= 0 ? ms : 0;
+}
+
+export function recordPlannerCommit({ ok = true, ms = 0, committed = 0 } = {}) {
+  if (!isPerfActive()) return;
+  const elapsed = Number.isFinite(ms) && ms >= 0 ? ms : 0;
+  perf.runtime.planner.commitCalls += 1;
+  if (!ok) perf.runtime.planner.commitFailed += 1;
+  perf.runtime.planner.commitLastMs = elapsed;
+  if (elapsed > perf.runtime.planner.commitMaxMs) {
+    perf.runtime.planner.commitMaxMs = elapsed;
+  }
+  perf.runtime.planner.committedActionsLast = Number.isFinite(committed)
+    ? Math.max(0, Math.floor(committed))
+    : 0;
 }
 
 export function getPerfCounters() {
@@ -108,7 +206,7 @@ export function getPerfCounters() {
 }
 
 export function getPerfSnapshot({ timeline, controllers } = {}) {
-  if (!DEV) return { ok: false, reason: "devOnly" };
+  if (!isPerfActive()) return { ok: false, reason: "perfDisabled" };
 
   const tl = timeline ?? null;
   const actionsCount = Array.isArray(tl?.actions) ? tl.actions.length : 0;
@@ -158,6 +256,17 @@ export function getPerfSnapshot({ timeline, controllers } = {}) {
       : 0;
     return Math.max(acc, bytes);
   }, 0);
+  const viewUpdates = {};
+  for (const [id, stat] of perf.runtime.viewUpdates.entries()) {
+    const count = Math.max(0, Math.floor(stat?.count ?? 0));
+    const totalMs = Number.isFinite(stat?.totalMs) ? stat.totalMs : 0;
+    viewUpdates[id] = {
+      count,
+      avgMs: count > 0 ? totalMs / count : 0,
+      lastMs: Number.isFinite(stat?.lastMs) ? stat.lastMs : 0,
+      maxMs: Number.isFinite(stat?.maxMs) ? stat.maxMs : 0,
+    };
+  }
 
   return {
     ok: true,
@@ -183,6 +292,25 @@ export function getPerfSnapshot({ timeline, controllers } = {}) {
       lastRenderMs: perf.view.lastMs,
       lastRenderPoints: perf.view.lastPoints,
       lastRenderMetric: perf.view.lastMetric,
+    },
+    runtime: {
+      frameCount: perf.runtime.frame.count,
+      frameLastMs: perf.runtime.frame.lastMs,
+      frameMaxMs: perf.runtime.frame.maxMs,
+      scrubCommitCalls: perf.runtime.scrub.commitCalls,
+      scrubCommitMoved: perf.runtime.scrub.commitMoved,
+      scrubCommitFailed: perf.runtime.scrub.commitFailed,
+      scrubCommitLastMs: perf.runtime.scrub.commitLastMs,
+      scrubBrowseCalls: perf.runtime.scrub.browseCalls,
+      scrubBrowseMoved: perf.runtime.scrub.browseMoved,
+      scrubBrowseFailed: perf.runtime.scrub.browseFailed,
+      scrubBrowseLastMs: perf.runtime.scrub.browseLastMs,
+      plannerCommitCalls: perf.runtime.planner.commitCalls,
+      plannerCommitFailed: perf.runtime.planner.commitFailed,
+      plannerCommitLastMs: perf.runtime.planner.commitLastMs,
+      plannerCommitMaxMs: perf.runtime.planner.commitMaxMs,
+      plannerCommittedActionsLast: perf.runtime.planner.committedActionsLast,
+      viewUpdates,
     },
   };
 }

@@ -39,7 +39,7 @@ export function isValidTimeline(tl) {
 
 export function createEmptyTimelineFromBase(baseState) {
   const baseStateData = serializeGameState(baseState);
-  return {
+  const tl = {
     baseStateData,
     actions: [],
     // Integer Second Cursor
@@ -54,6 +54,11 @@ export function createEmptyTimelineFromBase(baseState) {
     revision: 0,
     // Derived (non-serialized): memo + mutation guard + actionsBySec are lazy-created
   };
+  // Keep a hot empty index so append paths remain O(1) from boot.
+  tl.actionsBySec = new Map();
+  tl._actionsBySecSig = computeActionsMutationSig(tl);
+  tl._memoGuardSig = computeTimelineMutationSig(tl);
+  return tl;
 }
 
 export function createTimelineFromInitialState(initialState) {
@@ -112,6 +117,29 @@ function memoKey(tl, sec) {
 function memoGetStateData(tl, sec) {
   if (!tl.memoStateBySec) return null;
   return tl.memoStateBySec.get(memoKey(tl, sec)) ?? null;
+}
+
+function findNearestMemoStateDataAtOrBefore(tl, targetSec) {
+  if (!tl?.memoStateBySec || tl.memoStateBySec.size === 0) return null;
+  const target = Math.max(0, Math.floor(targetSec ?? 0));
+  const revPrefix = `${ensureRevision(tl)}:`;
+  let bestSec = -1;
+  let bestStateData = null;
+
+  for (const [key, stateData] of tl.memoStateBySec.entries()) {
+    if (typeof key !== "string" || !key.startsWith(revPrefix)) continue;
+    const secPart = key.slice(revPrefix.length);
+    const sec = Number(secPart);
+    if (!Number.isFinite(sec)) continue;
+    const normalizedSec = Math.max(0, Math.floor(sec));
+    if (normalizedSec > target) continue;
+    if (normalizedSec < bestSec) continue;
+    bestSec = normalizedSec;
+    bestStateData = stateData;
+  }
+
+  if (bestSec < 0 || bestStateData == null) return null;
+  return { checkpointSec: bestSec, stateData: bestStateData };
 }
 
 function estimateStateDataBytes(tl, stateData) {
@@ -543,8 +571,10 @@ export function appendActionAtCursor(tl, action, state) {
   tl._lastMutationKind = "appendAction";
   tl._lastMutationSec = t;
 
-  // Incrementally update actionsBySec if present; otherwise leave lazy.
-  if (tl.actionsBySec) {
+  // Keep actionsBySec hot for controller/planner lookups.
+  if (!tl.actionsBySec || typeof tl.actionsBySec.get !== "function") {
+    rebuildActionsBySecIndex(tl);
+  } else {
     const sec = Math.max(0, Math.floor(entry.tSec ?? 0));
     let arr = tl.actionsBySec.get(sec);
     if (!arr) {
@@ -564,24 +594,66 @@ export function replaceActionsAtSecond(tl, tSec, actionsAtSec, opts = {}) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
   const t = Math.max(0, Math.floor(tSec));
   const truncateFuture = opts.truncateFuture !== false;
-
-  bumpRevision(tl);
-
-  const before = [];
-  const after = [];
-  const acts = Array.isArray(tl.actions) ? tl.actions : [];
-
-  for (const action of acts) {
-    const sec = Math.floor(action.tSec ?? 0);
-    if (sec < t) before.push(action);
-    else if (sec > t) after.push(action);
-  }
-
   const replacements = Array.isArray(actionsAtSec) ? actionsAtSec : [];
   const normalized = replacements.map((action) => ({
     ...action,
     tSec: t,
   }));
+
+  bumpRevision(tl);
+  const acts = Array.isArray(tl.actions) ? tl.actions : [];
+
+  // Hot path: replacing at/after frontier while truncating future.
+  // This is the dominant planner-edit path and should avoid full history scans.
+  if (truncateFuture && acts.length > 0) {
+    const lastSec = Math.floor(acts[acts.length - 1]?.tSec ?? 0);
+    if (t >= lastSec) {
+      if (t > lastSec) {
+        tl.actions = normalized.length ? [...acts, ...normalized] : acts.slice();
+      } else {
+        let keepLen = acts.length;
+        while (keepLen > 0) {
+          const sec = Math.floor(acts[keepLen - 1]?.tSec ?? 0);
+          if (sec !== t) break;
+          keepLen -= 1;
+        }
+        tl.actions =
+          keepLen > 0
+            ? [...acts.slice(0, keepLen), ...normalized]
+            : normalized.slice();
+      }
+
+      tl._lastMutationKind = "replaceActionsAtSec";
+      tl._lastMutationSec = t;
+
+      if (!tl.actionsBySec || typeof tl.actionsBySec.get !== "function") {
+        rebuildActionsBySecIndex(tl);
+      } else {
+        if (t > lastSec) {
+          if (normalized.length) {
+            tl.actionsBySec.set(t, normalized);
+          }
+        } else {
+          if (normalized.length) {
+            tl.actionsBySec.set(t, normalized);
+          } else {
+            tl.actionsBySec.delete(t);
+          }
+        }
+        tl._actionsBySecSig = computeActionsMutationSig(tl);
+      }
+      tl._memoGuardSig = computeTimelineMutationSig(tl);
+      return { ok: true };
+    }
+  }
+
+  const before = [];
+  const after = [];
+  for (const action of acts) {
+    const sec = Math.floor(action.tSec ?? 0);
+    if (sec < t) before.push(action);
+    else if (sec > t) after.push(action);
+  }
 
   tl.actions = truncateFuture
     ? [...before, ...normalized]
@@ -728,14 +800,20 @@ export function rebuildStateAtSecond(tl, targetSec) {
 
   // 1) Find nearest checkpoint <= target
   const checkpointIndex = ensureCheckpointIndex(tl);
-  const bestCp = findNearestCheckpointAtOrBefore(checkpointIndex, target);
+  const checkpointCp = findNearestCheckpointAtOrBefore(checkpointIndex, target);
+  const memoCp = findNearestMemoStateDataAtOrBefore(tl, target);
+  const bestCp =
+    memoCp && (checkpointCp == null || memoCp.checkpointSec >= checkpointCp.checkpointSec)
+      ? memoCp
+      : checkpointCp;
 
   const startSec = bestCp ? bestCp.checkpointSec ?? 0 : 0;
   const startStateData = bestCp ? bestCp.stateData : tl.baseStateData;
   const skipActionsAtStartSec =
     bestCp &&
-    Number.isFinite(bestCp.appliedThroughSec) &&
-    bestCp.appliedThroughSec >= startSec;
+    (bestCp === memoCp ||
+      (Number.isFinite(bestCp.appliedThroughSec) &&
+        bestCp.appliedThroughSec >= startSec));
 
   const state = deserializeGameState(startStateData);
 
@@ -789,6 +867,21 @@ export function rebuildStateAtSecond(tl, targetSec) {
 // -----------------------------------------------------------------------------
 // StateData Snapshot Service (timeline-owned)
 // -----------------------------------------------------------------------------
+
+export function seedMemoStateDataAtSecond(tl, targetSec, stateData) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+  if (!Number.isFinite(targetSec) || targetSec < 0) {
+    return { ok: false, reason: "badTargetSec" };
+  }
+  if (stateData == null) return { ok: false, reason: "badStateData" };
+
+  // Keep revision/mutation guards consistent before memo writes.
+  ensureRevisionFreshAgainstOutOfBandMutations(tl);
+
+  const target = Math.floor(targetSec);
+  memoPutStateData(tl, target, stateData);
+  return { ok: true };
+}
 
 export function getStateDataAtSecond(tl, targetSec) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
