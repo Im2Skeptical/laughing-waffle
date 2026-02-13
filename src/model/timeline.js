@@ -975,6 +975,75 @@ export function seedMemoStateDataAtSecond(tl, targetSec, stateData) {
   return { ok: true };
 }
 
+export function seedCheckpointStateDataAtSecond(
+  tl,
+  targetSec,
+  stateData,
+  opts = {}
+) {
+  if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
+  if (!Number.isFinite(targetSec) || targetSec < 0) {
+    return { ok: false, reason: "badTargetSec" };
+  }
+  if (stateData == null) return { ok: false, reason: "badStateData" };
+
+  ensureRevisionFreshAgainstOutOfBandMutations(tl);
+
+  const sec = Math.max(0, Math.floor(targetSec));
+  tl.checkpoints = Array.isArray(tl.checkpoints) ? tl.checkpoints : [];
+
+  const cpData = {
+    checkpointSec: sec,
+    appliedThroughSec: sec,
+    stateData,
+  };
+  const cpBytes = estimateCheckpointBytes(tl, cpData);
+  tl._checkpointAvgBytes = Number.isFinite(tl._checkpointAvgBytes)
+    ? Math.floor(tl._checkpointAvgBytes * 0.8 + cpBytes * 0.2)
+    : cpBytes;
+
+  let changed = upsertCheckpointSorted(tl.checkpoints, cpData);
+
+  const shouldPrune = opts.prune !== false;
+  if (shouldPrune) {
+    const beforeLen = tl.checkpoints.length;
+    const historyEndSec = Math.max(
+      Math.floor(tl.historyEndSec ?? 0),
+      sec
+    );
+    const hotMin = sec - CP_WINDOW_BACK;
+    const hotMax = sec + CP_WINDOW_FWD;
+
+    tl.checkpoints = tl.checkpoints.filter((cp) => {
+      const s = Math.floor(cp?.checkpointSec ?? -1);
+      if (s < 0) return false;
+      if (s === 0) return true;
+      if (s === sec) return true;
+      if (s === historyEndSec) return true;
+      if (s >= hotMin && s <= hotMax) return true;
+      if (s % CP_COLD_STRIDE_SEC === 0) return true;
+      return false;
+    });
+
+    const budgetTrimmed = trimCheckpointsToBudget(tl, tl.checkpoints, {
+      currentSec: sec,
+      historyEndSec,
+      hotMin,
+      hotMax,
+      fallbackStateData: stateData,
+    });
+    if (tl.checkpoints.length !== beforeLen || budgetTrimmed) changed = true;
+  }
+
+  if (changed) {
+    // Checkpoint churn does not invalidate action/memo mutation signatures.
+    tl._checkpointIndexCache = null;
+    tl._memoGuardSig = computeTimelineMutationSig(tl);
+  }
+
+  return { ok: true, changed };
+}
+
 export function getStateDataAtSecond(tl, targetSec) {
   if (!isValidTimeline(tl)) return { ok: false, reason: "badTimeline" };
   if (!Number.isFinite(targetSec) || targetSec < 0) {
@@ -1086,20 +1155,48 @@ export function getActionSecondsInRangeSampled(
     return copy ? full.slice() : full;
   }
 
+  // Stable, time-bucketed sampling. This avoids index-based reshuffling where
+  // appending one action can move most sampled indices in long histories.
   const sampled = [];
-  const denom = Math.max(1, cap - 1);
+  const span = Math.max(1, end - start + 1);
+  const bucketSpan = Math.max(1, Math.ceil(span / cap));
   let lastAdded = null;
-  for (let i = 0; i < cap; i++) {
-    const rel = Math.floor((i * (count - 1)) / denom);
-    const sec = allSecs[startIdx + rel];
+  for (
+    let bucketStart = start;
+    bucketStart <= end && sampled.length < cap;
+    bucketStart += bucketSpan
+  ) {
+    const bucketEnd = Math.min(end, bucketStart + bucketSpan - 1);
+    const bucketTailIdx = upperBoundSorted(allSecs, bucketEnd) - 1;
+    if (bucketTailIdx < startIdx) continue;
+    const sec = allSecs[bucketTailIdx];
+    if (sec < bucketStart || sec > bucketEnd) continue;
     if (sec === lastAdded) continue;
     sampled.push(sec);
     lastAdded = sec;
   }
 
+  const head = allSecs[startIdx];
+  if (sampled[0] !== head) {
+    sampled.unshift(head);
+  }
   const tail = allSecs[endIdxExcl - 1];
   if (sampled[sampled.length - 1] !== tail) {
     sampled.push(tail);
+  }
+
+  if (sampled.length > cap) {
+    const trimmed = [];
+    const denom = Math.max(1, cap - 1);
+    for (let i = 0; i < cap; i++) {
+      const idx = Math.floor((i * (sampled.length - 1)) / denom);
+      const sec = sampled[idx];
+      if (trimmed[trimmed.length - 1] === sec) continue;
+      trimmed.push(sec);
+    }
+    const lastTrimmed = trimmed[trimmed.length - 1];
+    if (lastTrimmed !== tail) trimmed.push(tail);
+    return copy ? trimmed.slice() : trimmed;
   }
 
   return copy ? sampled.slice() : sampled;

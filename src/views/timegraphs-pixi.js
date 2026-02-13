@@ -420,16 +420,24 @@ export function createMetricGraphView({
 
     function resolveValue(point, seriesDef) {
       const t = Math.max(0, Math.floor(point?.tSec ?? 0));
-      const override = getSeriesValueOverride?.(t, seriesDef.id, point);
+      const override = getSeriesValueOverride?.(t, seriesDef.id, point, cursorSec);
       if (Number.isFinite(override)) return override;
       return getSeriesValue(point, seriesDef.id);
     }
 
+    const seriesValues = new Map();
+    for (const s of seriesList) {
+      seriesValues.set(s.id, new Array(pointsForDraw.length));
+    }
+
     let minValue = Infinity;
     let maxValue = -Infinity;
-    for (const p of pointsForDraw) {
+    for (let i = 0; i < pointsForDraw.length; i++) {
+      const p = pointsForDraw[i];
       for (const s of seriesList) {
         const v = resolveValue(p, s);
+        const arr = seriesValues.get(s.id);
+        if (arr) arr[i] = v;
         if (v < minValue) minValue = v;
         if (v > maxValue) maxValue = v;
       }
@@ -473,12 +481,14 @@ export function createMetricGraphView({
       const lineColor = Number.isFinite(s.color) ? s.color : 0xffffff;
       plotG.lineStyle(2, lineColor, 1);
       let first = true;
+      const values = seriesValues.get(s.id) ?? [];
 
-      for (const p of pointsForDraw) {
+      for (let i = 0; i < pointsForDraw.length; i++) {
+        const p = pointsForDraw[i];
         const t = p.tSec ?? 0;
 
         const x = timeToX(t);
-        const value = resolveValue(p, s);
+        const value = Number.isFinite(values[i]) ? values[i] : 0;
         const y = yForValue(value);
 
         if (first) {

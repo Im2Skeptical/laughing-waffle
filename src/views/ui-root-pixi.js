@@ -1373,10 +1373,11 @@ let apGraphView = createMetricGraphView({
   metric: GRAPH_METRICS.ap,
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
-  getSeriesValueOverride: (tSec, seriesId) => {
+  getSeriesValueOverride: (tSec, seriesId, _point, cursorSecRaw) => {
     if (seriesId !== "ap") return null;
-    const state = runner.getCursorState();
-    const currentSec = Math.floor(state?.tSec ?? 0);
+    const currentSec = Number.isFinite(cursorSecRaw)
+      ? Math.floor(cursorSecRaw)
+      : Math.floor(runner.getCursorState()?.tSec ?? 0);
     if (tSec !== currentSec) return null;
     const preview = actionPlanner?.getApPreview?.();
     return preview ? preview.remaining : null;

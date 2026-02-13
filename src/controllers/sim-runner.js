@@ -19,6 +19,7 @@ import {
   rebuildStateAtSecond,
   maintainCheckpoints,
   seedMemoStateDataAtSecond,
+  seedCheckpointStateDataAtSecond,
 } from "../model/timeline.js";
 
 import {
@@ -1020,6 +1021,10 @@ export function createSimRunner({
             ? stateData
             : serializeGameState(cursorState);
         seedMemoStateDataAtSecond(timeline, currentSec, memoStateData);
+        // Projection jumps can skip normal simulation checkpoint cadence.
+        // Seed a direct checkpoint anchor at the committed second so large-tSec
+        // graph/history reads don't fall back to long replay paths.
+        seedCheckpointStateDataAtSecond(timeline, currentSec, memoStateData);
       }
 
       const moved = Math.floor(cursorState?.tSec ?? 0) !== prevSec;

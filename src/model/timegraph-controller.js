@@ -93,8 +93,23 @@ function addGridSamples(sampleSet, startSec, endSec, targetCount) {
   if (end <= start) return;
 
   const span = end - start;
-  const stride = Math.max(1, Math.ceil(span / Math.max(1, target - 1)));
-  for (let sec = start; sec <= end; sec += stride) {
+  const rough = span / Math.max(1, target - 1);
+  const pow10 = Math.pow(10, Math.floor(Math.log10(Math.max(1, rough))));
+  const candidates = [1, 2, 5, 10];
+  let stride = candidates[candidates.length - 1] * pow10;
+  for (const c of candidates) {
+    const s = c * pow10;
+    if (s >= rough) {
+      stride = s;
+      break;
+    }
+  }
+  stride = Math.max(1, Math.floor(stride));
+
+  // Anchor the grid to absolute timeline multiples so samples remain stable as
+  // history grows (critical for t=0 anchored full-history views).
+  const first = Math.ceil(start / stride) * stride;
+  for (let sec = first; sec <= end; sec += stride) {
     sampleSet.add(sec);
   }
   sampleSet.add(end);
@@ -202,10 +217,9 @@ function buildSampleSeconds({
 
   if (!focus) {
     addGridSamples(samples, start, end, target);
-    remaining = target - samples.size;
-    if (remaining > 0) {
-      addFillerSamples(samples, start, end, remaining);
-    }
+    // Keep non-focus sampling stable over time. In full-history mode, filler
+    // redistribution causes sample-second churn every frontier advance, which
+    // defeats value-cache reuse and scales render cost with large tSec.
     return Array.from(samples.values()).sort((a, b) => a - b);
   }
 
@@ -833,6 +847,7 @@ export function createTimeGraphController({
   let valuesRevision = 0;
 
   const SUBJECT_VALUE_CACHE_MAX = 5000;
+  const SUBJECT_VALUE_CACHE_COMPACT_THRESHOLD = 1024;
   const subjectValueCache = new Map();
 
   // Config (mutable locals; never assign to function parameters)
@@ -883,13 +898,51 @@ export function createTimeGraphController({
       const valuesBySec = entry?.valuesBySec;
       const order = entry?.order;
       if (!(valuesBySec instanceof Map) || !Array.isArray(order)) continue;
+      const rawHead = Number.isFinite(entry?.orderHead)
+        ? Math.floor(entry.orderHead)
+        : 0;
+      const head = Math.max(0, Math.min(order.length, rawHead));
       for (const sec of valuesBySec.keys()) {
         if (clampSec(sec) >= cutoff) {
           valuesBySec.delete(sec);
         }
       }
-      entry.order = order.filter((sec) => clampSec(sec) < cutoff);
+      const nextOrder = [];
+      for (let i = head; i < order.length; i++) {
+        const sec = clampSec(order[i]);
+        if (sec >= cutoff) continue;
+        if (!valuesBySec.has(sec)) continue;
+        nextOrder.push(sec);
+      }
+      entry.order = nextOrder;
+      entry.orderHead = 0;
     }
+  }
+
+  function pushSubjectValueSec(entry, sec, valuesBySec) {
+    if (!entry || !(valuesBySec instanceof Map)) return;
+    if (!Array.isArray(entry.order)) entry.order = [];
+    if (!Number.isFinite(entry.orderHead)) entry.orderHead = 0;
+
+    let head = Math.max(0, Math.floor(entry.orderHead));
+    if (head > entry.order.length) head = entry.order.length;
+    entry.order.push(sec);
+
+    while (entry.order.length - head > SUBJECT_VALUE_CACHE_MAX) {
+      const oldest = entry.order[head];
+      head += 1;
+      if (oldest != null) valuesBySec.delete(oldest);
+    }
+
+    if (
+      head >= SUBJECT_VALUE_CACHE_COMPACT_THRESHOLD &&
+      head * 2 >= entry.order.length
+    ) {
+      entry.order = entry.order.slice(head);
+      head = 0;
+    }
+
+    entry.orderHead = head;
   }
 
   function clampStride(v, fallback) {
@@ -1794,12 +1847,12 @@ export function createTimeGraphController({
         seriesSig,
         valuesBySec: new Map(),
         order: [],
+        orderHead: 0,
       };
       subjectValueCache.set(cacheKey, entry);
     }
 
     const valuesBySec = entry.valuesBySec;
-    const order = entry.order;
     const fastForecastValues = ensureGraphForecastValues(
       tl,
       seconds,
@@ -1818,11 +1871,7 @@ export function createTimeGraphController({
         fastForecastValues.has(sec)
       ) {
         valuesBySec.set(sec, fastForecastValues.get(sec) ?? {});
-        order.push(sec);
-        if (order.length > SUBJECT_VALUE_CACHE_MAX) {
-          const oldest = order.shift();
-          if (oldest != null) valuesBySec.delete(oldest);
-        }
+        pushSubjectValueSec(entry, sec, valuesBySec);
         continue;
       }
 
@@ -1845,7 +1894,7 @@ export function createTimeGraphController({
         );
         if (!res?.ok) {
           valuesBySec.set(sec, {});
-          order.push(sec);
+          pushSubjectValueSec(entry, sec, valuesBySec);
           continue;
         }
         stateData = res.stateData ?? null;
@@ -1858,11 +1907,7 @@ export function createTimeGraphController({
         resolverFactory
       );
       valuesBySec.set(sec, values);
-      order.push(sec);
-      if (order.length > SUBJECT_VALUE_CACHE_MAX) {
-        const oldest = order.shift();
-        if (oldest != null) valuesBySec.delete(oldest);
-      }
+      pushSubjectValueSec(entry, sec, valuesBySec);
     }
 
     return valuesBySec;
