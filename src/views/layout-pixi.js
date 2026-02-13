@@ -28,6 +28,15 @@ export const HUB_ROW_Y = EVENT_ROW_Y + EVENT_HEIGHT + 60;
 export const HUB_STRUCTURE_ROW_Y = HUB_ROW_Y;
 export const CHARACTER_ROW_OFFSET_Y = 15;
 
+// Shared UI colors for communicating time-state zones.
+export const TIME_STATE_COLORS = Object.freeze({
+  fixedHistory: 0x701313, // brown #701313
+  editableHistory: 0xd18a3a, // orange
+  forecast: 0x89c2ff, // light blue
+});
+export const TIME_STATE_GRAPH_BG_ALPHA = 0.2;
+export const TIME_STATE_FILTER_ALPHA = 0.12;
+
 function getBoardTotalWidth() {
   return BOARD_COLS * BOARD_COL_WIDTH + (BOARD_COLS - 1) * BOARD_COL_GAP;
 }

@@ -22,6 +22,8 @@ import {
   HUB_COLS,
   HUB_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_ROW_Y,
+  TIME_STATE_COLORS,
+  TIME_STATE_FILTER_ALPHA,
   TILE_HEIGHT,
   TILE_ROW_Y,
   getBoardColumnCenterX,
@@ -74,6 +76,8 @@ let externalUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
+let stateTintOverlay = null;
+let lastStateTintKey = "__init__";
 const liveSeenYearEndEventIds = new Set();
 const FULL_VIEW_REBUILD_REASONS = new Set([
   "init",
@@ -166,6 +170,9 @@ function resizeCanvas() {
   skillTreeView?.resize?.();
   skillTreeEditorView?.resize?.();
   yearEndPerformanceView?.resize?.();
+  if (stateTintOverlay) {
+    redrawStateTintOverlayBounds();
+  }
 }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
@@ -175,6 +182,7 @@ const uiLayers = {
   eventLayer: new PIXI.Container(),
   hubStructuresLayer: new PIXI.Container(),
   pawnLayer: new PIXI.Container(),
+  stateTintLayer: new PIXI.Container(),
   controlsLayer: new PIXI.Container(),
   hoverLayer: new PIXI.Container(),
   inventoryLayer: new PIXI.Container(),
@@ -191,6 +199,7 @@ app.stage.addChild(
   uiLayers.eventLayer,
   uiLayers.hubStructuresLayer,
   uiLayers.pawnLayer,
+  uiLayers.stateTintLayer,
   uiLayers.controlsLayer,
   uiLayers.hoverLayer,
   uiLayers.inventoryLayer,
@@ -199,6 +208,59 @@ app.stage.addChild(
   uiLayers.debugLayer,
   uiLayers.skillTreeLayer
 );
+
+stateTintOverlay = new PIXI.Graphics();
+stateTintOverlay.eventMode = "none";
+uiLayers.stateTintLayer.addChild(stateTintOverlay);
+lastStateTintKey = "__init__";
+
+function redrawStateTintOverlayBounds() {
+  stateTintOverlay.clear();
+  stateTintOverlay.beginFill(0xffffff, 1);
+  stateTintOverlay.drawRect(0, 0, app.screen.width, app.screen.height);
+  stateTintOverlay.endFill();
+}
+
+function resolveTimeStateKey() {
+  const timeline = runner.getTimeline?.();
+  const cursorState = runner.getCursorState?.();
+  const preview = runner.getPreviewStatus?.();
+  if (preview?.isForecastPreview) return "forecast";
+
+  const historyEndSec = Math.max(0, Math.floor(timeline?.historyEndSec ?? 0));
+  const cursorSec = Math.max(0, Math.floor(cursorState?.tSec ?? 0));
+  const sec =
+    preview?.active && Number.isFinite(preview?.previewSec)
+      ? Math.max(0, Math.floor(preview.previewSec))
+      : cursorSec;
+
+  // Live frontier is un-tinted.
+  if (sec >= historyEndSec) return null;
+
+  const bounds = runner.getEditableHistoryBounds?.();
+  const minEditableSec = Number.isFinite(bounds?.minEditableSec)
+    ? Math.max(0, Math.floor(bounds.minEditableSec))
+    : 0;
+  if (sec < minEditableSec) return "fixedHistory";
+  return "editableHistory";
+}
+
+function updateStateTintOverlay() {
+  const key = resolveTimeStateKey();
+  if (key === lastStateTintKey) return;
+  lastStateTintKey = key;
+  if (!key) {
+    stateTintOverlay.visible = false;
+    return;
+  }
+  const color = TIME_STATE_COLORS[key];
+  stateTintOverlay.visible = true;
+  stateTintOverlay.tint = Number.isFinite(color) ? color : 0xffffff;
+  stateTintOverlay.alpha = TIME_STATE_FILTER_ALPHA;
+}
+
+redrawStateTintOverlayBounds();
+updateStateTintOverlay();
 
 function refreshOpenInventoryWindows() {
   if (!inventoryView?.windows || !inventoryView?.rebuildWindow) return;
@@ -1044,6 +1106,17 @@ const chromeView = createChromeView({
     if (!popGraphView.isOpen()) popGraphView.open();
     else popGraphView.close();
   },
+  getCommitPreviewState: () => {
+    const preview = runner.getPreviewStatus?.();
+    return {
+      visible: !!preview?.isForecastPreview,
+      enabled: !!preview?.isForecastPreview,
+      targetSec: Number.isFinite(preview?.previewSec)
+        ? Math.floor(preview.previewSec)
+        : null,
+    };
+  },
+  onCommitPreview: () => runner.commitPreviewToLive?.(),
   getTimeScale: () => runner.getTimeScale?.(),
   setTimeScaleTarget: (speed, opts) => runner.setTimeScaleTarget?.(speed, opts),
 });
@@ -1196,6 +1269,7 @@ app.ticker.add((delta) => {
 
   const frameDt = delta / 60;
   runTimed("runner.update", () => runner.update(frameDt));
+  runTimed("stateTint.update", () => updateStateTintOverlay());
   runTimed("queuedActions.flush", () => flushQueuedActions());
   runTimed("interaction.update", () => interactionController.update(frameDt));
   runTimed("board.update", () => boardView.update(frameDt));

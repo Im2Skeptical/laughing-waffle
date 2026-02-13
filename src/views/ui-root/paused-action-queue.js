@@ -20,12 +20,18 @@ export function createPausedActionQueue({ runner }) {
       return res;
     };
 
+    if (runner.isPreviewing?.()) {
+      const commitRes = runner.commitPreviewToLive?.();
+      if (commitRes?.ok === false) return commitRes;
+      return executeNowOrQueue();
+    }
+
     const state = runner.getCursorState?.();
     if (state?.paused) return executeNowOrQueue();
 
     requestPauseForAction();
     const afterPauseState = runner.getCursorState?.();
-    if (afterPauseState?.paused && !(runner.isPreviewing?.())) {
+    if (afterPauseState?.paused) {
       return executeNowOrQueue();
     }
 

@@ -395,11 +395,7 @@ export function createSystemGraphModel({
   function refreshTargetThrottled(nowMs = performance.now()) {
     if (nowMs < nextSystemGraphTargetUpdateAtMs) return false;
     nextSystemGraphTargetUpdateAtMs = nowMs + SYSTEM_GRAPH_TARGET_UPDATE_MS;
-    const changed = updateSystemGraphTarget(nowMs);
-    if (changed) {
-      runner.clearPreviewState?.();
-    }
-    return changed;
+    return updateSystemGraphTarget(nowMs);
   }
 
   function toggleGraphForHover(graphView) {
@@ -415,7 +411,6 @@ export function createSystemGraphModel({
     pendingSystemGraphTargetSinceMs = now - SYSTEM_GRAPH_TARGET_STABLE_MS;
     nextSystemGraphTargetUpdateAtMs = 0;
     updateSystemGraphTarget(now);
-    runner.clearPreviewState?.();
     graphView.open();
     return { ok: true, opened: true };
   }

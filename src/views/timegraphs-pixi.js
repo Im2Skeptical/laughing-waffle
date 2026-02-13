@@ -8,6 +8,10 @@ import {
   getActionSecondsInRange,
   getActionSecondsInRangeSampled,
 } from "../model/timeline/index.js";
+import {
+  TIME_STATE_COLORS,
+  TIME_STATE_GRAPH_BG_ALPHA,
+} from "./layout-pixi.js";
 
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {
@@ -30,6 +34,7 @@ export function createMetricGraphView({
   getTimeline,
   getCursorState,
   getSeriesValueOverride,
+  getEditableHistoryBounds,
   setPreviewState,
   clearPreviewState,
   commitSecond,
@@ -458,6 +463,32 @@ export function createMetricGraphView({
       return plot.y + plot.h - t * plot.h;
     }
 
+    const tl = getTimeline?.();
+    const historyEndSec = Math.max(0, Math.floor(tl?.historyEndSec ?? 0));
+    const editableBounds = getEditableHistoryBounds?.();
+    const minEditableSec = Number.isFinite(editableBounds?.minEditableSec)
+      ? Math.max(0, Math.floor(editableBounds.minEditableSec))
+      : 0;
+
+    function drawZone(startSec, endSec, color) {
+      const start = Math.max(minSec, Math.min(maxSec, startSec));
+      const end = Math.max(minSec, Math.min(maxSec, endSec));
+      if (!(end > start)) return;
+      const x0 = timeToX(start);
+      const x1 = timeToX(end);
+      const left = Math.max(plot.x, Math.min(x0, x1));
+      const right = Math.min(plot.x + plot.w, Math.max(x0, x1));
+      if (!(right > left)) return;
+      plotG.beginFill(color, TIME_STATE_GRAPH_BG_ALPHA);
+      plotG.drawRect(left, plot.y, right - left, plot.h);
+      plotG.endFill();
+    }
+
+    const fixedEnd = Math.min(historyEndSec, minEditableSec);
+    drawZone(minSec, fixedEnd, TIME_STATE_COLORS.fixedHistory);
+    drawZone(minEditableSec, historyEndSec, TIME_STATE_COLORS.editableHistory);
+    drawZone(historyEndSec, maxSec, TIME_STATE_COLORS.forecast);
+
     // Grid
     plotG.lineStyle(1, 0x444466, 0.5);
     plotG.drawRect(plot.x, plot.y, plot.w, plot.h);
@@ -583,8 +614,11 @@ export function createMetricGraphView({
   function endScrub(commit) {
     if (!isScrubbing) return;
     isScrubbing = false;
+    const tl = getTimeline?.();
+    const historyEnd = Math.floor(tl?.historyEndSec ?? 0);
+    const isForecast = scrubSec > historyEnd;
 
-    if (commit) {
+    if (commit && !isForecast) {
       clearPreviewState?.();
       const stateData = controller?.getStateDataAt?.(scrubSec);
       const res = commitSecond?.(scrubSec, stateData);
@@ -595,6 +629,13 @@ export function createMetricGraphView({
       }
       return;
     }
+
+    if (isForecast) {
+      statusNote = "Preview only - click Commit to jump";
+      applyPreviewThrottled(true);
+      return;
+    }
+
     clearPreviewState?.();
     drawScrub();
   }

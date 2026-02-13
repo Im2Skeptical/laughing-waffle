@@ -10,6 +10,7 @@ export function createRunnerMetricGraph({
   metric = null,
   getMetricDef = null,
   getSeriesValueOverride = null,
+  getEditableHistoryBounds = null,
   historyWindowSec = undefined,
 }) {
   const options = {
@@ -18,6 +19,7 @@ export function createRunnerMetricGraph({
     controller,
     getTimeline: () => runner.getTimeline(),
     getCursorState: () => runner.getCursorState(),
+    getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
     setPreviewState: (s) => runner.setPreviewState(s),
     clearPreviewState: () => runner.clearPreviewState(),
     commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
@@ -28,6 +30,9 @@ export function createRunnerMetricGraph({
   if (typeof getMetricDef === "function") options.getMetricDef = getMetricDef;
   if (typeof getSeriesValueOverride === "function") {
     options.getSeriesValueOverride = getSeriesValueOverride;
+  }
+  if (typeof getEditableHistoryBounds === "function") {
+    options.getEditableHistoryBounds = getEditableHistoryBounds;
   }
   if (Number.isFinite(historyWindowSec) && historyWindowSec > 0) {
     options.historyWindowSec = historyWindowSec;

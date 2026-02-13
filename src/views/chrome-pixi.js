@@ -19,6 +19,8 @@ export function createChromeView({
   togglePause,
   isPausePending,
   getApPreview,
+  getCommitPreviewState,
+  onCommitPreview,
 
   // Stage 3: optional click handlers for opening graphs
   onGoldClick,
@@ -129,6 +131,12 @@ export function createChromeView({
   const pauseButton = makeButton("Pause", () => {
     togglePause();
   });
+  const commitButton = makeButton("Commit", () => {
+    if (typeof onCommitPreview === "function") onCommitPreview();
+  });
+  commitButton.visible = false;
+  commitButton.eventMode = "none";
+  commitButton.cursor = "default";
 
   const timeLeverView = createTimeLeverView({
     app,
@@ -139,6 +147,7 @@ export function createChromeView({
 
   const controls = [
     { node: pauseButton, width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
+    { node: commitButton, width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
     {
       node: timeLeverView.container,
       width: timeLeverView.width,
@@ -201,6 +210,24 @@ export function createChromeView({
       pauseLabel.text = "Pause";
       pauseBg.tint = 0xffffff;
     }
+
+    const commitState =
+      typeof getCommitPreviewState === "function"
+        ? getCommitPreviewState()
+        : null;
+    const showCommit = !!commitState?.visible;
+    const canCommit =
+      showCommit &&
+      commitState?.enabled !== false &&
+      typeof onCommitPreview === "function";
+    commitButton.visible = showCommit;
+    commitButton.eventMode = canCommit ? "static" : "none";
+    commitButton.cursor = canCommit ? "pointer" : "default";
+    const commitBg = commitButton.children[0];
+    if (commitBg) {
+      commitBg.tint = canCommit ? 0x55aa55 : 0x666666;
+    }
+    layoutButtons();
 
     const seasonKey = s.seasons[s.currentSeasonIndex];
     const seasonName = SEASON_DISPLAY[seasonKey];
