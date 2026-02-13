@@ -1,4 +1,4 @@
-// src/model/timeline-action-index.js
+// src/model/timeline/action-index.js
 // Action-second index and sampling caches extracted from timeline.js.
 
 export const ACTION_SECONDS_RANGE_CACHE_MAX = 256;

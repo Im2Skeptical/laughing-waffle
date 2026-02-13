@@ -1,4 +1,4 @@
-// src/model/timeline-mutation-signature.js
+// src/model/timeline/mutation-signature.js
 // Timeline mutation signatures used to detect out-of-band action/base mutations.
 
 export function computeTimelineMutationSig(tl) {

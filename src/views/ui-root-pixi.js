@@ -1,16 +1,11 @@
 // src/views/ui-root-pixi.js
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
-import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
-import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
-import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
-import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
-import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { runDeterminismSuite } from "../model/tests/determinism.js";
 import { createInteractionController } from "./interaction-controler-pixi.js";
 import { createTooltipView } from "./tooltip-pixi.js";
@@ -47,7 +42,10 @@ import {
   recordViewFrame,
   recordViewUpdate,
 } from "../model/perf.js";
-import { rebuildStateAtSecond } from "../model/timeline.js";
+import { createProjectionParityProbe } from "./ui-root/projection-parity.js";
+import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
+import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
+import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
@@ -116,52 +114,10 @@ const runner = createSimRunner({
 
 const actionPlanner = runner.getActionPlanner?.();
 
-const queuedActions = [];
-
-function requestPauseForAction() {
-  const state = runner.getCursorState?.();
-  if (!state || state.paused) return;
-  runner.setTimeScaleTarget?.(0, { requestPause: true });
-  runner.setPaused(true);
-}
-
-function queueActionWhenPaused(actionFn) {
-  const executeNowOrQueue = () => {
-    const res = actionFn();
-    if (res?.ok === false && res.reason === "mustBePaused") {
-      queuedActions.push(actionFn);
-      return { ok: true, queued: true };
-    }
-    return res;
-  };
-
-  const state = runner.getCursorState?.();
-  if (state?.paused) return executeNowOrQueue();
-
-  requestPauseForAction();
-  const afterPauseState = runner.getCursorState?.();
-  if (afterPauseState?.paused && !(runner.isPreviewing?.())) {
-    return executeNowOrQueue();
-  }
-
-  queuedActions.push(actionFn);
-  return { ok: true, queued: true };
-}
-
-function flushQueuedActions() {
-  if (!queuedActions.length) return;
-  const state = runner.getCursorState?.();
-  if (!state?.paused) return;
-  if (runner.isPreviewing?.()) return;
-
-  const pending = queuedActions.splice(0, queuedActions.length);
-  for (const fn of pending) {
-    const res = fn();
-    if (res?.ok === false && res.reason === "mustBePaused") {
-      queuedActions.push(fn);
-    }
-  }
-}
+const pausedActionQueue = createPausedActionQueue({ runner });
+const requestPauseForAction = pausedActionQueue.requestPauseForAction;
+const queueActionWhenPaused = pausedActionQueue.queueActionWhenPaused;
+const flushQueuedActions = pausedActionQueue.flushQueuedActions;
 
 const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
@@ -657,354 +613,12 @@ const interactionController = createInteractionController({
   getPhase: () => runner.getCursorState().phase,
 });
 
-const SYSTEM_GRAPH_COLORS = [
-  0x7fd0ff,
-  0xffaa66,
-  0x7ccf6b,
-  0xff6699,
-  0xb07a4f,
-  0x9aa0b5,
-  0x8f6fff,
-];
-
-function getSystemGraphTarget() {
-  const hover =
-    interactionController.getHoveredPawn?.() ??
-    interactionController.getHovered?.() ??
-    interactionController.getLastHovered?.();
-  if (!hover) return null;
-  if (hover.kind === "tile") {
-    return { kind: "tile", col: hover.col };
-  }
-  if (hover.kind === "hub") {
-    return { kind: "hub", col: hover.col };
-  }
-  if (hover.kind === "pawn") {
-    return { kind: "pawn", id: hover.id };
-  }
-  return null;
-}
-
-function getSystemGraphTargetKey(target) {
-  if (!target) return null;
-  if (target.kind === "tile") {
-    return `tile:${Math.floor(target.col ?? 0)}`;
-  }
-  if (target.kind === "hub") {
-    return `hub:${Math.floor(target.col ?? 0)}`;
-  }
-  if (target.kind === "pawn") {
-    return `pawn:${target.id ?? ""}`;
-  }
-  return null;
-}
-
-const systemGraphMetric = {
-  id: "systemTarget",
-  label: "Systems",
-  series: [],
-  getSubjectKey: (subject) => getSystemGraphTargetKey(subject),
-  createSnapshotResolver: (snapshot, subject) =>
-    buildSystemSnapshotResolver(snapshot, subject),
-  useSubjectValues: true,
-};
-
-const systemGraphController = createTimeGraphController({
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  metric: systemGraphMetric,
+const systemGraphModel = createSystemGraphModel({
+  interactionController,
+  runner,
+  createController: createTimeGraphController,
 });
-
-function getTierValue(defs, systemId, tier) {
-  const def = defs?.[systemId];
-  const value = def?.tierMap?.[tier];
-  return Number.isFinite(value) ? value : 0;
-}
-
-function sumMaturedPool(pool) {
-  return (
-    (pool?.bronze ?? 0) +
-    (pool?.silver ?? 0) +
-    (pool?.gold ?? 0) +
-    (pool?.diamond ?? 0)
-  );
-}
-
-function findTileAnchorAtCol(snapshot, col) {
-  const anchors = snapshot?.board?.layers?.tile?.anchors;
-  if (!Array.isArray(anchors)) return null;
-  const targetCol = Number.isFinite(col) ? Math.floor(col) : null;
-  if (targetCol == null) return null;
-  for (const anchor of anchors) {
-    if (!anchor) continue;
-    const base = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
-    const span = Number.isFinite(anchor.span) ? Math.floor(anchor.span) : 1;
-    if (targetCol >= base && targetCol < base + Math.max(1, span)) {
-      return anchor;
-    }
-  }
-  return null;
-}
-
-function findHubStructureAtCol(snapshot, col) {
-  const slots = snapshot?.hub?.slots;
-  if (!Array.isArray(slots)) return null;
-  const targetCol = Number.isFinite(col) ? Math.floor(col) : null;
-  if (targetCol == null) return null;
-  for (let i = 0; i < slots.length; i++) {
-    const structure = slots[i]?.structure;
-    if (!structure) continue;
-    const def = hubStructureDefs[structure.defId];
-    const span =
-      Number.isFinite(structure.span) && structure.span > 0
-        ? Math.floor(structure.span)
-        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
-          ? Math.floor(def.defaultSpan)
-          : 1;
-    const base = i;
-    if (targetCol >= base && targetCol < base + Math.max(1, span)) {
-      return structure;
-    }
-  }
-  return null;
-}
-
-function findPawnById(snapshot, id) {
-  const pawns = snapshot?.pawns;
-  if (!Array.isArray(pawns)) return null;
-  for (const pawn of pawns) {
-    if (pawn?.id === id) return pawn;
-  }
-  return null;
-}
-
-function buildSystemSnapshotResolver(snapshot, target) {
-  if (!snapshot || !target) return null;
-  if (target.kind === "tile") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    const occTile =
-      col != null && Array.isArray(snapshot?.board?.occ?.tile)
-        ? snapshot.board.occ.tile[col] ?? null
-        : null;
-    return {
-      kind: "tile",
-      col,
-      tile:
-        occTile ??
-        (col != null ? findTileAnchorAtCol(snapshot, col) : null),
-    };
-  }
-  if (target.kind === "hub") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    return {
-      kind: "hub",
-      col,
-      hubStructure: col != null ? findHubStructureAtCol(snapshot, col) : null,
-    };
-  }
-  if (target.kind === "pawn") {
-    const id = target.id;
-    return {
-      kind: "pawn",
-      id,
-      pawn: id != null ? findPawnById(snapshot, id) : null,
-    };
-  }
-  return null;
-}
-
-function buildSystemSeriesForTarget(target, state) {
-  if (!target || !state) {
-    return {
-      label: "Systems",
-      series: [
-        {
-          id: "systems:empty",
-          label: "No target",
-          color: SYSTEM_GRAPH_COLORS[0],
-          getValue: () => 0,
-        },
-      ],
-    };
-  }
-  const series = [];
-  let label = "Systems";
-  let targetKey = "";
-
-  if (target.kind === "tile") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
-    const tileDef = tile ? envTileDefs[tile.defId] : null;
-    label = tileDef?.name || tile?.defId || `Tile ${col}`;
-    targetKey = `tile:${col}`;
-
-    const ids = new Set();
-    const tags = new Set();
-    const baseTags = Array.isArray(tileDef?.baseTags) ? tileDef.baseTags : [];
-    for (const tag of baseTags) tags.add(tag);
-    for (const tag of tile?.tags || []) tags.add(tag);
-    for (const tag of tags) {
-      const tagDef = envTagDefs?.[tag];
-      const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
-      for (const systemId of systems) {
-        ids.add(systemId);
-      }
-    }
-    for (const systemId of Object.keys(tile?.systemState || {})) {
-      ids.add(systemId);
-    }
-    for (const systemId of Object.keys(tile?.systemTiers || {})) {
-      ids.add(systemId);
-    }
-    for (const systemId of ids.values()) {
-      if (systemId === "growth") {
-        series.push({
-          id: `${targetKey}:matured`,
-          label: "Matured",
-          color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-          getValue: (snap) => {
-            const t = snap?.board?.occ?.tile?.[col];
-            const pool = t?.systemState?.growth?.maturedPool;
-            return sumMaturedPool(pool);
-          },
-          getValueFromSnapshot: (snapshot, _subject, resolved) => {
-            const t =
-              (resolved?.kind === "tile" ? resolved.tile : null) ??
-              findTileAnchorAtCol(snapshot, col);
-            const pool = t?.systemState?.growth?.maturedPool;
-            return sumMaturedPool(pool);
-          },
-        });
-        continue;
-      }
-      const def = envSystemDefs[systemId];
-      const sysLabel = def?.ui?.name || systemId;
-      series.push({
-        id: `${targetKey}:${systemId}`,
-        label: sysLabel,
-        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-        getValue: (snap) => {
-          const t = snap?.board?.occ?.tile?.[col];
-          const sysState = t?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            t?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
-          return getTierValue(envSystemDefs, systemId, tier);
-        },
-        getValueFromSnapshot: (snapshot, _subject, resolved) => {
-          const t =
-            (resolved?.kind === "tile" ? resolved.tile : null) ??
-            findTileAnchorAtCol(snapshot, col);
-          const sysState = t?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            t?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
-          return getTierValue(envSystemDefs, systemId, tier);
-        },
-      });
-    }
-  } else if (target.kind === "hub") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    const structure =
-      col != null ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure : null;
-    const def = structure ? hubStructureDefs[structure.defId] : null;
-    label = def?.name || structure?.defId || `Hub ${col}`;
-    targetKey = `hub:${col}`;
-
-    const ids = new Set([
-      ...Object.keys(structure?.systemState || {}),
-      ...Object.keys(structure?.systemTiers || {}),
-    ]);
-    for (const systemId of ids.values()) {
-      const defSys = hubSystemDefs[systemId];
-      const sysLabel = defSys?.ui?.name || systemId;
-      series.push({
-        id: `${targetKey}:${systemId}`,
-        label: sysLabel,
-        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-        getValue: (snap) => {
-          const s =
-            col != null
-              ? snap?.hub?.occ?.[col] ?? snap?.hub?.slots?.[col]?.structure
-              : null;
-          const sysState = s?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
-          return getTierValue(hubSystemDefs, systemId, tier);
-        },
-        getValueFromSnapshot: (snapshot, _subject, resolved) => {
-          const s =
-            (resolved?.kind === "hub" ? resolved.hubStructure : null) ??
-            (col != null ? findHubStructureAtCol(snapshot, col) : null);
-          const sysState = s?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
-          return getTierValue(hubSystemDefs, systemId, tier);
-        },
-      });
-    }
-  } else if (target.kind === "pawn") {
-    const id = target.id;
-    const pawn = state?.pawns?.find((c) => c.id === id);
-    label = pawn?.name || `Pawn ${id}`;
-    targetKey = `pawn:${id}`;
-
-    const ids = new Set([
-      ...Object.keys(pawn?.systemState || {}),
-      ...Object.keys(pawn?.systemTiers || {}),
-    ]);
-    for (const systemId of ids.values()) {
-      const defSys = pawnSystemDefs[systemId];
-      const sysLabel = defSys?.ui?.name || systemId;
-      series.push({
-        id: `${targetKey}:${systemId}`,
-        label: sysLabel,
-        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-        getValue: (snap) => {
-          const p = snap?.pawns?.find((c) => c.id === id);
-          const sysState = p?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
-          return getTierValue(pawnSystemDefs, systemId, tier);
-        },
-        getValueFromSnapshot: (snapshot, _subject, resolved) => {
-          const p =
-            (resolved?.kind === "pawn" ? resolved.pawn : null) ??
-            findPawnById(snapshot, id);
-          const sysState = p?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
-          return getTierValue(pawnSystemDefs, systemId, tier);
-        },
-      });
-    }
-  }
-
-  if (!series.length) {
-    series.push({
-      id: `${targetKey || "systems"}:empty`,
-      label: "No systems",
-      color: SYSTEM_GRAPH_COLORS[0],
-      getValue: () => 0,
-      getValueFromSnapshot: () => 0,
-    });
-  }
-
-  return {
-    label: `${label} Systems`,
-    series,
-  };
-}
+const systemGraphController = systemGraphModel.controller;
 
 const tooltipView = createTooltipView({
   layer: uiLayers.tooltipLayer,
@@ -1197,7 +811,7 @@ function togglePause() {
 }
 
 function clearActionLogAndReset() {
-  queuedActions.length = 0;
+  pausedActionQueue.clearQueuedActions();
   return queueActionWhenPaused(
     () =>
       runner.clearPlannerActionsAtCursor?.() || {
@@ -1338,54 +952,44 @@ processWidgetView = createProcessWidgetView({
     actionLogView?.flashGhost?.(spec, status),
 });
 
-let goldGraphView = createMetricGraphView({
+let goldGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: goldGraphController,
+  runner,
   metric: GRAPH_METRICS.gold,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  // STAGE 3: Use commitCursorSecond
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 280 },
 });
 
-let foodGraphView = createMetricGraphView({
+let foodGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: foodGraphController,
+  runner,
   metric: GRAPH_METRICS.food,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 460 },
 });
 
-let systemGraphView = createMetricGraphView({
+let systemGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: systemGraphController,
+  runner,
   getMetricDef: () => systemGraphController.getData().metric,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 220 },
   historyWindowSec: 600,
 });
 
-let apGraphView = createMetricGraphView({
+let apGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: apGraphController,
+  runner,
   metric: GRAPH_METRICS.ap,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
   getSeriesValueOverride: (tSec, seriesId, _point, cursorSecRaw) => {
     if (seriesId !== "ap") return null;
     const currentSec = Number.isFinite(cursorSecRaw)
@@ -1395,69 +999,21 @@ let apGraphView = createMetricGraphView({
     const preview = actionPlanner?.getApPreview?.();
     return preview ? preview.remaining : null;
   },
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 80 },
 });
 
-let popGraphView = createMetricGraphView({
+let popGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: popGraphController,
+  runner,
   metric: GRAPH_METRICS.population,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 640 },
 });
 
-let lastSystemGraphTargetKey = null;
-const SYSTEM_GRAPH_TARGET_UPDATE_MS = 30;
-const SYSTEM_GRAPH_TARGET_STABLE_MS = 80;
-let nextSystemGraphTargetUpdateAtMs = 0;
-let pendingSystemGraphTargetKey = null;
-let pendingSystemGraphTargetSinceMs = 0;
-
-function updateSystemGraphTarget(nowMs = performance.now()) {
-  const target = getSystemGraphTarget();
-  const nextKey = getSystemGraphTargetKey(target);
-  if (nextKey !== pendingSystemGraphTargetKey) {
-    pendingSystemGraphTargetKey = nextKey;
-    pendingSystemGraphTargetSinceMs = nowMs;
-    return false;
-  }
-  if (nowMs - pendingSystemGraphTargetSinceMs < SYSTEM_GRAPH_TARGET_STABLE_MS) {
-    return false;
-  }
-  if (nextKey === lastSystemGraphTargetKey) return false;
-  lastSystemGraphTargetKey = nextKey;
-  pendingSystemGraphTargetKey = null;
-  pendingSystemGraphTargetSinceMs = 0;
-  const state = runner.getCursorState?.();
-  const resolved = buildSystemSeriesForTarget(target, state);
-  systemGraphController.setSeries?.(resolved.series, resolved.label);
-  systemGraphController.setSubject?.(target, nextKey);
-  return true;
-}
-
 function openSystemGraphForHover() {
-  if (systemGraphView.isOpen()) {
-    systemGraphView.close();
-    return { ok: true, closed: true };
-  }
-  const now = performance.now();
-  const initialTarget = getSystemGraphTarget();
-  const initialKey = getSystemGraphTargetKey(initialTarget);
-  pendingSystemGraphTargetKey = initialKey;
-  pendingSystemGraphTargetSinceMs = now - SYSTEM_GRAPH_TARGET_STABLE_MS;
-  nextSystemGraphTargetUpdateAtMs = 0;
-  updateSystemGraphTarget(now);
-  runner.clearPreviewState();
-  systemGraphView.open();
-  return { ok: true, opened: true };
+  return systemGraphModel.toggleGraphForHover(systemGraphView);
 }
 
 const chromeView = createChromeView({
@@ -1503,51 +1059,10 @@ const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
   onOpenSystemGraph: () => openSystemGraphForHover(),
-  getProjectionParity: () => {
-    const tl = runner.getTimeline?.();
-    const cs = runner.getCursorState?.();
-    if (!tl || !cs) return { ok: false, reason: "noState" };
-
-    const sec = Math.max(0, Math.floor(cs.tSec ?? 0) + 1);
-    const projected = apGraphController.getStateAt?.(sec);
-    const rebuilt = rebuildStateAtSecond(tl, sec);
-    if (!projected || !rebuilt?.ok) {
-      return { ok: false, reason: "compareFailed", sec };
-    }
-
-    const summarize = (state) => {
-      const pawns = (state?.pawns ?? [])
-        .map((p) => `${p.id}:${p.hubCol ?? "n"}:${p.envCol ?? "n"}`)
-        .sort();
-      const tileCrops = [];
-      const tagDisabled = [];
-      const cols = Number.isFinite(state?.board?.cols)
-        ? Math.floor(state.board.cols)
-        : 0;
-      for (let col = 0; col < cols; col++) {
-        const tile = state?.board?.occ?.tile?.[col];
-        if (!tile) continue;
-        const cropId = tile?.systemState?.growth?.selectedCropId ?? null;
-        if (cropId != null) tileCrops.push(`${col}:${cropId}`);
-        const tagStates = tile?.tagStates ?? {};
-        for (const [tagId, entry] of Object.entries(tagStates)) {
-          if (entry?.disabled === true) tagDisabled.push(`${col}:${tagId}`);
-        }
-      }
-      tileCrops.sort();
-      tagDisabled.sort();
-      return `${pawns.join("|")}||${tileCrops.join("|")}||${tagDisabled.join("|")}`;
-    };
-
-    const projSig = summarize(projected);
-    const rebuiltSig = summarize(rebuilt.state);
-    return {
-      ok: true,
-      sec,
-      mismatch: projSig !== rebuiltSig,
-      detail: projSig !== rebuiltSig ? "stateSig" : "ok",
-    };
-  },
+  getProjectionParity: createProjectionParityProbe({
+    runner,
+    controller: apGraphController,
+  }),
   getPerfSnapshot: () =>
     getPerfSnapshot({
       timeline: runner.getTimeline(),
@@ -1729,13 +1244,7 @@ app.ticker.add((delta) => {
   const systemGraphOpen = systemGraphView.isOpen();
   systemGraphController.setActive?.(systemGraphOpen);
   if (systemGraphOpen) {
-    const now = performance.now();
-    if (now >= nextSystemGraphTargetUpdateAtMs) {
-      nextSystemGraphTargetUpdateAtMs = now + SYSTEM_GRAPH_TARGET_UPDATE_MS;
-      if (updateSystemGraphTarget(now)) {
-        runner.clearPreviewState();
-      }
-    }
+    systemGraphModel.refreshTargetThrottled(performance.now());
     runTimed("graph.system.controllerUpdate", () => systemGraphController.update());
     runTimed("graph.system.render", () => systemGraphView.render());
   }

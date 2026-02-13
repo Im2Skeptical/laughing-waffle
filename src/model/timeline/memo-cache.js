@@ -1,4 +1,4 @@
-// src/model/timeline-memo-cache.js
+// src/model/timeline/memo-cache.js
 // Memo cache helpers extracted from timeline.js to keep timeline orchestration focused.
 
 export const DEFAULT_MEMO_MAX_BYTES = 24 * 1024 * 1024;
