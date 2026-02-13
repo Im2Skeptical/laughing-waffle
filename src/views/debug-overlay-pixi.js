@@ -10,12 +10,14 @@ const PANEL_HEIGHT = 392;
 const TOP_VIEW_UPDATES_COUNT = 5;
 const PERF_REFRESH_MS = 250;
 const SLOT_META_REFRESH_MS = 1000;
+const PARITY_REFRESH_MS = 500;
 
 export function createDebugOverlay({
   layer,
   runner,
   onOpenSystemGraph,
   getPerfSnapshot,
+  getProjectionParity,
 }) {
   const root = new PIXI.Container();
   root.x = DESIGN_WIDTH - 220;
@@ -314,6 +316,27 @@ export function createDebugOverlay({
     panel.addChild(row);
     perfRows.push(row);
   }
+  let lastParityReadMs = 0;
+
+  const parityRow = new PIXI.Text("projection parity: --", {
+    fontSize: 9,
+    fill: 0xb8c2dd,
+    wordWrap: true,
+    wordWrapWidth: PANEL_WIDTH - 20,
+  });
+  parityRow.x = 10;
+  parityRow.y = perfHeader.y + 14 + TOP_VIEW_UPDATES_COUNT * 14 + 4;
+  panel.addChild(parityRow);
+
+  const commitErrorRow = new PIXI.Text("planner commit: ok", {
+    fontSize: 9,
+    fill: 0xb8c2dd,
+    wordWrap: true,
+    wordWrapWidth: PANEL_WIDTH - 20,
+  });
+  commitErrorRow.x = 10;
+  commitErrorRow.y = parityRow.y + 14;
+  panel.addChild(commitErrorRow);
 
   function updatePerfRows() {
     const now = performance.now();
@@ -393,6 +416,45 @@ export function createDebugOverlay({
     }
   }
 
+  function updateParityRow() {
+    const now = performance.now();
+    if (now - lastParityReadMs < PARITY_REFRESH_MS) return;
+    lastParityReadMs = now;
+
+    const parity =
+      typeof getProjectionParity === "function" ? getProjectionParity() : null;
+    if (!parity || parity.ok === false) {
+      const reason =
+        typeof parity?.reason === "string" ? parity.reason : "unavailable";
+      parityRow.text = `projection parity: ${reason}`;
+      parityRow.style.fill = 0xb8c2dd;
+    } else if (parity.mismatch) {
+      const sec = Number.isFinite(parity.sec) ? Math.floor(parity.sec) : 0;
+      const detail = typeof parity.detail === "string" ? parity.detail : "mismatch";
+      parityRow.text = `projection parity: MISMATCH @${sec}s (${detail})`;
+      parityRow.style.fill = 0xff7777;
+    } else {
+      const sec = Number.isFinite(parity.sec) ? Math.floor(parity.sec) : 0;
+      parityRow.text = `projection parity: ok @${sec}s`;
+      parityRow.style.fill = 0x7ddc93;
+    }
+
+    const commitError = runner.getLastPlannerCommitError?.() ?? null;
+    if (!commitError) {
+      commitErrorRow.text = "planner commit: ok";
+      commitErrorRow.style.fill = 0x7ddc93;
+      return;
+    }
+
+    const reason =
+      typeof commitError.reason === "string" ? commitError.reason : "failed";
+    const tSec = Number.isFinite(commitError.tSec)
+      ? Math.floor(commitError.tSec)
+      : 0;
+    commitErrorRow.text = `planner commit: ${reason} @${tSec}s`;
+    commitErrorRow.style.fill = 0xff7777;
+  }
+
   return {
     update: () => {
       const state = runner.getState();
@@ -453,6 +515,7 @@ export function createDebugOverlay({
 
       if (panel.visible) {
         updatePerfRows();
+        updateParityRow();
       }
     },
   };

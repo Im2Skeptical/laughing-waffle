@@ -47,6 +47,7 @@ import {
   recordViewFrame,
   recordViewUpdate,
 } from "../model/perf.js";
+import { rebuildStateAtSecond } from "../model/timeline.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
@@ -85,17 +86,16 @@ const FULL_VIEW_REBUILD_REASONS = new Set([
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
   onInvalidate: (reason) => {
-    const plannerOnlyReason =
-      typeof reason === "string" && reason.startsWith("planner:");
     const cursorOnlyReason =
       reason === "scrubBrowse" || reason === "scrubCommit";
-    if (!plannerOnlyReason && !cursorOnlyReason) {
-      goldGraphController.handleInvalidate(reason);
-      foodGraphController.handleInvalidate(reason);
-      apGraphController.handleInvalidate(reason);
-      popGraphController.handleInvalidate(reason);
-      systemGraphController.handleInvalidate(reason);
-    }
+    // Keep cursor-only browse/commit lean; all other mutation reasons should
+    // invalidate controllers immediately (including planner:* edits).
+    if (cursorOnlyReason) return;
+    goldGraphController.handleInvalidate(reason);
+    foodGraphController.handleInvalidate(reason);
+    apGraphController.handleInvalidate(reason);
+    popGraphController.handleInvalidate(reason);
+    systemGraphController.handleInvalidate(reason);
   },
   onRebuildViews: (reason = "unknown") => {
     tooltipView?.hide?.();
@@ -126,11 +126,24 @@ function requestPauseForAction() {
 }
 
 function queueActionWhenPaused(actionFn) {
+  const executeNowOrQueue = () => {
+    const res = actionFn();
+    if (res?.ok === false && res.reason === "mustBePaused") {
+      queuedActions.push(actionFn);
+      return { ok: true, queued: true };
+    }
+    return res;
+  };
+
   const state = runner.getCursorState?.();
-  if (state?.paused) {
-    return actionFn();
-  }
+  if (state?.paused) return executeNowOrQueue();
+
   requestPauseForAction();
+  const afterPauseState = runner.getCursorState?.();
+  if (afterPauseState?.paused && !(runner.isPreviewing?.())) {
+    return executeNowOrQueue();
+  }
+
   queuedActions.push(actionFn);
   return { ok: true, queued: true };
 }
@@ -1490,6 +1503,51 @@ const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
   onOpenSystemGraph: () => openSystemGraphForHover(),
+  getProjectionParity: () => {
+    const tl = runner.getTimeline?.();
+    const cs = runner.getCursorState?.();
+    if (!tl || !cs) return { ok: false, reason: "noState" };
+
+    const sec = Math.max(0, Math.floor(cs.tSec ?? 0) + 1);
+    const projected = apGraphController.getStateAt?.(sec);
+    const rebuilt = rebuildStateAtSecond(tl, sec);
+    if (!projected || !rebuilt?.ok) {
+      return { ok: false, reason: "compareFailed", sec };
+    }
+
+    const summarize = (state) => {
+      const pawns = (state?.pawns ?? [])
+        .map((p) => `${p.id}:${p.hubCol ?? "n"}:${p.envCol ?? "n"}`)
+        .sort();
+      const tileCrops = [];
+      const tagDisabled = [];
+      const cols = Number.isFinite(state?.board?.cols)
+        ? Math.floor(state.board.cols)
+        : 0;
+      for (let col = 0; col < cols; col++) {
+        const tile = state?.board?.occ?.tile?.[col];
+        if (!tile) continue;
+        const cropId = tile?.systemState?.growth?.selectedCropId ?? null;
+        if (cropId != null) tileCrops.push(`${col}:${cropId}`);
+        const tagStates = tile?.tagStates ?? {};
+        for (const [tagId, entry] of Object.entries(tagStates)) {
+          if (entry?.disabled === true) tagDisabled.push(`${col}:${tagId}`);
+        }
+      }
+      tileCrops.sort();
+      tagDisabled.sort();
+      return `${pawns.join("|")}||${tileCrops.join("|")}||${tagDisabled.join("|")}`;
+    };
+
+    const projSig = summarize(projected);
+    const rebuiltSig = summarize(rebuilt.state);
+    return {
+      ok: true,
+      sec,
+      mismatch: projSig !== rebuiltSig,
+      detail: projSig !== rebuiltSig ? "stateSig" : "ok",
+    };
+  },
   getPerfSnapshot: () =>
     getPerfSnapshot({
       timeline: runner.getTimeline(),

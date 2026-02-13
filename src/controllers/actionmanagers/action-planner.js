@@ -120,6 +120,50 @@ function normalizeApCost(value) {
   return Math.max(0, Math.floor(value));
 }
 
+function normalizeCommittedIntentBaseline(intent) {
+  if (!intent || typeof intent !== "object") return null;
+  const next = cloneIntent(intent);
+  if (!next) return null;
+
+  next.source = "timeline";
+
+  if (
+    next.kind === IntentKinds.ITEM_TRANSFER ||
+    next.kind === IntentKinds.PAWN_MOVE
+  ) {
+    next.baselinePlacement = clonePlacement(next.toPlacement);
+    return next;
+  }
+
+  if (
+    next.kind === IntentKinds.TILE_TAG_ORDER ||
+    next.kind === IntentKinds.HUB_TAG_ORDER
+  ) {
+    next.baselineTags = cloneTagList(next.tagIds) ?? [];
+    return next;
+  }
+
+  if (
+    next.kind === IntentKinds.TILE_TAG_TOGGLE ||
+    next.kind === IntentKinds.HUB_TAG_TOGGLE
+  ) {
+    next.baselineDisabled = next.disabled === true;
+    return next;
+  }
+
+  if (next.kind === IntentKinds.TILE_CROP_SELECT) {
+    next.baselineCropId = next.cropId ?? null;
+    return next;
+  }
+
+  if (next.kind === IntentKinds.HUB_RECIPE_SELECT) {
+    next.baselineRecipeId = next.recipeId ?? null;
+    return next;
+  }
+
+  return next;
+}
+
 function normalizeCropId(value) {
   if (value == null || value === "") return null;
   return String(value);
@@ -1757,10 +1801,31 @@ export function createActionPlanner({
   }
 
   function markCommitted({ tSec, revision } = {}) {
-    baselineIntents.clear();
+    const normalizedCommitted = new Map();
     for (const [key, intent] of intents.entries()) {
+      const normalized = normalizeCommittedIntentBaseline(intent);
+      if (!normalized) continue;
+      normalizedCommitted.set(key, normalized);
+    }
+
+    intents.clear();
+    baselineIntents.clear();
+    intentOrder = intentOrder.filter((key) => normalizedCommitted.has(key));
+
+    for (const key of intentOrder) {
+      const intent = normalizedCommitted.get(key);
+      if (!intent) continue;
+      intents.set(key, cloneIntent(intent));
       baselineIntents.set(key, cloneIntent(intent));
     }
+
+    for (const [key, intent] of normalizedCommitted.entries()) {
+      if (intents.has(key)) continue;
+      intents.set(key, cloneIntent(intent));
+      baselineIntents.set(key, cloneIntent(intent));
+      intentOrder.push(key);
+    }
+
     hasEdits = false;
     activeSec = Number.isFinite(tSec) ? Math.floor(tSec) : activeSec;
     activeRevision = Number.isFinite(revision)

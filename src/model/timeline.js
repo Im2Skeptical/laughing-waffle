@@ -13,6 +13,36 @@ import {
   recordTimelineRebuild,
   recordCheckpointMaintenance,
 } from "./perf.js";
+import {
+  computeActionsMutationSig,
+  ensureActionSecondsIndex,
+  ensureActionSecondsRangeCache,
+  ensureActionSecondsVersion,
+  ensureActionsBySecFresh,
+  indexActionsBySecond,
+  insertSortedSecond,
+  lowerBoundSorted,
+  markActionSecondsChanged,
+  putActionSecondsRangeCache,
+  rebuildActionsBySecIndex,
+  removeSortedSecond,
+  upperBoundSorted,
+} from "./timeline-action-index.js";
+import {
+  DEFAULT_STATE_DATA_ESTIMATE_BYTES,
+  estimateStateDataBytes,
+  findNearestMemoStateDataAtOrBefore,
+  memoGetStateData,
+  memoPutStateData,
+  pruneMemoAtOrAfter,
+} from "./timeline-memo-cache.js";
+import {
+  computeTimelineMutationSig,
+  mutationSigEquals,
+} from "./timeline-mutation-signature.js";
+
+// Note: memo-cache, action-index, and mutation-signature helpers are split
+// into dedicated modules to keep this file focused on timeline orchestration.
 
 const TICKS_PER_SEC = 60;
 const MICROSTEP_DT = 1 / TICKS_PER_SEC;
@@ -24,11 +54,6 @@ const CP_WINDOW_FWD = 300;
 const CP_COLD_STRIDE_SEC = 120;
 const CP_MAINTENANCE_CADENCE_SEC = 5;
 const DEFAULT_CHECKPOINT_MAX_BYTES = 24 * 1024 * 1024;
-const ACTION_SECONDS_RANGE_CACHE_MAX = 256;
-
-// Memo cache defaults (non-serialized derived fields stored on timeline object)
-const DEFAULT_MEMO_MAX_BYTES = 24 * 1024 * 1024;
-const DEFAULT_STATE_DATA_ESTIMATE_BYTES = 32 * 1024;
 
 export function isValidTimeline(tl) {
   if (!tl || typeof tl !== "object") return false;
@@ -92,276 +117,6 @@ function bumpRevision(tl, opts = {}) {
     tl._checkpointIndexCache = null;
   }
   return tl.revision;
-}
-
-function ensureMemo(tl) {
-  if (!tl.memoStateBySec) tl.memoStateBySec = new Map();
-  if (!tl.memoFifo) tl.memoFifo = [];
-  if (!tl.memoBytesByKey) tl.memoBytesByKey = new Map();
-  if (!Number.isFinite(tl.memoBytesTotal) || tl.memoBytesTotal < 0) {
-    tl.memoBytesTotal = 0;
-  }
-  if (!Number.isFinite(tl.memoMaxBytes) || tl.memoMaxBytes <= 0) {
-    tl.memoMaxBytes = DEFAULT_MEMO_MAX_BYTES;
-  } else {
-    tl.memoMaxBytes = Math.floor(tl.memoMaxBytes);
-  }
-}
-
-function memoKey(_tl, sec) {
-  return Math.max(0, Math.floor(sec));
-}
-
-function memoGetStateData(tl, sec) {
-  if (!tl.memoStateBySec) return null;
-  return tl.memoStateBySec.get(memoKey(tl, sec)) ?? null;
-}
-
-function findNearestMemoStateDataAtOrBefore(tl, targetSec) {
-  if (!tl?.memoStateBySec || tl.memoStateBySec.size === 0) return null;
-  const target = Math.max(0, Math.floor(targetSec ?? 0));
-  let bestSec = -1;
-  let bestStateData = null;
-
-  for (const [key, stateData] of tl.memoStateBySec.entries()) {
-    const normalizedSec = Math.max(0, Math.floor(key ?? -1));
-    if (!Number.isFinite(normalizedSec)) continue;
-    if (normalizedSec > target) continue;
-    if (normalizedSec < bestSec) continue;
-    bestSec = normalizedSec;
-    bestStateData = stateData;
-  }
-
-  if (bestSec < 0 || bestStateData == null) return null;
-  return { checkpointSec: bestSec, stateData: bestStateData };
-}
-
-function pruneMemoAtOrAfter(tl, startSec) {
-  if (!tl?.memoStateBySec || tl.memoStateBySec.size === 0) return;
-  const cutoff = Math.max(0, Math.floor(startSec ?? 0));
-
-  for (const key of tl.memoStateBySec.keys()) {
-    const sec = Math.max(0, Math.floor(key ?? -1));
-    if (!Number.isFinite(sec) || sec < cutoff) continue;
-    const removedBytes = tl.memoBytesByKey?.get?.(key) ?? 0;
-    tl.memoStateBySec.delete(key);
-    tl.memoBytesByKey?.delete?.(key);
-    tl.memoBytesTotal = Math.max(0, (tl.memoBytesTotal ?? 0) - removedBytes);
-  }
-
-  if (Array.isArray(tl.memoFifo)) {
-    tl.memoFifo = tl.memoFifo.filter((key) => {
-      const sec = Math.max(0, Math.floor(key ?? -1));
-      return Number.isFinite(sec) && sec < cutoff;
-    });
-  }
-}
-
-function estimateStateDataBytes(tl, stateData) {
-  if (!tl || stateData == null) return DEFAULT_STATE_DATA_ESTIMATE_BYTES;
-
-  const samplesTaken = Math.floor(tl._stateDataSizeSamples ?? 0);
-  const shouldSample = samplesTaken < 8 || samplesTaken % 8 === 0;
-
-  const avg = Number.isFinite(tl._stateDataAvgBytes)
-    ? Math.max(512, Math.floor(tl._stateDataAvgBytes))
-    : DEFAULT_STATE_DATA_ESTIMATE_BYTES;
-
-  if (!shouldSample) {
-    tl._stateDataSizeSamples = samplesTaken + 1;
-    return avg;
-  }
-
-  let bytes = avg;
-  try {
-    bytes = Math.max(512, JSON.stringify(stateData).length);
-  } catch (_) {
-    bytes = avg;
-  }
-
-  tl._stateDataSizeSamples = samplesTaken + 1;
-  tl._stateDataAvgBytes = Number.isFinite(tl._stateDataAvgBytes)
-    ? Math.floor(tl._stateDataAvgBytes * 0.75 + bytes * 0.25)
-    : bytes;
-
-  return bytes;
-}
-
-function memoPutStateData(tl, sec, stateData) {
-  ensureMemo(tl);
-  const key = memoKey(tl, sec);
-  const bytes = estimateStateDataBytes(tl, stateData);
-  const existingBytes = tl.memoBytesByKey.get(key) ?? 0;
-
-  if (!tl.memoStateBySec.has(key)) {
-    tl.memoFifo.push(key);
-  }
-  tl.memoStateBySec.set(key, stateData);
-  tl.memoBytesByKey.set(key, bytes);
-  tl.memoBytesTotal += bytes - existingBytes;
-
-  const maxBytes = tl.memoMaxBytes ?? DEFAULT_MEMO_MAX_BYTES;
-  while (tl.memoBytesTotal > maxBytes && tl.memoFifo.length > 0) {
-    const oldest = tl.memoFifo.shift();
-    if (oldest == null) continue;
-    const removedBytes = tl.memoBytesByKey.get(oldest) ?? 0;
-    tl.memoStateBySec.delete(oldest);
-    tl.memoBytesByKey.delete(oldest);
-    tl.memoBytesTotal = Math.max(0, tl.memoBytesTotal - removedBytes);
-  }
-}
-
-// -----------------------------------------------------------------------------
-// STAGE 5: persistent actionsBySec index (derived, non-serialized)
-// -----------------------------------------------------------------------------
-
-function indexActionsBySecond(actions) {
-  const map = new Map();
-  for (const a of actions || []) {
-    const s = Math.max(0, Math.floor(a.tSec ?? 0));
-    if (!map.has(s)) map.set(s, []);
-    map.get(s).push(a);
-  }
-  return map;
-}
-
-function computeActionsMutationSig(tl) {
-  const acts = Array.isArray(tl.actions) ? tl.actions : [];
-  const aLen = acts.length;
-  const aLast = aLen ? acts[aLen - 1] : null;
-  return {
-    aRef: tl.actions,
-    aLen,
-    aLastRef: aLast,
-    aLastSec: aLast ? Math.floor(aLast.tSec ?? 0) : 0,
-  };
-}
-
-function actionsSigEquals(a, b) {
-  if (!a || !b) return false;
-  return (
-    a.aRef === b.aRef &&
-    a.aLen === b.aLen &&
-    a.aLastRef === b.aLastRef &&
-    a.aLastSec === b.aLastSec
-  );
-}
-
-function rebuildActionsBySecIndex(tl) {
-  const bySec = indexActionsBySecond(tl.actions);
-  tl.actionsBySec = bySec;
-  tl._actionSecondsSorted = Array.from(bySec.keys())
-    .map((secRaw) => Math.max(0, Math.floor(secRaw)))
-    .sort((a, b) => a - b);
-  markActionSecondsChanged(tl);
-  tl._actionsBySecSig = computeActionsMutationSig(tl);
-}
-
-function ensureActionsBySecFresh(tl) {
-  const cur = computeActionsMutationSig(tl);
-  if (!actionsSigEquals(cur, tl._actionsBySecSig) || !tl.actionsBySec) {
-    rebuildActionsBySecIndex(tl);
-  }
-}
-
-function ensureActionSecondsRangeCache(tl) {
-  const actionSecondsVersion = ensureActionSecondsVersion(tl);
-  const cache = tl._actionSecondsRangeCache;
-  if (
-    !cache ||
-    cache.actionSecondsVersion !== actionSecondsVersion ||
-    !cache.map ||
-    !Number.isFinite(cache.max)
-  ) {
-    tl._actionSecondsRangeCache = {
-      actionSecondsVersion,
-      map: new Map(),
-      max: ACTION_SECONDS_RANGE_CACHE_MAX,
-    };
-  }
-  return tl._actionSecondsRangeCache;
-}
-
-function ensureActionSecondsVersion(tl) {
-  if (!Number.isFinite(tl?._actionSecondsVersion)) {
-    tl._actionSecondsVersion = 0;
-  }
-  tl._actionSecondsVersion = Math.max(0, Math.floor(tl._actionSecondsVersion));
-  return tl._actionSecondsVersion;
-}
-
-function markActionSecondsChanged(tl) {
-  tl._actionSecondsVersion = ensureActionSecondsVersion(tl) + 1;
-  if (tl._actionSecondsRangeCache) {
-    tl._actionSecondsRangeCache = null;
-  }
-  if (tl._actionSecondsIndexCache) {
-    tl._actionSecondsIndexCache = null;
-  }
-  return tl._actionSecondsVersion;
-}
-
-function ensureActionSecondsIndex(tl) {
-  const sorted = tl._actionSecondsSorted;
-  if (Array.isArray(sorted)) {
-    return sorted;
-  }
-  const secs = Array.from(tl.actionsBySec?.keys?.() ?? [])
-    .map((secRaw) => Math.max(0, Math.floor(secRaw)))
-    .sort((a, b) => a - b);
-  tl._actionSecondsSorted = secs;
-  return secs;
-}
-
-function lowerBoundSorted(list, target) {
-  let lo = 0;
-  let hi = list.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (list[mid] < target) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-function upperBoundSorted(list, target) {
-  let lo = 0;
-  let hi = list.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (list[mid] <= target) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-function putActionSecondsRangeCache(cache, key, secs) {
-  if (!cache || !cache.map || key == null) return;
-  cache.map.delete(key);
-  cache.map.set(key, secs);
-  while (cache.map.size > cache.max) {
-    const oldest = cache.map.keys().next().value;
-    if (oldest == null) break;
-    cache.map.delete(oldest);
-  }
-}
-
-function insertSortedSecond(list, sec) {
-  if (!Array.isArray(list)) return false;
-  const s = Math.max(0, Math.floor(sec ?? 0));
-  const idx = lowerBoundSorted(list, s);
-  if (list[idx] === s) return false;
-  list.splice(idx, 0, s);
-  return true;
-}
-
-function removeSortedSecond(list, sec) {
-  if (!Array.isArray(list)) return false;
-  const s = Math.max(0, Math.floor(sec ?? 0));
-  const idx = lowerBoundSorted(list, s);
-  if (list[idx] !== s) return false;
-  list.splice(idx, 1);
-  return true;
 }
 
 function ensureCheckpointIndex(tl) {
@@ -551,44 +306,6 @@ function trimCheckpointsToBudget(
   return changed;
 }
 
-// -----------------------------------------------------------------------------
-// Defensive invalidation guard (Stage 3 exit requirement)
-// -----------------------------------------------------------------------------
-
-function computeTimelineMutationSig(tl) {
-  const acts = Array.isArray(tl.actions) ? tl.actions : [];
-
-  const aLen = acts.length;
-
-  const aLast = aLen ? acts[aLen - 1] : null;
-
-  const baseRef = tl.baseStateData;
-  const aRef = tl.actions;
-
-  const aLastRef = aLast;
-
-  const aLastSec = aLast ? Math.floor(aLast.tSec ?? 0) : 0;
-
-  return {
-    baseRef,
-    aRef,
-    aLen,
-    aLastRef,
-    aLastSec,
-  };
-}
-
-function mutationSigEquals(a, b) {
-  if (!a || !b) return false;
-  return (
-    a.baseRef === b.baseRef &&
-    a.aRef === b.aRef &&
-    a.aLen === b.aLen &&
-    a.aLastRef === b.aLastRef &&
-    a.aLastSec === b.aLastSec
-  );
-}
-
 function ensureRevisionFreshAgainstOutOfBandMutations(tl) {
   const cur = computeTimelineMutationSig(tl);
   const prev = tl._memoGuardSig;
@@ -622,6 +339,10 @@ export function appendActionAtCursor(tl, action, state) {
   bumpRevision(tl, { clearMemo: false });
   // Actions at tSec affect this second and all future seconds.
   pruneMemoAtOrAfter(tl, t);
+  // A checkpoint anchored at tSec may now be stale (actions at tSec changed).
+  // Keep only checkpoints strictly before the mutation second.
+  tl.checkpoints = truncateCheckpointsAfterSecond(tl.checkpoints, t - 1);
+  tl._checkpointIndexCache = null;
   tl.actions = Array.isArray(tl.actions) ? tl.actions : [];
 
   const entry = {
@@ -671,6 +392,9 @@ export function replaceActionsAtSecond(tl, tSec, actionsAtSec, opts = {}) {
   bumpRevision(tl, { clearMemo: false });
   // Replacing actions at tSec invalidates this second and all future snapshots.
   pruneMemoAtOrAfter(tl, t);
+  // Same as append: checkpoints at/after tSec can no longer be trusted.
+  tl.checkpoints = truncateCheckpointsAfterSecond(tl.checkpoints, t - 1);
+  tl._checkpointIndexCache = null;
   const acts = Array.isArray(tl.actions) ? tl.actions : [];
 
   // Hot path: replacing at/after frontier while truncating future.
@@ -1054,11 +778,19 @@ export function getStateDataAtSecond(tl, targetSec) {
   ensureRevisionFreshAgainstOutOfBandMutations(tl);
 
   const target = Math.floor(targetSec);
+  const actionsAtTarget =
+    tl.actionsBySec && typeof tl.actionsBySec.get === "function"
+      ? tl.actionsBySec.get(target)
+      : null;
+  const hasActionsAtTarget =
+    Array.isArray(actionsAtTarget) && actionsAtTarget.length > 0;
 
   // Exact checkpoint fast-path.
   const checkpointIndex = ensureCheckpointIndex(tl);
   const exact = checkpointIndex.bySec.get(target);
-  if (exact?.stateData != null) {
+  // Safety: if there are actions at targetSec, an exact checkpoint at the
+  // same second might predate those actions and return stale state.
+  if (exact?.stateData != null && !hasActionsAtTarget) {
     memoPutStateData(tl, target, exact.stateData);
     return { ok: true, stateData: exact.stateData, source: "checkpoint" };
   }

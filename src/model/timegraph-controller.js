@@ -473,12 +473,16 @@ function computeTimelineSignature(tl) {
   const actions = Array.isArray(tl?.actions) ? tl.actions : [];
   const len = actions.length;
   const last = len ? actions[len - 1] : null;
+  const revision = Number.isFinite(tl?.revision)
+    ? Math.floor(tl.revision)
+    : 0;
   return {
     baseRef: tl?.baseStateData ?? null,
     actionsRef: actions,
     actionsLen: len,
     lastRef: last,
     lastSec: last ? Math.floor(last.tSec ?? 0) : 0,
+    revision,
   };
 }
 
@@ -489,7 +493,8 @@ function signatureEquals(a, b) {
     a.actionsRef === b.actionsRef &&
     a.actionsLen === b.actionsLen &&
     a.lastRef === b.lastRef &&
-    a.lastSec === b.lastSec
+    a.lastSec === b.lastSec &&
+    a.revision === b.revision
   );
 }
 
@@ -505,6 +510,7 @@ function createProjectionCache({
   const stateDataBySecond = new Map();
   const bytesBySecond = new Map();
   let stateDataSizeSamples = 0;
+  let lastPurgedHistoryEndSec = -1;
 
   const maxBytesBudget = Number.isFinite(maxBytes) && maxBytes > 0
     ? Math.max(1024 * 1024, Math.floor(maxBytes))
@@ -526,6 +532,7 @@ function createProjectionCache({
     bytesBySecond.clear();
     approxBytesTotal = 0;
     stateDataSizeSamples = 0;
+    lastPurgedHistoryEndSec = -1;
   }
 
   function touch(sec) {
@@ -591,6 +598,13 @@ function createProjectionCache({
         removeSec(sec);
       }
     }
+    lastPurgedHistoryEndSec = Math.max(lastPurgedHistoryEndSec, cutoff);
+  }
+
+  function purgePastForecastIfNeeded(historyEndSec) {
+    const cutoff = clampSec(historyEndSec);
+    if (cutoff <= lastPurgedHistoryEndSec) return;
+    purgePastForecast(cutoff);
   }
 
   function setForecastState(sec, historyEndSec, data) {
@@ -614,7 +628,10 @@ function createProjectionCache({
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    const baseSec = Math.floor(historyEndSec / step) * step;
+    // Correctness: forecast must start at realized frontier.
+    // Aligning base backwards to a step boundary can skip actions between
+    // that boundary and historyEndSec (e.g. action at t=1, step=5).
+    const baseSec = historyEndSec;
     const target = clampSec(targetEndSec);
     const horizonSec = Math.max(0, target - baseSec);
     const targetBoundaryEnd =
@@ -740,10 +757,10 @@ function createProjectionCache({
     ensureSignature(tl);
 
     const t = clampSec(sec);
-    const cached = touch(t);
-    if (cached != null) return { ok: true, stateData: cached };
-
     const historyEnd = clampSec(tl.historyEndSec ?? 0);
+    // Forecast cache entries are only valid strictly beyond history frontier.
+    // Once history advances, past forecast entries must never be served.
+    purgePastForecastIfNeeded(historyEnd);
 
     if (t <= historyEnd) {
       const sdRes = getStateDataAtSecond(tl, t);
@@ -752,6 +769,9 @@ function createProjectionCache({
       }
       return { ok: true, stateData: sdRes.stateData };
     }
+
+    const cached = touch(t);
+    if (cached != null) return { ok: true, stateData: cached };
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
@@ -1491,6 +1511,13 @@ export function createTimeGraphController({
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
     const mutationSec = clampSec(tl?._lastMutationSec ?? historyEndSec);
     const mutationKind = tl?._lastMutationKind ?? null;
+    const isPlannerCommitReason =
+      typeof reason === "string" && reason.startsWith("plannerCommit");
+    const isPlannerReplacePatch =
+      isPlannerCommitReason &&
+      mutationKind === "replaceActionsAtSec" &&
+      mutationSec >= Math.max(0, historyEndSec - 1) &&
+      graphCache;
 
     if (
       !signatureChanged &&
@@ -1499,22 +1526,44 @@ export function createTimeGraphController({
       !windowDirty &&
       !seriesDirty &&
       !valuesDirty &&
+      !isPlannerCommitReason &&
       reason !== "open" &&
       reason !== "active"
     ) {
       return { ok: true, reason: "noChange" };
     }
 
+    if (isPlannerReplacePatch) {
+      // Defensive path: planner commits replace actions in-place at current sec.
+      // Even if signature detection misses a corner case, force targeted cache
+      // invalidation so scrub/preview reads cannot stay stale.
+      invalidateSubjectValuesFromSec(mutationSec);
+      graphCache.historyEndSec = historyEndSec;
+      if (graphCache.window) {
+        graphCache.window.baseSec = historyEndSec;
+        graphCache.window.endSec = historyEndSec + horizonSecCur;
+        graphCache.window.forecastValuesBySec = new Map();
+        graphCache.window.forecastValuesMeta = null;
+      }
+      if (graphCache.stateDataByBoundary) {
+        graphCache.stateDataByBoundary.clear();
+      }
+      if (graphCache.sampleCache && tl?._lastMutationChangedActionSeconds) {
+        graphCache.sampleCache.clear();
+      }
+      graphCache.version = ++cacheVersion;
+      lastKnownHistoryEndSec = historyEndSec;
+      stateDirty = false;
+      windowDirty = false;
+      seriesDirty = false;
+      valuesDirty = false;
+      return { ok: true, reason: "replaceActionPatch" };
+    }
+
     if (signatureChanged) {
       const isActionAppendPatch =
         reason === "actionDispatched" &&
         mutationKind === "appendAction" &&
-        mutationSec >= Math.max(0, historyEndSec - 1) &&
-        graphCache;
-      const isPlannerReplacePatch =
-        typeof reason === "string" &&
-        reason.startsWith("plannerCommit") &&
-        mutationKind === "replaceActionsAtSec" &&
         mutationSec >= Math.max(0, historyEndSec - 1) &&
         graphCache;
       if (isActionAppendPatch || isPlannerReplacePatch) {
@@ -1877,7 +1926,11 @@ export function createTimeGraphController({
 
       let stateData = null;
       if (shouldCacheForecastSec(sec, historyEndSec)) {
-        const cachedProjectionData = projection.getStateData?.(sec) ?? null;
+        // Guard direct projection-cache reads behind signature refresh so
+        // stale forecast snapshots cannot survive timeline edits.
+        const sigRes = projection.ensureSignature?.(tl);
+        const cachedProjectionData =
+          sigRes?.changed === true ? null : projection.getStateData?.(sec) ?? null;
         if (cachedProjectionData != null) {
           recordTimegraphCacheHit();
           stateData = cachedProjectionData;
@@ -1919,7 +1972,11 @@ export function createTimeGraphController({
     const sec = clampSec(tSec);
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
     if (shouldCacheForecastSec(sec, historyEndSec)) {
-      const cachedProjectionData = projection.getStateData?.(sec) ?? null;
+      // Guard direct projection-cache reads behind signature refresh so
+      // stale forecast snapshots cannot survive timeline edits.
+      const sigRes = projection.ensureSignature?.(tl);
+      const cachedProjectionData =
+        sigRes?.changed === true ? null : projection.getStateData?.(sec) ?? null;
       if (cachedProjectionData != null) {
         recordTimegraphCacheHit();
         return cachedProjectionData;

@@ -997,7 +997,10 @@ export function createSimRunner({
     commitCursorSecond(tSec, stateData) {
       const perfStart = perfEnabled() ? perfNowMs() : 0;
       const prevSec = Math.floor(cursorState?.tSec ?? 0);
-      const res = seekCursorSecond(tSec, stateData, {
+      // Correctness first: do not trust external cached state snapshots for
+      // scrub commits. Rebuild from timeline truth to avoid stale projection
+      // commits after planner edits.
+      const res = seekCursorSecond(tSec, null, {
         paused: true,
         // Scrub commits can happen frequently; avoid serializing checkpoints/memo
         // here and rely on simulation-path checkpoint maintenance instead.
@@ -1040,7 +1043,9 @@ export function createSimRunner({
     browseCursorSecond(tSec, stateData) {
       const perfStart = perfEnabled() ? perfNowMs() : 0;
       const prevSec = Math.floor(cursorState?.tSec ?? 0);
-      const res = seekCursorSecond(tSec, stateData, {
+      // Same as commit path: always resolve browse targets from timeline state
+      // to prevent stale cursor jumps when cache invalidation is delayed.
+      const res = seekCursorSecond(tSec, null, {
         paused: true,
         maintainCheckpoints: false,
       });
