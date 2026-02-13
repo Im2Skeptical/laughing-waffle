@@ -166,8 +166,34 @@ export const envEventDefs = {
     defaultSpan: 2,
     durationSec: 15,
     onTick: [
-    { op: "AddToSystemState", target: { ref: "self", layer: "tile" }, system: "hydration", key: "cur", amount: 10 }
-    ]
+      {
+        op: "AddToSystemState",
+        target: {
+          ref: "self",
+          layer: "tile",
+          where: {
+            systemAtLeast: { system: "hydration", key: "max", gte: 1 },
+          },
+        },
+        system: "hydration",
+        key: "cur",
+        amount: 10,
+      },
+      {
+        op: "ClampSystemState",
+        target: {
+          ref: "self",
+          layer: "tile",
+          where: {
+            systemAtLeast: { system: "hydration", key: "max", gte: 1 },
+          },
+        },
+        system: "hydration",
+        key: "cur",
+        min: 0,
+        maxKey: "max",
+      },
+    ],
   },
   event_flooding: {
     id: "event_flooding",
@@ -243,8 +269,34 @@ export const envEventDefs = {
     defaultSpan: 2,
     durationSec: 15,
     onTick: [
-      { op: "AddToSystemState", target: { ref: "self", layer: "tile" }, system: "hydration", key: "cur", amount: -10 }
-    ]
+      {
+        op: "AddToSystemState",
+        target: {
+          ref: "self",
+          layer: "tile",
+          where: {
+            systemAtLeast: { system: "hydration", key: "max", gte: 1 },
+          },
+        },
+        system: "hydration",
+        key: "cur",
+        amount: -10,
+      },
+      {
+        op: "ClampSystemState",
+        target: {
+          ref: "self",
+          layer: "tile",
+          where: {
+            systemAtLeast: { system: "hydration", key: "max", gte: 1 },
+          },
+        },
+        system: "hydration",
+        key: "cur",
+        min: 0,
+        maxKey: "max",
+      },
+    ],
   },
   event_duststorm: {
     id: "event_duststorm",

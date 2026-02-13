@@ -430,7 +430,7 @@ export function createMetricGraphView({
       seriesValues.set(s.id, new Array(pointsForDraw.length));
     }
 
-    let minValue = Infinity;
+    let minValue = 0;
     let maxValue = -Infinity;
     for (let i = 0; i < pointsForDraw.length; i++) {
       const p = pointsForDraw[i];
@@ -438,26 +438,23 @@ export function createMetricGraphView({
         const v = resolveValue(p, s);
         const arr = seriesValues.get(s.id);
         if (arr) arr[i] = v;
-        if (v < minValue) minValue = v;
         if (v > maxValue) maxValue = v;
       }
     }
 
-    if (!Number.isFinite(minValue)) {
-      minValue = 0;
+    if (!Number.isFinite(maxValue)) {
       maxValue = 100;
     }
-    if (minValue === maxValue) {
-      minValue -= 10;
-      maxValue += 10;
+    if (maxValue <= minValue) {
+      maxValue = minValue + 1;
     }
 
     const pad = (maxValue - minValue) * 0.1;
-    minValue -= pad;
     maxValue += pad;
 
     function yForValue(v) {
-      const t = (v - minValue) / Math.max(1e-6, maxValue - minValue);
+      const tRaw = (v - minValue) / Math.max(1e-6, maxValue - minValue);
+      const t = Math.max(0, Math.min(1, tRaw));
       return plot.y + plot.h - t * plot.h;
     }
 
