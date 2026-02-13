@@ -1,0 +1,120 @@
+import {
+  buildRequirementProgress,
+  isStructureUnderConstruction,
+  validateHubConstructionPlacement,
+} from "../build-helpers.js";
+import { runEffect } from "../effects/index.js";
+import {
+  ensureHubState,
+  makeHubStructureInstance,
+  rebuildHubOccupancy,
+} from "../state.js";
+
+export function cmdBuildDesignate(state, payload = {}) {
+  const defId = payload.defId ?? null;
+  const target = payload.target ?? {};
+  const hubCol = payload.hubCol ?? target.hubCol ?? target.col ?? null;
+
+  const validity = validateHubConstructionPlacement(state, defId, hubCol);
+  if (!validity?.ok) return validity || { ok: false, reason: "badPlacement" };
+
+  const def = validity.def;
+  const col = validity.hubCol;
+  const tier = typeof payload.tier === "string" ? payload.tier : null;
+  const structure = makeHubStructureInstance(defId, state, { tier });
+  structure.tags = ["build"];
+  if (structure.tagStates) delete structure.tagStates;
+
+  const laborRaw = def?.build?.laborSec ?? def?.build?.labor ?? 0;
+  const laborSec = Number.isFinite(laborRaw)
+    ? Math.max(0, Math.floor(laborRaw))
+    : 0;
+  const durationSec = Math.max(1, laborSec);
+  const requirements = buildRequirementProgress(def);
+
+  runEffect(
+    state,
+    {
+      op: "CreateWorkProcess",
+      system: "build",
+      queueKey: "processes",
+      processType: "build",
+      mode: "work",
+      durationSec,
+      uniqueType: true,
+      completionPolicy: "build",
+      requirements,
+      processMeta: { buildKind: "hubStructure", buildDefId: defId },
+    },
+    {
+      kind: "build",
+      state,
+      source: structure,
+      tSec: state?.tSec ?? 0,
+      ownerId: structure.instanceId,
+      owner: structure,
+    }
+  );
+
+  const slot = state.hub.slots[col];
+  if (slot && typeof slot === "object") {
+    slot.structure = structure;
+  } else {
+    state.hub.slots[col] = { structure };
+  }
+
+  ensureHubState(state);
+  rebuildHubOccupancy(state);
+
+  return {
+    ok: true,
+    result: "buildDesignated",
+    defId,
+    hubCol: col,
+    structureId: structure.instanceId,
+  };
+}
+
+export function cmdCancelBuild(state, payload = {}) {
+  if (!state?.hub || !Array.isArray(state.hub.slots)) {
+    return { ok: false, reason: "noHub" };
+  }
+  const target = payload.target ?? {};
+  const hubCol = payload.hubCol ?? target.hubCol ?? target.col ?? null;
+  if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+  const col = Math.floor(hubCol);
+
+  const structure = state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
+  if (!structure) return { ok: false, reason: "noHubStructure" };
+  if (!isStructureUnderConstruction(structure)) {
+    return { ok: false, reason: "notUnderConstruction" };
+  }
+
+  const anchorCol = Number.isFinite(structure.col) ? Math.floor(structure.col) : col;
+
+  const slot = state.hub.slots[anchorCol];
+  if (slot?.structure?.instanceId === structure.instanceId) {
+    slot.structure = null;
+  } else {
+    for (const s of state.hub.slots) {
+      if (s?.structure?.instanceId === structure.instanceId) {
+        s.structure = null;
+        break;
+      }
+    }
+  }
+
+  if (state.ownerInventories) {
+    delete state.ownerInventories[structure.instanceId];
+  }
+
+  rebuildHubOccupancy(state);
+
+  return {
+    ok: true,
+    result: "buildCancelled",
+    defId: structure.defId,
+    hubCol: anchorCol,
+    structureId: structure.instanceId,
+  };
+}
