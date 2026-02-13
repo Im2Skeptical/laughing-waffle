@@ -165,6 +165,39 @@ Practical guardrail:
 - Projection/forecasting always starts at `historyEndSec` and extends forward by the projection horizon.
 - `timeline.revision` bumps on any timeline mutation (actions or checkpoint maintenance), so it is broader than "actions changed."
 
+### Time-Travel Validity Contract (Post Refactor)
+- `timeline` is the single source of truth for historical/forecast reconstruction.
+- `runner.getCursorState()` is authoritative at current `cursorSec`.
+- `runner.getState()` may return preview state during scrubbing; preview is read-only and non-authoritative.
+- `dragPreviewState` is ephemeral and must never be persisted into timeline/checkpoints/save payloads.
+
+**Scrub browse/commit correctness**
+- `browseCursorSecond(tSec)` and `commitCursorSecond(tSec)` must resolve from timeline rebuild truth.
+- Cached `stateData` may accelerate reads but must not be trusted as authority for scrub commits.
+- Scrub commit must finish paused at committed second with preview cleared.
+
+**Branching and truncation**
+- Any mutation at `tSec` truncates future history beyond that second.
+- Planner commits replace actions at `tSec` and truncate future branch from that point.
+- Projection/graphs must rebuild from new frontier (`historyEndSec`) after branch edits.
+
+**Planner boundary validation**
+- Validate planner commits against second-boundary state for `tSec`:
+  - replay through `tSec - 1`
+  - advance one full simulated second
+  - apply all actions at `tSec` in deterministic order
+- If validation fails, reject commit and reset planner staging to timeline truth.
+
+**Checkpoint and memo safety**
+- Checkpoints/memo are performance caches, never authority.
+- Exact checkpoint at `tSec` is potentially stale if actions exist at `tSec`.
+- Rebuild path remains the canonical correctness path.
+
+**Projection cache safety**
+- Projection caches must be signature-guarded against timeline mutations.
+- Cached forecast snapshots must be invalidated on branch edits.
+- Projection remains pure read-side simulation and never mutates authoritative model state.
+
 ### Replay
 - `rebuildStateAtSecond(tSec)` is authoritative.
 - Replay:
@@ -183,7 +216,12 @@ Practical guardrail:
 - Projection exists for:
   - graphs
   - previews
-  - “what-if” exploration
+  - "what-if" exploration
+
+### Graph and scrub guarantees
+- During active drag scrub, preview may diverge from committed cursor state.
+- On scrub release commit, cursor state must equal replay truth at committed `tSec`.
+- Timeline edits (pawn move, crop selection, tag toggle, recipe/tag order, etc.) must immediately affect subsequent projection and scrub results on the active branch.
 
 ---
 
@@ -237,3 +275,5 @@ Before writing any code, always perform an **Impact Analysis**:
   - what changed
   - why it changed
   - how to test it
+
+
