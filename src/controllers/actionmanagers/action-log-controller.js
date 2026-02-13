@@ -713,6 +713,28 @@ function getActionsAtSecond(timeline, sec) {
   );
 }
 
+function lowerBoundSorted(list, value) {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function upperBoundSorted(list, value) {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] <= value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 export function createActionLogController({
   getPlanner,
   getTimeline,
@@ -766,6 +788,65 @@ export function createActionLogController({
     }
     const sig = computeActionSig(tl);
     if (actionSigEquals(sig, lastActionSig)) return;
+
+    const prevSig = lastActionSig;
+    const appendOnly =
+      prevSig &&
+      sig.ref === prevSig.ref &&
+      sig.len === prevSig.len + 1 &&
+      sig.lastRef !== prevSig.lastRef &&
+      sig.lastSec >= prevSig.lastSec;
+    if (appendOnly) {
+      lastActionSig = sig;
+      const lastAction = sig.lastRef;
+      if (!isLogAction(lastAction)) return;
+      const sec = Math.max(0, Math.floor(lastAction?.tSec ?? 0));
+      const lastIdx = cachedActionSecs.length - 1;
+      const lastSec = lastIdx >= 0 ? cachedActionSecs[lastIdx] : null;
+      if (lastSec == null || sec > lastSec) {
+        cachedActionSecs.push(sec);
+        return;
+      }
+      if (sec === lastSec) return;
+      const insertIdx = lowerBoundSorted(cachedActionSecs, sec);
+      if (cachedActionSecs[insertIdx] !== sec) {
+        cachedActionSecs.splice(insertIdx, 0, sec);
+      }
+      return;
+    }
+
+    const mutationKind = tl?._lastMutationKind ?? null;
+    const mutationSecRaw = tl?._lastMutationSec;
+    const mutationSec = Number.isFinite(mutationSecRaw)
+      ? Math.max(0, Math.floor(mutationSecRaw))
+      : null;
+    const canPatchBySecond =
+      prevSig &&
+      mutationSec != null &&
+      (mutationKind === "replaceActionsAtSec" ||
+        mutationKind === "truncateTimelineAfterSec");
+    if (canPatchBySecond) {
+      lastActionSig = sig;
+
+      if (mutationKind === "replaceActionsAtSec") {
+        const actionsAtSec = getActionsAtSecond(tl, mutationSec);
+        const hasLogActionAtSec = actionsAtSec.some(isLogAction);
+        const insertIdx = lowerBoundSorted(cachedActionSecs, mutationSec);
+        const existsAtSec = cachedActionSecs[insertIdx] === mutationSec;
+        if (hasLogActionAtSec && !existsAtSec) {
+          cachedActionSecs.splice(insertIdx, 0, mutationSec);
+        } else if (!hasLogActionAtSec && existsAtSec) {
+          cachedActionSecs.splice(insertIdx, 1);
+        }
+      }
+
+      const truncateFrom = upperBoundSorted(cachedActionSecs, mutationSec);
+      if (truncateFrom < cachedActionSecs.length) {
+        cachedActionSecs.splice(truncateFrom);
+      }
+      return;
+    }
+
     lastActionSig = sig;
 
     const set = new Set();

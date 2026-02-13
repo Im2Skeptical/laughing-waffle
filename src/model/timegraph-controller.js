@@ -7,17 +7,42 @@ import {
   buildProjectionStateStepWindowFromTimeline,
   buildProjectionStateStepWindowFromStateData,
   buildProjectionStateWindowFromStateData,
-  getStateAtSecond,
 } from "./projection.js";
 
 import { GRAPH_METRICS } from "./graph-metrics.js";
-import { serializeGameState, deserializeGameState } from "./state.js";
+import { deserializeGameState } from "./state.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import {
+  getActionSecondsInRange,
+  getActionSecondsInRangeSampled,
+  getStateDataAtSecond,
+} from "./timeline/index.js";
+import {
+  perfEnabled,
+  perfNowMs,
+  recordProjectionHistoryBuild,
+  recordProjectionForecastBuild,
+  recordTimegraphCacheHit,
+  recordTimegraphCacheMiss,
+} from "./perf.js";
 import { computeGlobalSkillMods } from "./skills.js";
 
-const DEFAULT_PROJECTION_CACHE_MAX_SECS = 4096;
+const DEFAULT_PROJECTION_CACHE_MAX_BYTES = 48 * 1024 * 1024;
+const DEFAULT_STATE_DATA_ESTIMATE_BYTES = 32 * 1024;
+const DEFAULT_FORECAST_STEP_SEC = 5;
 const MAX_HISTORY_POINTS = 2000;
+const NORMAL_SAMPLE_TARGET = 320;
+const NORMAL_SAMPLE_MIN = 250;
+const NORMAL_SAMPLE_MAX = 400;
+const FOCUS_SAMPLE_TARGET = 1200;
+const FOCUS_SAMPLE_MIN = 900;
+const FOCUS_SAMPLE_MAX = 1400;
+const FOCUS_NEAR_CURSOR_HALFSPAN_SEC = 60;
+const SAMPLING_BUCKET_SEC = 60;
+const SAMPLE_CACHE_MAX = 256;
+const NORMAL_ACTION_SAMPLE_MAX = 96;
+const FOCUS_ACTION_SAMPLE_MAX = 320;
 
 function clampSec(v) {
   if (!Number.isFinite(v)) return 0;
@@ -26,6 +51,231 @@ function clampSec(v) {
 
 function safeNumber(value) {
   return Number.isFinite(value) ? value : 0;
+}
+
+function getSamplingModeSignature(focus, windowSec) {
+  const span = Math.max(1, Math.floor(windowSec ?? 0));
+  const bucket = Math.max(1, Math.round(span / SAMPLING_BUCKET_SEC));
+  return `${focus ? "focus" : "normal"}:${bucket}`;
+}
+
+function resolveSampleTarget(focus) {
+  if (focus) {
+    return Math.max(
+      FOCUS_SAMPLE_MIN,
+      Math.min(FOCUS_SAMPLE_MAX, FOCUS_SAMPLE_TARGET)
+    );
+  }
+  return Math.max(
+    NORMAL_SAMPLE_MIN,
+    Math.min(NORMAL_SAMPLE_MAX, NORMAL_SAMPLE_TARGET)
+  );
+}
+
+function addFillerSamples(sampleSet, startSec, endSec, count) {
+  const start = clampSec(startSec);
+  const end = clampSec(endSec);
+  if (count <= 0 || end <= start) return;
+  const span = end - start;
+  const step = span / (count + 1);
+  for (let i = 1; i <= count; i++) {
+    const sec = Math.round(start + step * i);
+    if (sec > start && sec < end) {
+      sampleSet.add(sec);
+    }
+  }
+}
+
+function addGridSamples(sampleSet, startSec, endSec, targetCount) {
+  const start = clampSec(startSec);
+  const end = clampSec(endSec);
+  const target = Math.max(2, Math.floor(targetCount ?? 0));
+  if (end <= start) return;
+
+  const span = end - start;
+  const rough = span / Math.max(1, target - 1);
+  const pow10 = Math.pow(10, Math.floor(Math.log10(Math.max(1, rough))));
+  const candidates = [1, 2, 5, 10];
+  let stride = candidates[candidates.length - 1] * pow10;
+  for (const c of candidates) {
+    const s = c * pow10;
+    if (s >= rough) {
+      stride = s;
+      break;
+    }
+  }
+  stride = Math.max(1, Math.floor(stride));
+
+  // Anchor the grid to absolute timeline multiples so samples remain stable as
+  // history grows (critical for t=0 anchored full-history views).
+  const first = Math.ceil(start / stride) * stride;
+  for (let sec = first; sec <= end; sec += stride) {
+    sampleSet.add(sec);
+  }
+  sampleSet.add(end);
+}
+
+function pickActionSecondsForSampling(
+  actionSecs,
+  { focus, cursorSec, startSec, endSec } = {}
+) {
+  const list = Array.isArray(actionSecs) ? actionSecs : [];
+  if (!list.length) return [];
+
+  const maxActions = focus ? FOCUS_ACTION_SAMPLE_MAX : NORMAL_ACTION_SAMPLE_MAX;
+  if (list.length <= maxActions) return list.slice();
+
+  const start = clampSec(startSec);
+  const end = clampSec(endSec);
+  const selected = new Set();
+
+  // Stable coarse selection: bucket by absolute timeline range, so appending
+  // actions near the frontier does not reshuffle historical selections.
+  const span = Math.max(1, end - start + 1);
+  const bucketSpan = Math.max(1, Math.ceil(span / maxActions));
+  let idx = 0;
+  for (
+    let bucketStart = start;
+    bucketStart <= end && selected.size < maxActions;
+    bucketStart += bucketSpan
+  ) {
+    const bucketEnd = bucketStart + bucketSpan - 1;
+    while (idx < list.length && list[idx] < bucketStart) idx++;
+    let picked = -1;
+    while (idx < list.length && list[idx] <= bucketEnd) {
+      picked = list[idx];
+      idx++;
+    }
+    if (picked >= 0) {
+      selected.add(picked);
+    }
+  }
+
+  selected.add(list[0]);
+  selected.add(list[list.length - 1]);
+  const cursor = Number.isFinite(cursorSec) ? clampSec(cursorSec) : null;
+  const nearRadius = focus ? FOCUS_NEAR_CURSOR_HALFSPAN_SEC : 20;
+
+  if (cursor != null) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const sec = list[i];
+      if (Math.abs(sec - cursor) <= nearRadius) {
+        selected.add(sec);
+      }
+    }
+  }
+
+  while (selected.size > maxActions) {
+    // Keep boundaries; trim newest-to-oldest extras deterministically.
+    const arr = Array.from(selected.values()).sort((a, b) => a - b);
+    const candidate = arr[arr.length - 2];
+    if (candidate == null || candidate === list[0]) break;
+    selected.delete(candidate);
+  }
+
+  return Array.from(selected.values()).sort((a, b) => a - b);
+}
+
+function buildSampleSeconds({
+  startSec,
+  endSec,
+  historyEndSec,
+  cursorSec,
+  actionSecs,
+  focus,
+}) {
+  const start = clampSec(startSec);
+  const end = clampSec(endSec);
+  if (end < start) return [];
+
+  const samples = new Set([start, end]);
+  const historyEnd = clampSec(historyEndSec ?? 0);
+  if (historyEnd >= start && historyEnd <= end) samples.add(historyEnd);
+  if (Number.isFinite(cursorSec)) {
+    const cursor = clampSec(cursorSec);
+    if (cursor >= start && cursor <= end) samples.add(cursor);
+  }
+
+  const sampledActionSecs = pickActionSecondsForSampling(actionSecs, {
+    focus: !!focus,
+    cursorSec,
+    startSec: start,
+    endSec: end,
+  });
+
+  for (const sec of sampledActionSecs) {
+    const t = clampSec(sec);
+    if (t >= start && t <= end) samples.add(t);
+  }
+
+  const target = resolveSampleTarget(!!focus);
+  if (samples.size >= target) {
+    return Array.from(samples.values()).sort((a, b) => a - b);
+  }
+
+  let remaining = target - samples.size;
+
+  if (!focus) {
+    addGridSamples(samples, start, end, target);
+    // Keep non-focus sampling stable over time. In full-history mode, filler
+    // redistribution causes sample-second churn every frontier advance, which
+    // defeats value-cache reuse and scales render cost with large tSec.
+    return Array.from(samples.values()).sort((a, b) => a - b);
+  }
+
+  if (focus && Number.isFinite(cursorSec)) {
+    const cursor = clampSec(cursorSec);
+    const focusStart = Math.max(start, cursor - FOCUS_NEAR_CURSOR_HALFSPAN_SEC);
+    const focusEnd = Math.min(end, cursor + FOCUS_NEAR_CURSOR_HALFSPAN_SEC);
+    if (focusEnd > focusStart) {
+      const focusFill = Math.min(
+        remaining,
+        Math.max(0, Math.floor(target * 0.4))
+      );
+      addFillerSamples(samples, focusStart, focusEnd, focusFill);
+      remaining = target - samples.size;
+    }
+  }
+
+  if (remaining > 0) {
+    addFillerSamples(samples, start, end, remaining);
+  }
+
+  return Array.from(samples.values()).sort((a, b) => a - b);
+}
+
+function alignForecastSampleSeconds(seconds, historyEndSec, stepSec, endSec) {
+  const step = Math.max(1, Math.floor(stepSec ?? 1));
+  if (step <= 1) {
+    return Array.isArray(seconds)
+      ? Array.from(new Set(seconds.map((sec) => clampSec(sec)).values())).sort(
+          (a, b) => a - b
+        )
+      : [];
+  }
+
+  const historyEnd = clampSec(historyEndSec);
+  const end = clampSec(endSec);
+  const aligned = new Set();
+
+  for (const secRaw of seconds || []) {
+    const sec = clampSec(secRaw);
+    if (sec <= historyEnd) {
+      aligned.add(sec);
+      continue;
+    }
+
+    let snapped = Math.floor(sec / step) * step;
+    if (snapped <= historyEnd) {
+      snapped = Math.ceil((historyEnd + 1) / step) * step;
+    }
+    if (snapped > end) {
+      snapped = end;
+    }
+    aligned.add(snapped);
+  }
+
+  return Array.from(aligned.values()).sort((a, b) => a - b);
 }
 
 function resolveMetricDef(metric) {
@@ -48,7 +298,7 @@ function computeValuesFromStateData(stateData, series, subject, resolverFactory)
   const list = Array.isArray(series) ? series : [];
   if (!list.length) return {};
 
-  const allFast = list.every(
+  const allFastSeries = list.every(
     (s) => s && typeof s.getValueFromSnapshot === "function"
   );
 
@@ -66,8 +316,17 @@ function computeValuesFromStateData(stateData, series, subject, resolverFactory)
     resolver = resolverFactory(raw, subject);
   }
 
+  const unresolvedFastSubject =
+    resolver &&
+    typeof resolver === "object" &&
+    ((resolver.kind === "pawn" && !resolver.pawn) ||
+      (resolver.kind === "tile" && !resolver.tile) ||
+      (resolver.kind === "hub" && !resolver.hubStructure));
+
+  const useFastSnapshotPath = allFastSeries && !unresolvedFastSubject;
+
   let state = null;
-  if (!allFast) {
+  if (!useFastSnapshotPath) {
     state = deserializeGameState(stateData);
     canonicalizeSnapshot(state);
   }
@@ -75,7 +334,7 @@ function computeValuesFromStateData(stateData, series, subject, resolverFactory)
   const values = {};
   for (const s of list) {
     if (!s || typeof s.getValue !== "function") continue;
-    if (typeof s.getValueFromSnapshot === "function") {
+    if (useFastSnapshotPath && typeof s.getValueFromSnapshot === "function") {
       values[s.id] = safeNumber(s.getValueFromSnapshot(raw, subject, resolver));
     } else {
       values[s.id] = safeNumber(s.getValue(state, subject, resolver));
@@ -132,32 +391,35 @@ function collectHistorySampleSeconds(historyEndSec, strideSec) {
 }
 
 function collectActionSecondsInRange(tl, startSec, endSec) {
-  const start = clampSec(startSec);
-  const end = clampSec(endSec);
-  if (end < start) return [];
+  return getActionSecondsInRange(tl, startSec, endSec, { copy: false });
+}
 
-  const actionsBySec = tl?.actionsBySec;
-  if (actionsBySec && typeof actionsBySec.keys === "function") {
-    const secs = [];
-    for (const key of actionsBySec.keys()) {
-      const sec = clampSec(key);
-      if (sec < start || sec > end) continue;
-      secs.push(sec);
-    }
-    if (!secs.length) return [];
-    return secs.sort((a, b) => a - b);
-  }
+function collectActionSecondsForSampling(
+  tl,
+  startSec,
+  endSec,
+  { focus = false, cursorSec = null } = {}
+) {
+  const baseCap =
+    (focus ? FOCUS_ACTION_SAMPLE_MAX : NORMAL_ACTION_SAMPLE_MAX) * 6;
+  const sampled = getActionSecondsInRangeSampled(tl, startSec, endSec, baseCap, {
+    copy: false,
+  });
 
-  const acts = Array.isArray(tl?.actions) ? tl.actions : [];
-  if (!acts.length) return [];
-  const seen = new Set();
-  for (const action of acts) {
-    const sec = clampSec(action?.tSec ?? 0);
-    if (sec < start || sec > end) continue;
-    seen.add(sec);
-  }
-  if (!seen.size) return [];
-  return Array.from(seen.values()).sort((a, b) => a - b);
+  if (!Number.isFinite(cursorSec)) return sampled;
+
+  const radiusSec = focus ? FOCUS_NEAR_CURSOR_HALFSPAN_SEC * 2 : 30;
+  const near = getActionSecondsInRange(
+    tl,
+    cursorSec - radiusSec,
+    cursorSec + radiusSec,
+    { copy: false }
+  );
+  if (!near.length) return sampled;
+
+  const merged = new Set(sampled);
+  for (const sec of near) merged.add(sec);
+  return Array.from(merged.values()).sort((a, b) => a - b);
 }
 
 function collectHistorySampleSecondsInRange(tl, startSec, endSec, strideSec) {
@@ -180,18 +442,47 @@ function collectHistorySampleSecondsInRange(tl, startSec, endSec, strideSec) {
   return Array.from(merged.values()).sort((a, b) => a - b);
 }
 
+function shouldCacheForecastSec(sec, historyEndSec) {
+  return clampSec(sec) > clampSec(historyEndSec);
+}
+
+function cacheForecastStateData(stateDataByBoundary, sec, historyEndSec, stateData) {
+  // Forecast state snapshots are owned by the shared projection cache.
+  // Controllers should not duplicate serialized state data.
+  return;
+}
+
+function purgePastStateData(stateDataByBoundary, historyEndSec) {
+  return;
+}
+
+function cacheSampleSeconds(sampleCache, key, secs) {
+  if (!sampleCache || key == null) return;
+  sampleCache.delete(key);
+  sampleCache.set(key, secs);
+  while (sampleCache.size > SAMPLE_CACHE_MAX) {
+    const oldest = sampleCache.keys().next().value;
+    if (oldest == null) break;
+    sampleCache.delete(oldest);
+  }
+}
+
 function computeTimelineSignature(tl) {
   // Projection cache should only reset when replay-relevant data changes.
   // We intentionally ignore checkpoint churn (revision bumps) here.
   const actions = Array.isArray(tl?.actions) ? tl.actions : [];
   const len = actions.length;
   const last = len ? actions[len - 1] : null;
+  const revision = Number.isFinite(tl?.revision)
+    ? Math.floor(tl.revision)
+    : 0;
   return {
     baseRef: tl?.baseStateData ?? null,
     actionsRef: actions,
     actionsLen: len,
     lastRef: last,
     lastSec: last ? Math.floor(last.tSec ?? 0) : 0,
+    revision,
   };
 }
 
@@ -202,21 +493,34 @@ function signatureEquals(a, b) {
     a.actionsRef === b.actionsRef &&
     a.actionsLen === b.actionsLen &&
     a.lastRef === b.lastRef &&
-    a.lastSec === b.lastSec
+    a.lastSec === b.lastSec &&
+    a.revision === b.revision
   );
 }
 
-function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS } = {}) {
+function createProjectionCache({
+  maxBytes = DEFAULT_PROJECTION_CACHE_MAX_BYTES,
+  maxEntries = null,
+} = {}) {
   let signature = null;
   let forecastBaseSec = 0;
   let forecastEndSec = 0;
   let forecastStepSec = 1;
   let forecastDtStep = null;
   const stateDataBySecond = new Map();
+  const bytesBySecond = new Map();
+  let stateDataSizeSamples = 0;
+  let lastPurgedHistoryEndSec = -1;
 
-  const limit = Number.isFinite(maxEntries)
+  const maxBytesBudget = Number.isFinite(maxBytes) && maxBytes > 0
+    ? Math.max(1024 * 1024, Math.floor(maxBytes))
+    : DEFAULT_PROJECTION_CACHE_MAX_BYTES;
+  const maxEntriesBudget = Number.isFinite(maxEntries) && maxEntries > 0
     ? Math.max(256, Math.floor(maxEntries))
-    : DEFAULT_PROJECTION_CACHE_MAX_SECS;
+    : Number.POSITIVE_INFINITY;
+
+  let approxBytesTotal = 0;
+  let avgStateDataBytes = DEFAULT_STATE_DATA_ESTIMATE_BYTES;
 
   function reset(nextSignature) {
     signature = nextSignature || null;
@@ -225,6 +529,10 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     forecastStepSec = 1;
     forecastDtStep = null;
     stateDataBySecond.clear();
+    bytesBySecond.clear();
+    approxBytesTotal = 0;
+    stateDataSizeSamples = 0;
+    lastPurgedHistoryEndSec = -1;
   }
 
   function touch(sec) {
@@ -235,14 +543,75 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     return data;
   }
 
-  function set(sec, data) {
-    stateDataBySecond.delete(sec);
-    stateDataBySecond.set(sec, data);
+  function estimateBytes(stateData) {
+    const avg = Math.max(512, Math.floor(avgStateDataBytes));
+    const sampleCount = Math.floor(stateDataSizeSamples ?? 0);
+    const shouldSample = sampleCount < 8 || sampleCount % 8 === 0;
+    stateDataSizeSamples = sampleCount + 1;
+    if (!shouldSample) return avg;
 
-    while (stateDataBySecond.size > limit) {
-      const oldest = stateDataBySecond.keys().next().value;
-      stateDataBySecond.delete(oldest);
+    let bytes = avg;
+    if (typeof stateData === "string") {
+      bytes = Math.max(512, stateData.length);
+    } else {
+      try {
+        bytes = Math.max(512, JSON.stringify(stateData).length);
+      } catch (_) {
+        bytes = avg;
+      }
     }
+    avgStateDataBytes = Math.floor(avgStateDataBytes * 0.75 + bytes * 0.25);
+    return bytes;
+  }
+
+  function removeSec(sec) {
+    if (!stateDataBySecond.has(sec)) return;
+    const removedBytes = bytesBySecond.get(sec) ?? 0;
+    stateDataBySecond.delete(sec);
+    bytesBySecond.delete(sec);
+    approxBytesTotal = Math.max(0, approxBytesTotal - removedBytes);
+  }
+
+  function set(sec, data) {
+    const t = clampSec(sec);
+    const prevBytes = bytesBySecond.get(t) ?? 0;
+    const nextBytes = estimateBytes(data);
+    stateDataBySecond.delete(t);
+    stateDataBySecond.set(t, data);
+    bytesBySecond.set(t, nextBytes);
+    approxBytesTotal += nextBytes - prevBytes;
+
+    while (
+      stateDataBySecond.size > maxEntriesBudget ||
+      approxBytesTotal > maxBytesBudget
+    ) {
+      const oldest = stateDataBySecond.keys().next().value;
+      if (oldest == null) break;
+      removeSec(oldest);
+    }
+  }
+
+  function purgePastForecast(historyEndSec) {
+    const cutoff = clampSec(historyEndSec);
+    for (const sec of stateDataBySecond.keys()) {
+      if (clampSec(sec) <= cutoff) {
+        removeSec(sec);
+      }
+    }
+    lastPurgedHistoryEndSec = Math.max(lastPurgedHistoryEndSec, cutoff);
+  }
+
+  function purgePastForecastIfNeeded(historyEndSec) {
+    const cutoff = clampSec(historyEndSec);
+    if (cutoff <= lastPurgedHistoryEndSec) return;
+    purgePastForecast(cutoff);
+  }
+
+  function setForecastState(sec, historyEndSec, data) {
+    const t = clampSec(sec);
+    const historyEnd = clampSec(historyEndSec);
+    if (t <= historyEnd) return;
+    set(t, data);
   }
 
   function ensureSignature(tl) {
@@ -258,15 +627,28 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
-    const baseSec = clampSec(tl.historyEndSec ?? 0);
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
+    // Correctness: forecast must start at realized frontier.
+    // Aligning base backwards to a step boundary can skip actions between
+    // that boundary and historyEndSec (e.g. action at t=1, step=5).
+    const baseSec = historyEndSec;
     const target = clampSec(targetEndSec);
     const horizonSec = Math.max(0, target - baseSec);
     const targetBoundaryEnd =
       baseSec + Math.floor(horizonSec / step) * step;
 
-    if (targetBoundaryEnd <= baseSec) {
+    purgePastForecast(historyEndSec);
+
+    if (
+      forecastStepSec !== step ||
+      (forecastDtStep != null && dtStep != null && forecastDtStep !== dtStep)
+    ) {
+      reset(signature);
+    }
+
+    if (targetBoundaryEnd <= historyEndSec) {
       forecastBaseSec = baseSec;
-      forecastEndSec = baseSec;
+      forecastEndSec = historyEndSec;
       forecastStepSec = step;
       forecastDtStep = dtStep;
       return { ok: true };
@@ -284,11 +666,9 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     const baseStateData =
       stateDataBySecond.get(baseSec) ??
       (() => {
-        const baseRes = getStateAtSecond(tl, baseSec);
+        const baseRes = getStateDataAtSecond(tl, baseSec);
         if (!baseRes.ok) return null;
-        const sd = serializeGameState(baseRes.state);
-        set(baseSec, sd);
-        return sd;
+        return baseRes.stateData;
       })();
 
     if (baseStateData == null) {
@@ -309,7 +689,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
         });
         if (!extend.ok) return extend;
         for (const [sec, sd] of extend.stateDataBySecond.entries()) {
-          set(sec, sd);
+          setForecastState(sec, historyEndSec, sd);
         }
         forecastEndSec = extend.window.endSec;
         forecastStepSec = step;
@@ -321,7 +701,6 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     if (
       baseSec > forecastBaseSec &&
       baseSec <= forecastEndSec &&
-      stateDataBySecond.has(baseSec) &&
       forecastStepSec === step &&
       (baseSec - forecastBaseSec) % step === 0
     ) {
@@ -337,7 +716,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
           });
           if (!extend.ok) return extend;
           for (const [sec, sd] of extend.stateDataBySecond.entries()) {
-            set(sec, sd);
+            setForecastState(sec, historyEndSec, sd);
           }
           forecastEndSec = extend.window.endSec;
         }
@@ -361,7 +740,7 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     if (!winRes.ok) return winRes;
 
     for (const [sec, sd] of winRes.stateDataBySecond.entries()) {
-      set(sec, sd);
+      setForecastState(sec, historyEndSec, sd);
     }
 
     forecastBaseSec = baseSec;
@@ -378,20 +757,21 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     ensureSignature(tl);
 
     const t = clampSec(sec);
-    const cached = touch(t);
-    if (cached != null) return { ok: true, stateData: cached };
-
     const historyEnd = clampSec(tl.historyEndSec ?? 0);
+    // Forecast cache entries are only valid strictly beyond history frontier.
+    // Once history advances, past forecast entries must never be served.
+    purgePastForecastIfNeeded(historyEnd);
 
     if (t <= historyEnd) {
-      const rebuilt = getStateAtSecond(tl, t);
-      if (!rebuilt.ok) {
-        return { ok: false, reason: rebuilt.reason || "rebuildFailed" };
+      const sdRes = getStateDataAtSecond(tl, t);
+      if (!sdRes.ok) {
+        return { ok: false, reason: sdRes.reason || "rebuildFailed" };
       }
-      const sd = serializeGameState(rebuilt.state);
-      set(t, sd);
-      return { ok: true, stateData: sd };
+      return { ok: true, stateData: sdRes.stateData };
     }
+
+    const cached = touch(t);
+    if (cached != null) return { ok: true, stateData: cached };
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
@@ -402,27 +782,31 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     const forecastData = touch(t);
     if (forecastData != null) return { ok: true, stateData: forecastData };
 
-    if (t >= forecastBaseSec && t <= forecastEndSec && step > 0) {
+    if (t >= forecastBaseSec && step > 0) {
       const offset = t - forecastBaseSec;
       const anchorSec =
         forecastBaseSec + Math.floor(offset / step) * step;
-      const anchorData = stateDataBySecond.get(anchorSec);
+      let anchorData = stateDataBySecond.get(anchorSec);
+      if (anchorData == null && anchorSec <= historyEnd) {
+        const baseRes = getStateDataAtSecond(tl, anchorSec);
+        if (baseRes.ok) anchorData = baseRes.stateData;
+      }
       if (anchorData != null) {
         const delta = t - anchorSec;
         if (delta > 0) {
           const win = buildProjectionStateWindowFromStateData(anchorData, anchorSec, {
-            horizonSec: delta,
-            dtStep: forecastDtStep ?? dtStep,
-          });
+              horizonSec: delta,
+              dtStep: forecastDtStep ?? dtStep,
+            });
           if (win.ok) {
             const sd = win.stateDataBySecond.get(t);
             if (sd != null) {
-              set(t, sd);
+              setForecastState(t, historyEnd, sd);
               return { ok: true, stateData: sd };
             }
           }
         } else if (delta === 0) {
-          set(t, anchorData);
+          setForecastState(t, historyEnd, anchorData);
           return { ok: true, stateData: anchorData };
         }
       }
@@ -443,7 +827,9 @@ function createProjectionCache({ maxEntries = DEFAULT_PROJECTION_CACHE_MAX_SECS 
     },
     clear: () => reset(-1),
     getSize: () => stateDataBySecond.size,
-    maxEntries: limit,
+    getApproxBytes: () => approxBytesTotal,
+    maxBytes: maxBytesBudget,
+    maxEntries: Number.isFinite(maxEntriesBudget) ? maxEntriesBudget : null,
   };
 }
 
@@ -461,7 +847,7 @@ export function createTimeGraphController({
 
   // Stage 4: decouple plotting resolution from scrubbing resolution
   historyStrideSec = 1,
-  forecastStepSec = 1,
+  forecastStepSec = DEFAULT_FORECAST_STEP_SEC,
   horizonSec = BASE_PROJECTION_HORIZON_SEC,
 } = {}) {
   let graphCache = null;
@@ -481,6 +867,7 @@ export function createTimeGraphController({
   let valuesRevision = 0;
 
   const SUBJECT_VALUE_CACHE_MAX = 5000;
+  const SUBJECT_VALUE_CACHE_COMPACT_THRESHOLD = 1024;
   const subjectValueCache = new Map();
 
   // Config (mutable locals; never assign to function parameters)
@@ -519,6 +906,63 @@ export function createTimeGraphController({
   function invalidateSubjectValues() {
     valuesRevision += 1;
     subjectValueCache.clear();
+    if (graphCache?.window) {
+      graphCache.window.forecastValuesBySec = new Map();
+      graphCache.window.forecastValuesMeta = null;
+    }
+  }
+
+  function invalidateSubjectValuesFromSec(startSec) {
+    const cutoff = clampSec(startSec);
+    for (const entry of subjectValueCache.values()) {
+      const valuesBySec = entry?.valuesBySec;
+      const order = entry?.order;
+      if (!(valuesBySec instanceof Map) || !Array.isArray(order)) continue;
+      const rawHead = Number.isFinite(entry?.orderHead)
+        ? Math.floor(entry.orderHead)
+        : 0;
+      const head = Math.max(0, Math.min(order.length, rawHead));
+      for (const sec of valuesBySec.keys()) {
+        if (clampSec(sec) >= cutoff) {
+          valuesBySec.delete(sec);
+        }
+      }
+      const nextOrder = [];
+      for (let i = head; i < order.length; i++) {
+        const sec = clampSec(order[i]);
+        if (sec >= cutoff) continue;
+        if (!valuesBySec.has(sec)) continue;
+        nextOrder.push(sec);
+      }
+      entry.order = nextOrder;
+      entry.orderHead = 0;
+    }
+  }
+
+  function pushSubjectValueSec(entry, sec, valuesBySec) {
+    if (!entry || !(valuesBySec instanceof Map)) return;
+    if (!Array.isArray(entry.order)) entry.order = [];
+    if (!Number.isFinite(entry.orderHead)) entry.orderHead = 0;
+
+    let head = Math.max(0, Math.floor(entry.orderHead));
+    if (head > entry.order.length) head = entry.order.length;
+    entry.order.push(sec);
+
+    while (entry.order.length - head > SUBJECT_VALUE_CACHE_MAX) {
+      const oldest = entry.order[head];
+      head += 1;
+      if (oldest != null) valuesBySec.delete(oldest);
+    }
+
+    if (
+      head >= SUBJECT_VALUE_CACHE_COMPACT_THRESHOLD &&
+      head * 2 >= entry.order.length
+    ) {
+      entry.order = entry.order.slice(head);
+      head = 0;
+    }
+
+    entry.orderHead = head;
   }
 
   function clampStride(v, fallback) {
@@ -575,104 +1019,27 @@ export function createTimeGraphController({
     metricLabel = resolveActiveLabel(cs);
 
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    historyStrideSecCur = Math.max(
-      historyStrideSecCur,
-      resolveHistoryStride(historyEndSec)
-    );
-    const resolverFactory =
-      typeof metricDef?.createSnapshotResolver === "function"
-        ? metricDef.createSnapshotResolver
-        : null;
-
-    const historySecs = collectHistorySampleSeconds(
-      historyEndSec,
-      historyStrideSecCur
-    );
-    const actionSecs = collectActionSecondsInRange(tl, 0, historyEndSec);
-    const historySecSet = new Set(historySecs);
-    for (const sec of actionSecs) historySecSet.add(sec);
-    historySecSet.add(historyEndSec);
-    const historySecList = Array.from(historySecSet.values()).sort(
-      (a, b) => a - b
-    );
-
-    const history = [];
-    const stateDataByBoundary = new Map();
-
-    for (const sec of historySecList) {
-      const res = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        forecastStepSecCur
-      );
-      if (!res.ok) return res;
-      if (res.stateData != null) {
-        stateDataByBoundary.set(sec, res.stateData);
-      }
-      history.push({
-        tSec: sec,
-        values: computeValuesFromStateData(
-          res.stateData,
-          activeSeries,
-          subject,
-          resolverFactory
-        ),
-      });
-    }
-
     const baseSec = historyEndSec;
     const endSec = baseSec + horizonSecCur;
-    const steps = Math.floor(horizonSecCur / forecastStepSecCur);
-    const lastForecastSec = baseSec + steps * forecastStepSecCur;
-
-    if (horizonSecCur > 0) {
-      const forecastRes = projection.ensureForecastWindow(
-        tl,
-        lastForecastSec,
-        undefined,
-        forecastStepSecCur
-      );
-      if (!forecastRes.ok) return forecastRes;
-    }
-
-    const forecast = [];
-    for (let i = 0; i <= steps; i++) {
-      const sec = baseSec + i * forecastStepSecCur;
-      const res = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        forecastStepSecCur
-      );
-      if (!res.ok) return res;
-      if (res.stateData != null) stateDataByBoundary.set(sec, res.stateData);
-      forecast.push({
-        tSec: sec,
-        values: computeValuesFromStateData(
-          res.stateData,
-          activeSeries,
-          subject,
-          resolverFactory
-        ),
-      });
-    }
 
     graphCache = {
-      history,
+      history: [],
       historyEndSec,
       window: {
         baseSec,
         endSec,
         horizonSec: horizonSecCur,
         stepSec: forecastStepSecCur,
-        forecast,
+        forecast: [],
+        forecastValuesBySec: new Map(),
+        forecastValuesMeta: null,
       },
-      stateDataByBoundary,
+      stateDataByBoundary: new Map(),
       series: activeSeries,
       metricLabel,
       metric: metricDef,
       subjectKey,
+      sampleCache: new Map(),
       version: ++cacheVersion,
     };
     invalidateSubjectValues();
@@ -709,6 +1076,7 @@ export function createTimeGraphController({
     graphCache.metricLabel = metricLabel;
     graphCache.metric = metricDef;
     graphCache.subjectKey = subjectKey;
+    if (graphCache.sampleCache) graphCache.sampleCache.clear();
     graphCache.version = ++cacheVersion;
 
     invalidateSubjectValues();
@@ -726,6 +1094,7 @@ export function createTimeGraphController({
 
     const history = Array.isArray(graphCache.history) ? graphCache.history : [];
     const stateDataByBoundary = graphCache.stateDataByBoundary;
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
     const resolverFactory = getResolverFactory();
 
     const existingIndex = new Map();
@@ -749,9 +1118,12 @@ export function createTimeGraphController({
         forecastStepSecCur
       );
       if (!res.ok) return false;
-      if (res.stateData != null && stateDataByBoundary) {
-        stateDataByBoundary.set(sec, res.stateData);
-      }
+      cacheForecastStateData(
+        stateDataByBoundary,
+        sec,
+        historyEndSec,
+        res.stateData
+      );
       const values = computeValuesFromStateData(
         res.stateData,
         activeSeries,
@@ -790,6 +1162,7 @@ export function createTimeGraphController({
           graphCache.stateDataByBoundary.delete(sec);
         }
       }
+      purgePastStateData(graphCache.stateDataByBoundary, limit);
     }
 
     if (graphCache.window) {
@@ -818,7 +1191,13 @@ export function createTimeGraphController({
 
     let streamed = false;
     if (startSec <= oldMax && target - startSec >= stride) {
-      const startData = graphCache.stateDataByBoundary?.get?.(startSec) ?? null;
+      let startData = null;
+      if (graphCache.stateDataByBoundary?.has?.(startSec)) {
+        recordTimegraphCacheHit();
+        startData = graphCache.stateDataByBoundary.get(startSec);
+      } else {
+        recordTimegraphCacheMiss();
+      }
       if (startData != null) {
         const steps = Math.floor((target - startSec) / stride);
         const horizonSec = steps * stride;
@@ -830,9 +1209,12 @@ export function createTimeGraphController({
         if (win.ok) {
           for (const [sec, sd] of win.stateDataBySecond.entries()) {
             if (sec === startSec) continue;
-            if (graphCache.stateDataByBoundary) {
-              graphCache.stateDataByBoundary.set(sec, sd);
-            }
+            cacheForecastStateData(
+              graphCache.stateDataByBoundary,
+              sec,
+              target,
+              sd
+            );
             history.push({
               tSec: sec,
               values: computeValuesFromStateData(
@@ -859,9 +1241,12 @@ export function createTimeGraphController({
           forecastStepSecCur
         );
         if (!res.ok) return false;
-        if (res.stateData != null && graphCache.stateDataByBoundary) {
-          graphCache.stateDataByBoundary.set(sec, res.stateData);
-        }
+        cacheForecastStateData(
+          graphCache.stateDataByBoundary,
+          sec,
+          target,
+          res.stateData
+        );
         history.push({
           tSec: sec,
           values: computeValuesFromStateData(
@@ -886,9 +1271,12 @@ export function createTimeGraphController({
         forecastStepSecCur
       );
       if (!res.ok) return false;
-      if (res.stateData != null && graphCache.stateDataByBoundary) {
-        graphCache.stateDataByBoundary.set(sec, res.stateData);
-      }
+      cacheForecastStateData(
+        graphCache.stateDataByBoundary,
+        sec,
+        target,
+        res.stateData
+      );
       history.push({
         tSec: sec,
         values: computeValuesFromStateData(
@@ -911,9 +1299,12 @@ export function createTimeGraphController({
         forecastStepSecCur
       );
       if (!res.ok) return false;
-      if (res.stateData != null && graphCache.stateDataByBoundary) {
-        graphCache.stateDataByBoundary.set(target, res.stateData);
-      }
+      cacheForecastStateData(
+        graphCache.stateDataByBoundary,
+        target,
+        target,
+        res.stateData
+      );
       history.push({
         tSec: target,
         values: computeValuesFromStateData(
@@ -932,6 +1323,7 @@ export function createTimeGraphController({
     }
 
     graphCache.historyEndSec = target;
+    purgePastStateData(graphCache.stateDataByBoundary, target);
     graphCache.version = ++cacheVersion;
     return true;
   }
@@ -947,6 +1339,7 @@ export function createTimeGraphController({
     const endSec = baseSec + horizonSecCur;
     const steps = Math.floor(horizonSecCur / forecastStepSecCur);
     const lastForecastSec = baseSec + steps * forecastStepSecCur;
+    purgePastStateData(graphCache.stateDataByBoundary, baseSec);
 
     if (horizonSecCur > 0) {
       const forecastRes = projection.ensureForecastWindow(
@@ -995,9 +1388,12 @@ export function createTimeGraphController({
           forecastStepSecCur
         );
         if (!res.ok) return false;
-        if (res.stateData != null && graphCache.stateDataByBoundary) {
-          graphCache.stateDataByBoundary.set(sec, res.stateData);
-        }
+        cacheForecastStateData(
+          graphCache.stateDataByBoundary,
+          sec,
+          baseSec,
+          res.stateData
+        );
         forecast.push({
           tSec: sec,
           values: computeValuesFromStateData(
@@ -1018,9 +1414,12 @@ export function createTimeGraphController({
           forecastStepSecCur
         );
         if (!res.ok) return false;
-        if (res.stateData != null && graphCache.stateDataByBoundary) {
-          graphCache.stateDataByBoundary.set(baseSec, res.stateData);
-        }
+        cacheForecastStateData(
+          graphCache.stateDataByBoundary,
+          baseSec,
+          baseSec,
+          res.stateData
+        );
         forecast.unshift({
           tSec: baseSec,
           values: computeValuesFromStateData(
@@ -1047,9 +1446,12 @@ export function createTimeGraphController({
           forecastStepSecCur
         );
         if (!res.ok) return false;
-        if (res.stateData != null && graphCache.stateDataByBoundary) {
-          graphCache.stateDataByBoundary.set(sec, res.stateData);
-        }
+        cacheForecastStateData(
+          graphCache.stateDataByBoundary,
+          sec,
+          baseSec,
+          res.stateData
+        );
         forecast.push({
           tSec: sec,
           values: computeValuesFromStateData(
@@ -1071,6 +1473,8 @@ export function createTimeGraphController({
       horizonSec: horizonSecCur,
       stepSec: forecastStepSecCur,
       forecast,
+      forecastValuesBySec: new Map(),
+      forecastValuesMeta: null,
     };
     graphCache.version = ++cacheVersion;
     if (invalidateValues) invalidateSubjectValues();
@@ -1105,7 +1509,15 @@ export function createTimeGraphController({
     const signatureChanged = !!sigRes?.changed;
 
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    const mutationSec = clampSec(tl._lastMutationSec ?? historyEndSec);
+    const mutationSec = clampSec(tl?._lastMutationSec ?? historyEndSec);
+    const mutationKind = tl?._lastMutationKind ?? null;
+    const isPlannerCommitReason =
+      typeof reason === "string" && reason.startsWith("plannerCommit");
+    const isPlannerReplacePatch =
+      isPlannerCommitReason &&
+      mutationKind === "replaceActionsAtSec" &&
+      mutationSec >= Math.max(0, historyEndSec - 1) &&
+      graphCache;
 
     if (
       !signatureChanged &&
@@ -1114,31 +1526,90 @@ export function createTimeGraphController({
       !windowDirty &&
       !seriesDirty &&
       !valuesDirty &&
+      !isPlannerCommitReason &&
       reason !== "open" &&
       reason !== "active"
     ) {
       return { ok: true, reason: "noChange" };
     }
 
-    if (graphCache && !stateDirty && !windowDirty && reason && reason !== "active") {
-      if (historyEndSec < lastKnownHistoryEndSec) {
-        pruneHistoryAfterSec(historyEndSec);
-        rebuildForecastAtFrontier({ forceRebuild: true });
-        lastKnownHistoryEndSec = historyEndSec;
-        return { ok: true, reason: "truncatePatch" };
+    if (isPlannerReplacePatch) {
+      // Defensive path: planner commits replace actions in-place at current sec.
+      // Even if signature detection misses a corner case, force targeted cache
+      // invalidation so scrub/preview reads cannot stay stale.
+      invalidateSubjectValuesFromSec(mutationSec);
+      graphCache.historyEndSec = historyEndSec;
+      if (graphCache.window) {
+        graphCache.window.baseSec = historyEndSec;
+        graphCache.window.endSec = historyEndSec + horizonSecCur;
+        graphCache.window.forecastValuesBySec = new Map();
+        graphCache.window.forecastValuesMeta = null;
       }
+      if (graphCache.stateDataByBoundary) {
+        graphCache.stateDataByBoundary.clear();
+      }
+      if (graphCache.sampleCache && tl?._lastMutationChangedActionSeconds) {
+        graphCache.sampleCache.clear();
+      }
+      graphCache.version = ++cacheVersion;
+      lastKnownHistoryEndSec = historyEndSec;
+      stateDirty = false;
+      windowDirty = false;
+      seriesDirty = false;
+      valuesDirty = false;
+      return { ok: true, reason: "replaceActionPatch" };
+    }
 
-      const okHistory = patchHistoryFromSecond(tl, mutationSec, historyEndSec);
-      if (okHistory) {
-        const okForecast = rebuildForecastAtFrontier({ forceRebuild: true });
-        if (!okForecast) return rebuildGraphCache();
+    if (signatureChanged) {
+      const isActionAppendPatch =
+        reason === "actionDispatched" &&
+        mutationKind === "appendAction" &&
+        mutationSec >= Math.max(0, historyEndSec - 1) &&
+        graphCache;
+      if (isActionAppendPatch || isPlannerReplacePatch) {
+        // Preserve most cached values; only invalidate from mutation frontier.
+        invalidateSubjectValuesFromSec(mutationSec);
+        graphCache.historyEndSec = historyEndSec;
+        if (graphCache.window) {
+          graphCache.window.baseSec = historyEndSec;
+          graphCache.window.endSec = historyEndSec + horizonSecCur;
+          graphCache.window.forecastValuesBySec = new Map();
+          graphCache.window.forecastValuesMeta = null;
+        }
+        if (graphCache.stateDataByBoundary) {
+          graphCache.stateDataByBoundary.clear();
+        }
+        if (graphCache.sampleCache && tl?._lastMutationChangedActionSeconds) {
+          graphCache.sampleCache.clear();
+        }
+        graphCache.version = ++cacheVersion;
         lastKnownHistoryEndSec = historyEndSec;
         stateDirty = false;
         windowDirty = false;
         seriesDirty = false;
         valuesDirty = false;
-        return { ok: true, reason: "mutationPatch" };
+        return {
+          ok: true,
+          reason: isPlannerReplacePatch
+            ? "replaceActionPatch"
+            : "appendActionPatch",
+        };
       }
+      stateDirty = true;
+      windowDirty = true;
+    }
+    if (!signatureChanged && historyEndSec !== lastKnownHistoryEndSec) {
+      lastKnownHistoryEndSec = historyEndSec;
+      if (graphCache) {
+        graphCache.historyEndSec = historyEndSec;
+        if (graphCache.window) {
+          graphCache.window.baseSec = historyEndSec;
+          graphCache.window.endSec = historyEndSec + horizonSecCur;
+          graphCache.window.forecastValuesBySec = new Map();
+          graphCache.window.forecastValuesMeta = null;
+        }
+      }
+      return { ok: true, reason: "frontierAdvance" };
     }
 
     if (stateDirty || windowDirty || !graphCache) {
@@ -1183,36 +1654,16 @@ export function createTimeGraphController({
     }
 
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
-    if (historyEndSec < lastKnownHistoryEndSec) {
-      pruneHistoryAfterSec(historyEndSec);
-      rebuildForecastAtFrontier({ forceRebuild: true });
+    if (historyEndSec !== lastKnownHistoryEndSec) {
       lastKnownHistoryEndSec = historyEndSec;
-      if (graphCache) graphCache.version = ++cacheVersion;
-      return;
-    }
-    if (historyEndSec > lastKnownHistoryEndSec) {
-      const requiredStride = resolveHistoryStride(historyEndSec);
-      if (requiredStride > historyStrideSecCur) {
-        historyStrideSecCur = requiredStride;
-        windowDirty = true;
-        handleInvalidate("active");
-        return;
+      if (graphCache) {
+        graphCache.historyEndSec = historyEndSec;
+        if (graphCache.window) {
+          graphCache.window.baseSec = historyEndSec;
+          graphCache.window.endSec = historyEndSec + horizonSecCur;
+        }
+        graphCache.version = ++cacheVersion;
       }
-      const okHistory = extendHistoryTo(historyEndSec);
-      if (!okHistory) {
-        stateDirty = true;
-        handleInvalidate("active");
-        return;
-      }
-
-      const okForecast = rebuildForecastAtFrontier({ invalidateValues: false });
-      if (!okForecast) {
-        stateDirty = true;
-        handleInvalidate("active");
-        return;
-      }
-
-      lastKnownHistoryEndSec = historyEndSec;
     }
   }
 
@@ -1247,12 +1698,190 @@ export function createTimeGraphController({
       cacheVersion: graphCache?.version ?? cacheVersion,
       projectionCacheSize: projection.getSize?.(),
       projectionCacheCap: projection.maxEntries,
+      projectionCacheApproxBytes: projection.getApproxBytes?.(),
+      projectionCacheMaxBytes: projection.maxBytes,
     };
   }
 
-  function getSeriesValuesForSeconds(seconds) {
+  function getSamplesForWindow({
+    startSec,
+    endSec,
+    focus = false,
+    cursorSec = null,
+  } = {}) {
+    const tl = getTimeline?.();
+    if (!tl) return { ok: false, reason: "noTimeline" };
+    if (!graphCache || stateDirty || windowDirty || seriesDirty) {
+      const res = ensureCache();
+      if (!res?.ok) return res || { ok: false, reason: "cacheMissing" };
+    }
+
+    const start = clampSec(startSec);
+    const end = clampSec(endSec);
+    if (end < start) return { ok: true, points: [], seconds: [] };
+
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
+    const actionSecs = collectActionSecondsForSampling(tl, start, end, {
+      focus: !!focus,
+      cursorSec,
+    });
+    const actionSecondsVersion = Math.floor(tl?._actionSecondsVersion ?? 0);
+    const samplingSig = getSamplingModeSignature(!!focus, end - start);
+    const metricId = metricDef?.id ?? metricDef?.label ?? "metric";
+    const subjectKeyTag = subjectKey ?? "__global__";
+    const cacheKey =
+      `${metricId}|${subjectKeyTag}|${samplingSig}|` +
+      `${start}:${end}|${historyEndSec}|a${actionSecondsVersion}`;
+
+    let sampleSecs = graphCache.sampleCache?.get(cacheKey) ?? null;
+    if (!sampleSecs) {
+      sampleSecs = buildSampleSeconds({
+        startSec: start,
+        endSec: end,
+        historyEndSec,
+        cursorSec,
+        actionSecs,
+        focus: !!focus,
+      });
+      if (!focus && forecastStepSecCur > 1) {
+        sampleSecs = alignForecastSampleSeconds(
+          sampleSecs,
+          historyEndSec,
+          forecastStepSecCur,
+          end
+        );
+      }
+      cacheSampleSeconds(graphCache.sampleCache, cacheKey, sampleSecs);
+    }
+
+    let valuesBySec = new Map();
+    if (perfEnabled()) {
+      const historySecs = sampleSecs.filter((sec) => sec <= historyEndSec);
+      const forecastSecs = sampleSecs.filter((sec) => sec > historyEndSec);
+
+      const historyStart = perfNowMs();
+      const historyValues =
+        getSeriesValuesForSeconds(historySecs, { focus: !!focus }) ?? new Map();
+      recordProjectionHistoryBuild({
+        ms: perfNowMs() - historyStart,
+        points: historySecs.length,
+      });
+
+      const forecastStart = perfNowMs();
+      const forecastValues =
+        getSeriesValuesForSeconds(forecastSecs, { focus: !!focus }) ?? new Map();
+      recordProjectionForecastBuild({
+        ms: perfNowMs() - forecastStart,
+        points: forecastSecs.length,
+      });
+
+      valuesBySec = new Map([...historyValues, ...forecastValues]);
+    } else {
+      valuesBySec =
+        getSeriesValuesForSeconds(sampleSecs, { focus: !!focus }) ?? new Map();
+    }
+
+    const points = sampleSecs.map((sec) => ({
+      tSec: sec,
+      values: valuesBySec.get(sec) ?? {},
+    }));
+
+    return { ok: true, points, seconds: sampleSecs, samplingSig };
+  }
+
+  function ensureGraphForecastValues(
+    tl,
+    seconds,
+    historyEndSec,
+    seriesSig,
+    focus
+  ) {
+    if (focus) return null;
+    if (!graphCache?.window) return null;
+
+    const requested = Array.from(
+      new Set(
+        (seconds || [])
+          .map((sec) => clampSec(sec))
+          .filter((sec) => sec > historyEndSec)
+      ).values()
+    ).sort((a, b) => a - b);
+    if (!requested.length) return null;
+
+    const baseSec = clampSec(historyEndSec);
+    const stepSec = Math.max(1, Math.floor(forecastStepSecCur ?? 1));
+    const maxSec = requested[requested.length - 1];
+    const resolverFactory = getResolverFactory();
+    const key = subjectKey ?? "__global__";
+    const meta = graphCache.window.forecastValuesMeta;
+
+    const canReuse =
+      meta &&
+      meta.baseSec === baseSec &&
+      meta.historyEndSec === baseSec &&
+      meta.stepSec === stepSec &&
+      meta.seriesSig === seriesSig &&
+      meta.subjectKey === key &&
+      meta.valuesRevision === valuesRevision &&
+      meta.endSec >= maxSec &&
+      graphCache.window.forecastValuesBySec instanceof Map;
+
+    if (!canReuse) {
+      const forecastRes = projection.ensureForecastWindow(
+        tl,
+        maxSec,
+        undefined,
+        stepSec
+      );
+      if (!forecastRes?.ok) {
+        graphCache.window.forecastValuesBySec = new Map();
+        graphCache.window.forecastValuesMeta = null;
+        return null;
+      }
+      graphCache.window.forecastValuesBySec = new Map();
+      graphCache.window.forecastValuesMeta = {
+        baseSec,
+        historyEndSec: baseSec,
+        endSec: maxSec,
+        stepSec,
+        seriesSig,
+        subjectKey: key,
+        valuesRevision,
+      };
+    }
+
+    const valuesBySec = graphCache.window.forecastValuesBySec;
+    for (const sec of requested) {
+      if (valuesBySec.has(sec)) continue;
+      const stateRes = projection.ensureStateAtSecond(
+        tl,
+        sec,
+        undefined,
+        stepSec
+      );
+      if (!stateRes?.ok) continue;
+      const values = computeValuesFromStateData(
+        stateRes.stateData,
+        activeSeries,
+        subject,
+        resolverFactory
+      );
+      valuesBySec.set(sec, values);
+    }
+    if (graphCache.window.forecastValuesMeta) {
+      graphCache.window.forecastValuesMeta.endSec = Math.max(
+        graphCache.window.forecastValuesMeta.endSec ?? 0,
+        maxSec
+      );
+    }
+
+    return graphCache.window.forecastValuesBySec;
+  }
+
+  function getSeriesValuesForSeconds(seconds, { focus = false } = {}) {
     const tl = getTimeline?.();
     if (!tl || !graphCache) return null;
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
 
     const seriesSig = getSeriesSignature(activeSeries);
     const cacheKey = subjectKey ?? "__global__";
@@ -1267,17 +1896,48 @@ export function createTimeGraphController({
         seriesSig,
         valuesBySec: new Map(),
         order: [],
+        orderHead: 0,
       };
       subjectValueCache.set(cacheKey, entry);
     }
 
     const valuesBySec = entry.valuesBySec;
-    const order = entry.order;
+    const fastForecastValues = ensureGraphForecastValues(
+      tl,
+      seconds,
+      historyEndSec,
+      seriesSig,
+      !!focus
+    );
+    const resolverFactory = getResolverFactory();
     for (const secRaw of seconds || []) {
       const sec = clampSec(secRaw);
       if (valuesBySec.has(sec)) continue;
 
-      let stateData = graphCache.stateDataByBoundary?.get?.(sec);
+      if (
+        sec > historyEndSec &&
+        fastForecastValues instanceof Map &&
+        fastForecastValues.has(sec)
+      ) {
+        valuesBySec.set(sec, fastForecastValues.get(sec) ?? {});
+        pushSubjectValueSec(entry, sec, valuesBySec);
+        continue;
+      }
+
+      let stateData = null;
+      if (shouldCacheForecastSec(sec, historyEndSec)) {
+        // Guard direct projection-cache reads behind signature refresh so
+        // stale forecast snapshots cannot survive timeline edits.
+        const sigRes = projection.ensureSignature?.(tl);
+        const cachedProjectionData =
+          sigRes?.changed === true ? null : projection.getStateData?.(sec) ?? null;
+        if (cachedProjectionData != null) {
+          recordTimegraphCacheHit();
+          stateData = cachedProjectionData;
+        } else {
+          recordTimegraphCacheMiss();
+        }
+      }
       if (stateData == null) {
         const res = projection.ensureStateAtSecond(
           tl,
@@ -1287,27 +1947,20 @@ export function createTimeGraphController({
         );
         if (!res?.ok) {
           valuesBySec.set(sec, {});
-          order.push(sec);
+          pushSubjectValueSec(entry, sec, valuesBySec);
           continue;
         }
         stateData = res.stateData ?? null;
-        if (stateData != null && graphCache.stateDataByBoundary) {
-          graphCache.stateDataByBoundary.set(sec, stateData);
-        }
       }
 
       const values = computeValuesFromStateData(
         stateData,
         activeSeries,
         subject,
-        getResolverFactory()
+        resolverFactory
       );
       valuesBySec.set(sec, values);
-      order.push(sec);
-      if (order.length > SUBJECT_VALUE_CACHE_MAX) {
-        const oldest = order.shift();
-        if (oldest != null) valuesBySec.delete(oldest);
-      }
+      pushSubjectValueSec(entry, sec, valuesBySec);
     }
 
     return valuesBySec;
@@ -1316,9 +1969,23 @@ export function createTimeGraphController({
   function getStateDataAt(tSec) {
     const tl = getTimeline?.();
     if (!tl) return null;
+    const sec = clampSec(tSec);
+    const historyEndSec = clampSec(tl.historyEndSec ?? 0);
+    if (shouldCacheForecastSec(sec, historyEndSec)) {
+      // Guard direct projection-cache reads behind signature refresh so
+      // stale forecast snapshots cannot survive timeline edits.
+      const sigRes = projection.ensureSignature?.(tl);
+      const cachedProjectionData =
+        sigRes?.changed === true ? null : projection.getStateData?.(sec) ?? null;
+      if (cachedProjectionData != null) {
+        recordTimegraphCacheHit();
+        return cachedProjectionData;
+      }
+      recordTimegraphCacheMiss();
+    }
     const res = projection.ensureStateAtSecond(
       tl,
-      tSec,
+      sec,
       undefined,
       forecastStepSecCur
     );
@@ -1385,6 +2052,7 @@ export function createTimeGraphController({
     handleInvalidate,
     update,
     getData,
+    getSamplesForWindow,
     getSeriesValuesForSeconds,
     getStateDataAt,
     getStateAt,

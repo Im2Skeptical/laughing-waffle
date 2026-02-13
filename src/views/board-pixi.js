@@ -1801,37 +1801,35 @@ export function createBoardView(opts) {
   // sync helpers
   // --------------------------------------------------------
 
-  function getPawnCountsByCol(state, cols) {
-    const countLen = Number.isFinite(cols) ? Math.max(0, cols) : BOARD_COLS;
-    const counts = new Array(countLen).fill(0);
+  function getPawnCounts(state, envCols, hubCols) {
+    const envLen = Number.isFinite(envCols) ? Math.max(0, envCols) : BOARD_COLS;
+    const hubLen = Number.isFinite(hubCols) ? Math.max(0, hubCols) : HUB_COLS;
+    const envCounts = new Array(envLen).fill(0);
+    const hubCounts = new Array(hubLen).fill(0);
     const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
     for (const pawn of pawns) {
-      const col = Number.isFinite(pawn?.envCol)
+      const envCol = Number.isFinite(pawn?.envCol)
         ? Math.floor(pawn.envCol)
         : null;
-      if (col == null || col < 0 || col >= counts.length) continue;
-      counts[col] += 1;
-    }
-    return counts;
-  }
+      if (envCol != null && envCol >= 0 && envCol < envCounts.length) {
+        envCounts[envCol] += 1;
+      }
 
-  function getPawnCountsByHub(state, cols) {
-    const countLen = Number.isFinite(cols) ? Math.max(0, cols) : HUB_COLS;
-    const counts = new Array(countLen).fill(0);
-    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
-    for (const pawn of pawns) {
-      const col = Number.isFinite(pawn?.hubCol)
+      const hubCol = Number.isFinite(pawn?.hubCol)
         ? Math.floor(pawn.hubCol)
         : null;
-      if (col == null || col < 0 || col >= counts.length) continue;
-      counts[col] += 1;
+      if (hubCol != null && hubCol >= 0 && hubCol < hubCounts.length) {
+        hubCounts[hubCol] += 1;
+      }
     }
-    return counts;
+    return { env: envCounts, hub: hubCounts };
   }
 
-  function syncTiles(state, cols) {
+  function syncTiles(state, cols, pawnCountsByCol = null) {
     const tileOcc = state?.board?.occ?.tile;
-    const pawnCounts = getPawnCountsByCol(state, cols);
+    const pawnCounts = Array.isArray(pawnCountsByCol)
+      ? pawnCountsByCol
+      : getPawnCounts(state, cols, 0).env;
 
     for (let col = 0; col < cols; col++) {
       const tileInst = tileOcc?.[col] || null;
@@ -2012,10 +2010,12 @@ export function createBoardView(opts) {
     hubSlotViews.length = cols;
   }
 
-  function syncHubStructures(state, cols) {
+  function syncHubStructures(state, cols, pawnCountsByHub = null) {
     const occ = state?.hub?.occ;
     const seen = new Set();
-    const pawnCounts = getPawnCountsByHub(state, cols);
+    const pawnCounts = Array.isArray(pawnCountsByHub)
+      ? pawnCountsByHub
+      : getPawnCounts(state, 0, cols).hub;
 
     syncHubSlots(cols);
 
@@ -2113,9 +2113,10 @@ export function createBoardView(opts) {
     const hubCols = Array.isArray(s?.hub?.slots)
       ? s.hub.slots.length
       : HUB_COLS;
-    syncTiles(s, cols);
+    const pawnCounts = getPawnCounts(s, cols, hubCols);
+    syncTiles(s, cols, pawnCounts.env);
     syncEvents(s, cols);
-    syncHubStructures(s, hubCols);
+    syncHubStructures(s, hubCols, pawnCounts.hub);
 
     restoreHoverAfterRebuild(pendingHover, pendingPointer);
   }
@@ -2247,9 +2248,10 @@ export function createBoardView(opts) {
     const hubCols = Array.isArray(s?.hub?.slots)
       ? s.hub.slots.length
       : HUB_COLS;
-    syncTiles(s, cols);
+    const pawnCounts = getPawnCounts(s, cols, hubCols);
+    syncTiles(s, cols, pawnCounts.env);
     syncEvents(s, cols);
-    syncHubStructures(s, hubCols);
+    syncHubStructures(s, hubCols, pawnCounts.hub);
     updatePlanFocus();
 
     if (activeHover?.view?.holdHoverForOccupant) {

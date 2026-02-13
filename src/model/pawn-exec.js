@@ -17,7 +17,7 @@ import {
   PAWN_AI_STAMINA_FULL,
   PAWN_AI_STAMINA_START_REST,
 } from "../defs/gamesettings/gamerules-defs.js";
-import { runEffect } from "./effects.js";
+import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { ensurePawnSystems, ensurePawnAI } from "./state.js";
 import { applyFollowerHungerDebt } from "./prestige-system.js";

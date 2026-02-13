@@ -6,27 +6,39 @@ import {
   updateGame,
   setPaused,
   loadIntoGameState,
+  loadStateObjectIntoGameState,
   gameState,
 } from "../model/game-model.js";
 
 import {
   createTimelineFromInitialState,
   appendActionAtCursor,
-  truncateActionsAfterSecond,
   truncateCheckpointsAfterSecond,
   truncateTimelineAfterSecond,
   replaceActionsAtSecond,
   rebuildStateAtSecond,
   maintainCheckpoints,
-} from "../model/timeline.js";
+  seedMemoStateDataAtSecond,
+  seedCheckpointStateDataAtSecond,
+} from "../model/timeline/index.js";
 
 import {
+  deserializeGameState,
   serializeGameState,
   syncPhaseToPaused,
   getCurrentSeasonKey,
 } from "../model/state.js";
 import { applyAction } from "../model/actions.js";
+import { canonicalizeSnapshot } from "../model/canonicalize.js";
 import { createActionPlanner } from "./actionmanagers/action-planner.js";
+import {
+  perfEnabled,
+  perfNowMs,
+  recordActionDispatch,
+  recordPlannerCommit,
+  recordScrubBrowse,
+  recordScrubCommit,
+} from "../model/perf.js";
 
 const SIM_DT_STEP = 1 / 60;
 const TICKS_PER_SEC = 60;
@@ -35,6 +47,11 @@ const TIME_SCALE_MAX = 16;
 const TIME_SCALE_EASE_PER_SEC = 10;
 const SAVE_SCHEMA_VERSION = 2;
 const SAVE_KEY_PREFIX = "civsurvivor.save";
+const ACTION_PATH_CHECKPOINT_OPTS = Object.freeze({
+  writeMemo: true,
+  captureCheckpoint: false,
+  prune: false,
+});
 
 export function createSimRunner({
   onInvalidate,
@@ -50,6 +67,51 @@ export function createSimRunner({
 
   let pauseRequested = false;
   let lastPlannerCommitError = null;
+  let plannerBoundaryCache = null;
+
+  function clearPlannerBoundaryCache() {
+    plannerBoundaryCache = null;
+  }
+
+  function getPlannerBoundaryStateData(tSec) {
+    if (!timeline) return { ok: false, reason: "noTimeline" };
+    const sec = Math.max(0, Math.floor(tSec ?? 0));
+    const historyEndSec = Math.floor(timeline.historyEndSec ?? 0);
+    const baseRef = timeline.baseStateData;
+
+    if (
+      plannerBoundaryCache &&
+      plannerBoundaryCache.tSec === sec &&
+      plannerBoundaryCache.historyEndSec === historyEndSec &&
+      plannerBoundaryCache.baseStateDataRef === baseRef &&
+      plannerBoundaryCache.stateData != null
+    ) {
+      return { ok: true, stateData: plannerBoundaryCache.stateData, cacheHit: true };
+    }
+
+    let stateData = null;
+    if (sec <= 0) {
+      stateData = baseRef;
+    } else {
+      const rebuiltPrev = rebuildStateAtSecond(timeline, sec - 1);
+      if (!rebuiltPrev?.ok) return rebuiltPrev || { ok: false, reason: "rebuildFailed" };
+      const boundaryState = rebuiltPrev.state;
+      boundaryState.paused = false;
+      for (let i = 0; i < TICKS_PER_SEC; i++) {
+        updateGame(SIM_DT_STEP, boundaryState);
+      }
+      stateData = serializeGameState(boundaryState);
+    }
+
+    plannerBoundaryCache = {
+      tSec: sec,
+      historyEndSec,
+      baseStateDataRef: baseRef,
+      stateData,
+    };
+
+    return { ok: true, stateData, cacheHit: false };
+  }
 
   const actionPlanner = createActionPlanner({
     getTimeline: () => timeline,
@@ -195,6 +257,7 @@ export function createSimRunner({
     simAccumulator = 0;
 
     timeline = nextTimeline;
+    clearPlannerBoundaryCache();
 
     loadIntoGameState(data.state);
     cursorState = gameState;
@@ -203,7 +266,7 @@ export function createSimRunner({
     if (Math.floor(cursorState.tSec ?? 0) !== desiredSec) {
       const rebuilt = rebuildStateAtSecond(timeline, desiredSec);
       if (!rebuilt?.ok) return rebuilt;
-      loadIntoGameState(serializeGameState(rebuilt.state));
+      loadStateObjectIntoGameState(rebuilt.state);
       cursorState = gameState;
     }
 
@@ -214,27 +277,31 @@ export function createSimRunner({
     playbackActive = desiredSec < Math.floor(timeline.historyEndSec ?? 0);
     actionPlanner.resetToTimeline?.();
 
-    onRebuildViews?.();
+    onRebuildViews?.("saveLoad");
     onInvalidate?.("saveLoad");
     return { ok: true, meta };
   }
 
   function seekPlaybackIndex(targetSec) {
-    if (!timeline?.actions) {
+    const actions = Array.isArray(timeline?.actions) ? timeline.actions : null;
+    if (!actions || actions.length === 0) {
       playbackNextActionIdx = 0;
+      playbackLastAppliedSec = targetSec;
       return;
     }
 
-    let idx = 0;
-    while (idx < timeline.actions.length) {
-      const a = timeline.actions[idx];
-      // In rebuildStateAtSecond, we APPLY actions at targetSec.
-      // So we want next index to be the first action strictly AFTER targetSec.
-      if ((a.tSec ?? 0) > targetSec) break;
-      idx++;
+    // In rebuildStateAtSecond, actions at targetSec are already applied.
+    // Playback should resume from the first action strictly after targetSec.
+    let lo = 0;
+    let hi = actions.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const sec = Math.floor(actions[mid]?.tSec ?? 0);
+      if (sec <= targetSec) lo = mid + 1;
+      else hi = mid;
     }
 
-    playbackNextActionIdx = idx;
+    playbackNextActionIdx = lo;
     playbackLastAppliedSec = targetSec;
   }
 
@@ -303,6 +370,7 @@ export function createSimRunner({
 
     pauseRequested = false;
     dragPreviewState = null;
+    clearPlannerBoundaryCache();
 
     let usedCachedState = false;
     if (stateData != null) {
@@ -315,7 +383,7 @@ export function createSimRunner({
       const rebuilt = rebuildStateAtSecond(timeline, t);
       if (!rebuilt.ok) return rebuilt;
 
-      loadIntoGameState(serializeGameState(rebuilt.state));
+      loadStateObjectIntoGameState(rebuilt.state);
       cursorState = gameState;
     }
 
@@ -483,8 +551,18 @@ export function createSimRunner({
     return false;
   }
 
+  function getActionsAtSecond(tl, sec) {
+    if (!tl) return [];
+    if (tl.actionsBySec && typeof tl.actionsBySec.get === "function") {
+      const list = tl.actionsBySec.get(sec);
+      return Array.isArray(list) ? list : [];
+    }
+    return (tl.actions || []).filter((action) => Math.floor(action.tSec ?? 0) === sec);
+  }
+
   function commitPlannerActions(reason) {
     if (!timeline || !cursorState) return { ok: false, reason: "noState" };
+    const perfStart = perfEnabled() ? perfNowMs() : 0;
 
     const build = actionPlanner.buildCommitActions?.();
     if (!build?.ok) return build || { ok: false, reason: "buildFailed" };
@@ -497,13 +575,7 @@ export function createSimRunner({
       tSec,
     }));
 
-    const existingAtSec = [];
-    const beforeAtSec = [];
-    for (const action of timeline.actions || []) {
-      const sec = Math.floor(action.tSec ?? 0);
-      if (sec < tSec) beforeAtSec.push(action);
-      else if (sec === tSec) existingAtSec.push(action);
-    }
+    const existingAtSec = getActionsAtSecond(timeline, tSec);
 
     const newByKey = new Map();
     for (const action of actionsWithTSec) {
@@ -551,32 +623,51 @@ export function createSimRunner({
       orderedAtSec.push(action);
     }
 
-    const candidateActions = [...beforeAtSec, ...orderedAtSec];
-    const candidateCheckpoints = truncateCheckpointsAfterSecond(
-      timeline.checkpoints,
-      tSec
-    ).filter((cp) => Math.floor(cp.checkpointSec ?? -1) !== tSec);
-    const candidateTimeline = {
-      baseStateData: timeline.baseStateData,
-      actions: candidateActions,
-      checkpoints: candidateCheckpoints,
-      cursorSec: tSec,
-      historyEndSec: tSec,
-      revision: timeline.revision ?? 0,
-    };
-
-    const rebuilt = rebuildStateAtSecond(candidateTimeline, tSec);
-    if (!rebuilt?.ok) {
+    // Validate planner commit from the second boundary state at tSec:
+    // state after replaying through tSec-1 and advancing one simulation second,
+    // but before applying any actions at tSec.
+    const boundaryRes = getPlannerBoundaryStateData(tSec);
+    if (!boundaryRes?.ok || boundaryRes?.stateData == null) {
       lastPlannerCommitError = {
-        reason: rebuilt?.reason ?? "rebuildFailed",
-        detail: rebuilt?.detail ?? null,
+        reason: boundaryRes?.reason ?? "boundaryMissing",
+        detail: boundaryRes?.detail ?? null,
         tSec,
         commitReason: reason || "commit",
       };
       console.warn("Planner commit failed:", lastPlannerCommitError);
       actionPlanner.resetToTimeline?.();
-      onRebuildViews?.();
+      onRebuildViews?.("plannerCommitFailed");
       onInvalidate?.("plannerCommitFailed");
+      recordPlannerCommit({
+        ok: false,
+        ms: perfEnabled() ? perfNowMs() - perfStart : 0,
+        committed: 0,
+      });
+      return {
+        ok: false,
+        reason: "commitFailed",
+        detail: lastPlannerCommitError,
+      };
+    }
+
+    const validationState = deserializeGameState(boundaryRes.stateData);
+    canonicalizeSnapshot(validationState);
+    validationState.paused = false;
+
+    for (const action of orderedAtSec) {
+      const res = applyAction(validationState, action, { isReplay: true });
+      if (res?.ok) continue;
+      lastPlannerCommitError = {
+        reason: res?.reason ?? "actionFailed",
+        detail: res?.detail ?? res ?? null,
+        tSec,
+        commitReason: reason || "commit",
+      };
+      console.warn("Planner commit failed:", lastPlannerCommitError);
+      actionPlanner.resetToTimeline?.();
+      onRebuildViews?.("plannerCommitFailed");
+      onInvalidate?.("plannerCommitFailed");
+      recordPlannerCommit({ ok: false, ms: perfEnabled() ? perfNowMs() - perfStart : 0, committed: 0 });
       return { ok: false, reason: "commitFailed", detail: lastPlannerCommitError };
     }
 
@@ -593,22 +684,32 @@ export function createSimRunner({
     timeline.cursorSec = tSec;
 
     const wasPaused = !!cursorState.paused;
-    loadIntoGameState(serializeGameState(rebuilt.state));
+    loadStateObjectIntoGameState(validationState);
     cursorState = gameState;
     setPaused(cursorState, wasPaused);
     syncPhaseToPaused(cursorState);
 
     playbackActive = false;
     seekPlaybackIndex(tSec);
-    maintainCheckpoints(timeline, cursorState);
+    maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
+    // Replacing actions at this exact second preserves the boundary state.
+    // Keep cache warm for subsequent planner edits at the same tSec.
 
     actionPlanner.markCommitted?.({
       tSec,
       revision: timeline.revision ?? 0,
     });
 
-    onRebuildViews?.();
-    onInvalidate?.(`plannerCommit:${reason || "commit"}`);
+    onRebuildViews?.("plannerCommit");
+    // Always emit plannerCommit so graph controllers can apply
+    // incremental replace-action invalidation instead of full fallback rebuild.
+    const invalidateReason = `plannerCommit:${reason || "commit"}`;
+    onInvalidate?.(invalidateReason);
+    recordPlannerCommit({
+      ok: true,
+      ms: perfEnabled() ? perfNowMs() - perfStart : 0,
+      committed: actionsWithTSec.length,
+    });
 
     return { ok: true, committed: actionsWithTSec.length };
   }
@@ -643,7 +744,7 @@ export function createSimRunner({
     if (!rebuilt?.ok) return rebuilt;
 
     const wasPaused = !!cursorState.paused;
-    loadIntoGameState(serializeGameState(rebuilt.state));
+    loadStateObjectIntoGameState(rebuilt.state);
     cursorState = gameState;
     setPaused(cursorState, wasPaused);
     syncPhaseToPaused(cursorState);
@@ -652,7 +753,8 @@ export function createSimRunner({
     seekPlaybackIndex(tSec);
 
     actionPlanner.resetToTimeline?.();
-    onRebuildViews?.();
+    clearPlannerBoundaryCache();
+    onRebuildViews?.("plannerClear");
     onInvalidate?.("plannerClear");
 
     return { ok: true };
@@ -668,6 +770,7 @@ export function createSimRunner({
       syncPhaseToPaused(cursorState);
 
       timeline = createTimelineFromInitialState(cursorState);
+      clearPlannerBoundaryCache();
 
       // Ensure cursors match genesis
       timeline.cursorSec = 0;
@@ -693,7 +796,7 @@ export function createSimRunner({
       maintainCheckpoints(timeline, cursorState);
       seekPlaybackIndex(Math.floor(cursorState.tSec ?? 0));
 
-      onRebuildViews?.();
+      onRebuildViews?.("init");
       onInvalidate?.("init");
     },
 
@@ -719,7 +822,7 @@ export function createSimRunner({
           timeScaleTarget === 0
         );
         if (moved) {
-          onRebuildViews?.();
+          onRebuildViews?.("scrubCommit");
           onInvalidate?.("scrubCommit");
         }
         return;
@@ -802,7 +905,7 @@ export function createSimRunner({
       }
 
       if (playbackAppliedThisUpdate) {
-        onRebuildViews?.();
+        onRebuildViews?.("playbackApply");
         onInvalidate?.("playbackApply");
       }
 
@@ -812,6 +915,14 @@ export function createSimRunner({
     },
 
     dispatchAction(kind, payload, opts = {}) {
+      const perfStart = perfEnabled() ? perfNowMs() : 0;
+      const finishDispatch = (res) => {
+        recordActionDispatch({
+          ok: !!res?.ok,
+          ms: perfEnabled() ? perfNowMs() - perfStart : 0,
+        });
+        return res;
+      };
       dragPreviewState = null;
       simAccumulator = 0;
       pauseRequested = false;
@@ -824,17 +935,17 @@ export function createSimRunner({
       if (tSec < prevHistoryEnd) {
         truncateTimelineAfterSecond(timeline, tSec);
       } else {
+        let normalizedByMutator = false;
         if (Array.isArray(timeline.actions) && timeline.actions.length) {
           const lastAction = timeline.actions[timeline.actions.length - 1];
           const lastActionSec = Math.floor(lastAction?.tSec ?? -1);
           if (lastActionSec > tSec) {
-            timeline.actions = truncateActionsAfterSecond(
-              timeline.actions,
-              tSec
-            );
+            truncateTimelineAfterSecond(timeline, tSec);
+            normalizedByMutator = true;
           }
         }
         if (
+          !normalizedByMutator &&
           Array.isArray(timeline.checkpoints) &&
           timeline.checkpoints.length
         ) {
@@ -859,7 +970,7 @@ export function createSimRunner({
         payload,
         apCost: opts.apCost,
       });
-      if (!exec?.ok) return exec || { ok: false, reason: "cmdFailed" };
+      if (!exec?.ok) return finishDispatch(exec || { ok: false, reason: "cmdFailed" });
 
       // Record with tSec
       const rec = appendActionAtCursor(
@@ -872,45 +983,85 @@ export function createSimRunner({
         },
         cursorState
       );
-      if (!rec.ok) return rec;
+      if (!rec.ok) return finishDispatch(rec);
 
       seekPlaybackIndex(tSec);
-      maintainCheckpoints(timeline, cursorState);
+      maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
 
-      onRebuildViews?.();
+      onRebuildViews?.("actionDispatched");
       onInvalidate?.("actionDispatched");
 
-      return exec && typeof exec === "object" ? exec : { ok: true };
+      return finishDispatch(exec && typeof exec === "object" ? exec : { ok: true });
     },
 
     commitCursorSecond(tSec, stateData) {
-      const res = seekCursorSecond(tSec, stateData, {
+      const perfStart = perfEnabled() ? perfNowMs() : 0;
+      const prevSec = Math.floor(cursorState?.tSec ?? 0);
+      // Correctness first: do not trust external cached state snapshots for
+      // scrub commits. Rebuild from timeline truth to avoid stale projection
+      // commits after planner edits.
+      const res = seekCursorSecond(tSec, null, {
         paused: true,
-        maintainCheckpoints: true,
+        // Scrub commits can happen frequently; avoid serializing checkpoints/memo
+        // here and rely on simulation-path checkpoint maintenance instead.
+        maintainCheckpoints: false,
       });
-      if (!res.ok) return res;
+      const elapsedMs = perfEnabled() ? perfNowMs() - perfStart : 0;
+      if (!res.ok) {
+        recordScrubCommit({ ok: false, moved: false, ms: elapsedMs });
+        return res;
+      }
 
       timeScaleWantsUnpause = false;
       timeScaleTarget = 0;
       timeScaleCurrent = 0;
       rewindAccumulatorSec = 0;
 
-      onRebuildViews?.();
-      onInvalidate?.("scrubCommit");
+      const currentSec = Math.floor(cursorState?.tSec ?? 0);
+      if (Number.isFinite(currentSec) && currentSec >= 0) {
+        const memoStateData =
+          res.usedCachedState && stateData != null
+            ? stateData
+            : serializeGameState(cursorState);
+        seedMemoStateDataAtSecond(timeline, currentSec, memoStateData);
+        // Projection jumps can skip normal simulation checkpoint cadence.
+        // Seed a direct checkpoint anchor at the committed second so large-tSec
+        // graph/history reads don't fall back to long replay paths.
+        seedCheckpointStateDataAtSecond(timeline, currentSec, memoStateData);
+      }
 
-      return { ok: true };
+      const moved = Math.floor(cursorState?.tSec ?? 0) !== prevSec;
+      if (moved) {
+        onRebuildViews?.("scrubCommit");
+        onInvalidate?.("scrubCommit");
+      }
+      recordScrubCommit({ ok: true, moved, ms: elapsedMs });
+
+      return { ok: true, moved };
     },
 
     browseCursorSecond(tSec, stateData) {
-      const res = seekCursorSecond(tSec, stateData, {
+      const perfStart = perfEnabled() ? perfNowMs() : 0;
+      const prevSec = Math.floor(cursorState?.tSec ?? 0);
+      // Same as commit path: always resolve browse targets from timeline state
+      // to prevent stale cursor jumps when cache invalidation is delayed.
+      const res = seekCursorSecond(tSec, null, {
         paused: true,
-        maintainCheckpoints: true,
+        maintainCheckpoints: false,
       });
-      if (!res.ok) return res;
+      const elapsedMs = perfEnabled() ? perfNowMs() - perfStart : 0;
+      if (!res.ok) {
+        recordScrubBrowse({ ok: false, moved: false, ms: elapsedMs });
+        return res;
+      }
 
-      onRebuildViews?.();
-      onInvalidate?.("scrubBrowse");
-      return { ok: true };
+      const moved = Math.floor(cursorState?.tSec ?? 0) !== prevSec;
+      if (moved) {
+        onRebuildViews?.("scrubBrowse");
+        onInvalidate?.("scrubBrowse");
+      }
+      recordScrubBrowse({ ok: true, moved, ms: elapsedMs });
+      return { ok: true, moved };
     },
 
     setTimeScaleTarget: (speed, opts = {}) => {

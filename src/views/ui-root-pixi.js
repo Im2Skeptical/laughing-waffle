@@ -1,16 +1,11 @@
 // src/views/ui-root-pixi.js
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
-import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
-import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
-import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
-import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
-import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { runDeterminismSuite } from "../model/tests/determinism.js";
 import { createInteractionController } from "./interaction-controler-pixi.js";
 import { createTooltipView } from "./tooltip-pixi.js";
@@ -40,10 +35,27 @@ import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
 } from "./sunandmoon-disks-pixi.js";
+import {
+  getPerfSnapshot,
+  perfEnabled,
+  perfNowMs,
+  recordViewFrame,
+  recordViewUpdate,
+} from "../model/perf.js";
+import { createProjectionParityProbe } from "./ui-root/projection-parity.js";
+import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
+import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
+import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
 const BOOT_SETUP_ID = "testing";
+if (
+  typeof globalThis !== "undefined" &&
+  globalThis.__PERF_ENABLED__ == null
+) {
+  globalThis.__PERF_ENABLED__ = true;
+}
 
 export const app = new PIXI.Application({
   width: DESIGN_WIDTH,
@@ -63,28 +75,36 @@ let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
 const liveSeenYearEndEventIds = new Set();
+const FULL_VIEW_REBUILD_REASONS = new Set([
+  "init",
+  "saveLoad",
+  "plannerClear",
+]);
 
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
   onInvalidate: (reason) => {
+    const cursorOnlyReason =
+      reason === "scrubBrowse" || reason === "scrubCommit";
+    // Keep cursor-only browse/commit lean; all other mutation reasons should
+    // invalidate controllers immediately (including planner:* edits).
+    if (cursorOnlyReason) return;
     goldGraphController.handleInvalidate(reason);
     foodGraphController.handleInvalidate(reason);
     apGraphController.handleInvalidate(reason);
     popGraphController.handleInvalidate(reason);
     systemGraphController.handleInvalidate(reason);
-    if (goldGraphView?.isOpen()) goldGraphView.render();
-    if (foodGraphView?.isOpen()) foodGraphView.render();
-    if (apGraphView?.isOpen()) apGraphView.render();
-    if (popGraphView?.isOpen()) popGraphView.render();
-    if (systemGraphView?.isOpen()) systemGraphView.render();
-    // Force a check on inventory UI in case state changed
-    inventoryView?.update?.();
   },
-  onRebuildViews: () => {
+  onRebuildViews: (reason = "unknown") => {
     tooltipView?.hide?.();
-    refreshOpenInventoryWindows();
-    boardView.rebuildAll();
-    pawnsView.rebuildAll();
+    if (reason === "scrubCommit") {
+      refreshOpenInventoryWindows();
+    }
+    if (FULL_VIEW_REBUILD_REASONS.has(reason)) {
+      refreshOpenInventoryWindows();
+      boardView.rebuildAll();
+      pawnsView.rebuildAll();
+    }
     chromeView.refresh?.();
   },
   onPlannerApReject: () => {
@@ -94,39 +114,10 @@ const runner = createSimRunner({
 
 const actionPlanner = runner.getActionPlanner?.();
 
-const queuedActions = [];
-
-function requestPauseForAction() {
-  const state = runner.getCursorState?.();
-  if (!state || state.paused) return;
-  runner.setTimeScaleTarget?.(0, { requestPause: true });
-  runner.setPaused(true);
-}
-
-function queueActionWhenPaused(actionFn) {
-  const state = runner.getCursorState?.();
-  if (state?.paused) {
-    return actionFn();
-  }
-  requestPauseForAction();
-  queuedActions.push(actionFn);
-  return { ok: true, queued: true };
-}
-
-function flushQueuedActions() {
-  if (!queuedActions.length) return;
-  const state = runner.getCursorState?.();
-  if (!state?.paused) return;
-  if (runner.isPreviewing?.()) return;
-
-  const pending = queuedActions.splice(0, queuedActions.length);
-  for (const fn of pending) {
-    const res = fn();
-    if (res?.ok === false && res.reason === "mustBePaused") {
-      queuedActions.push(fn);
-    }
-  }
-}
+const pausedActionQueue = createPausedActionQueue({ runner });
+const requestPauseForAction = pausedActionQueue.requestPauseForAction;
+const queueActionWhenPaused = pausedActionQueue.queueActionWhenPaused;
+const flushQueuedActions = pausedActionQueue.flushQueuedActions;
 
 const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
@@ -211,7 +202,9 @@ app.stage.addChild(
 
 function refreshOpenInventoryWindows() {
   if (!inventoryView?.windows || !inventoryView?.rebuildWindow) return;
-  for (const ownerId of inventoryView.windows.keys()) {
+  inventoryView.invalidateAllWindowVersions?.();
+  for (const [ownerId, win] of inventoryView.windows.entries()) {
+    if (!win?.container?.visible) continue;
     inventoryView.rebuildWindow(ownerId);
   }
 }
@@ -620,354 +613,12 @@ const interactionController = createInteractionController({
   getPhase: () => runner.getCursorState().phase,
 });
 
-const SYSTEM_GRAPH_COLORS = [
-  0x7fd0ff,
-  0xffaa66,
-  0x7ccf6b,
-  0xff6699,
-  0xb07a4f,
-  0x9aa0b5,
-  0x8f6fff,
-];
-
-function getSystemGraphTarget() {
-  const hover =
-    interactionController.getHoveredPawn?.() ??
-    interactionController.getHovered?.() ??
-    interactionController.getLastHovered?.();
-  if (!hover) return null;
-  if (hover.kind === "tile") {
-    return { kind: "tile", col: hover.col };
-  }
-  if (hover.kind === "hub") {
-    return { kind: "hub", col: hover.col };
-  }
-  if (hover.kind === "pawn") {
-    return { kind: "pawn", id: hover.id };
-  }
-  return null;
-}
-
-function getSystemGraphTargetKey(target) {
-  if (!target) return null;
-  if (target.kind === "tile") {
-    return `tile:${Math.floor(target.col ?? 0)}`;
-  }
-  if (target.kind === "hub") {
-    return `hub:${Math.floor(target.col ?? 0)}`;
-  }
-  if (target.kind === "pawn") {
-    return `pawn:${target.id ?? ""}`;
-  }
-  return null;
-}
-
-const systemGraphMetric = {
-  id: "systemTarget",
-  label: "Systems",
-  series: [],
-  getSubjectKey: (subject) => getSystemGraphTargetKey(subject),
-  createSnapshotResolver: (snapshot, subject) =>
-    buildSystemSnapshotResolver(snapshot, subject),
-  useSubjectValues: true,
-};
-
-const systemGraphController = createTimeGraphController({
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  metric: systemGraphMetric,
+const systemGraphModel = createSystemGraphModel({
+  interactionController,
+  runner,
+  createController: createTimeGraphController,
 });
-
-function getTierValue(defs, systemId, tier) {
-  const def = defs?.[systemId];
-  const value = def?.tierMap?.[tier];
-  return Number.isFinite(value) ? value : 0;
-}
-
-function sumMaturedPool(pool) {
-  return (
-    (pool?.bronze ?? 0) +
-    (pool?.silver ?? 0) +
-    (pool?.gold ?? 0) +
-    (pool?.diamond ?? 0)
-  );
-}
-
-function findTileAnchorAtCol(snapshot, col) {
-  const anchors = snapshot?.board?.layers?.tile?.anchors;
-  if (!Array.isArray(anchors)) return null;
-  const targetCol = Number.isFinite(col) ? Math.floor(col) : null;
-  if (targetCol == null) return null;
-  for (const anchor of anchors) {
-    if (!anchor) continue;
-    const base = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
-    const span = Number.isFinite(anchor.span) ? Math.floor(anchor.span) : 1;
-    if (targetCol >= base && targetCol < base + Math.max(1, span)) {
-      return anchor;
-    }
-  }
-  return null;
-}
-
-function findHubStructureAtCol(snapshot, col) {
-  const slots = snapshot?.hub?.slots;
-  if (!Array.isArray(slots)) return null;
-  const targetCol = Number.isFinite(col) ? Math.floor(col) : null;
-  if (targetCol == null) return null;
-  for (let i = 0; i < slots.length; i++) {
-    const structure = slots[i]?.structure;
-    if (!structure) continue;
-    const def = hubStructureDefs[structure.defId];
-    const span =
-      Number.isFinite(structure.span) && structure.span > 0
-        ? Math.floor(structure.span)
-        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
-          ? Math.floor(def.defaultSpan)
-          : 1;
-    const base = i;
-    if (targetCol >= base && targetCol < base + Math.max(1, span)) {
-      return structure;
-    }
-  }
-  return null;
-}
-
-function findPawnById(snapshot, id) {
-  const pawns = snapshot?.pawns;
-  if (!Array.isArray(pawns)) return null;
-  for (const pawn of pawns) {
-    if (pawn?.id === id) return pawn;
-  }
-  return null;
-}
-
-function buildSystemSnapshotResolver(snapshot, target) {
-  if (!snapshot || !target) return null;
-  if (target.kind === "tile") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    const occTile =
-      col != null && Array.isArray(snapshot?.board?.occ?.tile)
-        ? snapshot.board.occ.tile[col] ?? null
-        : null;
-    return {
-      kind: "tile",
-      col,
-      tile:
-        occTile ??
-        (col != null ? findTileAnchorAtCol(snapshot, col) : null),
-    };
-  }
-  if (target.kind === "hub") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    return {
-      kind: "hub",
-      col,
-      hubStructure: col != null ? findHubStructureAtCol(snapshot, col) : null,
-    };
-  }
-  if (target.kind === "pawn") {
-    const id = target.id;
-    return {
-      kind: "pawn",
-      id,
-      pawn: id != null ? findPawnById(snapshot, id) : null,
-    };
-  }
-  return null;
-}
-
-function buildSystemSeriesForTarget(target, state) {
-  if (!target || !state) {
-    return {
-      label: "Systems",
-      series: [
-        {
-          id: "systems:empty",
-          label: "No target",
-          color: SYSTEM_GRAPH_COLORS[0],
-          getValue: () => 0,
-        },
-      ],
-    };
-  }
-  const series = [];
-  let label = "Systems";
-  let targetKey = "";
-
-  if (target.kind === "tile") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
-    const tileDef = tile ? envTileDefs[tile.defId] : null;
-    label = tileDef?.name || tile?.defId || `Tile ${col}`;
-    targetKey = `tile:${col}`;
-
-    const ids = new Set();
-    const tags = new Set();
-    const baseTags = Array.isArray(tileDef?.baseTags) ? tileDef.baseTags : [];
-    for (const tag of baseTags) tags.add(tag);
-    for (const tag of tile?.tags || []) tags.add(tag);
-    for (const tag of tags) {
-      const tagDef = envTagDefs?.[tag];
-      const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
-      for (const systemId of systems) {
-        ids.add(systemId);
-      }
-    }
-    for (const systemId of Object.keys(tile?.systemState || {})) {
-      ids.add(systemId);
-    }
-    for (const systemId of Object.keys(tile?.systemTiers || {})) {
-      ids.add(systemId);
-    }
-    for (const systemId of ids.values()) {
-      if (systemId === "growth") {
-        series.push({
-          id: `${targetKey}:matured`,
-          label: "Matured",
-          color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-          getValue: (snap) => {
-            const t = snap?.board?.occ?.tile?.[col];
-            const pool = t?.systemState?.growth?.maturedPool;
-            return sumMaturedPool(pool);
-          },
-          getValueFromSnapshot: (snapshot, _subject, resolved) => {
-            const t =
-              (resolved?.kind === "tile" ? resolved.tile : null) ??
-              findTileAnchorAtCol(snapshot, col);
-            const pool = t?.systemState?.growth?.maturedPool;
-            return sumMaturedPool(pool);
-          },
-        });
-        continue;
-      }
-      const def = envSystemDefs[systemId];
-      const sysLabel = def?.ui?.name || systemId;
-      series.push({
-        id: `${targetKey}:${systemId}`,
-        label: sysLabel,
-        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-        getValue: (snap) => {
-          const t = snap?.board?.occ?.tile?.[col];
-          const sysState = t?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            t?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
-          return getTierValue(envSystemDefs, systemId, tier);
-        },
-        getValueFromSnapshot: (snapshot, _subject, resolved) => {
-          const t =
-            (resolved?.kind === "tile" ? resolved.tile : null) ??
-            findTileAnchorAtCol(snapshot, col);
-          const sysState = t?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            t?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
-          return getTierValue(envSystemDefs, systemId, tier);
-        },
-      });
-    }
-  } else if (target.kind === "hub") {
-    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
-    const structure =
-      col != null ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure : null;
-    const def = structure ? hubStructureDefs[structure.defId] : null;
-    label = def?.name || structure?.defId || `Hub ${col}`;
-    targetKey = `hub:${col}`;
-
-    const ids = new Set([
-      ...Object.keys(structure?.systemState || {}),
-      ...Object.keys(structure?.systemTiers || {}),
-    ]);
-    for (const systemId of ids.values()) {
-      const defSys = hubSystemDefs[systemId];
-      const sysLabel = defSys?.ui?.name || systemId;
-      series.push({
-        id: `${targetKey}:${systemId}`,
-        label: sysLabel,
-        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-        getValue: (snap) => {
-          const s =
-            col != null
-              ? snap?.hub?.occ?.[col] ?? snap?.hub?.slots?.[col]?.structure
-              : null;
-          const sysState = s?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
-          return getTierValue(hubSystemDefs, systemId, tier);
-        },
-        getValueFromSnapshot: (snapshot, _subject, resolved) => {
-          const s =
-            (resolved?.kind === "hub" ? resolved.hubStructure : null) ??
-            (col != null ? findHubStructureAtCol(snapshot, col) : null);
-          const sysState = s?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            s?.systemTiers?.[systemId] ?? hubSystemDefs[systemId]?.defaultTier;
-          return getTierValue(hubSystemDefs, systemId, tier);
-        },
-      });
-    }
-  } else if (target.kind === "pawn") {
-    const id = target.id;
-    const pawn = state?.pawns?.find((c) => c.id === id);
-    label = pawn?.name || `Pawn ${id}`;
-    targetKey = `pawn:${id}`;
-
-    const ids = new Set([
-      ...Object.keys(pawn?.systemState || {}),
-      ...Object.keys(pawn?.systemTiers || {}),
-    ]);
-    for (const systemId of ids.values()) {
-      const defSys = pawnSystemDefs[systemId];
-      const sysLabel = defSys?.ui?.name || systemId;
-      series.push({
-        id: `${targetKey}:${systemId}`,
-        label: sysLabel,
-        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
-        getValue: (snap) => {
-          const p = snap?.pawns?.find((c) => c.id === id);
-          const sysState = p?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
-          return getTierValue(pawnSystemDefs, systemId, tier);
-        },
-        getValueFromSnapshot: (snapshot, _subject, resolved) => {
-          const p =
-            (resolved?.kind === "pawn" ? resolved.pawn : null) ??
-            findPawnById(snapshot, id);
-          const sysState = p?.systemState?.[systemId];
-          if (Number.isFinite(sysState?.cur)) return sysState.cur;
-          if (Number.isFinite(sysState?.value)) return sysState.value;
-          const tier =
-            p?.systemTiers?.[systemId] ?? pawnSystemDefs[systemId]?.defaultTier;
-          return getTierValue(pawnSystemDefs, systemId, tier);
-        },
-      });
-    }
-  }
-
-  if (!series.length) {
-    series.push({
-      id: `${targetKey || "systems"}:empty`,
-      label: "No systems",
-      color: SYSTEM_GRAPH_COLORS[0],
-      getValue: () => 0,
-      getValueFromSnapshot: () => 0,
-    });
-  }
-
-  return {
-    label: `${label} Systems`,
-    series,
-  };
-}
+const systemGraphController = systemGraphModel.controller;
 
 const tooltipView = createTooltipView({
   layer: uiLayers.tooltipLayer,
@@ -1160,7 +811,7 @@ function togglePause() {
 }
 
 function clearActionLogAndReset() {
-  queuedActions.length = 0;
+  pausedActionQueue.clearQueuedActions();
   return queueActionWhenPaused(
     () =>
       runner.clearPlannerActionsAtCursor?.() || {
@@ -1301,103 +952,68 @@ processWidgetView = createProcessWidgetView({
     actionLogView?.flashGhost?.(spec, status),
 });
 
-let goldGraphView = createMetricGraphView({
+let goldGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: goldGraphController,
+  runner,
   metric: GRAPH_METRICS.gold,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  // STAGE 3: Use commitCursorSecond
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 280 },
 });
 
-let foodGraphView = createMetricGraphView({
+let foodGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: foodGraphController,
+  runner,
   metric: GRAPH_METRICS.food,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 460 },
 });
 
-let systemGraphView = createMetricGraphView({
+let systemGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: systemGraphController,
+  runner,
   getMetricDef: () => systemGraphController.getData().metric,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 220 },
+  historyWindowSec: 600,
 });
 
-let apGraphView = createMetricGraphView({
+let apGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: apGraphController,
+  runner,
   metric: GRAPH_METRICS.ap,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  getSeriesValueOverride: (tSec, seriesId) => {
+  getSeriesValueOverride: (tSec, seriesId, _point, cursorSecRaw) => {
     if (seriesId !== "ap") return null;
-    const state = runner.getCursorState();
-    const currentSec = Math.floor(state?.tSec ?? 0);
+    const currentSec = Number.isFinite(cursorSecRaw)
+      ? Math.floor(cursorSecRaw)
+      : Math.floor(runner.getCursorState()?.tSec ?? 0);
     if (tSec !== currentSec) return null;
     const preview = actionPlanner?.getApPreview?.();
     return preview ? preview.remaining : null;
   },
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 80 },
 });
 
-let popGraphView = createMetricGraphView({
+let popGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
   app,
   layer: uiLayers.controlsLayer,
   controller: popGraphController,
+  runner,
   metric: GRAPH_METRICS.population,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  setPreviewState: (s) => runner.setPreviewState(s),
-  clearPreviewState: () => runner.clearPreviewState(),
-  commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
   openPosition: { x: 350, y: 640 },
 });
 
-let lastSystemGraphTargetKey = null;
-
-function updateSystemGraphTarget() {
-  const target = getSystemGraphTarget();
-  const nextKey = getSystemGraphTargetKey(target);
-  if (nextKey === lastSystemGraphTargetKey) return false;
-  lastSystemGraphTargetKey = nextKey;
-  const state = runner.getCursorState?.();
-  const resolved = buildSystemSeriesForTarget(target, state);
-  systemGraphController.setSeries?.(resolved.series, resolved.label);
-  systemGraphController.setSubject?.(target, nextKey);
-  return true;
-}
-
 function openSystemGraphForHover() {
-  if (systemGraphView.isOpen()) {
-    systemGraphView.close();
-    return { ok: true, closed: true };
-  }
-  updateSystemGraphTarget();
-  runner.clearPreviewState();
-  systemGraphView.open();
-  return { ok: true, opened: true };
+  return systemGraphModel.toggleGraphForHover(systemGraphView);
 }
 
 const chromeView = createChromeView({
@@ -1443,6 +1059,20 @@ const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
   onOpenSystemGraph: () => openSystemGraphForHover(),
+  getProjectionParity: createProjectionParityProbe({
+    runner,
+    controller: apGraphController,
+  }),
+  getPerfSnapshot: () =>
+    getPerfSnapshot({
+      timeline: runner.getTimeline(),
+      controllers: [
+        goldGraphController,
+        foodGraphController,
+        apGraphController,
+        systemGraphController,
+      ],
+    }),
 });
 
 actionLogView = createActionLogView({
@@ -1515,8 +1145,12 @@ actionLogView.init();
 eventLogView.init();
 yearEndPerformanceView.init();
 applyScenarioDevUiBootstrap();
-apGraphView.open();
-systemGraphView.open();
+// Default-on for dev UX; set __DBG_AUTO_OPEN_GRAPHS__ = false to opt out.
+const devAutoOpenGraphs = globalThis?.__DBG_AUTO_OPEN_GRAPHS__ !== false;
+if (devAutoOpenGraphs) {
+  apGraphView.open();
+  systemGraphView.open();
+}
 
 function isTypingTarget(target) {
   if (!target || typeof target !== "object") return false;
@@ -1548,24 +1182,36 @@ function handleGlobalKeyDown(ev) {
 window.addEventListener("keydown", handleGlobalKeyDown);
 
 app.ticker.add((delta) => {
+  const perfOn = perfEnabled();
+  const perfFrameStart = perfOn ? perfNowMs() : 0;
+  const runTimed = (id, fn) => {
+    if (!perfOn) {
+      fn();
+      return;
+    }
+    const start = perfNowMs();
+    fn();
+    recordViewUpdate(id, perfNowMs() - start);
+  };
+
   const frameDt = delta / 60;
-  runner.update(frameDt);
-  flushQueuedActions();
-  interactionController.update(frameDt);
-  boardView.update(frameDt);
-  pawnsView.update(frameDt);
-  tooltipView.update(frameDt);
-  inventoryView.update(frameDt);
-  processWidgetView.update(frameDt);
-  chromeView.update(frameDt);
-  sunMoonDisksView.update(frameDt); // NEW
-  actionLogView.update(frameDt);
-  syncYearEndPerformancePopup();
-  eventLogView.update(frameDt);
-  yearEndPerformanceView.update(frameDt);
-  skillTreeView?.update?.(frameDt);
-  skillTreeEditorView?.update?.(frameDt);
-  debugView.update();
+  runTimed("runner.update", () => runner.update(frameDt));
+  runTimed("queuedActions.flush", () => flushQueuedActions());
+  runTimed("interaction.update", () => interactionController.update(frameDt));
+  runTimed("board.update", () => boardView.update(frameDt));
+  runTimed("pawns.update", () => pawnsView.update(frameDt));
+  runTimed("tooltip.update", () => tooltipView.update(frameDt));
+  runTimed("inventory.update", () => inventoryView.update(frameDt));
+  runTimed("processWidget.update", () => processWidgetView.update(frameDt));
+  runTimed("chrome.update", () => chromeView.update(frameDt));
+  runTimed("sunMoon.update", () => sunMoonDisksView.update(frameDt)); // NEW
+  runTimed("actionLog.update", () => actionLogView.update(frameDt));
+  runTimed("yearEnd.sync", () => syncYearEndPerformancePopup());
+  runTimed("eventLog.update", () => eventLogView.update(frameDt));
+  runTimed("yearEnd.update", () => yearEndPerformanceView.update(frameDt));
+  runTimed("skillTree.update", () => skillTreeView?.update?.(frameDt));
+  runTimed("skillTreeEditor.update", () => skillTreeEditorView?.update?.(frameDt));
+  runTimed("debug.update", () => debugView.update());
 
   const anyMetricGraphOpen =
     goldGraphView.isOpen() ||
@@ -1578,31 +1224,33 @@ app.ticker.add((delta) => {
   popGraphController.setActive?.(popGraphView.isOpen());
   if (anyMetricGraphOpen) {
     if (goldGraphView.isOpen()) {
-      goldGraphController.update();
-      goldGraphView.render();
+      runTimed("graph.gold.controllerUpdate", () => goldGraphController.update());
+      runTimed("graph.gold.render", () => goldGraphView.render());
     }
     if (foodGraphView.isOpen()) {
-      foodGraphController.update();
-      foodGraphView.render();
+      runTimed("graph.food.controllerUpdate", () => foodGraphController.update());
+      runTimed("graph.food.render", () => foodGraphView.render());
     }
     if (apGraphView.isOpen()) {
-      apGraphController.update();
-      apGraphView.render();
+      runTimed("graph.ap.controllerUpdate", () => apGraphController.update());
+      runTimed("graph.ap.render", () => apGraphView.render());
     }
     if (popGraphView.isOpen()) {
-      popGraphController.update();
-      popGraphView.render();
+      runTimed("graph.pop.controllerUpdate", () => popGraphController.update());
+      runTimed("graph.pop.render", () => popGraphView.render());
     }
   }
 
   const systemGraphOpen = systemGraphView.isOpen();
   systemGraphController.setActive?.(systemGraphOpen);
   if (systemGraphOpen) {
-    if (updateSystemGraphTarget()) {
-      runner.clearPreviewState();
-    }
-    systemGraphController.update();
-    systemGraphView.render();
+    systemGraphModel.refreshTargetThrottled(performance.now());
+    runTimed("graph.system.controllerUpdate", () => systemGraphController.update());
+    runTimed("graph.system.render", () => systemGraphView.render());
+  }
+
+  if (perfOn) {
+    recordViewFrame(perfNowMs() - perfFrameStart);
   }
 });
 
@@ -1618,6 +1266,16 @@ window.__DBG__ = {
   dispatch: (kind, payload) => runner.dispatchAction(kind, payload),
   getLastPlannerCommitError: () =>
     runner.getLastPlannerCommitError?.() ?? null,
+  perf: () =>
+    getPerfSnapshot({
+      timeline: runner.getTimeline(),
+      controllers: [
+        goldGraphController,
+        foodGraphController,
+        apGraphController,
+        systemGraphController,
+      ],
+    }),
   test: runDeterminismSuite,
 };
 

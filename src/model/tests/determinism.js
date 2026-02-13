@@ -9,7 +9,7 @@ import {
   createTimelineFromInitialState,
   rebuildStateAtSecond,
   replaceActionsAtSecond,
-} from "../timeline.js";
+} from "../timeline/index.js";
 import { updateGame, createInitialState } from "../game-model.js";
 import { buildMetricGraphWindowFromTimeline } from "../projection.js";
 import { canonicalizeSnapshot } from "../canonicalize.js";

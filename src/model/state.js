@@ -1165,3 +1165,12 @@ export function loadIntoGameState(data) {
   attachRngHelpers(gameState);
 }
 
+// Fast path for already-materialized canonical states (e.g. timeline rebuilds).
+// Avoids serialize/deserialize roundtrips when callers already hold a full state object.
+export function loadStateObjectIntoGameState(stateObj) {
+  if (!stateObj || typeof stateObj !== "object") return;
+  Object.keys(gameState).forEach((k) => delete gameState[k]);
+  Object.assign(gameState, stateObj);
+  attachRngHelpers(gameState);
+}
+

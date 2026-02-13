@@ -56,6 +56,8 @@ const PILL_GAP = 6;
 const PILL_PAD_X = 8;
 const TOGGLE_SIZE = 10;
 const TOGGLE_PAD = 6;
+const WINDOW_IDLE_DESTROY_FRAMES = 180;
+const WITHDRAW_UI_CACHE_MAX = 256;
 
 const GROUP_SYSTEM_IDS = new Set([
   "growth",
@@ -2714,6 +2716,33 @@ export function createProcessWidgetView({
     return withdrawUiStateByTarget.get(key);
   }
 
+  function pruneWithdrawUiStateCache(state) {
+    if (withdrawUiStateByTarget.size <= WITHDRAW_UI_CACHE_MAX) return;
+    const keep = new Set();
+
+    for (const win of windows.values()) {
+      const target = resolveTargetFromRef(state, win?.targetRef);
+      const key = getTargetKey(target);
+      if (key) keep.add(key);
+    }
+
+    const hoverTarget = resolveTargetFromRef(state, hoverContext?.targetRef);
+    const externalTarget = resolveTargetFromRef(
+      state,
+      externalFocusContext?.targetRef
+    );
+    const hoverKey = getTargetKey(hoverTarget);
+    const externalKey = getTargetKey(externalTarget);
+    if (hoverKey) keep.add(hoverKey);
+    if (externalKey) keep.add(externalKey);
+
+    for (const key of withdrawUiStateByTarget.keys()) {
+      if (withdrawUiStateByTarget.size <= WITHDRAW_UI_CACHE_MAX) break;
+      if (keep.has(key)) continue;
+      withdrawUiStateByTarget.delete(key);
+    }
+  }
+
   function canWithdrawFromTarget(target) {
     const info = getDepositPoolTarget(target);
     if (!info) return false;
@@ -3504,6 +3533,7 @@ export function createProcessWidgetView({
       hasPosition: false,
       anchorRect: getTargetAnchorRect(target),
       offsetIndex: Number.isFinite(offsetIndex) ? Math.floor(offsetIndex) : 0,
+      idleFrames: 0,
     };
     windows.set(windowId, win);
     if (!win.anchorRect) {
@@ -3648,8 +3678,17 @@ export function createProcessWidgetView({
           : !!win.pinned || !!win.hovered;
         if (!visible) {
           win.container.visible = false;
+          if (!win.pinned && !win.hovered && !win.externalFocused) {
+            win.idleFrames = (win.idleFrames ?? 0) + 1;
+            if (win.idleFrames >= WINDOW_IDLE_DESTROY_FRAMES) {
+              destroyWindow(windowId);
+            }
+          } else {
+            win.idleFrames = 0;
+          }
           continue;
         }
+        win.idleFrames = 0;
 
         const signatureKey = `${windowId}|${getTargetKey(target)}`;
         let signature = null;
@@ -3781,8 +3820,17 @@ export function createProcessWidgetView({
         : !!win.pinned || !!win.hovered;
       if (!visible) {
         win.container.visible = false;
+        if (!win.pinned && !win.hovered && !win.externalFocused) {
+          win.idleFrames = (win.idleFrames ?? 0) + 1;
+          if (win.idleFrames >= WINDOW_IDLE_DESTROY_FRAMES) {
+            destroyWindow(windowId);
+          }
+        } else {
+          win.idleFrames = 0;
+        }
         continue;
       }
+      win.idleFrames = 0;
 
       const entries = [{ ...entry, processDef }];
       const signatureKey = `${windowId}|${getTargetKey(target)}`;
@@ -3803,6 +3851,7 @@ export function createProcessWidgetView({
       positionWindowAtAnchor(win);
       win.container.visible = true;
     }
+    pruneWithdrawUiStateCache(state);
   }
 
   function getDropTargetOwnerAtGlobalPos(globalPos) {

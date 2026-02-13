@@ -3,6 +3,11 @@
 // STAGE 3: tSec aware.
 
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
+import { perfEnabled, perfNowMs, recordGraphRender } from "../model/perf.js";
+import {
+  getActionSecondsInRange,
+  getActionSecondsInRangeSampled,
+} from "../model/timeline/index.js";
 
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {
@@ -29,6 +34,7 @@ export function createMetricGraphView({
   clearPreviewState,
   commitSecond,
   openPosition,
+  historyWindowSec = null,
 }) {
   let metricDef = GRAPH_METRICS.gold;
   let series = GRAPH_METRICS.gold.series;
@@ -149,9 +155,16 @@ export function createMetricGraphView({
   let lastRestoreMs = 0;
   const RESTORE_THROTTLE_MS = 33;
   let statusNote = "";
+  let lastScrubSignature = "";
   let cachedActionSecs = [];
-  let lastActionRevision = null;
+  let lastActionSecondsVersion = null;
+  let lastActionRangeKey = "";
+  let cachedMarkerActionSecs = [];
+  let lastMarkerActionSecondsVersion = null;
+  let lastMarkerRangeKey = "";
+  let lastMarkerCap = 0;
   const ACTION_SNAP_THRESHOLD_SEC = 0.75;
+  const MAX_ACTION_MARKERS_DENSITY = 2;
 
   function clampInt(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v | 0));
@@ -186,7 +199,7 @@ export function createMetricGraphView({
   }
 
   function applyActionSnap(t) {
-    const list = getActionSecs();
+    const list = getActionSecs(minSec, maxSec);
     if (!list.length) return t;
 
     let lo = 0;
@@ -216,22 +229,70 @@ export function createMetricGraphView({
     return bestDist <= ACTION_SNAP_THRESHOLD_SEC ? best : t;
   }
 
-  function getActionSecs() {
+  function getActionSecs(startSec, endSec) {
     const tl = getTimeline?.();
-    const rev = Math.floor(tl?.revision ?? -1);
-    if (rev !== lastActionRevision) {
-      lastActionRevision = rev;
-      cachedActionSecs = [];
-      if (tl?.actions?.length) {
-        const set = new Set();
-        for (const a of tl.actions) {
-          const sec = Math.max(0, Math.floor(a.tSec ?? 0));
-          set.add(sec);
-        }
-        cachedActionSecs = Array.from(set.values()).sort((a, b) => a - b);
-      }
+    const actionSecondsVersion = Math.floor(tl?._actionSecondsVersion ?? -1);
+    const start = Math.max(0, Math.floor(startSec ?? 0));
+    const end = Math.max(0, Math.floor(endSec ?? 0));
+    const rangeKey = `${start}:${end}`;
+    if (
+      actionSecondsVersion !== lastActionSecondsVersion ||
+      rangeKey !== lastActionRangeKey
+    ) {
+      lastActionSecondsVersion = actionSecondsVersion;
+      lastActionRangeKey = rangeKey;
+      cachedActionSecs = getActionSecondsInRange(tl, start, end, {
+        copy: false,
+      });
     }
     return cachedActionSecs;
+  }
+
+  function getMarkerActionSecs(startSec, endSec, markerCap) {
+    const tl = getTimeline?.();
+    const actionSecondsVersion = Math.floor(tl?._actionSecondsVersion ?? -1);
+    const start = Math.max(0, Math.floor(startSec ?? 0));
+    const end = Math.max(0, Math.floor(endSec ?? 0));
+    const rangeKey = `${start}:${end}`;
+    const cap = Math.max(64, Math.floor(markerCap ?? 64));
+    if (
+      actionSecondsVersion !== lastMarkerActionSecondsVersion ||
+      rangeKey !== lastMarkerRangeKey ||
+      cap !== lastMarkerCap
+    ) {
+      lastMarkerActionSecondsVersion = actionSecondsVersion;
+      lastMarkerRangeKey = rangeKey;
+      lastMarkerCap = cap;
+      cachedMarkerActionSecs = getActionSecondsInRangeSampled(
+        tl,
+        start,
+        end,
+        cap * 2,
+        { copy: false }
+      );
+    }
+    return cachedMarkerActionSecs;
+  }
+
+  function getMarkerSeconds(actionSecs) {
+    const list = Array.isArray(actionSecs) ? actionSecs : [];
+    if (!list.length) return [];
+    const maxMarkers = Math.max(
+      64,
+      Math.floor(plot.w * MAX_ACTION_MARKERS_DENSITY)
+    );
+    if (list.length <= maxMarkers) return list;
+
+    const stride = Math.max(1, Math.ceil(list.length / maxMarkers));
+    const sampled = [];
+    for (let i = 0; i < list.length; i += stride) {
+      sampled.push(list[i]);
+    }
+    const last = list[list.length - 1];
+    if (sampled[sampled.length - 1] !== last) {
+      sampled.push(last);
+    }
+    return sampled;
   }
 
   function updateZoomButton() {
@@ -287,6 +348,10 @@ export function createMetricGraphView({
 
     const historyEnd = tl?.historyEndSec ?? 0;
     const currentT = Math.floor(cs?.tSec ?? 0);
+    const rollingWindow =
+      Number.isFinite(historyWindowSec) && historyWindowSec > 0
+        ? Math.floor(historyWindowSec)
+        : null;
 
     if (zoomed) {
       const halfSpan = Math.max(1, Math.floor(horizonSec / 4));
@@ -302,8 +367,10 @@ export function createMetricGraphView({
       minSec = min;
       maxSec = Math.max(min + span, max);
     } else {
-      minSec = 0;
-      maxSec = Math.max(historyEnd, currentT) + horizonSec;
+      const liveMax = Math.max(historyEnd, currentT);
+      minSec =
+        rollingWindow != null ? Math.max(0, liveMax - rollingWindow) : 0;
+      maxSec = liveMax + horizonSec;
     }
 
     if (!isScrubbing) {
@@ -313,58 +380,36 @@ export function createMetricGraphView({
 
   function drawPlot() {
     resolveMetric();
+    const perfStart = perfEnabled() ? perfNowMs() : 0;
     plotG.clear();
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
-    const useSubjectValues =
-      typeof controller?.getSeriesValuesForSeconds === "function" &&
-      (data.metric?.useSubjectValues === true ||
-        data.subjectKey != null);
-
-    const history = Array.isArray(data.cache?.history)
-      ? data.cache.history
+    const cs = getCursorState?.();
+    const cursorSec = Math.floor(cs?.tSec ?? 0);
+    const sampleRes = controller.getSamplesForWindow?.({
+      startSec: minSec,
+      endSec: maxSec,
+      focus: zoomed,
+      cursorSec,
+    });
+    const sampledPoints = Array.isArray(sampleRes?.points)
+      ? sampleRes.points
       : [];
-    const forecast = Array.isArray(data.cache?.window?.forecast)
-      ? data.cache.window.forecast
-      : [];
 
-    if ((!history.length && !forecast.length) || !seriesList.length) return;
+    if (!sampledPoints.length || !seriesList.length) return;
 
-    // Merge-scan history + forecast (both sorted) within the visible window.
-    let hi = 0;
-    let fi = 0;
-    const filteredPoints = [];
-    while (hi < history.length || fi < forecast.length) {
-      const hp = hi < history.length ? history[hi] : null;
-      const fp = fi < forecast.length ? forecast[fi] : null;
-      let pick = null;
-      if (hp && fp) {
-        pick = (hp.tSec ?? 0) <= (fp.tSec ?? 0) ? hp : fp;
-      } else {
-        pick = hp || fp;
-      }
-      if (!pick) break;
-      const t = pick.tSec ?? 0;
-      if (t > maxSec) break;
-      if (t >= minSec) {
-        filteredPoints.push(pick);
-      }
-      if (hp && pick === hp) hi++;
-      else if (fp) fi++;
-    }
-
-    let pointsForDraw = filteredPoints;
+    let pointsForDraw = sampledPoints;
     const maxPlotPoints = Math.min(
       MAX_PLOT_POINTS,
       Math.max(200, Math.floor(plot.w) * 2)
     );
-    if (filteredPoints.length > maxPlotPoints) {
-      const step = Math.ceil(filteredPoints.length / maxPlotPoints);
+    if (sampledPoints.length > maxPlotPoints) {
+      const step = Math.ceil(sampledPoints.length / maxPlotPoints);
       const decimated = [];
-      for (let i = 0; i < filteredPoints.length; i += step) {
-        decimated.push(filteredPoints[i]);
+      for (let i = 0; i < sampledPoints.length; i += step) {
+        decimated.push(sampledPoints[i]);
       }
-      const last = filteredPoints[filteredPoints.length - 1];
+      const last = sampledPoints[sampledPoints.length - 1];
       if (last && decimated[decimated.length - 1] !== last) {
         decimated.push(last);
       }
@@ -373,32 +418,26 @@ export function createMetricGraphView({
 
     if (!pointsForDraw.length) return;
 
-    const secsForDraw = pointsForDraw.map((p) =>
-      Math.max(0, Math.floor(p?.tSec ?? 0))
-    );
-    const valuesBySec = useSubjectValues
-      ? controller.getSeriesValuesForSeconds(secsForDraw)
-      : null;
-
     function resolveValue(point, seriesDef) {
       const t = Math.max(0, Math.floor(point?.tSec ?? 0));
-      const override = getSeriesValueOverride?.(t, seriesDef.id, point);
+      const override = getSeriesValueOverride?.(t, seriesDef.id, point, cursorSec);
       if (Number.isFinite(override)) return override;
-      if (valuesBySec && valuesBySec.has(t)) {
-        const values = valuesBySec.get(t);
-        if (values && values[seriesDef.id] != null) {
-          const v = values[seriesDef.id];
-          return Number.isFinite(v) ? v : 0;
-        }
-      }
       return getSeriesValue(point, seriesDef.id);
+    }
+
+    const seriesValues = new Map();
+    for (const s of seriesList) {
+      seriesValues.set(s.id, new Array(pointsForDraw.length));
     }
 
     let minValue = Infinity;
     let maxValue = -Infinity;
-    for (const p of pointsForDraw) {
+    for (let i = 0; i < pointsForDraw.length; i++) {
+      const p = pointsForDraw[i];
       for (const s of seriesList) {
         const v = resolveValue(p, s);
+        const arr = seriesValues.get(s.id);
+        if (arr) arr[i] = v;
         if (v < minValue) minValue = v;
         if (v > maxValue) maxValue = v;
       }
@@ -442,12 +481,14 @@ export function createMetricGraphView({
       const lineColor = Number.isFinite(s.color) ? s.color : 0xffffff;
       plotG.lineStyle(2, lineColor, 1);
       let first = true;
+      const values = seriesValues.get(s.id) ?? [];
 
-      for (const p of pointsForDraw) {
+      for (let i = 0; i < pointsForDraw.length; i++) {
+        const p = pointsForDraw[i];
         const t = p.tSec ?? 0;
 
         const x = timeToX(t);
-        const value = resolveValue(p, s);
+        const value = Number.isFinite(values[i]) ? values[i] : 0;
         const y = yForValue(value);
 
         if (first) {
@@ -460,12 +501,16 @@ export function createMetricGraphView({
     }
 
     // Markers (actions)
-    const tl = getTimeline?.();
-    if (tl && tl.actions) {
+    const markerActionSecs = getMarkerActionSecs(
+      minSec,
+      maxSec,
+      Math.floor(plot.w * MAX_ACTION_MARKERS_DENSITY)
+    );
+    const markerSecs = getMarkerSeconds(markerActionSecs);
+    if (markerSecs.length) {
       plotG.beginFill(0x55ff55);
       plotG.lineStyle(0);
-      for (const entry of tl.actions) {
-        const t = entry.tSec ?? 0;
+      for (const t of markerSecs) {
         if (t >= minSec && t <= maxSec) {
           const x = timeToX(t);
           plotG.drawCircle(x, plot.y + plot.h - 3, 3);
@@ -473,11 +518,18 @@ export function createMetricGraphView({
       }
       plotG.endFill();
     }
+
+    if (perfEnabled()) {
+      recordGraphRender({
+        ms: perfNowMs() - perfStart,
+        points: pointsForDraw.length,
+        metric: data.metric?.id ?? metricDef?.id ?? metricDef?.label ?? null,
+      });
+    }
   }
 
   function drawScrub() {
     resolveMetric();
-    scrubG.clear();
     const cs = getCursorState?.();
     const tl = getTimeline?.();
 
@@ -485,6 +537,14 @@ export function createMetricGraphView({
 
     const curT = Math.floor(cs.tSec ?? 0);
     const historyEnd = tl?.historyEndSec ?? 0;
+    const metricLabel = getMetricLabel();
+    const signature =
+      `${isScrubbing ? 1 : 0}|${scrubSec}|${curT}|${historyEnd}|` +
+      `${minSec}:${maxSec}|${statusNote}|${metricLabel}`;
+    if (signature === lastScrubSignature) return;
+    lastScrubSignature = signature;
+
+    scrubG.clear();
 
     const x = timeToX(scrubSec);
 
@@ -505,7 +565,6 @@ export function createMetricGraphView({
     const zone = scrubSec <= historyEnd ? "History" : "Forecast";
     const note = statusNote ? ` • ${statusNote}` : "";
 
-    const metricLabel = getMetricLabel();
     text.text = `${metricLabel} • Time: ${scrubSec}s (${zone}) • Live: ${curT}s${note}`;
   }
 
