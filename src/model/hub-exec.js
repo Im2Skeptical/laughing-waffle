@@ -16,7 +16,7 @@ import {
   SEASON_DISPLAY,
 } from "../defs/gamesettings/gamerules-defs.js";
 import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
-import { runEffect } from "./effects.js";
+import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { PAWN_ROLE_LEADER, getLeaderById } from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";

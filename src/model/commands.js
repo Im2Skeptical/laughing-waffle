@@ -42,7 +42,7 @@ import {
 import {
   runEffect,
   processSecondChangeForItems,
-} from "./effects.js";
+} from "./effects/index.js";
 
 import {
   Inventory,

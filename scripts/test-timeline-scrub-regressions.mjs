@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 
 import { createSimRunner } from "../src/controllers/sim-runner.js";
 import { ActionKinds } from "../src/model/actions.js";
-import { getStateDataAtSecond, rebuildStateAtSecond } from "../src/model/timeline.js";
+import {
+  getStateDataAtSecond,
+  rebuildStateAtSecond,
+} from "../src/model/timeline/index.js";
 import { createTimeGraphController } from "../src/model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../src/model/graph-metrics.js";
 import { cropDefs } from "../src/defs/gamepieces/crops-defs.js";

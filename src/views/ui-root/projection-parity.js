@@ -1,4 +1,4 @@
-import { rebuildStateAtSecond } from "../../model/timeline.js";
+import { rebuildStateAtSecond } from "../../model/timeline/index.js";
 
 function summarizeProjectionState(state) {
   const pawns = (state?.pawns ?? [])
@@ -52,4 +52,3 @@ export function createProjectionParityProbe({ runner, controller }) {
     };
   };
 }
-

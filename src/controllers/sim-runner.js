@@ -20,7 +20,7 @@ import {
   maintainCheckpoints,
   seedMemoStateDataAtSecond,
   seedCheckpointStateDataAtSecond,
-} from "../model/timeline.js";
+} from "../model/timeline/index.js";
 
 import {
   deserializeGameState,

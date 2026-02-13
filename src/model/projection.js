@@ -9,7 +9,7 @@ import {
   rebuildStateAtSecond,
   getStateDataAtSecond,
   isValidTimeline,
-} from "./timeline.js";
+} from "./timeline/index.js";
 import { canonicalizeSnapshot } from "./canonicalize.js";
 import { updateGame } from "./game-model.js";
 import { applyAction } from "./actions.js";

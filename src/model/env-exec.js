@@ -11,7 +11,7 @@ import {
   rebuildBoardOccupancy,
 } from "./state.js";
 import { createRng } from "./rng.js";
-import { runEffect } from "./effects.js";
+import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { pushGameEvent } from "./event-feed.js";
 

@@ -7,7 +7,7 @@ import { perfEnabled, perfNowMs, recordGraphRender } from "../model/perf.js";
 import {
   getActionSecondsInRange,
   getActionSecondsInRangeSampled,
-} from "../model/timeline.js";
+} from "../model/timeline/index.js";
 
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {

@@ -17,7 +17,7 @@ import {
   getActionSecondsInRange,
   getActionSecondsInRangeSampled,
   getStateDataAtSecond,
-} from "./timeline.js";
+} from "./timeline/index.js";
 import {
   perfEnabled,
   perfNowMs,
