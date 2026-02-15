@@ -101,6 +101,7 @@ const AP_OVERLAY_FADE_IN = 14;
 const AP_OVERLAY_FADE_OUT = 8;
 const AP_OVERLAY_FILL = 0x8a1f2a;
 const AP_OVERLAY_STROKE = 0xff4f5e;
+const ITEM_TAP_MAX_DRAG_PX = 8;
 
 function getItemTierBorderColor(item, def) {
   const tier = item?.tier ?? def?.defaultTier ?? null;
@@ -143,6 +144,7 @@ export function createInventoryView({
   setApDragWarning,
   discardItemFromOwner,
   flashActionGhost,
+  onUseItem,
 }) {
   const stage = layer.parent;
 
@@ -184,6 +186,9 @@ export function createInventoryView({
     cellOffsetGX: 0,
     cellOffsetGY: 0,
     lastGlobalPos: null,
+    pressStartX: 0,
+    pressStartY: 0,
+    movedDistanceSq: 0,
   };
 
   // Active split modal
@@ -2337,6 +2342,26 @@ export function createInventoryView({
   // ITEM INTERACTION
   // ---------------------------------------------------------------------------
 
+  function wasTapInteraction() {
+    const maxSq = ITEM_TAP_MAX_DRAG_PX * ITEM_TAP_MAX_DRAG_PX;
+    return (dragItem.movedDistanceSq ?? 0) <= maxSq;
+  }
+
+  function tryUseItemFromTap({ ownerId, item, sourceEquipmentSlotId, view }) {
+    if (typeof onUseItem !== "function") return false;
+    if (!item) return false;
+    const result = onUseItem({
+      ownerId,
+      itemId: item.id,
+      item,
+      sourceEquipmentSlotId: sourceEquipmentSlotId ?? null,
+    });
+    if (result && typeof result === "object" && result.handled === true) {
+      return true;
+    }
+    return result === true;
+  }
+
   function onItemPointerDown(ev, win, item, view) {
     if (uiBlocked) return;
 
@@ -2371,6 +2396,9 @@ export function createInventoryView({
     const sourceSlotId = view?.sourceEquipmentSlotId ?? null;
 
     dragItem.lastGlobalPos = { x: g.x, y: g.y };
+    dragItem.pressStartX = g.x;
+    dragItem.pressStartY = g.y;
+    dragItem.movedDistanceSq = 0;
     let cellOffsetGX = 0;
     let cellOffsetGY = 0;
     if (!sourceSlotId) {
@@ -2468,6 +2496,12 @@ export function createInventoryView({
 
     const g = ev.data.global;
     dragItem.lastGlobalPos = { x: g.x, y: g.y };
+    const dx = g.x - (dragItem.pressStartX ?? g.x);
+    const dy = g.y - (dragItem.pressStartY ?? g.y);
+    const distSq = dx * dx + dy * dy;
+    if (distSq > (dragItem.movedDistanceSq ?? 0)) {
+      dragItem.movedDistanceSq = distSq;
+    }
     const s = dragItem.sprite;
 
     s.x = g.x - dragItem.offsetX;
@@ -2503,10 +2537,14 @@ export function createInventoryView({
     const sourceEquipmentSlotId = dragItem.sourceEquipmentSlotId ?? null;
     const view = dragItem.view;
     const g = ev.data.global;
+    const tapInteraction = wasTapInteraction();
 
     cleanupDragSprite();
     dragItem.active = false;
     dragItem.lastGlobalPos = null;
+    dragItem.pressStartX = 0;
+    dragItem.pressStartY = 0;
+    dragItem.movedDistanceSq = 0;
 
     const finish = (status = null) => {
       restoreItemView(view);
@@ -2531,6 +2569,20 @@ export function createInventoryView({
       flashItemError(view, sourceOwner);
       finish("fail");
       return;
+    }
+
+    if (tapInteraction) {
+      const used = tryUseItemFromTap({
+        ownerId: sourceOwner,
+        item,
+        sourceEquipmentSlotId,
+        view,
+      });
+      if (used) {
+        rebuildWindow(sourceOwner);
+        finish();
+        return;
+      }
     }
 
     const binTarget = findBinAt(g);

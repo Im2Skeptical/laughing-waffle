@@ -178,6 +178,23 @@ export const Inventory = {
     // Apply def-derived defaults and base tags/systems before placement checks.
     initializeItemFromDef(state, item, { reset: true });
 
+    // Re-apply explicit per-instance overrides after def initialization.
+    if (Array.isArray(config.tags)) {
+      item.tags = normalizeTagList(cloneSerializable(config.tags));
+    }
+    if (config.systemTiers && typeof config.systemTiers === "object") {
+      const tiers = cloneSerializable(config.systemTiers);
+      for (const [systemId, tierValue] of Object.entries(tiers)) {
+        item.systemTiers[systemId] = tierValue;
+      }
+    }
+    if (config.systemState && typeof config.systemState === "object") {
+      const states = cloneSerializable(config.systemState);
+      for (const [systemId, systemValue] of Object.entries(states)) {
+        item.systemState[systemId] = systemValue;
+      }
+    }
+
     if (!Inventory.canPlaceItemAt(inv, item, item.gridX, item.gridY)) {
       let placed = false;
       outer: for (let gy = 0; gy <= inv.rows - item.height; gy++) {

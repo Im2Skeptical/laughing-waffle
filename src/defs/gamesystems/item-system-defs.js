@@ -50,4 +50,15 @@ export const itemSystemDefs = {
       },
     },
   },
+  timegraph: {
+    id: "timegraph",
+    kind: "itemSystem",
+    ui: {
+      name: "Timegraph",
+      description: "Stores deterministic graph configuration for scroll items.",
+    },
+    defaultTier: "bronze",
+    tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
+    stateDefaults: {},
+  },
 };

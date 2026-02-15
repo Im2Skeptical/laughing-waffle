@@ -254,17 +254,20 @@ export function createChromeView({
     const baseFood = Number.isFinite(s.resources.food) ? s.resources.food : 0;
     const foodTotal = baseFood + edibleFood;
 
+    const grainAmount = Number.isFinite(s.resources?.grain) ? s.resources.grain : 0;
     resourceText.text = `Gold: ${s.resources.gold.toFixed(
       1
-    )}  Food: ${foodTotal.toFixed(1)}  Pop: ${s.resources.population.toFixed(
+    )}  Grain: ${grainAmount.toFixed(1)}  Food: ${foodTotal.toFixed(
       1
-    )}  `;
+    )}  Pop: ${s.resources.population.toFixed(1)}  `;
 
     const goldSegment = `Gold: ${s.resources.gold.toFixed(1)}  `;
+    const grainSegment = `Grain: ${grainAmount.toFixed(1)}  `;
     const foodSegment = `Food: ${foodTotal.toFixed(1)}  `;
     const popSegment = `Pop: ${s.resources.population.toFixed(1)}  `;
 
     const goldWidth = measureTextWidth(goldSegment);
+    const grainWidth = measureTextWidth(grainSegment);
     const foodWidth = measureTextWidth(foodSegment);
     const popWidth = measureTextWidth(popSegment);
 
@@ -284,7 +287,7 @@ export function createChromeView({
     goldHit.cursor = typeof onGoldClick === "function" ? "pointer" : "default";
 
     const foodHitW = Math.max(1, Math.ceil(foodWidth));
-    const foodHitX = gx + hitW;
+    const foodHitX = gx + hitW + Math.max(1, Math.ceil(grainWidth));
     foodHit.clear();
     foodHit.beginFill(0xffffff);
     foodHit.drawRect(foodHitX, gy - 2, foodHitW, hitH);

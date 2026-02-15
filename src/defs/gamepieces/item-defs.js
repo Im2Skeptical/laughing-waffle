@@ -1,6 +1,69 @@
 // --- Items (inventory things) ---
 // Item defs are data-only. Behavior lives in itemTagDefs + itemSystemDefs.
 
+import {
+  SCROLL_GRAPH_DEFAULT_HISTORY_WINDOW_SEC,
+  SCROLL_GRAPH_DEFAULT_HORIZON_SEC,
+  SCROLL_GRAPH_SUBJECT_DEFS,
+  SCROLL_GRAPH_SUBJECT_IDS,
+  SCROLL_GRAPH_TYPE_DEFS,
+  SCROLL_GRAPH_TYPE_IDS,
+  buildScrollTimegraphState,
+  makeScrollItemKind,
+} from "./scroll-timegraph-defs.js";
+
+export const SCROLL_TIMEGRAPH_DEFAULT_HORIZON_SEC =
+  SCROLL_GRAPH_DEFAULT_HORIZON_SEC;
+export const SCROLL_TIMEGRAPH_DEFAULT_HISTORY_WINDOW_SEC =
+  SCROLL_GRAPH_DEFAULT_HISTORY_WINDOW_SEC;
+
+const SCROLL_TYPE_COLORS = {
+  prophecy: 0x5678a8,
+  almanac: 0x4f8f76,
+  record: 0x8f6643,
+  history: 0x6d5a8f,
+  scripture: 0x8c5066,
+};
+
+const scrollItemDefs = {};
+for (const typeId of SCROLL_GRAPH_TYPE_IDS) {
+  const typeDef = SCROLL_GRAPH_TYPE_DEFS[typeId];
+  if (!typeDef) continue;
+  for (const subjectId of SCROLL_GRAPH_SUBJECT_IDS) {
+    const subjectDef = SCROLL_GRAPH_SUBJECT_DEFS[subjectId];
+    if (!subjectDef) continue;
+
+    const kind = makeScrollItemKind(typeId, subjectId);
+    const graphState = buildScrollTimegraphState(typeId, subjectId);
+    if (!graphState) continue;
+
+    scrollItemDefs[kind] = {
+      id: kind,
+      name: `${subjectDef.name} ${typeDef.name}`,
+      color: SCROLL_TYPE_COLORS[typeId] ?? subjectDef.color ?? 0x777777,
+      maxStack: 1,
+      baseTags: ["crafting"],
+      baseSystemTiers: { timegraph: "bronze" },
+      baseSystemState: { timegraph: graphState },
+      defaultWidth: 1,
+      defaultHeight: 2,
+      defaultTier: "bronze",
+      ui: {
+        shortLabel: `${typeDef.shortLabel}-${subjectDef.shortLabel}`,
+        title: `${subjectDef.name} ${typeDef.name}`,
+        lines: [
+          "Item id: {id}",
+          "Owner: {ownerLabel}",
+          "Quantity: {quantity}",
+          "Type: " + typeDef.name,
+          "Subject: " + subjectDef.name,
+          "Click or tap to open/close this timegraph.",
+        ],
+      },
+    };
+  }
+}
+
 export const itemDefs = {
   barley: {
     id: "barley",
@@ -536,4 +599,5 @@ export const itemDefs = {
       ],
     },
   },
+  ...scrollItemDefs,
 };

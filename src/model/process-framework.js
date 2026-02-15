@@ -35,6 +35,16 @@ function safeFloor(value, fallback = 0) {
   return Number.isFinite(value) ? Math.floor(value) : fallback;
 }
 
+function cloneSerializable(value) {
+  if (value == null) return null;
+  try {
+    if (typeof structuredClone === "function") return structuredClone(value);
+  } catch (_) {
+    // ignore and fall through
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
 function normalizeRequirementEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   const kind = normalizeString(entry.kind);
@@ -112,7 +122,11 @@ function normalizeOutputEntry(entry) {
   const qty = Math.max(0, safeFloor(entry.qty ?? entry.amount, 1));
   if (!itemId || qty <= 0) return null;
   const tier = normalizeString(entry.tier);
-  return { kind: "item", itemId, qty, tier, slotId };
+  const itemState =
+    entry.itemState && typeof entry.itemState === "object"
+      ? cloneSerializable(entry.itemState)
+      : null;
+  return { kind: "item", itemId, qty, tier, slotId, itemState };
 }
 
 function buildRecipeRequirements(recipeDef) {
@@ -158,10 +172,15 @@ function buildRecipeOutputs(recipeDef) {
     const itemId = normalizeString(out.kind || out.itemId);
     const qty = Math.max(0, safeFloor(out.qty ?? out.amount, 0));
     if (!itemId || qty <= 0) continue;
+    const itemState =
+      out.itemState && typeof out.itemState === "object"
+        ? cloneSerializable(out.itemState)
+        : null;
     outs.push({
       kind: "item",
       itemId,
       qty,
+      itemState,
     });
   }
   return outs;
@@ -1482,35 +1501,87 @@ export function consumeRequirementUnit(inv, requirement) {
   return null;
 }
 
-export function addItemToInventory(state, inv, itemId, qty, tier = null) {
+export function addItemToInventory(
+  state,
+  inv,
+  itemId,
+  qty,
+  tier = null,
+  itemOptions = null
+) {
   if (!inv || !Array.isArray(inv.items)) return 0;
   const def = itemDefs[itemId] || null;
   const maxStack = getItemMaxStack({ kind: itemId, tier });
+  const hasCustomState =
+    itemOptions &&
+    typeof itemOptions === "object" &&
+    (itemOptions.tags != null ||
+      itemOptions.systemTiers != null ||
+      itemOptions.systemState != null ||
+      itemOptions.seasonsToExpire != null ||
+      itemOptions.expiryTurn != null);
   const dummy = {
     kind: itemId,
     tier: tier ?? def?.defaultTier ?? "bronze",
-    seasonsToExpire: null,
-    tags: [],
-    systemTiers: {},
-    systemState: {},
+    seasonsToExpire:
+      hasCustomState && itemOptions.seasonsToExpire != null
+        ? itemOptions.seasonsToExpire
+        : null,
+    tags:
+      hasCustomState && Array.isArray(itemOptions.tags)
+        ? cloneSerializable(itemOptions.tags)
+        : [],
+    systemTiers:
+      hasCustomState && itemOptions.systemTiers && typeof itemOptions.systemTiers === "object"
+        ? cloneSerializable(itemOptions.systemTiers)
+        : {},
+    systemState:
+      hasCustomState && itemOptions.systemState && typeof itemOptions.systemState === "object"
+        ? cloneSerializable(itemOptions.systemState)
+        : {},
   };
   initializeItemFromDef(state, dummy, { reset: true });
   dummy.tier = tier ?? dummy.tier;
+  if (hasCustomState) {
+    if (Array.isArray(itemOptions.tags)) {
+      dummy.tags = cloneSerializable(itemOptions.tags);
+    }
+    if (
+      itemOptions.systemTiers &&
+      typeof itemOptions.systemTiers === "object"
+    ) {
+      const tiers = cloneSerializable(itemOptions.systemTiers);
+      for (const [systemId, tierValue] of Object.entries(tiers)) {
+        dummy.systemTiers[systemId] = tierValue;
+      }
+    }
+    if (
+      itemOptions.systemState &&
+      typeof itemOptions.systemState === "object"
+    ) {
+      const states = cloneSerializable(itemOptions.systemState);
+      for (const [systemId, systemValue] of Object.entries(states)) {
+        dummy.systemState[systemId] = systemValue;
+      }
+    }
+  }
 
   let remaining = Math.max(0, safeFloor(qty, 0));
   let added = 0;
 
-  for (const stack of inv.items) {
-    if (!canStackItems(stack, dummy)) continue;
-    const current = Math.floor(stack.quantity ?? 0);
-    const space = Math.max(0, maxStack - current);
-    if (space <= 0) continue;
-    const take = Math.min(space, remaining);
-    stack.quantity = current + take;
-    mergeItemSystemStateForStacking(stack, dummy, current, take);
-    remaining -= take;
-    added += take;
-    if (remaining <= 0) break;
+  if (!hasCustomState) {
+    for (const stack of inv.items) {
+      if (!canStackItems(stack, dummy)) continue;
+      const current = Math.floor(stack.quantity ?? 0);
+      const space = Math.max(0, maxStack - current);
+      if (space <= 0) continue;
+      const take = Math.min(space, remaining);
+      stack.quantity = current + take;
+      mergeItemSystemStateForStacking(stack, dummy, current, take);
+      remaining -= take;
+      added += take;
+      if (remaining <= 0) break;
+    }
   }
 
   while (remaining > 0) {
@@ -1521,6 +1592,26 @@ export function addItemToInventory(state, inv, itemId, qty, tier = null) {
       width: def?.defaultWidth ?? 1,
       height: def?.defaultHeight ?? 1,
       tier: dummy.tier,
+      expiryTurn:
+        hasCustomState && itemOptions.expiryTurn != null
+          ? itemOptions.expiryTurn
+          : undefined,
+      seasonsToExpire:
+        hasCustomState && itemOptions.seasonsToExpire != null
+          ? itemOptions.seasonsToExpire
+          : undefined,
+      tags:
+        hasCustomState && Array.isArray(dummy.tags)
+          ? cloneSerializable(dummy.tags)
+          : undefined,
+      systemTiers:
+        hasCustomState && dummy.systemTiers && typeof dummy.systemTiers === "object"
+          ? cloneSerializable(dummy.systemTiers)
+          : undefined,
+      systemState:
+        hasCustomState && dummy.systemState && typeof dummy.systemState === "object"
+          ? cloneSerializable(dummy.systemState)
+          : undefined,
     });
     if (!newItem) break;
     remaining -= take;

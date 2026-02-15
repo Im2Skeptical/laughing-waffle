@@ -47,6 +47,33 @@ function parseLeaderIdFromEndpoint(endpointId) {
   return raw.length ? raw : null;
 }
 
+function cloneSerializable(value) {
+  if (value == null) return null;
+  try {
+    if (typeof structuredClone === "function") return structuredClone(value);
+  } catch (_) {
+    // ignore and fall through
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function buildOutputItemState(output, state) {
+  const rawState =
+    output?.itemState && typeof output.itemState === "object"
+      ? cloneSerializable(output.itemState)
+      : null;
+  if (!rawState) return null;
+  const graphState = rawState.timegraph;
+  if (
+    graphState &&
+    typeof graphState === "object" &&
+    graphState.requiresManufacturedSec === true
+  ) {
+    graphState.manufacturedSec = Math.max(0, Math.floor(state?.tSec ?? 0));
+  }
+  return rawState;
+}
+
 function tryApplyOutputUnit(state, process, output, endpoint, context) {
   if (!output || !endpoint) return false;
   if (output.kind === "pool") {
@@ -72,12 +99,18 @@ function tryApplyOutputUnit(state, process, output, endpoint, context) {
     if (endpoint.kind === "inventory") {
       const dummy = buildDummyItemForAcceptance(output.itemId, output.tier);
       if (!canOwnerAcceptItem(state, endpoint.ownerId, dummy)) return false;
+      const outputItemState = buildOutputItemState(output, state);
       const added = addItemToInventory(
         state,
         endpoint.target,
         output.itemId,
         1,
-        output.tier
+        output.tier,
+        outputItemState
+          ? {
+              systemState: outputItemState,
+            }
+          : null
       );
       return added > 0;
     }

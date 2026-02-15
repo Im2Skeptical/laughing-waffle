@@ -342,6 +342,7 @@ export function createEmptyState(seed = 123456789) {
 
     resources: {
       gold: 0,
+      grain: 0,
       food: 0,
       population: INITIAL_POPULATION_DEFAULT,
     },
@@ -839,11 +840,13 @@ export function deserializeGameState(data) {
   if (!state.resources) {
     state.resources = {
       gold: 0,
+      grain: 0,
       food: 0,
       population: INITIAL_POPULATION_DEFAULT,
     };
   }
   if (!Number.isFinite(state.resources.gold)) state.resources.gold = 0;
+  if (!Number.isFinite(state.resources.grain)) state.resources.grain = 0;
   if (!Number.isFinite(state.resources.food)) state.resources.food = 0;
   if (!Number.isFinite(state.resources.population)) {
     state.resources.population = INITIAL_POPULATION_DEFAULT;

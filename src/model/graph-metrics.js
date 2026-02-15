@@ -20,6 +20,22 @@ export const GRAPH_METRICS = {
       },
     ],
   },
+  grain: {
+    id: "grain",
+    label: "Grain",
+    series: [
+      {
+        id: "grain",
+        label: "Grain",
+        color: 0xd3b562,
+        getValue: (state, _subject) => state?.resources?.grain ?? state?.grain ?? 0,
+        getValueFromSnapshot: (snapshot, _subject) =>
+          snapshot?.resources?.grain ?? snapshot?.grain ?? 0,
+        formatValue: (value) =>
+          Number.isFinite(value) ? value.toFixed(1) : "0.0",
+      },
+    ],
+  },
   food: {
     id: "food",
     label: "Food",
@@ -111,6 +127,7 @@ GRAPH_METRICS.all = {
   label: "All",
   series: mergeSeries([
     GRAPH_METRICS.gold,
+    GRAPH_METRICS.grain,
     GRAPH_METRICS.food,
     GRAPH_METRICS.ap,
     GRAPH_METRICS.population,

@@ -5,7 +5,7 @@ export const setupDefs = {
   testing: {
     rngSeed: 123,
 
-    resources: { gold: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
+    resources: { gold: 0, grain: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
     // Optional dev-time UI bootstrap:
     // - openInventories: owner selectors opened/pinned on boot
@@ -129,7 +129,7 @@ export const setupDefs = {
   devZoo01: {
     rngSeed: 123,
 
-    resources: { gold: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
+    resources: { gold: 0, grain: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
     board: {
       cols: 12,
@@ -236,7 +236,7 @@ export const setupDefs = {
   devPlaytesting01: {
     rngSeed: 123,
 
-    resources: { gold: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
+    resources: { gold: 0, grain: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
     board: {
       cols: 12,

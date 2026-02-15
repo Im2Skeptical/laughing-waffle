@@ -583,7 +583,7 @@ function getPopulationCount(state) {
 function setPopulationCount(state, population) {
   if (!state || typeof state !== "object") return;
   if (!state.resources || typeof state.resources !== "object") {
-    state.resources = { gold: 0, food: 0, population: 0 };
+    state.resources = { gold: 0, grain: 0, food: 0, population: 0 };
   }
   state.resources.population = normalizePopulationCount(population, 0);
 }

@@ -48,6 +48,7 @@ import { createProjectionParityProbe } from "./ui-root/projection-parity.js";
 import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
 import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
 import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
+import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrator.js";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
@@ -94,6 +95,7 @@ const runner = createSimRunner({
     // invalidate controllers immediately (including planner:* edits).
     if (cursorOnlyReason) return;
     goldGraphController.handleInvalidate(reason);
+    grainGraphController.handleInvalidate(reason);
     foodGraphController.handleInvalidate(reason);
     apGraphController.handleInvalidate(reason);
     popGraphController.handleInvalidate(reason);
@@ -127,6 +129,12 @@ const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.gold,
+});
+
+const grainGraphController = createTimeGraphController({
+  getTimeline: () => runner.getTimeline(),
+  getCursorState: () => runner.getCursorState(),
+  metric: GRAPH_METRICS.grain,
 });
 
 const foodGraphController = createTimeGraphController({
@@ -689,6 +697,7 @@ const tooltipView = createTooltipView({
 
 let inventoryView = null;
 let processWidgetView = null;
+let scrollGraphOrchestrator = null;
 const setApDragWarning = (active) => {
   actionLogView?.setApDragWarning?.(active);
 };
@@ -859,6 +868,11 @@ inventoryView = createInventoryView({
   setApDragWarning,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
+  onUseItem: (spec) =>
+    scrollGraphOrchestrator?.handleUseItem?.(spec) ?? {
+      handled: false,
+      reason: "noScrollGraphOrchestrator",
+    },
 });
 
 function togglePause() {
@@ -1024,6 +1038,16 @@ let goldGraphView = createRunnerMetricGraph({
   openPosition: { x: 350, y: 280 },
 });
 
+let grainGraphView = createRunnerMetricGraph({
+  createMetricGraphView,
+  app,
+  layer: uiLayers.controlsLayer,
+  controller: grainGraphController,
+  runner,
+  metric: GRAPH_METRICS.grain,
+  openPosition: { x: 350, y: 370 },
+});
+
 let foodGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
@@ -1078,6 +1102,22 @@ function openSystemGraphForHover() {
   return systemGraphModel.toggleGraphForHover(systemGraphView);
 }
 
+scrollGraphOrchestrator = createScrollGraphOrchestrator({
+  runner,
+  metricViewsBySubject: {
+    population: popGraphView,
+    grain: grainGraphView,
+    food: foodGraphView,
+  },
+  metricControllersBySubject: {
+    population: popGraphController,
+    grain: grainGraphController,
+    food: foodGraphController,
+  },
+  systemGraphView,
+  toggleSystemGraph: () => openSystemGraphForHover(),
+});
+
 const chromeView = createChromeView({
   app,
   layer: uiLayers.controlsLayer,
@@ -1086,26 +1126,6 @@ const chromeView = createChromeView({
   getApPreview: () => actionPlanner?.getApPreview?.() ?? null,
   togglePause,
   isPausePending: () => runner.isPausePending?.() ?? false,
-  onGoldClick: () => {
-    runner.clearPreviewState();
-    if (!goldGraphView.isOpen()) goldGraphView.open();
-    else goldGraphView.close();
-  },
-  onFoodClick: () => {
-    runner.clearPreviewState();
-    if (!foodGraphView.isOpen()) foodGraphView.open();
-    else foodGraphView.close();
-  },
-  onApClick: () => {
-    runner.clearPreviewState();
-    if (!apGraphView.isOpen()) apGraphView.open();
-    else apGraphView.close();
-  },
-  onPopClick: () => {
-    runner.clearPreviewState();
-    if (!popGraphView.isOpen()) popGraphView.open();
-    else popGraphView.close();
-  },
   getCommitPreviewState: () => {
     const preview = runner.getPreviewStatus?.();
     return {
@@ -1141,6 +1161,7 @@ const debugView = createDebugOverlay({
       timeline: runner.getTimeline(),
       controllers: [
         goldGraphController,
+        grainGraphController,
         foodGraphController,
         apGraphController,
         systemGraphController,
@@ -1218,8 +1239,8 @@ actionLogView.init();
 eventLogView.init();
 yearEndPerformanceView.init();
 applyScenarioDevUiBootstrap();
-// Default-on for dev UX; set __DBG_AUTO_OPEN_GRAPHS__ = false to opt out.
-const devAutoOpenGraphs = globalThis?.__DBG_AUTO_OPEN_GRAPHS__ !== false;
+// Default-off for scroll-first UX; set __DBG_AUTO_OPEN_GRAPHS__ = true to opt in.
+const devAutoOpenGraphs = globalThis?.__DBG_AUTO_OPEN_GRAPHS__ === true;
 if (devAutoOpenGraphs) {
   apGraphView.open();
   systemGraphView.open();
@@ -1285,14 +1306,17 @@ app.ticker.add((delta) => {
   runTimed("yearEnd.update", () => yearEndPerformanceView.update(frameDt));
   runTimed("skillTree.update", () => skillTreeView?.update?.(frameDt));
   runTimed("skillTreeEditor.update", () => skillTreeEditorView?.update?.(frameDt));
+  runTimed("scrollGraph.update", () => scrollGraphOrchestrator?.update?.());
   runTimed("debug.update", () => debugView.update());
 
   const anyMetricGraphOpen =
     goldGraphView.isOpen() ||
+    grainGraphView.isOpen() ||
     foodGraphView.isOpen() ||
     apGraphView.isOpen() ||
     popGraphView.isOpen();
   goldGraphController.setActive?.(goldGraphView.isOpen());
+  grainGraphController.setActive?.(grainGraphView.isOpen());
   foodGraphController.setActive?.(foodGraphView.isOpen());
   apGraphController.setActive?.(apGraphView.isOpen());
   popGraphController.setActive?.(popGraphView.isOpen());
@@ -1300,6 +1324,10 @@ app.ticker.add((delta) => {
     if (goldGraphView.isOpen()) {
       runTimed("graph.gold.controllerUpdate", () => goldGraphController.update());
       runTimed("graph.gold.render", () => goldGraphView.render());
+    }
+    if (grainGraphView.isOpen()) {
+      runTimed("graph.grain.controllerUpdate", () => grainGraphController.update());
+      runTimed("graph.grain.render", () => grainGraphView.render());
     }
     if (foodGraphView.isOpen()) {
       runTimed("graph.food.controllerUpdate", () => foodGraphController.update());
@@ -1345,6 +1373,7 @@ window.__DBG__ = {
       timeline: runner.getTimeline(),
       controllers: [
         goldGraphController,
+        grainGraphController,
         foodGraphController,
         apGraphController,
         systemGraphController,

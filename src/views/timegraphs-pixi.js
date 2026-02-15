@@ -22,6 +22,10 @@ function getSeriesValue(point, seriesId) {
     const v = point?.gold ?? 0;
     return Number.isFinite(v) ? v : 0;
   }
+  if (seriesId === "grain") {
+    const v = point?.grain ?? 0;
+    return Number.isFinite(v) ? v : 0;
+  }
   return 0;
 }
 
@@ -40,9 +44,17 @@ export function createMetricGraphView({
   commitSecond,
   openPosition,
   historyWindowSec = null,
+  getWindowSpec = null,
+  canCommitScrubSecond = null,
 }) {
   let metricDef = GRAPH_METRICS.gold;
   let series = GRAPH_METRICS.gold.series;
+  let windowSpecResolver =
+    typeof getWindowSpec === "function" ? getWindowSpec : null;
+  let commitPolicyResolver =
+    typeof canCommitScrubSecond === "function" ? canCommitScrubSecond : null;
+  let seriesValueOverrideResolver =
+    typeof getSeriesValueOverride === "function" ? getSeriesValueOverride : null;
 
   function resolveMetric() {
     const next =
@@ -126,6 +138,20 @@ export function createMetricGraphView({
   zoomBtn.eventMode = "static";
   zoomBtn.cursor = "pointer";
   root.addChild(zoomBtn);
+
+  const CLOSE_BTN_W = 64;
+  const CLOSE_BTN_H = 22;
+  const closeBtn = new PIXI.Container();
+  const closeBg = new PIXI.Graphics();
+  const closeText = new PIXI.Text("Close", {
+    fontFamily: "Arial",
+    fontSize: 12,
+    fill: 0xffffff,
+  });
+  closeBtn.addChild(closeBg, closeText);
+  closeBtn.eventMode = "static";
+  closeBtn.cursor = "pointer";
+  root.addChild(closeBtn);
 
   let draggingWindow = false;
   let dragWindowOffset = { x: 0, y: 0 };
@@ -300,8 +326,8 @@ export function createMetricGraphView({
     return sampled;
   }
 
-  function updateZoomButton() {
-    const x = WIN_W - 16 - ZOOM_BTN_W;
+  function updateHeaderButtons() {
+    const zoomX = 16;
     const y = Math.floor((HEADER_H - ZOOM_BTN_H) / 2);
 
     zoomBg.clear();
@@ -313,8 +339,18 @@ export function createMetricGraphView({
     zoomText.x = (ZOOM_BTN_W - zoomText.width) / 2;
     zoomText.y = (ZOOM_BTN_H - zoomText.height) / 2;
 
-    zoomBtn.x = x;
+    zoomBtn.x = zoomX;
     zoomBtn.y = y;
+
+    closeBg.clear();
+    closeBg.beginFill(0x4a2f3f);
+    closeBg.drawRoundedRect(0, 0, CLOSE_BTN_W, CLOSE_BTN_H, 6);
+    closeBg.endFill();
+
+    closeText.x = (CLOSE_BTN_W - closeText.width) / 2;
+    closeText.y = (CLOSE_BTN_H - closeText.height) / 2;
+    closeBtn.x = WIN_W - 16 - CLOSE_BTN_W;
+    closeBtn.y = y;
   }
 
   function drawWindow() {
@@ -338,10 +374,10 @@ export function createMetricGraphView({
     headerHit.drawRect(0, 0, WIN_W, HEADER_H);
     headerHit.endFill();
 
-    text.x = 14;
+    text.x = 100;
     text.y = 10;
 
-    updateZoomButton();
+    updateHeaderButtons();
   }
 
   function updateTimeBounds() {
@@ -357,6 +393,34 @@ export function createMetricGraphView({
       Number.isFinite(historyWindowSec) && historyWindowSec > 0
         ? Math.floor(historyWindowSec)
         : null;
+    const customWindowSpec =
+      typeof windowSpecResolver === "function"
+        ? windowSpecResolver({
+            timeline: tl,
+            cursorState: cs,
+            data: d,
+            zoomed,
+            historyWindowSec: rollingWindow,
+          })
+        : null;
+
+    if (
+      customWindowSpec &&
+      Number.isFinite(customWindowSpec.minSec) &&
+      Number.isFinite(customWindowSpec.maxSec)
+    ) {
+      minSec = Math.max(0, Math.floor(customWindowSpec.minSec));
+      maxSec = Math.max(minSec + 1, Math.floor(customWindowSpec.maxSec));
+      const preferredScrub = Number.isFinite(customWindowSpec.scrubSec)
+        ? Math.floor(customWindowSpec.scrubSec)
+        : currentT;
+      if (!isScrubbing || customWindowSpec.forceScrubToCursor === true) {
+        scrubSec = clampInt(preferredScrub, minSec, maxSec);
+      } else {
+        scrubSec = clampInt(scrubSec, minSec, maxSec);
+      }
+      return;
+    }
 
     if (zoomed) {
       const halfSpan = Math.max(1, Math.floor(horizonSec / 4));
@@ -425,7 +489,12 @@ export function createMetricGraphView({
 
     function resolveValue(point, seriesDef) {
       const t = Math.max(0, Math.floor(point?.tSec ?? 0));
-      const override = getSeriesValueOverride?.(t, seriesDef.id, point, cursorSec);
+      const override = seriesValueOverrideResolver?.(
+        t,
+        seriesDef.id,
+        point,
+        cursorSec
+      );
       if (Number.isFinite(override)) return override;
       return getSeriesValue(point, seriesDef.id);
     }
@@ -619,6 +688,23 @@ export function createMetricGraphView({
     const isForecast = scrubSec > historyEnd;
 
     if (commit && !isForecast) {
+      if (typeof commitPolicyResolver === "function") {
+        const decision = commitPolicyResolver({
+          scrubSec,
+          historyEndSec: historyEnd,
+          editableBounds: getEditableHistoryBounds?.(),
+        });
+        const blocked =
+          decision === false ||
+          (decision && typeof decision === "object" && decision.allow === false);
+        if (blocked) {
+          statusNote =
+            (decision && typeof decision === "object" && decision.reason) ||
+            "Read-only";
+          drawScrub();
+          return;
+        }
+      }
       clearPreviewState?.();
       const stateData = controller?.getStateDataAt?.(scrubSec);
       const res = commitSecond?.(scrubSec, stateData);
@@ -665,6 +751,13 @@ export function createMetricGraphView({
     statusNote = "";
     render();
   });
+  closeBtn.on("pointerdown", (e) => {
+    e.stopPropagation();
+  });
+  closeBtn.on("pointertap", (e) => {
+    e.stopPropagation();
+    close();
+  });
 
   function open() {
     if (root.visible) return;
@@ -695,7 +788,7 @@ export function createMetricGraphView({
     if (!root.visible) return;
     resolveMetric();
     updateTimeBounds();
-    updateZoomButton();
+    updateHeaderButtons();
     const now = performance.now();
     const data = controller.getData?.() ?? {};
     const boundsKey = `${minSec}:${maxSec}`;
@@ -718,7 +811,33 @@ export function createMetricGraphView({
 
   drawWindow();
 
-  return { open, close, isOpen, render };
+  function setWindowSpecResolver(nextResolver) {
+    windowSpecResolver =
+      typeof nextResolver === "function" ? nextResolver : null;
+    statusNote = "";
+  }
+
+  function setCommitPolicyResolver(nextResolver) {
+    commitPolicyResolver =
+      typeof nextResolver === "function" ? nextResolver : null;
+    statusNote = "";
+  }
+
+  function setSeriesValueOverrideResolver(nextResolver) {
+    seriesValueOverrideResolver =
+      typeof nextResolver === "function" ? nextResolver : null;
+    statusNote = "";
+  }
+
+  return {
+    open,
+    close,
+    isOpen,
+    render,
+    setWindowSpecResolver,
+    setCommitPolicyResolver,
+    setSeriesValueOverrideResolver,
+  };
 }
 
 export function createGoldGraphView(opts) {

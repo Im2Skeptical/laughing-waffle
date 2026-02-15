@@ -1,12 +1,25 @@
 // skill-tree-defs.js
 // Data-driven skill trees and progression defaults.
 
+import {
+  SCROLL_GRAPH_SUBJECT_IDS,
+  SCROLL_GRAPH_TYPE_IDS,
+  makeScrollRecipeId,
+} from "./scroll-timegraph-defs.js";
+
+const defaultScrollRecipeIds = [];
+for (const typeId of SCROLL_GRAPH_TYPE_IDS) {
+  for (const subjectId of SCROLL_GRAPH_SUBJECT_IDS) {
+    defaultScrollRecipeIds.push(makeScrollRecipeId(typeId, subjectId));
+  }
+}
+
 export const skillProgressionDefs = {
   defaultStartingSkillPoints: 6,
   startingSkillPointsByPawnDefId: {
     default: 6,
   },
-  defaultUnlockedRecipes: ["roastBarley"],
+  defaultUnlockedRecipes: ["roastBarley", "weaveBasket", ...defaultScrollRecipeIds],
   defaultUnlockedHubStructures: ["granary"],
 };
 /*

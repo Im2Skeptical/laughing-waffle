@@ -60,6 +60,7 @@ export function createInitialState(scenario = "testing", seed = null) {
   // resources
   state.resources = {
     gold: 0,
+    grain: 0,
     food: 0,
     population: INITIAL_POPULATION_DEFAULT,
     ...(setup.resources || {}),

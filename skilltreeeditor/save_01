@@ -1,0 +1,2854 @@
+{
+  "version": 1,
+  "treeId": "systemColorMap",
+  "tree": {
+    "id": "systemColorMap",
+    "name": "System Color Map",
+    "startNodeId": "core_origin",
+    "ui": {
+      "accentColor": 16777215,
+      "layoutMode": "ringByTags",
+      "nodeSizes": {
+        "defaultRadius": 12,
+        "notableRadius": 24
+      },
+      "ringLayout": {
+        "ringOrder": [
+          "core",
+          "ring_01",
+          "ring_02",
+          "ring_03",
+          "ring_04",
+          "ring_05",
+          "ring_06",
+          "ring_07",
+          "ring_08",
+          "ring_09",
+          "early",
+          "mid",
+          "late"
+        ],
+        "radii": {
+          "core": 0,
+          "ring_01": 200,
+          "ring_02": 300,
+          "ring_03": 400,
+          "early": 500,
+          "ring_04": 600,
+          "ring_05": 700,
+          "ring_06": 800,
+          "mid": 900,
+          "ring_07": 1000,
+          "ring_08": 1100,
+          "ring_09": 1200,
+          "late": 1200
+        },
+        "wedgeSpansDeg": {
+          "Blue": 40,
+          "Green": 40,
+          "Red": 40,
+          "Black": 40,
+          "BlueGreen": 20,
+          "GreenRed": 20,
+          "RedBlack": 20,
+          "BlackBlue": 20
+        },
+        "barycenterIterations": 8,
+        "localSwapIterations": 3,
+        "overlapIterations": 4,
+        "overlapPaddingPx": 8,
+        "componentBandGapDeg": 10,
+        "radialNudgeIterations": 10,
+        "radialNudgeMaxPx": 50,
+        "radialNudgePaddingPx": 120,
+        "radialNudgeSpring": 0.2
+      }
+    }
+  },
+  "layout": {
+    "ringOrder": [
+      "core",
+      "ring_01",
+      "ring_02",
+      "ring_03",
+      "ring_04",
+      "ring_05",
+      "ring_06",
+      "ring_07",
+      "ring_08",
+      "ring_09",
+      "early",
+      "mid",
+      "late"
+    ],
+    "radii": {
+      "core": 0,
+      "ring_01": 200,
+      "ring_02": 300,
+      "ring_03": 400,
+      "early": 500,
+      "ring_04": 600,
+      "ring_05": 700,
+      "ring_06": 800,
+      "mid": 900,
+      "ring_07": 1000,
+      "ring_08": 1100,
+      "ring_09": 1200,
+      "late": 1200
+    },
+    "wedgeSpansDeg": {
+      "Blue": 40,
+      "Green": 40,
+      "Red": 40,
+      "Black": 40,
+      "BlueGreen": 20,
+      "GreenRed": 20,
+      "RedBlack": 20,
+      "BlackBlue": 20
+    },
+    "barycenterIterations": 8,
+    "localSwapIterations": 3,
+    "overlapIterations": 4,
+    "overlapPaddingPx": 8,
+    "componentBandGapDeg": 10,
+    "radialNudgeIterations": 10,
+    "radialNudgeMaxPx": 50,
+    "radialNudgePaddingPx": 120,
+    "radialNudgeSpring": 0.2
+  },
+  "nodes": [
+    {
+      "id": "BlackBlueEarly_01",
+      "treeId": "systemColorMap",
+      "name": "BlackBlueEarly_01",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 271,
+        "y": 608
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackBlueEarly_02",
+      "treeId": "systemColorMap",
+      "name": "BlackBlueEarly_02",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 365,
+        "y": 550
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackBlueEarly_03",
+      "treeId": "systemColorMap",
+      "name": "BlackBlueEarly_03",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 265,
+        "y": 503
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackBlueEarly_04",
+      "treeId": "systemColorMap",
+      "name": "BlackBlueEarly_04",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 368,
+        "y": 468
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackBlueMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlackBlueMidNotable_01",
+      "desc": "Bridge anchor (immediate domain).",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Blue",
+        "Hybrid",
+        "Mid",
+        "Notable"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 15,
+        "y": 530
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_01",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_01",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 609,
+        "y": 303
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_02",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_02",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 600,
+        "y": 433
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_03",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_03",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 488,
+        "y": 424
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_04",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_04",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 568,
+        "y": 355
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_05",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_05",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 257,
+        "y": 316
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_06",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_06",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 310,
+        "y": 210
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_07",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_07",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 395,
+        "y": 126
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_08",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarly_08",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 502,
+        "y": 73
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeEarlyNotable_01",
+      "desc": "Cluster punctuation.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 467,
+        "y": 282
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackLate_01",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeLate_01",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Black",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -373,
+        "y": 22
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackLate_02",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeLate_02",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Black",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -227,
+        "y": -215
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackLate_03",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeLate_03",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Black",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -30,
+        "y": -412
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackLate_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeLateNotable_01",
+      "desc": "Outer edge anchor.",
+      "cost": 4,
+      "tags": [
+        "Black",
+        "Late",
+        "Notable"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 207,
+        "y": -558
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackMid_01",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeMid_01",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -74,
+        "y": 43
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackMid_02",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeMid_02",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 8,
+        "y": -29
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackMid_03",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeMid_03",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 69,
+        "y": -116
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackMid_04",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeMid_04",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 152,
+        "y": -181
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackMid_05",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeMid_05",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 234,
+        "y": -249
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackMid_06",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeMid_06",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 334,
+        "y": -286
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlackNodeMidNotable_01",
+      "desc": "Mid anchor.",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Mid",
+        "Notable"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -96,
+        "y": 152
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_01",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_01",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 609,
+        "y": 756
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_02",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_02",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 600,
+        "y": 626
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_03",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_03",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 566,
+        "y": 706
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_04",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_04",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 488,
+        "y": 635
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_05",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_05",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 508,
+        "y": 973
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_06",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_06",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 399,
+        "y": 980
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_07",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_07",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 176,
+        "y": 889
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_08",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarly_08",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 264,
+        "y": 845
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarlyNotable_01",
+      "desc": "Cluster punctuation.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 467,
+        "y": 777
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarlyNotable2",
+      "treeId": "systemColorMap",
+      "name": "BlueEarlyNotable2",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Notable"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 246,
+        "y": 968
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_01",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_01",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 638,
+        "y": 915
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_02",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_02",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 774,
+        "y": 907
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_03",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_03",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 653,
+        "y": 1019
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_04",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_04",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 778,
+        "y": 1029
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenMidNotable_01",
+      "desc": "Bridge anchor (deferred domain).",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Green",
+        "Hybrid",
+        "Mid",
+        "Notable"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 715,
+        "y": 1230
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueLate_01",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeLate_01",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Blue",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -373,
+        "y": 1037
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueLate_02",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeLate_02",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Blue",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 207,
+        "y": 1617
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueLate_03",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeLate_03",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Blue",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -30,
+        "y": 1471
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueLate_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeLateNotable_01",
+      "desc": "Outer edge anchor.",
+      "cost": 4,
+      "tags": [
+        "Blue",
+        "Late",
+        "Notable"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -227,
+        "y": 1274
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueMid_01",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeMid_01",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 127,
+        "y": 1099
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueMid_02",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeMid_02",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 334,
+        "y": 1346
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueMid_03",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeMid_03",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 234,
+        "y": 1309
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueMid_04",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeMid_04",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 152,
+        "y": 1241
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueMid_05",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeMid_05",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 72,
+        "y": 1172
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueMid_06",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeMid_06",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 2,
+        "y": 1093
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeMidNotable_01",
+      "desc": "Mid anchor.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Mid",
+        "Notable"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -69,
+        "y": 1013
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "core_origin",
+      "treeId": "systemColorMap",
+      "name": "Origin",
+      "desc": "Undifferentiated system state.",
+      "cost": 0,
+      "tags": [
+        "Core"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": 28,
+      "editorPos": {
+        "x": 715,
+        "y": 530
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_01",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_01",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 941,
+        "y": 635
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_02",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_02",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 820,
+        "y": 756
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_03",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_03",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 829,
+        "y": 626
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_04",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_04",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 863,
+        "y": 707
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_05",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_05",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1172,
+        "y": 743
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_06",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_06",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1119,
+        "y": 849
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_07",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_07",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1034,
+        "y": 933
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_08",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarly_08",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 927,
+        "y": 986
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_Notable",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeEarlyNotable_01",
+      "desc": "Cluster punctuation.",
+      "cost": 2,
+      "tags": [
+        "Early",
+        "Green",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 962,
+        "y": 777
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenLate_01",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeLate_01",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Green",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1222,
+        "y": 1617
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenLate_02",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeLate_02",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Green",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1802,
+        "y": 1037
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenLate_03",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeLate_03",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Green",
+        "Late"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1656,
+        "y": 1274
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenLate_Notable",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeLateNotable_01",
+      "desc": "Outer edge anchor.",
+      "cost": 4,
+      "tags": [
+        "Green",
+        "Late",
+        "Notable"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1459,
+        "y": 1471
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenMid_01",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeMid_01",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1531,
+        "y": 910
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenMid_02",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeMid_02",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1494,
+        "y": 1010
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenMid_03",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeMid_03",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1425,
+        "y": 1091
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenMid_04",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeMid_04",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1359,
+        "y": 1174
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenMid_05",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeMid_05",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1275,
+        "y": 1239
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenMid_06",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeMid_06",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Mid"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1199,
+        "y": 1315
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "GreenNodeMidNotable_01",
+      "desc": "Mid anchor.",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Mid",
+        "Notable"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1093,
+        "y": 1341
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_01",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_01",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1164,
+        "y": 503
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_02",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_02",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1064,
+        "y": 550
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_03",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_03",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1158,
+        "y": 608
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_04",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_04",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1060,
+        "y": 469
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "GreenRedMidNotable_01",
+      "desc": "Bridge anchor (preserve domain).",
+      "cost": 2,
+      "tags": [
+        "Green",
+        "Hybrid",
+        "Mid",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1415,
+        "y": 530
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_01",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_01",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 688,
+        "y": 80
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_02",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_02",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 735,
+        "y": 180
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_03",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_03",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 793,
+        "y": 86
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_04",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_04",
+      "desc": "Hybrid bridge.",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Hybrid",
+        "Red"
+      ],
+      "ringId": "ring_03",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 654,
+        "y": 184
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "RedBlackMidNotable_01",
+      "desc": "Bridge anchor (immediate domain).",
+      "cost": 2,
+      "tags": [
+        "Black",
+        "Hybrid",
+        "Mid",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 715,
+        "y": -170
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_01",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_01",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 811,
+        "y": 415
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_02",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_02",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 941,
+        "y": 424
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_03",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_03",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 820,
+        "y": 303
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_04",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_04",
+      "desc": "Early ring.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_01",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 887,
+        "y": 385
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_05",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_05",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 928,
+        "y": 72
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_06",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_06",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1034,
+        "y": 125
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_07",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_07",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1118,
+        "y": 210
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_08",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarly_08",
+      "desc": "Early ring cluster B.",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1171,
+        "y": 317
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_Notable",
+      "treeId": "systemColorMap",
+      "name": "RedNodeEarlyNotable_01",
+      "desc": "Cluster punctuation.",
+      "cost": 2,
+      "tags": [
+        "Early",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 962,
+        "y": 282
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedLate_01",
+      "treeId": "systemColorMap",
+      "name": "RedNodeLate_01",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Late",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1802,
+        "y": 22
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedLate_02",
+      "treeId": "systemColorMap",
+      "name": "RedNodeLate_02",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Late",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1222,
+        "y": -558
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedLate_03",
+      "treeId": "systemColorMap",
+      "name": "RedNodeLate_03",
+      "desc": "Late ring.",
+      "cost": 3,
+      "tags": [
+        "Late",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1459,
+        "y": -412
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedLate_Notable",
+      "treeId": "systemColorMap",
+      "name": "RedNodeLateNotable_01",
+      "desc": "Outer edge anchor.",
+      "cost": 4,
+      "tags": [
+        "Late",
+        "Notable",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1656,
+        "y": -215
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedMid_01",
+      "treeId": "systemColorMap",
+      "name": "RedNodeMid_01",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Mid",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1095,
+        "y": -287
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedMid_02",
+      "treeId": "systemColorMap",
+      "name": "RedNodeMid_02",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Mid",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1195,
+        "y": -250
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedMid_03",
+      "treeId": "systemColorMap",
+      "name": "RedNodeMid_03",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Mid",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1276,
+        "y": -181
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedMid_04",
+      "treeId": "systemColorMap",
+      "name": "RedNodeMid_04",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Mid",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1359,
+        "y": -115
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedMid_05",
+      "treeId": "systemColorMap",
+      "name": "RedNodeMid_05",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Mid",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1424,
+        "y": -31
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedMid_06",
+      "treeId": "systemColorMap",
+      "name": "RedNodeMid_06",
+      "desc": "Mid ring.",
+      "cost": 2,
+      "tags": [
+        "Mid",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1500,
+        "y": 45
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedMid_Notable",
+      "treeId": "systemColorMap",
+      "name": "RedNodeMidNotable_01",
+      "desc": "Mid anchor.",
+      "cost": 2,
+      "tags": [
+        "Mid",
+        "Notable",
+        "Red"
+      ],
+      "ringId": null,
+      "requirements": null,
+      "effects": {},
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1526,
+        "y": 151
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    }
+  ],
+  "edges": [
+    {
+      "a": "BlackBlueEarly_01",
+      "b": "BlackBlueEarly_02"
+    },
+    {
+      "a": "BlackBlueEarly_01",
+      "b": "BlackEarly_Notable"
+    },
+    {
+      "a": "BlackBlueEarly_01",
+      "b": "BlueEarly_Notable"
+    },
+    {
+      "a": "BlackBlueEarly_02",
+      "b": "BlackBlueEarly_03"
+    },
+    {
+      "a": "BlackBlueEarly_02",
+      "b": "BlackBlueMid_Notable"
+    },
+    {
+      "a": "BlackBlueEarly_03",
+      "b": "BlackBlueEarly_04"
+    },
+    {
+      "a": "BlackBlueEarly_04",
+      "b": "BlackMid_Notable"
+    },
+    {
+      "a": "BlackBlueEarly_04",
+      "b": "BlueEarly_Notable"
+    },
+    {
+      "a": "BlackBlueMid_Notable",
+      "b": "BlackMid_01"
+    },
+    {
+      "a": "BlackBlueMid_Notable",
+      "b": "BlueMid_01"
+    },
+    {
+      "a": "BlackEarly_01",
+      "b": "BlackEarly_04"
+    },
+    {
+      "a": "BlackEarly_01",
+      "b": "core_origin"
+    },
+    {
+      "a": "BlackEarly_02",
+      "b": "BlackEarly_03"
+    },
+    {
+      "a": "BlackEarly_02",
+      "b": "core_origin"
+    },
+    {
+      "a": "BlackEarly_03",
+      "b": "BlackEarly_Notable"
+    },
+    {
+      "a": "BlackEarly_04",
+      "b": "BlackEarly_Notable"
+    },
+    {
+      "a": "BlackEarly_05",
+      "b": "BlackEarly_06"
+    },
+    {
+      "a": "BlackEarly_05",
+      "b": "BlackEarly_07"
+    },
+    {
+      "a": "BlackEarly_06",
+      "b": "BlackEarly_08"
+    },
+    {
+      "a": "BlackEarly_07",
+      "b": "BlackEarly_08"
+    },
+    {
+      "a": "BlackEarly_07",
+      "b": "BlackEarly_Notable"
+    },
+    {
+      "a": "BlackEarly_08",
+      "b": "BlackEarly_Notable"
+    },
+    {
+      "a": "BlackEarly_Notable",
+      "b": "BlackMid_01"
+    },
+    {
+      "a": "BlackEarly_Notable",
+      "b": "RedBlackEarly_01"
+    },
+    {
+      "a": "BlackEarly_Notable",
+      "b": "RedBlackEarly_04"
+    },
+    {
+      "a": "BlackLate_01",
+      "b": "BlackLate_02"
+    },
+    {
+      "a": "BlackLate_01",
+      "b": "BlackMid_Notable"
+    },
+    {
+      "a": "BlackLate_02",
+      "b": "BlackLate_03"
+    },
+    {
+      "a": "BlackLate_03",
+      "b": "BlackLate_Notable"
+    },
+    {
+      "a": "BlackMid_01",
+      "b": "BlackMid_02"
+    },
+    {
+      "a": "BlackMid_01",
+      "b": "RedBlackMid_Notable"
+    },
+    {
+      "a": "BlackMid_02",
+      "b": "BlackMid_03"
+    },
+    {
+      "a": "BlackMid_03",
+      "b": "BlackMid_04"
+    },
+    {
+      "a": "BlackMid_04",
+      "b": "BlackMid_05"
+    },
+    {
+      "a": "BlackMid_05",
+      "b": "BlackMid_06"
+    },
+    {
+      "a": "BlackMid_06",
+      "b": "BlackMid_Notable"
+    },
+    {
+      "a": "BlueEarly_01",
+      "b": "BlueEarly_03"
+    },
+    {
+      "a": "BlueEarly_01",
+      "b": "core_origin"
+    },
+    {
+      "a": "BlueEarly_02",
+      "b": "BlueEarly_04"
+    },
+    {
+      "a": "BlueEarly_02",
+      "b": "core_origin"
+    },
+    {
+      "a": "BlueEarly_03",
+      "b": "BlueEarly_Notable"
+    },
+    {
+      "a": "BlueEarly_04",
+      "b": "BlueEarly_Notable"
+    },
+    {
+      "a": "BlueEarly_05",
+      "b": "BlueEarly_06"
+    },
+    {
+      "a": "BlueEarly_05",
+      "b": "BlueEarly_Notable"
+    },
+    {
+      "a": "BlueEarly_07",
+      "b": "BlueEarly_08"
+    },
+    {
+      "a": "BlueEarly_08",
+      "b": "BlueEarly_Notable"
+    },
+    {
+      "a": "BlueEarly_Notable",
+      "b": "BlueGreenEarly_01"
+    },
+    {
+      "a": "BlueEarlyNotable2",
+      "b": "BlueEarly_06"
+    },
+    {
+      "a": "BlueEarlyNotable2",
+      "b": "BlueEarly_07"
+    },
+    {
+      "a": "BlueEarlyNotable2",
+      "b": "BlueMid_01"
+    },
+    {
+      "a": "BlueGreenEarly_01",
+      "b": "BlueGreenEarly_02"
+    },
+    {
+      "a": "BlueGreenEarly_01",
+      "b": "BlueGreenEarly_03"
+    },
+    {
+      "a": "BlueGreenEarly_02",
+      "b": "BlueGreenEarly_04"
+    },
+    {
+      "a": "BlueGreenEarly_02",
+      "b": "GreenEarly_Notable"
+    },
+    {
+      "a": "BlueGreenEarly_03",
+      "b": "BlueGreenEarly_04"
+    },
+    {
+      "a": "BlueGreenEarly_03",
+      "b": "BlueGreenMid_Notable"
+    },
+    {
+      "a": "BlueGreenEarly_04",
+      "b": "BlueGreenMid_Notable"
+    },
+    {
+      "a": "BlueGreenMid_Notable",
+      "b": "BlueMid_01"
+    },
+    {
+      "a": "BlueGreenMid_Notable",
+      "b": "GreenMid_01"
+    },
+    {
+      "a": "BlueLate_01",
+      "b": "BlueLate_02"
+    },
+    {
+      "a": "BlueLate_01",
+      "b": "BlueMid_Notable"
+    },
+    {
+      "a": "BlueLate_02",
+      "b": "BlueLate_03"
+    },
+    {
+      "a": "BlueLate_03",
+      "b": "BlueLate_Notable"
+    },
+    {
+      "a": "BlueMid_01",
+      "b": "BlueMid_02"
+    },
+    {
+      "a": "BlueMid_02",
+      "b": "BlueMid_03"
+    },
+    {
+      "a": "BlueMid_03",
+      "b": "BlueMid_04"
+    },
+    {
+      "a": "BlueMid_04",
+      "b": "BlueMid_05"
+    },
+    {
+      "a": "BlueMid_05",
+      "b": "BlueMid_06"
+    },
+    {
+      "a": "BlueMid_06",
+      "b": "BlueMid_Notable"
+    },
+    {
+      "a": "GreenEarly_01",
+      "b": "core_origin"
+    },
+    {
+      "a": "GreenEarly_01",
+      "b": "GreenEarly_03"
+    },
+    {
+      "a": "GreenEarly_02",
+      "b": "core_origin"
+    },
+    {
+      "a": "GreenEarly_02",
+      "b": "GreenEarly_04"
+    },
+    {
+      "a": "GreenEarly_03",
+      "b": "GreenEarly_Notable"
+    },
+    {
+      "a": "GreenEarly_04",
+      "b": "GreenEarly_Notable"
+    },
+    {
+      "a": "GreenEarly_05",
+      "b": "GreenEarly_06"
+    },
+    {
+      "a": "GreenEarly_05",
+      "b": "GreenEarly_07"
+    },
+    {
+      "a": "GreenEarly_06",
+      "b": "GreenEarly_08"
+    },
+    {
+      "a": "GreenEarly_07",
+      "b": "GreenEarly_08"
+    },
+    {
+      "a": "GreenEarly_07",
+      "b": "GreenEarly_Notable"
+    },
+    {
+      "a": "GreenEarly_08",
+      "b": "GreenEarly_Notable"
+    },
+    {
+      "a": "GreenEarly_Notable",
+      "b": "GreenMid_01"
+    },
+    {
+      "a": "GreenEarly_Notable",
+      "b": "GreenRedEarly_01"
+    },
+    {
+      "a": "GreenLate_01",
+      "b": "GreenLate_02"
+    },
+    {
+      "a": "GreenLate_01",
+      "b": "GreenMid_Notable"
+    },
+    {
+      "a": "GreenLate_02",
+      "b": "GreenLate_03"
+    },
+    {
+      "a": "GreenLate_03",
+      "b": "GreenLate_Notable"
+    },
+    {
+      "a": "GreenMid_01",
+      "b": "GreenMid_02"
+    },
+    {
+      "a": "GreenMid_01",
+      "b": "GreenRedMid_Notable"
+    },
+    {
+      "a": "GreenMid_02",
+      "b": "GreenMid_03"
+    },
+    {
+      "a": "GreenMid_03",
+      "b": "GreenMid_04"
+    },
+    {
+      "a": "GreenMid_04",
+      "b": "GreenMid_05"
+    },
+    {
+      "a": "GreenMid_05",
+      "b": "GreenMid_06"
+    },
+    {
+      "a": "GreenMid_06",
+      "b": "GreenMid_Notable"
+    },
+    {
+      "a": "GreenMid_Notable",
+      "b": "GreenRedEarly_04"
+    },
+    {
+      "a": "GreenRedEarly_01",
+      "b": "GreenRedEarly_02"
+    },
+    {
+      "a": "GreenRedEarly_01",
+      "b": "RedEarly_Notable"
+    },
+    {
+      "a": "GreenRedEarly_02",
+      "b": "GreenRedEarly_03"
+    },
+    {
+      "a": "GreenRedEarly_02",
+      "b": "GreenRedMid_Notable"
+    },
+    {
+      "a": "GreenRedEarly_03",
+      "b": "GreenRedEarly_04"
+    },
+    {
+      "a": "GreenRedEarly_04",
+      "b": "RedEarly_Notable"
+    },
+    {
+      "a": "GreenRedMid_Notable",
+      "b": "RedMid_01"
+    },
+    {
+      "a": "RedBlackEarly_01",
+      "b": "RedBlackEarly_02"
+    },
+    {
+      "a": "RedBlackEarly_01",
+      "b": "RedEarly_Notable"
+    },
+    {
+      "a": "RedBlackEarly_02",
+      "b": "RedBlackEarly_03"
+    },
+    {
+      "a": "RedBlackEarly_02",
+      "b": "RedBlackMid_Notable"
+    },
+    {
+      "a": "RedBlackEarly_03",
+      "b": "RedBlackEarly_04"
+    },
+    {
+      "a": "RedBlackEarly_04",
+      "b": "RedMid_Notable"
+    },
+    {
+      "a": "RedBlackMid_Notable",
+      "b": "RedMid_01"
+    },
+    {
+      "a": "RedEarly_01",
+      "b": "core_origin"
+    },
+    {
+      "a": "RedEarly_01",
+      "b": "RedEarly_03"
+    },
+    {
+      "a": "RedEarly_02",
+      "b": "core_origin"
+    },
+    {
+      "a": "RedEarly_02",
+      "b": "RedEarly_04"
+    },
+    {
+      "a": "RedEarly_03",
+      "b": "RedEarly_Notable"
+    },
+    {
+      "a": "RedEarly_04",
+      "b": "RedEarly_Notable"
+    },
+    {
+      "a": "RedEarly_05",
+      "b": "RedEarly_06"
+    },
+    {
+      "a": "RedEarly_05",
+      "b": "RedEarly_07"
+    },
+    {
+      "a": "RedEarly_06",
+      "b": "RedEarly_08"
+    },
+    {
+      "a": "RedEarly_07",
+      "b": "RedEarly_08"
+    },
+    {
+      "a": "RedEarly_07",
+      "b": "RedEarly_Notable"
+    },
+    {
+      "a": "RedEarly_08",
+      "b": "RedEarly_Notable"
+    },
+    {
+      "a": "RedEarly_Notable",
+      "b": "RedMid_01"
+    },
+    {
+      "a": "RedLate_01",
+      "b": "RedLate_02"
+    },
+    {
+      "a": "RedLate_01",
+      "b": "RedMid_Notable"
+    },
+    {
+      "a": "RedLate_02",
+      "b": "RedLate_03"
+    },
+    {
+      "a": "RedLate_03",
+      "b": "RedLate_Notable"
+    },
+    {
+      "a": "RedMid_01",
+      "b": "RedMid_02"
+    },
+    {
+      "a": "RedMid_02",
+      "b": "RedMid_03"
+    },
+    {
+      "a": "RedMid_03",
+      "b": "RedMid_04"
+    },
+    {
+      "a": "RedMid_04",
+      "b": "RedMid_05"
+    },
+    {
+      "a": "RedMid_05",
+      "b": "RedMid_06"
+    },
+    {
+      "a": "RedMid_06",
+      "b": "RedMid_Notable"
+    }
+  ],
+  "meta": {
+    "createdAtIso": "2026-02-10T13:13:41.778Z",
+    "source": "defs",
+    "savedAtIso": "2026-02-15T12:22:30.590Z"
+  }
+}
