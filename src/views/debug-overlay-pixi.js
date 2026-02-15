@@ -6,7 +6,7 @@ import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 
 const DESIGN_WIDTH = 1920;
 const PANEL_WIDTH = 200;
-const PANEL_HEIGHT = 392;
+const PANEL_HEIGHT = 430;
 const TOP_VIEW_UPDATES_COUNT = 5;
 const PERF_REFRESH_MS = 250;
 const SLOT_META_REFRESH_MS = 1000;
@@ -16,6 +16,7 @@ export function createDebugOverlay({
   layer,
   runner,
   onOpenSystemGraph,
+  onToggleApGraph,
   getPerfSnapshot,
   getProjectionParity,
 }) {
@@ -284,13 +285,38 @@ export function createDebugOverlay({
     onOpenSystemGraph?.();
   });
 
+  const apGraphBtn = new PIXI.Container();
+  apGraphBtn.x = 10;
+  apGraphBtn.y = graphBtn.y + 30;
+  apGraphBtn.eventMode = "static";
+  apGraphBtn.cursor = "pointer";
+  panel.addChild(apGraphBtn);
+
+  const apGraphBg = new PIXI.Graphics();
+  apGraphBg.beginFill(0x555555);
+  apGraphBg.drawRoundedRect(0, 0, 180, 24, 4);
+  apGraphBg.endFill();
+  apGraphBtn.addChild(apGraphBg);
+
+  const apGraphText = new PIXI.Text("Toggle AP Graph", {
+    fontSize: 11,
+    fill: 0xffffff,
+  });
+  apGraphText.x = 38;
+  apGraphText.y = 4;
+  apGraphBtn.addChild(apGraphText);
+
+  apGraphBtn.on("pointerdown", () => {
+    onToggleApGraph?.();
+  });
+
   const perfHeader = new PIXI.Text("Top View Updates", {
     fontSize: 10,
     fill: 0xffffff,
     fontWeight: "bold",
   });
   perfHeader.x = 10;
-  perfHeader.y = graphBtn.y + 42;
+  perfHeader.y = apGraphBtn.y + 42;
   panel.addChild(perfHeader);
 
   const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {
@@ -300,7 +326,7 @@ export function createDebugOverlay({
     wordWrapWidth: PANEL_WIDTH - 20,
   });
   perfMeta.x = 10;
-  perfMeta.y = graphBtn.y + 28;
+  perfMeta.y = apGraphBtn.y + 28;
   panel.addChild(perfMeta);
 
   const perfRows = [];

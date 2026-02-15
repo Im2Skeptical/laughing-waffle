@@ -1102,6 +1102,15 @@ function openSystemGraphForHover() {
   return systemGraphModel.toggleGraphForHover(systemGraphView);
 }
 
+function toggleApGraph() {
+  if (apGraphView.isOpen()) {
+    apGraphView.close();
+    return { ok: true, closed: true };
+  }
+  apGraphView.open();
+  return { ok: true, opened: true };
+}
+
 scrollGraphOrchestrator = createScrollGraphOrchestrator({
   runner,
   metricViewsBySubject: {
@@ -1152,6 +1161,7 @@ const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
   onOpenSystemGraph: () => openSystemGraphForHover(),
+  onToggleApGraph: () => toggleApGraph(),
   getProjectionParity: createProjectionParityProbe({
     runner,
     controller: apGraphController,
