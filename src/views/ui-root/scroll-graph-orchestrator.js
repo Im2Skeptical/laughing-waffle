@@ -115,6 +115,20 @@ function resolveCommitPolicy(runner, scrollState, commitSpec) {
   return { allow: true };
 }
 
+function resolveControllerHorizonOverride(scrollState) {
+  if (!scrollState || typeof scrollState !== "object") return null;
+  if (scrollState.windowMode === "future") {
+    return toSafeSec(scrollState.horizonSec, 0);
+  }
+  if (
+    scrollState.windowMode === "historyWindow" ||
+    scrollState.windowMode === "rollingEditable"
+  ) {
+    return toSafeSec(scrollState.historyWindowSec, 0);
+  }
+  return null;
+}
+
 function applyScrollConfigToView(runner, view, scrollState, fixedWindowSpec = null) {
   if (fixedWindowSpec) {
     view.setWindowSpecResolver?.(() => fixedWindowSpec);
@@ -139,12 +153,20 @@ export function createScrollGraphOrchestrator({
   metricViewsBySubject,
   metricControllersBySubject,
   systemGraphView,
+  systemGraphController,
   toggleSystemGraph,
 }) {
   const metricViews = metricViewsBySubject || {};
   const metricControllers = metricControllersBySubject || {};
   const frozenSeriesByItemId = new Map();
   let openSession = null;
+
+  function clearScrollConfigForMetric(subjectId) {
+    const view = metricViews[subjectId];
+    if (view) clearScrollConfigFromView(view);
+    const controller = metricControllers[subjectId];
+    controller?.setHorizonSecOverride?.(null);
+  }
 
   function buildFrozenSeriesSnapshot(controller, minSec, maxSec) {
     if (!controller || typeof controller.getSeriesValuesForSeconds !== "function") {
@@ -173,12 +195,14 @@ export function createScrollGraphOrchestrator({
       if (subjectId === "systems") continue;
       const view = metricViews[subjectId];
       if (!view) continue;
-      clearScrollConfigFromView(view);
+      clearScrollConfigForMetric(subjectId);
       if (view.isOpen?.()) view.close();
     }
   }
 
   function closeSystemGraph() {
+    clearScrollConfigFromView(systemGraphView);
+    systemGraphController?.setHorizonSecOverride?.(null);
     if (systemGraphView?.isOpen?.()) {
       systemGraphView.close();
     }
@@ -190,7 +214,7 @@ export function createScrollGraphOrchestrator({
     openSession = null;
   }
 
-  function openSystemsGraph(itemId) {
+  function openSystemsGraph(itemId, scrollState = null) {
     const activeSameItem =
       openSession &&
       openSession.kind === "systems" &&
@@ -205,6 +229,29 @@ export function createScrollGraphOrchestrator({
 
     closeMetricGraphs();
     if (!systemGraphView) return { handled: false, reason: "noSystemGraphView" };
+
+    const controllerHorizonSec = resolveControllerHorizonOverride(scrollState);
+    systemGraphController?.setHorizonSecOverride?.(controllerHorizonSec);
+    let fixedWindowSpec = null;
+    if (scrollState?.frozen) {
+      const baseWindow = resolveWindowSpecForScroll(runner, scrollState);
+      fixedWindowSpec = {
+        minSec: toSafeSec(baseWindow?.minSec, 0),
+        maxSec: toSafeSec(baseWindow?.maxSec, 1),
+        scrubSec: toSafeSec(baseWindow?.scrubSec, baseWindow?.maxSec ?? 0),
+      };
+    }
+    applyScrollConfigToView(
+      runner,
+      systemGraphView,
+      scrollState || {
+        editable: false,
+        windowMode: "fullHistory",
+        horizonSec: controllerHorizonSec ?? 0,
+        historyWindowSec: controllerHorizonSec ?? 0,
+      },
+      fixedWindowSpec
+    );
 
     if (typeof toggleSystemGraph === "function") {
       const result = toggleSystemGraph();
@@ -249,7 +296,7 @@ export function createScrollGraphOrchestrator({
       view.isOpen?.();
 
     if (activeSameItem) {
-      clearScrollConfigFromView(view);
+      clearScrollConfigForMetric(scrollState.subjectId);
       view.close?.();
       openSession = null;
       return {
@@ -264,6 +311,8 @@ export function createScrollGraphOrchestrator({
     closeSystemGraph();
 
     let fixedWindowSpec = null;
+    const controllerHorizonSec = resolveControllerHorizonOverride(scrollState);
+    controller?.setHorizonSecOverride?.(controllerHorizonSec);
     if (scrollState.frozen) {
       const baseWindow = resolveWindowSpecForScroll(runner, scrollState);
       fixedWindowSpec = {
@@ -325,7 +374,7 @@ export function createScrollGraphOrchestrator({
     }
 
     if (scrollState.subjectId === "systems") {
-      return openSystemsGraph(itemId);
+      return openSystemsGraph(itemId, scrollState);
     }
 
     return openMetricGraphForScroll(itemId, scrollState);

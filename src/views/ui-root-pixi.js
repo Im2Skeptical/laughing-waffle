@@ -1124,6 +1124,7 @@ scrollGraphOrchestrator = createScrollGraphOrchestrator({
     food: foodGraphController,
   },
   systemGraphView,
+  systemGraphController,
   toggleSystemGraph: () => openSystemGraphForHover(),
 });
 

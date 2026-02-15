@@ -26,7 +26,7 @@ for (const typeId of SCROLL_GRAPH_TYPE_IDS) {
       id: recipeId,
       name: `Craft ${subjectDef.name} ${typeDef.name}`,
       kind: "craft",
-      durationSec: 1,
+      durationSec: 5,
       inputs: [{ kind: "reeds", qty: 1 }],
       outputs: [
         {

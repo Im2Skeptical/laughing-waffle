@@ -91,6 +91,7 @@ export function createTimeGraphController({
   let historyStrideSecCur = historyStrideSec;
   let forecastStepSecCur = forecastStepSec;
   let horizonSecCur = horizonSec;
+  let horizonSecOverride = null;
 
   // Change detection
   let lastKnownHistoryEndSec = 0;
@@ -188,6 +189,9 @@ export function createTimeGraphController({
   }
 
   function resolveDynamicHorizonSec() {
+    if (Number.isFinite(horizonSecOverride) && horizonSecOverride >= 0) {
+      return Math.floor(horizonSecOverride);
+    }
     const base = clampStride(horizonSec, 1200);
     const state = getCursorState?.() ?? null;
     const globalMods = computeGlobalSkillMods(state);
@@ -1264,6 +1268,21 @@ export function createTimeGraphController({
     valuesDirty = true;
   }
 
+  function setHorizonSecOverride(nextHorizonSec) {
+    const normalized =
+      Number.isFinite(nextHorizonSec) && nextHorizonSec >= 0
+        ? Math.floor(nextHorizonSec)
+        : null;
+    if (normalized === horizonSecOverride) return;
+    horizonSecOverride = normalized;
+    const changed = syncDynamicHorizon();
+    if (!changed) return;
+    windowDirty = true;
+    if (isActive) {
+      handleInvalidate("active");
+    }
+  }
+
   return {
     ensureCache,
     handleInvalidate,
@@ -1277,6 +1296,7 @@ export function createTimeGraphController({
     setSeries,
     invalidateSeries,
     setSubject,
+    setHorizonSecOverride,
     setActive: (active) => {
       const next = !!active;
       if (next === isActive) return;
