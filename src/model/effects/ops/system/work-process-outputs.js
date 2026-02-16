@@ -156,6 +156,10 @@ function tryApplyOutputUnit(state, process, output, endpoint, context) {
 function applyPrestigeOutput(state, target, process, output, endpointId) {
   const leaderId = parseLeaderIdFromEndpoint(endpointId);
   if (!leaderId) return false;
+  const curveMultiplier =
+    Number.isFinite(output?.curveMultiplier) && output.curveMultiplier > 0
+      ? output.curveMultiplier
+      : 1;
   const ledger =
     process?.prestigeConsumedByKindTier &&
     typeof process.prestigeConsumedByKindTier === "object"
@@ -164,12 +168,16 @@ function applyPrestigeOutput(state, target, process, output, endpointId) {
         ? process.consumedByKindTier
       : null;
   if (ledger && Object.keys(ledger).length > 0) {
-    return applyPrestigeDeposit(state, leaderId, target, ledger);
+    return applyPrestigeDeposit(state, leaderId, target, ledger, {
+      curveMultiplier,
+    });
   }
   const qty = Math.max(0, Math.floor(output?.qty ?? 0));
   if (qty <= 0) return false;
   const fallback = { prestige: { bronze: qty } };
-  return applyPrestigeDeposit(state, leaderId, target, fallback);
+  return applyPrestigeDeposit(state, leaderId, target, fallback, {
+    curveMultiplier,
+  });
 }
 
 function applyPoolLedgerOutput(process, endpoint) {

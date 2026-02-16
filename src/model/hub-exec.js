@@ -229,7 +229,21 @@ function normalizeDepositConfig(structure) {
       )
     : [];
   const allowAny = deposit.allowAny === true;
-  return { systemId, poolKey, allowedTags, allowedItemIds, allowAny };
+  const storeDeposits = deposit.storeDeposits !== false;
+  const prestigeCurveMultiplier =
+    Number.isFinite(deposit.prestigeCurveMultiplier) &&
+    deposit.prestigeCurveMultiplier > 0
+      ? deposit.prestigeCurveMultiplier
+      : 1;
+  return {
+    systemId,
+    poolKey,
+    allowedTags,
+    allowedItemIds,
+    allowAny,
+    storeDeposits,
+    prestigeCurveMultiplier,
+  };
 }
 
 function ensureHubSystemState(structure, systemId) {
@@ -371,21 +385,23 @@ function ensureDepositProcesses(state, structure, pawns, tSec) {
     const requirements = buildDepositRequirements(kindTotals);
     if (requirements.length === 0) continue;
 
-    const outputs = [
-      {
+    const outputs = [];
+    if (depositConfig.storeDeposits) {
+      outputs.push({
         kind: "pool",
         system: depositConfig.systemId,
         poolKey: depositConfig.poolKey,
         fromLedger: true,
         slotId: "pool",
-      },
-    ];
+      });
+    }
 
     if (communal && hasLeader) {
       outputs.push({
         kind: "prestige",
         qty: totalUnits,
         slotId: "prestige",
+        curveMultiplier: depositConfig.prestigeCurveMultiplier,
       });
     }
 

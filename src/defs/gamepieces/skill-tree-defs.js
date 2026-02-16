@@ -33,6 +33,7 @@ export const skillProgressionDefs = {
   ],
   defaultUnlockedHubStructures: [
     "granary",
+    "ritualShrine",
     "storehouse"
   ]
 };
@@ -854,7 +855,7 @@ export const skillNodes = {
       x: 246,
       y: 968
     },
-    effects: {}
+    onUnlock: []
   },
   BlueGreenEarly_01: {
     id: "BlueGreenEarly_01",

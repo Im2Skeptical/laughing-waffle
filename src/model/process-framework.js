@@ -115,7 +115,11 @@ function normalizeOutputEntry(entry) {
   }
   if (kind === "prestige") {
     const qty = Math.max(0, safeFloor(entry.qty ?? entry.amount, 0));
-    return { kind: "prestige", qty, slotId };
+    const curveMultiplier =
+      Number.isFinite(entry.curveMultiplier) && entry.curveMultiplier > 0
+        ? entry.curveMultiplier
+        : 1;
+    return { kind: "prestige", qty, slotId, curveMultiplier };
   }
   const itemId =
     kind && kind !== "item" ? kind : normalizeString(entry.itemId);

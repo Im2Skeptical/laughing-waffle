@@ -244,13 +244,24 @@ function ensureLeaderPrestigeFields(pawn) {
   if (!pawn.prestigeDebtByFollowerId || typeof pawn.prestigeDebtByFollowerId !== "object") {
     pawn.prestigeDebtByFollowerId = {};
   }
+  if (!Number.isFinite(pawn.prestigeCapBaseFromDeposits)) {
+    pawn.prestigeCapBaseFromDeposits = 0;
+  }
+  if (!Number.isFinite(pawn.prestigeCapBonus)) pawn.prestigeCapBonus = 0;
   if (!Number.isFinite(pawn.prestigeCapBase)) pawn.prestigeCapBase = 0;
   if (!Number.isFinite(pawn.prestigeCapDebt)) pawn.prestigeCapDebt = 0;
+  const deposits = Math.max(0, Math.floor(pawn.prestigeCapBaseFromDeposits ?? 0));
+  const bonus = Math.max(0, Math.floor(pawn.prestigeCapBonus ?? 0));
   const base = Math.max(0, Math.floor(pawn.prestigeCapBase ?? 0));
   const debt = Math.max(0, Math.floor(pawn.prestigeCapDebt ?? 0));
-  pawn.prestigeCapBase = base;
+  pawn.prestigeCapBaseFromDeposits = deposits;
+  pawn.prestigeCapBonus = bonus;
+  pawn.prestigeCapBase = Math.max(base, deposits + bonus);
   pawn.prestigeCapDebt = debt;
-  pawn.prestigeCapEffective = Math.max(0, base - Math.min(debt, base));
+  pawn.prestigeCapEffective = Math.max(
+    0,
+    pawn.prestigeCapBase - Math.min(debt, pawn.prestigeCapBase)
+  );
 
   if (!pawn.equipment || typeof pawn.equipment !== "object") {
     pawn.equipment = createEmptyLeaderEquipment();

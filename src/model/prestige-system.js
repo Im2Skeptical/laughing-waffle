@@ -54,7 +54,24 @@ export function ensureLeaderPrestigeFields(leader) {
   );
 
   if (!Number.isFinite(leader.prestigeCapBase)) leader.prestigeCapBase = 0;
+  if (!Number.isFinite(leader.prestigeCapBaseFromDeposits)) {
+    leader.prestigeCapBaseFromDeposits = 0;
+  }
+  if (!Number.isFinite(leader.prestigeCapBonus)) leader.prestigeCapBonus = 0;
   if (!Number.isFinite(leader.prestigeCapDebt)) leader.prestigeCapDebt = 0;
+  leader.prestigeCapBaseFromDeposits = Math.max(
+    0,
+    Math.floor(leader.prestigeCapBaseFromDeposits)
+  );
+  leader.prestigeCapBonus = Math.max(0, Math.floor(leader.prestigeCapBonus));
+  if (leader.prestigeCapBaseFromDeposits === 0 && leader.prestigeCapBase > 0) {
+    leader.prestigeCapBaseFromDeposits = Math.max(
+      0,
+      Math.floor(leader.prestigeCapBase)
+    );
+  }
+  leader.prestigeCapBase =
+    leader.prestigeCapBaseFromDeposits + leader.prestigeCapBonus;
   updateLeaderPrestigeEffective(leader);
 }
 
@@ -91,24 +108,11 @@ export function updateLeaderPrestigeEffective(leader) {
 export function recomputeLeaderPrestigeBase(leader) {
   if (!leader || typeof leader !== "object") return 0;
   const totals = ensureObject(leader.totalDepositedAmountByTier, {});
-
-  const keySet = new Set([
-    ...Object.keys(PRESTIGE_CURVE_A_BY_TIER || {}),
-    ...Object.keys(totals),
-  ]);
-  const tiers = Array.from(keySet).sort();
-
-  let sum = 0;
-  for (const tier of tiers) {
-    const a = Number.isFinite(PRESTIGE_CURVE_A_BY_TIER?.[tier])
-      ? PRESTIGE_CURVE_A_BY_TIER[tier]
-      : 0;
-    const total = Math.max(0, Math.floor(totals?.[tier] ?? 0));
-    if (a <= 0 || total <= 0) continue;
-    sum += Math.floor(a * Math.sqrt(total));
-  }
-
-  leader.prestigeCapBase = sum;
+  const sum = computePrestigeBaseFromTotals(totals);
+  if (!Number.isFinite(leader.prestigeCapBonus)) leader.prestigeCapBonus = 0;
+  leader.prestigeCapBonus = Math.max(0, Math.floor(leader.prestigeCapBonus));
+  leader.prestigeCapBaseFromDeposits = sum;
+  leader.prestigeCapBase = sum + leader.prestigeCapBonus;
   return updateLeaderPrestigeEffective(leader);
 }
 
@@ -187,6 +191,27 @@ function addToLeaderTotals(leader, tier, amount) {
   const totals = ensureObject(leader.totalDepositedAmountByTier, {});
   totals[tier] = Math.max(0, Math.floor(totals[tier] ?? 0)) + amount;
   leader.totalDepositedAmountByTier = totals;
+}
+
+function computePrestigeBaseFromTotals(totalsByTier) {
+  const totals = ensureObject(totalsByTier, {});
+  const keySet = new Set([
+    ...Object.keys(PRESTIGE_CURVE_A_BY_TIER || {}),
+    ...Object.keys(totals),
+  ]);
+  const tiers = Array.from(keySet).sort();
+
+  let sum = 0;
+  for (const tier of tiers) {
+    const a = Number.isFinite(PRESTIGE_CURVE_A_BY_TIER?.[tier])
+      ? PRESTIGE_CURVE_A_BY_TIER[tier]
+      : 0;
+    const total = Math.max(0, Math.floor(totals?.[tier] ?? 0));
+    if (a <= 0 || total <= 0) continue;
+    sum += Math.floor(a * Math.sqrt(total));
+  }
+
+  return Math.max(0, Math.floor(sum));
 }
 
 function getItemIdsInGridOrder(inv) {
@@ -274,7 +299,13 @@ export function applyGranaryDepositsForStructure(state, structure, pawns) {
   return { ok: depositedTotal > 0, deposited: depositedTotal };
 }
 
-export function applyPrestigeDeposit(state, leaderId, structure, kindTierTotals) {
+export function applyPrestigeDeposit(
+  state,
+  leaderId,
+  structure,
+  kindTierTotals,
+  options = {}
+) {
   if (!state || leaderId == null || !kindTierTotals) return false;
   const parsedLeaderId = Number.isFinite(Number(leaderId))
     ? Number(leaderId)
@@ -283,6 +314,11 @@ export function applyPrestigeDeposit(state, leaderId, structure, kindTierTotals)
   if (!leader || leader.role !== PAWN_ROLE_LEADER) return false;
 
   ensureLeaderPrestigeFields(leader);
+  const curveMultiplier =
+    Number.isFinite(options?.curveMultiplier) && options.curveMultiplier > 0
+      ? options.curveMultiplier
+      : 1;
+  const oldBase = computePrestigeBaseFromTotals(leader.totalDepositedAmountByTier);
 
   let depositedTotal = 0;
   const kinds = Object.keys(kindTierTotals || {});
@@ -299,7 +335,24 @@ export function applyPrestigeDeposit(state, leaderId, structure, kindTierTotals)
   }
 
   if (depositedTotal > 0) {
-    recomputeLeaderPrestigeBase(leader);
+    const newBase = computePrestigeBaseFromTotals(leader.totalDepositedAmountByTier);
+    leader.prestigeCapBaseFromDeposits = newBase;
+    const delta = Math.max(0, newBase - oldBase);
+    if (curveMultiplier !== 1 && delta > 0) {
+      const bonusDelta = Math.floor(delta * (curveMultiplier - 1));
+      if (!Number.isFinite(leader.prestigeCapBonus)) leader.prestigeCapBonus = 0;
+      leader.prestigeCapBonus = Math.max(
+        0,
+        Math.floor(leader.prestigeCapBonus + bonusDelta)
+      );
+    } else if (!Number.isFinite(leader.prestigeCapBonus)) {
+      leader.prestigeCapBonus = 0;
+    }
+    leader.prestigeCapBase = Math.max(
+      0,
+      Math.floor(leader.prestigeCapBaseFromDeposits + leader.prestigeCapBonus)
+    );
+    updateLeaderPrestigeEffective(leader);
     return true;
   }
 

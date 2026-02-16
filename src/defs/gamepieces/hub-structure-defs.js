@@ -64,6 +64,38 @@ export const hubStructureDefs = {
       description: "Stores grain by type and tier.",
     },
   },
+  ritualShrine: {
+    id: "ritualShrine",
+    kind: "hubStructure",
+    name: "Ritual Shrine",
+    color: 0x7a5f8f,
+    defaultSpan: 1,
+    maxInstances: 1,
+    tags: ["depositable", "communal", "distributor"],
+    systems: {},
+    inventory: { cols: 5, rows: 6 },
+    inventoryRules: { allowedItemTags: ["grain", "edible"] },
+    deposit: {
+      systemId: "granaryStore",
+      poolKey: "byKindTier",
+      allowedTags: ["grain", "edible"],
+      storeDeposits: false,
+      prestigeCurveMultiplier: 1.5,
+    },
+    build: {
+      laborSec: 60,
+      requirements: [
+        { kind: "item", itemId: "straw", amount: 12 },
+        { kind: "item", itemId: "stone", amount: 2 },
+        { kind: "item", itemId: "reeds", amount: 8 },
+      ],
+    },
+    ui: {
+      title: "Ritual Shrine",
+      lines: ["Consumes grain + edible offerings for boosted prestige."],
+      description: "Like Granary deposits, but offerings are not stored.",
+    },
+  },
   storehouse: {
     id: "storehouse",
     kind: "hubStructure",

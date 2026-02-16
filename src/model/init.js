@@ -134,6 +134,8 @@ export function createInitialState(scenario = "testing", seed = null) {
       pawn._leaderId = Number.isFinite(c?.leaderId) ? Math.floor(c.leaderId) : null;
     } else {
       pawn.totalDepositedAmountByTier = {};
+      pawn.prestigeCapBaseFromDeposits = 0;
+      pawn.prestigeCapBonus = 0;
       pawn.prestigeCapBase = 0;
       pawn.prestigeCapDebt = 0;
       pawn.prestigeCapEffective = 0;
