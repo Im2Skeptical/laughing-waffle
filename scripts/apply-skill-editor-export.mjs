@@ -3,8 +3,8 @@
 // Applies exported skill editor payloads into src/defs/gamepieces/skill-tree-defs.js.
 //
 // Stage modes:
-// - basic (default): update existing nodes only; preserve existing effects.
-// - robust: optional create/rename/delete controls; preserve existing effects on existing nodes.
+// - basic (default): update existing nodes only; preserve existing unlock hooks.
+// - robust: optional create/rename/delete controls; preserve existing unlock hooks on existing nodes.
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -111,7 +111,7 @@ function printHelpAndExit(code = 0) {
     "  - Editor export: { treeId, tree, nodes: [...], edges: [...] }",
     "",
     "Notes:",
-    "  - Existing node effects are preserved by default.",
+    "  - Existing node onUnlock/onLock hooks are preserved by default.",
     "  - By default this script runs dry-run (no file writes). Use --write to persist.",
   ];
   // eslint-disable-next-line no-console
@@ -152,6 +152,11 @@ function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function cloneEffectSpec(value) {
+  if (Array.isArray(value) || isObject(value)) return deepClone(value);
+  return null;
+}
+
 function cleanNodeInput(raw) {
   if (!isObject(raw)) return null;
   const id = typeof raw.id === "string" ? raw.id : null;
@@ -176,7 +181,12 @@ function cleanNodeInput(raw) {
   if (isObject(raw.requirements)) out.requirements = deepClone(raw.requirements);
   if (toArray(raw.adjacent).length > 0) out.adjacent = uniqueSortedStrings(raw.adjacent);
   if (typeof raw.previousId === "string" && raw.previousId.length) out.previousId = raw.previousId;
-  if (isObject(raw.effects)) out.effects = deepClone(raw.effects);
+  const onUnlock = cloneEffectSpec(raw.onUnlock);
+  if (onUnlock != null) out.onUnlock = onUnlock;
+  const onLock = cloneEffectSpec(raw.onLock);
+  if (onLock != null) out.onLock = onLock;
+  const legacyEffects = cloneEffectSpec(raw.effects);
+  if (legacyEffects != null && out.onUnlock == null) out.onUnlock = legacyEffects;
   return out;
 }
 
@@ -245,6 +255,16 @@ function normalizeIncomingPayload(payloadRaw, explicitTreeId = null) {
 }
 
 function normalizeNodeForOutput(node) {
+  const normalized = deepClone(node);
+  if (
+    !Object.prototype.hasOwnProperty.call(normalized, "onUnlock") &&
+    Object.prototype.hasOwnProperty.call(normalized, "effects")
+  ) {
+    const migrated = cloneEffectSpec(normalized.effects);
+    if (migrated != null) normalized.onUnlock = migrated;
+  }
+  delete normalized.effects;
+
   const preferredOrder = [
     "id",
     "ringId",
@@ -258,19 +278,22 @@ function normalizeNodeForOutput(node) {
     "uiNodeRadius",
     "editorNotes",
     "requirements",
-    "effects",
+    "onUnlock",
+    "onLock",
   ];
   const out = {};
   for (const key of preferredOrder) {
-    if (Object.prototype.hasOwnProperty.call(node, key) && node[key] != null) {
-      out[key] = node[key];
+    if (Object.prototype.hasOwnProperty.call(normalized, key) && normalized[key] != null) {
+      out[key] = normalized[key];
     }
   }
-  const remaining = Object.keys(node).filter((key) => !Object.prototype.hasOwnProperty.call(out, key));
+  const remaining = Object.keys(normalized).filter(
+    (key) => !Object.prototype.hasOwnProperty.call(out, key)
+  );
   remaining.sort((a, b) => a.localeCompare(b));
   for (const key of remaining) {
-    if (node[key] == null) continue;
-    out[key] = node[key];
+    if (normalized[key] == null) continue;
+    out[key] = normalized[key];
   }
   return out;
 }
@@ -450,7 +473,7 @@ function applyRobustPatch({
         cost: Number.isFinite(patch.cost) ? Math.max(0, Math.floor(patch.cost)) : 1,
         tags: patch.tags ? uniqueSortedStrings(patch.tags) : [],
         adjacent: patch.adjacent ? uniqueSortedStrings(patch.adjacent) : [],
-        effects: {},
+        onUnlock: [],
       };
       if (patch.ringId) created.ringId = patch.ringId;
       if (patch.uiPos) created.uiPos = { x: patch.uiPos.x, y: patch.uiPos.y };

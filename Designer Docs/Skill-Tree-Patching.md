@@ -12,7 +12,8 @@ npm run skill:apply-export -- --input <path-to-export.json> [options]
 
 - Dry-run only (no file writes).
 - `basic` stage.
-- Existing node `effects` are preserved.
+- Existing node `onUnlock`/`onLock` hooks are preserved.
+- Legacy `effects` payload fields are auto-migrated to `onUnlock`.
 
 ## Common options
 
