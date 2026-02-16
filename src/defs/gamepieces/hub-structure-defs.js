@@ -49,6 +49,7 @@ export const hubStructureDefs = {
       systemId: "granaryStore",
       poolKey: "byKindTier",
       allowedTags: ["grain"],
+      instantDropboxLoad: true,
     },
     build: {
       laborSec: 60,
@@ -81,6 +82,7 @@ export const hubStructureDefs = {
       allowedTags: ["grain", "edible"],
       storeDeposits: false,
       prestigeCurveMultiplier: 1.5,
+      instantDropboxLoad: true,
     },
     build: {
       laborSec: 60,
@@ -110,6 +112,7 @@ export const hubStructureDefs = {
       systemId: "storehouseStore",
       poolKey: "byKindTier",
       allowAny: true,
+      instantDropboxLoad: true,
     },
     build: {
       laborSec: 80,

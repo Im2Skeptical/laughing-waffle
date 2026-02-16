@@ -4,6 +4,7 @@
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
 import { computeAvailableRecipesAndBuildings } from "./skills.js";
@@ -493,6 +494,12 @@ export function getProcessDefForInstance(process, target, context) {
   if (kind === "cropGrowth" && cropDef?.name) {
     displayName = `${cropDef.name} - Growing`;
   }
+  const depositDef =
+    target?.defId && hubStructureDefs?.[target.defId]
+      ? hubStructureDefs[target.defId].deposit
+      : null;
+  const instantDropboxLoad =
+    kind === "depositItems" && depositDef?.instantDropboxLoad === true;
 
   let routingSlots = null;
   if (kind === "depositItems") {
@@ -562,8 +569,7 @@ export function getProcessDefForInstance(process, target, context) {
     }
   }
 
-  const supportsDropslot =
-    kind === "build" || isRecipe;
+  const supportsDropslot = kind === "build" || isRecipe || instantDropboxLoad;
 
   return {
     processKind: kind,
@@ -571,6 +577,7 @@ export function getProcessDefForInstance(process, target, context) {
     transform,
     routingSlots,
     supportsDropslot,
+    instantDropboxLoad,
   };
 }
 

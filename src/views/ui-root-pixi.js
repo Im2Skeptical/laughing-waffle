@@ -745,6 +745,8 @@ inventoryView = createInventoryView({
     processWidgetView?.getDropTargetOwnerAtGlobalPos?.(pos) ??
     boardView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     null,
+  flashDropTargetError: (ownerId) =>
+    processWidgetView?.flashDropTargetError?.(ownerId) ?? false,
   setDragGhost: (spec) => actionLogView?.setDragGhost?.(spec),
   resolveDragGhost: (status) => actionLogView?.resolveDragGhost?.(status),
   getFocusIntent: () =>
@@ -800,26 +802,37 @@ inventoryView = createInventoryView({
     },
   moveItemBetweenOwners: (spec) =>
     queueActionWhenPaused(() => {
+      const payload = {
+        fromOwnerId: spec?.fromOwnerId,
+        toOwnerId: spec?.toOwnerId,
+        itemId: spec?.itemId,
+        targetGX: spec?.targetGX,
+        targetGY: spec?.targetGY,
+      };
       const isProcessBuffer = (ownerId) =>
-        typeof ownerId === "string" && ownerId.startsWith("inv:process:");
+        typeof ownerId === "string" &&
+        (ownerId.startsWith("inv:process:") || ownerId.startsWith("inv:dropbox:"));
       if (
-        (isProcessBuffer(spec.fromOwnerId) || isProcessBuffer(spec.toOwnerId)) &&
-        spec.fromOwnerId !== spec.toOwnerId
+        (isProcessBuffer(payload.fromOwnerId) || isProcessBuffer(payload.toOwnerId)) &&
+        payload.fromOwnerId !== payload.toOwnerId
       ) {
         return runner.dispatchAction(
           ActionKinds.PROCESS_BUFFER_MOVE,
-          spec,
+          {
+            ...payload,
+            viaProcessDropbox: spec?.viaProcessDropbox === true,
+          },
           { apCost: 0 }
         );
       }
-      if (spec.fromOwnerId === spec.toOwnerId) {
+      if (payload.fromOwnerId === payload.toOwnerId) {
         return runner.dispatchAction(
           ActionKinds.INVENTORY_MOVE,
-          spec,
+          payload,
           { apCost: 0 }
         );
       }
-      return actionPlanner?.setItemTransferIntent?.(spec) || {
+      return actionPlanner?.setItemTransferIntent?.(payload) || {
         ok: false,
         reason: "noPlanner",
       };

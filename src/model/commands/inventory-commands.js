@@ -9,6 +9,7 @@ import {
 import { bumpInvVersion } from "../effects/core/inventory-version.js";
 import { itemProvidesPool } from "../item-def-rules.js";
 import { Inventory } from "../inventory-model.js";
+import { applyPrestigeDeposit } from "../prestige-system.js";
 import { canOwnerAcceptItem } from "./owner-acceptance.js";
 import {
   addItemUnitsToInventoryWithTags,
@@ -17,6 +18,7 @@ import {
   ensurePortableStorageState,
   getEquippedBasketEntry,
   getLeaderByOwnerId,
+  getPawnById,
   isTierBucket,
   itemHasBaseTag,
 } from "./inventory-helpers.js";
@@ -315,17 +317,321 @@ export function cmdMoveItemBetweenOwners(
   return ctx.out || { ok: false, reason: "effectFailed" };
 }
 
+function isProcessBufferOwner(ownerId) {
+  return typeof ownerId === "string" && ownerId.startsWith("inv:process:");
+}
+
+function isInstantDropboxOwner(ownerId) {
+  return typeof ownerId === "string" && ownerId.startsWith("inv:dropbox:");
+}
+
+function isProcessDropboxOwner(ownerId) {
+  return isProcessBufferOwner(ownerId) || isInstantDropboxOwner(ownerId);
+}
+
+function parseProcessIdFromBufferOwner(ownerId) {
+  if (!isProcessBufferOwner(ownerId)) return null;
+  const processId = ownerId.slice("inv:process:".length);
+  return processId.length ? processId : null;
+}
+
+function parseHubStructureIdFromDropboxOwner(ownerId) {
+  if (!isInstantDropboxOwner(ownerId)) return null;
+  const raw = ownerId.slice("inv:dropbox:".length);
+  const parts = raw.split(":");
+  if (parts.length < 2) return null;
+  const [kind, id] = parts;
+  if (kind !== "hub" || !id) return null;
+  return id;
+}
+
+function findProcessInTarget(target, processId) {
+  if (!target?.systemState || !processId) return null;
+  for (const [systemId, sysState] of Object.entries(target.systemState)) {
+    const processes = Array.isArray(sysState?.processes) ? sysState.processes : [];
+    if (!processes.length) continue;
+    for (const process of processes) {
+      if (process?.id === processId) {
+        return { target, process, systemId };
+      }
+    }
+  }
+  return null;
+}
+
+function findProcessById(state, processId) {
+  if (!state || !processId) return null;
+  const hubAnchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+  for (const anchor of hubAnchors) {
+    if (!anchor) continue;
+    const found = findProcessInTarget(anchor, processId);
+    if (found) return found;
+  }
+  const hubSlots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (const slot of hubSlots) {
+    const structure = slot?.structure;
+    if (!structure) continue;
+    const found = findProcessInTarget(structure, processId);
+    if (found) return found;
+  }
+  const tileAnchors = Array.isArray(state?.board?.layers?.tile?.anchors)
+    ? state.board.layers.tile.anchors
+    : [];
+  for (const anchor of tileAnchors) {
+    if (!anchor) continue;
+    const found = findProcessInTarget(anchor, processId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findHubStructureById(state, structureId) {
+  if (!state || structureId == null) return null;
+  const idStr = String(structureId);
+  const hubAnchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+  for (const anchor of hubAnchors) {
+    if (!anchor) continue;
+    if (String(anchor.instanceId) === idStr) return anchor;
+  }
+  const hubSlots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (const slot of hubSlots) {
+    const structure = slot?.structure;
+    if (!structure) continue;
+    if (String(structure.instanceId) === idStr) return structure;
+  }
+  return null;
+}
+
+function normalizeStructureDepositConfig(structure) {
+  if (!structure?.defId) return null;
+  const def = hubStructureDefs?.[structure.defId] ?? null;
+  const deposit = def?.deposit;
+  if (!deposit || typeof deposit !== "object") return null;
+  const systemId =
+    typeof deposit.systemId === "string" && deposit.systemId.length
+      ? deposit.systemId
+      : null;
+  if (!systemId) return null;
+  const poolKey =
+    typeof deposit.poolKey === "string" && deposit.poolKey.length
+      ? deposit.poolKey
+      : "byKindTier";
+  const allowedTags = Array.isArray(deposit.allowedTags)
+    ? deposit.allowedTags.filter((tag) => typeof tag === "string" && tag.length > 0)
+    : [];
+  const allowedItemIds = Array.isArray(deposit.allowedItemIds)
+    ? deposit.allowedItemIds.filter((id) => typeof id === "string" && id.length > 0)
+    : [];
+  const allowAny = deposit.allowAny === true;
+  const storeDeposits = deposit.storeDeposits !== false;
+  const prestigeCurveMultiplier =
+    Number.isFinite(deposit.prestigeCurveMultiplier) &&
+    deposit.prestigeCurveMultiplier > 0
+      ? deposit.prestigeCurveMultiplier
+      : 1;
+  const instantDropboxLoad = deposit.instantDropboxLoad === true;
+  return {
+    systemId,
+    poolKey,
+    allowedTags,
+    allowedItemIds,
+    allowAny,
+    storeDeposits,
+    prestigeCurveMultiplier,
+    instantDropboxLoad,
+  };
+}
+
+function hasEnabledStructureTag(structure, tagId) {
+  if (!structure || !tagId) return false;
+  const tags = Array.isArray(structure.tags) ? structure.tags : [];
+  if (!tags.includes(tagId)) return false;
+  const disabled = Array.isArray(structure.disabledTags) ? structure.disabledTags : [];
+  return !disabled.includes(tagId);
+}
+
+function itemMatchesDepositRules(item, config) {
+  if (!item || !config) return false;
+  if (config.allowAny) return true;
+  if (config.allowedItemIds.includes(item.kind)) return true;
+  if (!config.allowedTags.length) return false;
+
+  const itemTags = new Set();
+  if (Array.isArray(item.tags)) {
+    for (const tag of item.tags) {
+      if (typeof tag === "string" && tag.length) itemTags.add(tag);
+    }
+  }
+  const baseTags = Array.isArray(itemDefs?.[item.kind]?.baseTags)
+    ? itemDefs[item.kind].baseTags
+    : [];
+  for (const tag of baseTags) {
+    if (typeof tag === "string" && tag.length) itemTags.add(tag);
+  }
+  for (const tag of config.allowedTags) {
+    if (itemTags.has(tag)) return true;
+  }
+  return false;
+}
+
+function resolveLeaderIdForContributor(state, ownerId, fallbackLeaderId = null) {
+  const pawn = getPawnById(state, ownerId);
+  if (pawn?.role === "leader") return pawn.id;
+  if (pawn?.role === "follower" && pawn.leaderId != null) return pawn.leaderId;
+  return fallbackLeaderId;
+}
+
+function addUnitsToStructureDepositPool(
+  structure,
+  systemId,
+  poolKey,
+  kind,
+  tier,
+  amount
+) {
+  if (!structure || !systemId || !poolKey || !kind || !tier || amount <= 0) {
+    return false;
+  }
+  const sysState = ensureHubSystemState(structure, systemId);
+  if (!sysState || typeof sysState !== "object") return false;
+  if (!sysState[poolKey] || typeof sysState[poolKey] !== "object") {
+    sysState[poolKey] = {};
+  }
+  if (!sysState.totalByTier || typeof sysState.totalByTier !== "object") {
+    sysState.totalByTier = {};
+  }
+
+  const pool = sysState[poolKey];
+  if (isTierBucket(pool)) {
+    pool[tier] = Math.max(0, Math.floor(pool[tier] ?? 0)) + amount;
+  } else {
+    if (!pool[kind] || typeof pool[kind] !== "object") {
+      pool[kind] = {};
+    }
+    const bucket = pool[kind];
+    bucket[tier] = Math.max(0, Math.floor(bucket[tier] ?? 0)) + amount;
+  }
+  sysState.totalByTier[tier] = Math.max(0, Math.floor(sysState.totalByTier[tier] ?? 0)) + amount;
+  return true;
+}
+
+function cmdInstantDepositFromProcessDropbox(
+  state,
+  { fromOwnerId, toOwnerId, itemId } = {}
+) {
+  const fromInv = state?.ownerInventories?.[fromOwnerId];
+  if (!fromInv) return { ok: false, reason: "noInventory" };
+  const item = fromInv.itemsById?.[itemId] || fromInv.items?.find((it) => it.id === itemId);
+  if (!item) return { ok: false, reason: "noItem" };
+  const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+  if (qty <= 0) return { ok: false, reason: "emptyStack" };
+
+  let processId = null;
+  let structure = null;
+  let fallbackLeaderId = null;
+  if (isProcessBufferOwner(toOwnerId)) {
+    processId = parseProcessIdFromBufferOwner(toOwnerId);
+    if (!processId) return { ok: false, reason: "badProcessOwner" };
+    const found = findProcessById(state, processId);
+    if (!found?.process || !found?.target) return { ok: false, reason: "noProcess" };
+    if (found.process.type !== "depositItems") {
+      return { ok: false, reason: "notDepositProcess" };
+    }
+    structure = found.target;
+    fallbackLeaderId = found.process?.leaderId ?? null;
+  } else if (isInstantDropboxOwner(toOwnerId)) {
+    const structureId = parseHubStructureIdFromDropboxOwner(toOwnerId);
+    if (!structureId) return { ok: false, reason: "badDropboxOwner" };
+    structure = findHubStructureById(state, structureId);
+    if (!structure) return { ok: false, reason: "noHubStructure" };
+  } else {
+    return { ok: false, reason: "badProcessOwner" };
+  }
+
+  const depositConfig = normalizeStructureDepositConfig(structure);
+  if (!depositConfig) return { ok: false, reason: "noDepositConfig" };
+  if (!depositConfig.instantDropboxLoad) {
+    return { ok: false, reason: "instantDropboxDisabled" };
+  }
+  if (!itemMatchesDepositRules(item, depositConfig)) {
+    return { ok: false, reason: "rejectedByDepositRules" };
+  }
+
+  const tier =
+    typeof item.tier === "string" && item.tier.length
+      ? item.tier
+      : itemDefs?.[item.kind]?.defaultTier || "bronze";
+  const isPrestiged = Array.isArray(item.tags) && item.tags.includes("prestiged");
+
+  if (depositConfig.storeDeposits) {
+    addUnitsToStructureDepositPool(
+      structure,
+      depositConfig.systemId,
+      depositConfig.poolKey,
+      item.kind,
+      tier,
+      qty
+    );
+  }
+
+  const communal = hasEnabledStructureTag(structure, "communal");
+  const leaderId = resolveLeaderIdForContributor(
+    state,
+    fromOwnerId,
+    fallbackLeaderId
+  );
+  if (communal && leaderId != null && !isPrestiged) {
+    const ledger = { [item.kind]: { [tier]: qty } };
+    applyPrestigeDeposit(state, leaderId, structure, ledger, {
+      curveMultiplier: depositConfig.prestigeCurveMultiplier,
+    });
+  }
+
+  Inventory.removeItem(fromInv, item.id);
+  Inventory.rebuildDerived(fromInv);
+  bumpInvVersion(fromInv);
+
+  return {
+    ok: true,
+    result: "instantDropboxLoaded",
+    processId,
+    structureId: structure?.instanceId ?? null,
+    fromOwnerId,
+    itemKind: item.kind,
+    moved: qty,
+    tier,
+    leaderId: leaderId ?? null,
+    prestigeApplied: communal && leaderId != null && !isPrestiged,
+  };
+}
+
 export function cmdMoveProcessBufferItem(
   state,
-  { fromOwnerId, toOwnerId, itemId, targetGX, targetGY } = {}
+  {
+    fromOwnerId,
+    toOwnerId,
+    itemId,
+    targetGX,
+    targetGY,
+    viaProcessDropbox = false,
+  } = {}
 ) {
   if (fromOwnerId == null || toOwnerId == null) {
     return { ok: false, reason: "badOwner" };
   }
-  const isProcessOwner = (ownerId) =>
-    typeof ownerId === "string" && ownerId.startsWith("inv:process:");
-  if (!isProcessOwner(fromOwnerId) && !isProcessOwner(toOwnerId)) {
+  if (!isProcessDropboxOwner(fromOwnerId) && !isProcessDropboxOwner(toOwnerId)) {
     return { ok: false, reason: "notProcessBuffer" };
+  }
+  if (
+    viaProcessDropbox === true &&
+    isProcessDropboxOwner(toOwnerId) &&
+    !isProcessDropboxOwner(fromOwnerId)
+  ) {
+    return cmdInstantDepositFromProcessDropbox(state, {
+      fromOwnerId,
+      toOwnerId,
+      itemId,
+    });
   }
   return cmdMoveItemBetweenOwners(state, {
     fromOwnerId,

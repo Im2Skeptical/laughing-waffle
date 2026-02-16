@@ -1853,21 +1853,33 @@ export function createProcessWidgetView({
     return height;
   }
 
-  function buildBufferModule({ container, width, height, process, dropTargets }) {
+  function buildBufferModule({
+    container,
+    width,
+    height,
+    process,
+    dropTargets,
+    dropOwnerId = null,
+    labelText = "Buffer",
+  }) {
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
     const size = Math.min(width, height);
     const slot = new PIXI.Graphics();
-    slot.lineStyle(1, COLORS.bufferBorder, 0.9);
-    slot.beginFill(0x1a2034, 0.95);
-    slot.drawRoundedRect(0, 0, size, size, 8);
-    slot.endFill();
+    const drawSlot = (isError = false) => {
+      slot.clear();
+      slot.lineStyle(1, isError ? 0xff4f5e : COLORS.bufferBorder, 0.9);
+      slot.beginFill(isError ? 0x8a1f2a : 0x1a2034, 0.95);
+      slot.drawRoundedRect(0, 0, size, size, 8);
+      slot.endFill();
+    };
+    drawSlot(false);
     slot.x = Math.floor((width - size) / 2);
     slot.y = Math.floor((height - size) / 2) - 6;
     container.addChild(slot);
 
-    const label = new PIXI.Text("Buffer", {
+    const label = new PIXI.Text(labelText, {
       fill: COLORS.moduleSub,
       fontSize: 9,
     });
@@ -1875,17 +1887,32 @@ export function createProcessWidgetView({
     label.y = slot.y + size + 4;
     container.addChild(label);
 
-    const dropId = getDropEndpointId(process?.id);
+    const dropId =
+      typeof dropOwnerId === "string" && dropOwnerId.length > 0
+        ? dropOwnerId
+        : getDropEndpointId(process?.id);
     if (dropId && Array.isArray(dropTargets)) {
+      let errorTimeout = null;
       dropTargets.push({
         ownerId: dropId,
+        kind: "processDropbox",
         getBounds: () => slot.getBounds(),
+        flashError: () => {
+          drawSlot(true);
+          if (errorTimeout != null) clearTimeout(errorTimeout);
+          errorTimeout = setTimeout(() => {
+            drawSlot(false);
+            errorTimeout = null;
+          }, 180);
+        },
       });
 
       slot.eventMode = "static";
       slot.cursor = "pointer";
       slot.on("pointertap", () => {
-        inventoryView?.revealWindow?.(dropId, { pinned: true });
+        if (dropId.startsWith("inv:process:")) {
+          inventoryView?.revealWindow?.(dropId, { pinned: true });
+        }
       });
     }
 
@@ -2365,6 +2392,7 @@ export function createProcessWidgetView({
         height: bodyContentHeight,
         process,
         dropTargets: opts.dropTargets,
+        labelText: routingProcessDef?.instantDropboxLoad ? "Dropbox" : "Buffer",
       });
     }
 
@@ -2749,6 +2777,16 @@ export function createProcessWidgetView({
     return WITHDRAWABLE_POOL_SYSTEM_IDS.has(info.systemId);
   }
 
+  function getDepositDropboxOwnerId(target) {
+    if (!target || target?.refKind === "basket") return null;
+    const def = target?.defId ? hubStructureDefs?.[target.defId] : null;
+    const deposit = def?.deposit;
+    if (!deposit || deposit.instantDropboxLoad !== true) return null;
+    const ownerId = target?.instanceId ?? target?.id ?? null;
+    if (ownerId == null) return null;
+    return `inv:dropbox:hub:${ownerId}`;
+  }
+
   function getPoolItemTotals(pool, itemId) {
     const empty = {
       total: 0,
@@ -3067,14 +3105,30 @@ export function createProcessWidgetView({
     body.y = HEADER_HEIGHT + 6;
     card.addChild(body);
 
+    const dropboxOwnerId = getDepositDropboxOwnerId(target);
+    const showDropbox = !!dropboxOwnerId;
+    const bufferGap = showDropbox ? SEGMENT_GAP : 0;
+    const centralWidth = Math.max(
+      120,
+      totalWidth - (showDropbox ? BUFFER_SIZE + bufferGap : 0)
+    );
+
+    let buffer = null;
+    if (showDropbox) {
+      buffer = new PIXI.Container();
+      buffer.x = 0;
+      buffer.y = BODY_PAD;
+      body.addChild(buffer);
+    }
+
     const central = new PIXI.Container();
-    central.x = 0;
+    central.x = showDropbox ? BUFFER_SIZE + bufferGap : 0;
     central.y = BODY_PAD;
     body.addChild(central);
 
     const moduleCount = 2;
     const moduleWidth = Math.floor(
-      (totalWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount
+      (centralWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount
     );
 
     let moduleX = 0;
@@ -3131,12 +3185,25 @@ export function createProcessWidgetView({
 
     central.height = moduleMaxHeight;
 
-    const bodyContentHeight = Math.max(moduleMaxHeight, 70);
+    const bufferHeight = showDropbox ? BUFFER_SIZE + 18 : 0;
+    const bodyContentHeight = Math.max(moduleMaxHeight, bufferHeight, 70);
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
+
+    if (showDropbox && buffer) {
+      buildBufferModule({
+        container: buffer,
+        width: BUFFER_SIZE,
+        height: bodyContentHeight,
+        process: null,
+        dropTargets: opts.dropTargets,
+        dropOwnerId: dropboxOwnerId,
+        labelText: "Dropbox",
+      });
+    }
 
     const centralBg = new PIXI.Graphics();
     centralBg.beginFill(0x000000, 0);
-    centralBg.drawRect(0, 0, totalWidth, bodyContentHeight);
+    centralBg.drawRect(0, 0, centralWidth, bodyContentHeight);
     centralBg.endFill();
     central.addChildAt(centralBg, 0);
 
@@ -3153,7 +3220,10 @@ export function createProcessWidgetView({
     clearContent(content, dropTargets);
 
     if (!Array.isArray(entries) || entries.length === 0) {
-      const built = buildDepositEmptyCard(state, target, cardOpts);
+      const built = buildDepositEmptyCard(state, target, {
+        ...cardOpts,
+        dropTargets,
+      });
       built.card.y = 0;
       content.addChild(built.card);
       return;
@@ -3874,6 +3944,23 @@ export function createProcessWidgetView({
     return null;
   }
 
+  function flashDropTargetError(ownerId) {
+    if (ownerId == null) return false;
+    let flashed = false;
+    for (const win of windows.values()) {
+      if (!win?.container?.visible) continue;
+      for (const target of win.dropTargets || []) {
+        if (!target) continue;
+        if (String(target.ownerId) !== String(ownerId)) continue;
+        if (typeof target.flashError === "function") {
+          target.flashError();
+          flashed = true;
+        }
+      }
+    }
+    return flashed;
+  }
+
   function setHoverTarget(target, systemId) {
     hoverContext = target
       ? { targetRef: makeTargetRef(target), systemId: systemId || null }
@@ -4030,6 +4117,7 @@ export function createProcessWidgetView({
     init,
     update,
     getDropTargetOwnerAtGlobalPos,
+    flashDropTargetError,
     setHoverTarget,
     clearHoverTarget,
     togglePinnedTarget,

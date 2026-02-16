@@ -130,6 +130,7 @@ export function createInventoryView({
   moveEquippedItemToSlot,
   getItemTransferAffordability,
   getDropTargetOwnerAt,
+  flashDropTargetError,
   setDragGhost,
   resolveDragGhost,
   actionPlanner,
@@ -2710,11 +2711,19 @@ export function createInventoryView({
 
     const win = findWindowAt(g);
     if (!win) {
-      const targetOwner =
+      const dropTargetRaw =
         typeof getDropTargetOwnerAt === "function"
           ? getDropTargetOwnerAt(g)
           : null;
+      const targetOwner =
+        dropTargetRaw && typeof dropTargetRaw === "object"
+          ? dropTargetRaw.ownerId ?? null
+          : dropTargetRaw;
       if (targetOwner != null) {
+        const isProcessDropbox =
+          typeof targetOwner === "string" &&
+          (targetOwner.startsWith("inv:process:") ||
+            targetOwner.startsWith("inv:dropbox:"));
         if (targetOwner === sourceOwner) {
           revealWindow(targetOwner);
           finish();
@@ -2727,10 +2736,16 @@ export function createInventoryView({
             ? getInventoryPreview(targetOwner)
             : null;
 
-        const placement = findItemPlacement(targetInv, item, preview, null);
+        const placement = isProcessDropbox
+          ? { gx: 0, gy: 0 }
+          : findItemPlacement(targetInv, item, preview, null);
         if (!placement) {
-          revealWindow(targetOwner);
-          flashWindowError(targetOwner);
+          if (isProcessDropbox) {
+            flashDropTargetError?.(targetOwner);
+          } else {
+            revealWindow(targetOwner);
+            flashWindowError(targetOwner);
+          }
           finish("fail");
           return;
         }
@@ -2759,6 +2774,7 @@ export function createInventoryView({
                 itemId: item.id,
                 targetGX: placement.gx,
                 targetGY: placement.gy,
+                viaProcessDropbox: isProcessDropbox,
               })
           : {
               ok: false,
@@ -2769,8 +2785,12 @@ export function createInventoryView({
 
         if (!result.ok) {
           console.warn("inventoryMove failed:", result.reason, result);
-          revealWindow(targetOwner);
-          flashWindowError(targetOwner);
+          if (isProcessDropbox) {
+            flashDropTargetError?.(targetOwner);
+          } else {
+            revealWindow(targetOwner);
+            flashWindowError(targetOwner);
+          }
           flashItemError(view, sourceOwner);
           finish("fail");
           return;
@@ -3152,7 +3172,11 @@ export function createInventoryView({
       }
     }
     if (targetOwner == null && typeof getDropTargetOwnerAt === "function") {
-      targetOwner = getDropTargetOwnerAt(globalPos);
+      const dropTarget = getDropTargetOwnerAt(globalPos);
+      targetOwner =
+        dropTarget && typeof dropTarget === "object"
+          ? dropTarget.ownerId ?? null
+          : dropTarget;
       if (targetOwner != null) {
         const targetInv = getInventoryForOwner(targetOwner);
         const preview =
