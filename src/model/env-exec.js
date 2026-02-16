@@ -132,6 +132,14 @@ function getPawnIdsOnEnvCol(state, col) {
   return out;
 }
 
+function buildEnvPassiveKey(col, tagId, passive, passiveIndex) {
+  const passiveId =
+    typeof passive?.id === "string" && passive.id.length > 0
+      ? passive.id
+      : `idx${passiveIndex}`;
+  return `env:${col}:tag:${tagId}:passive:${passiveId}`;
+}
+
 
 function normalizeStringArray(value) {
   if (Array.isArray(value)) {
@@ -914,16 +922,36 @@ export function stepEnvSecond(state, tSec) {
     };
 
     for (const tagId of tags) {
-      if (isTagDisabled(tile, tagId)) continue;
       const tagDef = envTagDefs[tagId];
       if (!tagDef) continue;
+      const tagDisabled = isTagDisabled(tile, tagId);
       const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
-      for (const passive of passives) {
+      for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
+        const passive = passives[passiveIndex];
         if (!passive || typeof passive !== "object") continue;
-        if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
+        const passiveKey = buildEnvPassiveKey(col, tagId, passive, passiveIndex);
+        if (tagDisabled) {
+          passiveTimingPasses(passive.timing, state, tSec, {
+            passiveKey,
+            isActive: false,
+          });
+          continue;
+        }
+        const requirementsOk =
+          !passive.requires ||
+          requirementsPass(passive.requires, seasonKey, tile, hasPawn);
+        if (!requirementsOk) {
+          passiveTimingPasses(passive.timing, state, tSec, {
+            passiveKey,
+            isActive: false,
+          });
+          continue;
+        }
         if (
-          passive.requires &&
-          !requirementsPass(passive.requires, seasonKey, tile, hasPawn)
+          !passiveTimingPasses(passive.timing, state, tSec, {
+            passiveKey,
+            isActive: true,
+          })
         ) {
           continue;
         }

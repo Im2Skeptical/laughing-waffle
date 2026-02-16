@@ -68,6 +68,15 @@ function collectDeterministicOwnerOrder(state) {
   return order;
 }
 
+function buildItemPassiveKey(ownerId, item, tagId, passive, passiveIndex) {
+  const passiveId =
+    typeof passive?.id === "string" && passive.id.length > 0
+      ? passive.id
+      : `idx${passiveIndex}`;
+  const itemKey = item?.id != null ? item.id : item?.kind ?? "unknown";
+  return `item:${ownerId}:id:${itemKey}:tag:${tagId}:passive:${passiveId}`;
+}
+
 function runItemTagPassives(state, runEffect, inv, ownerId, item, tSec) {
   const tags = Array.isArray(item?.tags) ? item.tags : [];
   if (tags.length === 0) return;
@@ -88,9 +97,24 @@ function runItemTagPassives(state, runEffect, inv, ownerId, item, tSec) {
     const tagDef = itemTagDefs[tagId];
     if (!tagDef) continue;
     const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
-    for (const passive of passives) {
+    for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
+      const passive = passives[passiveIndex];
       if (!passive || typeof passive !== "object") continue;
-      if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
+      const passiveKey = buildItemPassiveKey(
+        ownerId,
+        item,
+        tagId,
+        passive,
+        passiveIndex
+      );
+      if (
+        !passiveTimingPasses(passive.timing, state, tSec, {
+          passiveKey,
+          isActive: true,
+        })
+      ) {
+        continue;
+      }
       if (passive.effect) runEffect(state, passive.effect, { ...baseContext });
 
       // If the item was removed or transformed, stop processing it this tick.

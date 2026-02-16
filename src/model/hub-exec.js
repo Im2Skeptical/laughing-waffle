@@ -160,6 +160,18 @@ function isTagDisabled(structure, tagId) {
   return entry?.disabled === true;
 }
 
+function buildHubPassiveKey(structure, tagId, passive, passiveIndex) {
+  const passiveId =
+    typeof passive?.id === "string" && passive.id.length > 0
+      ? passive.id
+      : `idx${passiveIndex}`;
+  const ownerId =
+    Number.isFinite(structure?.instanceId) || typeof structure?.instanceId === "string"
+      ? structure.instanceId
+      : "unknown";
+  return `hub:${ownerId}:tag:${tagId}:passive:${passiveId}`;
+}
+
 function getPawnsOnHubAnchor(state, anchor) {
   const out = [];
   if (!anchor) return out;
@@ -1143,16 +1155,41 @@ export function stepHubSecond(state, tSec) {
     };
 
     for (const tagId of tags) {
-      if (isTagDisabled(structure, tagId)) continue;
       const tagDef = hubTagDefs[tagId];
       if (!tagDef) continue;
+      const tagDisabled = isTagDisabled(structure, tagId);
       const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
-      for (const passive of passives) {
+      for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
+        const passive = passives[passiveIndex];
         if (!passive || typeof passive !== "object") continue;
-        if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
+        const passiveKey = buildHubPassiveKey(
+          structure,
+          tagId,
+          passive,
+          passiveIndex
+        );
+        if (tagDisabled) {
+          passiveTimingPasses(passive.timing, state, tSec, {
+            passiveKey,
+            isActive: false,
+          });
+          continue;
+        }
+        const requirementsOk =
+          !passive.requires ||
+          requirementsPass(passive.requires, seasonKey, structure, hasPawn);
+        if (!requirementsOk) {
+          passiveTimingPasses(passive.timing, state, tSec, {
+            passiveKey,
+            isActive: false,
+          });
+          continue;
+        }
         if (
-          passive.requires &&
-          !requirementsPass(passive.requires, seasonKey, structure, hasPawn)
+          !passiveTimingPasses(passive.timing, state, tSec, {
+            passiveKey,
+            isActive: true,
+          })
         ) {
           continue;
         }

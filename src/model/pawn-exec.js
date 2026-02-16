@@ -350,6 +350,25 @@ function getEquippedItemsInOrder(pawn) {
   return entries;
 }
 
+function buildEquippedItemPassiveKey(pawn, slotId, item, passive, passiveIndex) {
+  const passiveId =
+    typeof passive?.id === "string" && passive.id.length > 0
+      ? passive.id
+      : `idx${passiveIndex}`;
+  const pawnId = pawn?.id ?? "unknown";
+  const itemKey = item?.id != null ? item.id : item?.kind ?? "unknown";
+  return `pawn:${pawnId}:slot:${slotId}:item:${itemKey}:passive:${passiveId}`;
+}
+
+function buildPawnDefPassiveKey(pawn, passive, passiveIndex) {
+  const passiveId =
+    typeof passive?.id === "string" && passive.id.length > 0
+      ? passive.id
+      : `idx${passiveIndex}`;
+  const pawnId = pawn?.id ?? "unknown";
+  return `pawn:${pawnId}:defPassive:${passiveId}`;
+}
+
 function runEquippedItemPassives(state, pawn, tSec, baseContext) {
   const equipped = getEquippedItemsInOrder(pawn);
   if (!equipped.length) return;
@@ -368,10 +387,32 @@ function runEquippedItemPassives(state, pawn, tSec, baseContext) {
       equippedSlotId: entry.slotId,
     };
 
-    for (const passive of passives) {
+    for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
+      const passive = passives[passiveIndex];
       if (!passive || typeof passive !== "object") continue;
-      if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
-      if (!itemPassiveRequirementsPass(passive.requires, { equipped: true })) {
+      const passiveKey = buildEquippedItemPassiveKey(
+        pawn,
+        entry.slotId,
+        item,
+        passive,
+        passiveIndex
+      );
+      const requirementsOk = itemPassiveRequirementsPass(passive.requires, {
+        equipped: true,
+      });
+      if (!requirementsOk) {
+        passiveTimingPasses(passive.timing, state, tSec, {
+          passiveKey,
+          isActive: false,
+        });
+        continue;
+      }
+      if (
+        !passiveTimingPasses(passive.timing, state, tSec, {
+          passiveKey,
+          isActive: true,
+        })
+      ) {
         continue;
       }
       if (passive.effect) {
@@ -760,9 +801,18 @@ export function stepPawnSecond(state, tSec, options = {}) {
 
     runEquippedItemPassives(state, pawn, tSec, context);
 
-    for (const passive of passives) {
+    for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
+      const passive = passives[passiveIndex];
       if (!passive || typeof passive !== "object") continue;
-      if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
+      const passiveKey = buildPawnDefPassiveKey(pawn, passive, passiveIndex);
+      if (
+        !passiveTimingPasses(passive.timing, state, tSec, {
+          passiveKey,
+          isActive: true,
+        })
+      ) {
+        continue;
+      }
       if (passive.effect) {
         runEffect(state, passive.effect, { ...context });
       }

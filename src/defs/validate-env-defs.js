@@ -247,6 +247,15 @@ export function validateEnvDefs({ tags, systems, tiles, events }) {
                 `envTags: "${def.id}" passive "${passive.id}" cadenceSec must be >= 1.`
               );
             }
+            if (
+              timing.trigger != null &&
+              timing.trigger !== "onFirstActive"
+            ) {
+              addIssue(
+                errors,
+                `envTags: "${def.id}" passive "${passive.id}" trigger must be "onFirstActive".`
+              );
+            }
           }
         }
       }

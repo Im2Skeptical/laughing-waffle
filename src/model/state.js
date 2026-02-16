@@ -367,6 +367,7 @@ export function createEmptyState(seed = 123456789) {
     gameEventFeed: [],
     nextGameEventFeedId: 1,
     skillRuntime: null,
+    passiveTimingRuntime: null,
 
     rng: { seed, baseSeed: seed },
   };

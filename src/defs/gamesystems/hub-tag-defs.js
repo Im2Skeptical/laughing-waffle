@@ -272,7 +272,7 @@ export const hubTagDefs = {
     passives: [
       {
         id: "preserveBoost",
-        timing: { cadenceSec: 1 },
+        timing: { trigger: "onFirstActive" },
         effect: {
           op: "SetProp",
           target: { ref: "self" },
