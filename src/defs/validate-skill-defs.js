@@ -18,41 +18,166 @@ function normalizeNodeCost(node) {
   return Math.max(0, Math.floor(node.cost));
 }
 
-function validateEffects(node, knownRecipeIds, knownHubIds, errors) {
-  const effects = isObject(node?.effects) ? node.effects : null;
-  if (!effects) return;
+const EFFECT_OPS = new Set([
+  "moveItem",
+  "stackItem",
+  "splitStack",
+  "AddResource",
+  "TransformItem",
+  "RemoveItem",
+  "ExpireItemChance",
+  "ExpireStoredPerishables",
+  "AddTag",
+  "RemoveTag",
+  "DisableTag",
+  "EnableTag",
+  "SetSystemTier",
+  "UpgradeSystemTier",
+  "SetSystemState",
+  "ResetSystemState",
+  "AddToSystemState",
+  "ClampSystemState",
+  "AccumulateRatio",
+  "AdjustSystemState",
+  "ClearSystemState",
+  "RemoveEvent",
+  "TransformEvent",
+  "ConsumeItem",
+  "TransferUnits",
+  "SpawnItem",
+  "SpawnFromDropTable",
+  "CreateWorkProcess",
+  "AdvanceWorkProcess",
+  "SetProp",
+  "AddProp",
+  "AddModifier",
+  "MulModifier",
+  "GrantUnlock",
+  "RevokeUnlock",
+]);
 
-  if (effects.pawnMods != null && !isObject(effects.pawnMods)) {
-    addIssue(errors, `skillNodes: "${node.id}" effects.pawnMods must be an object.`);
-  }
-  if (effects.globalMods != null && !isObject(effects.globalMods)) {
-    addIssue(errors, `skillNodes: "${node.id}" effects.globalMods must be an object.`);
-  }
+const SKILL_SCOPE_VALUES = new Set(["global", "pawn"]);
+const SKILL_MODIFIER_KEYS = new Set([
+  "forageTierBonus",
+  "forageStaminaCostDelta",
+  "farmingStaminaCostDelta",
+  "restStaminaBonusFlat",
+  "restStaminaBonusMult",
+  "apCapBonus",
+  "projectionHorizonBonusSec",
+  "populationFoodMult",
+]);
+const SKILL_UNLOCK_TYPES = new Set(["recipe", "hubStructure"]);
 
-  const unlocks = effects.unlocks;
-  if (unlocks == null) return;
-  if (!isObject(unlocks)) {
-    addIssue(errors, `skillNodes: "${node.id}" effects.unlocks must be an object.`);
+function normalizeEffectList(effectSpec) {
+  if (effectSpec == null) return [];
+  if (Array.isArray(effectSpec)) return effectSpec;
+  if (isObject(effectSpec)) return [effectSpec];
+  return null;
+}
+
+function validateSkillModifierEffect(effect, contextLabel, errors) {
+  const scope = effect?.scope;
+  if (!SKILL_SCOPE_VALUES.has(scope)) {
+    addIssue(errors, `${contextLabel}: ${effect.op} scope must be "global" or "pawn".`);
+  }
+  if (typeof effect?.key !== "string" || !SKILL_MODIFIER_KEYS.has(effect.key)) {
+    addIssue(errors, `${contextLabel}: ${effect.op} key "${effect?.key}" is not supported.`);
+  }
+  if (effect.op === "AddModifier") {
+    const amount = Number.isFinite(effect?.amount)
+      ? effect.amount
+      : Number.isFinite(effect?.delta)
+        ? effect.delta
+        : null;
+    if (!Number.isFinite(amount)) {
+      addIssue(errors, `${contextLabel}: AddModifier requires numeric amount or delta.`);
+    }
+  } else if (effect.op === "MulModifier") {
+    const factor = Number.isFinite(effect?.factor)
+      ? effect.factor
+      : Number.isFinite(effect?.multiplier)
+        ? effect.multiplier
+        : Number.isFinite(effect?.amount)
+          ? effect.amount
+          : null;
+    if (!Number.isFinite(factor)) {
+      addIssue(errors, `${contextLabel}: MulModifier requires numeric factor.`);
+    }
+  }
+}
+
+function validateSkillUnlockEffect(
+  effect,
+  contextLabel,
+  knownRecipeIds,
+  knownHubIds,
+  errors
+) {
+  const unlockType = effect?.unlockType;
+  if (!SKILL_UNLOCK_TYPES.has(unlockType)) {
+    addIssue(
+      errors,
+      `${contextLabel}: ${effect.op} unlockType must be "recipe" or "hubStructure".`
+    );
     return;
   }
-
-  for (const recipeId of toArray(unlocks.recipes)) {
-    if (typeof recipeId !== "string" || !recipeId.length) {
-      addIssue(errors, `skillNodes: "${node.id}" unlock recipe ids must be non-empty strings.`);
-      continue;
-    }
-    if (!knownRecipeIds.has(recipeId)) {
-      addIssue(errors, `skillNodes: "${node.id}" unlock recipe "${recipeId}" not found.`);
-    }
+  const unlockId =
+    typeof effect?.unlockId === "string" && effect.unlockId.length > 0
+      ? effect.unlockId
+      : unlockType === "recipe" &&
+          typeof effect?.recipeId === "string" &&
+          effect.recipeId.length > 0
+        ? effect.recipeId
+        : unlockType === "hubStructure" &&
+            typeof effect?.hubStructureId === "string" &&
+            effect.hubStructureId.length > 0
+          ? effect.hubStructureId
+          : null;
+  if (!unlockId) {
+    addIssue(errors, `${contextLabel}: ${effect.op} requires unlockId.`);
+    return;
   }
+  if (unlockType === "recipe" && !knownRecipeIds.has(unlockId)) {
+    addIssue(errors, `${contextLabel}: ${effect.op} recipe "${unlockId}" not found.`);
+  } else if (unlockType === "hubStructure" && !knownHubIds.has(unlockId)) {
+    addIssue(
+      errors,
+      `${contextLabel}: ${effect.op} hub structure "${unlockId}" not found.`
+    );
+  }
+}
 
-  for (const hubId of toArray(unlocks.hubStructures)) {
-    if (typeof hubId !== "string" || !hubId.length) {
-      addIssue(errors, `skillNodes: "${node.id}" unlock hub ids must be non-empty strings.`);
+function validateNodeEffectList(
+  effectSpec,
+  contextLabel,
+  knownRecipeIds,
+  knownHubIds,
+  errors
+) {
+  const list = normalizeEffectList(effectSpec);
+  if (list == null) {
+    addIssue(errors, `${contextLabel}: must be an effect object or array.`);
+    return;
+  }
+  for (const effect of list) {
+    if (!isObject(effect)) {
+      addIssue(errors, `${contextLabel}: effect entries must be objects.`);
       continue;
     }
-    if (!knownHubIds.has(hubId)) {
-      addIssue(errors, `skillNodes: "${node.id}" unlock hub structure "${hubId}" not found.`);
+    const op = effect.op || effect.kind;
+    if (typeof op !== "string" || !op.length) {
+      addIssue(errors, `${contextLabel}: effect missing op.`);
+      continue;
+    }
+    if (!EFFECT_OPS.has(op)) {
+      addIssue(errors, `${contextLabel}: invalid op "${op}".`);
+      continue;
+    }
+    if (op === "AddModifier" || op === "MulModifier") {
+      validateSkillModifierEffect(effect, contextLabel, errors);
+    } else if (op === "GrantUnlock" || op === "RevokeUnlock") {
+      validateSkillUnlockEffect(effect, contextLabel, knownRecipeIds, knownHubIds, errors);
     }
   }
 }
@@ -339,6 +464,9 @@ export function validateSkillDefs({
     ) {
       addIssue(errors, `skillNodes: "${node.id}" uiNodeRadius must be > 0 when provided.`);
     }
+    if (Object.prototype.hasOwnProperty.call(node, "effects")) {
+      addIssue(errors, `skillNodes: "${node.id}" uses deprecated "effects"; use "onUnlock".`);
+    }
 
     nodeById.set(node.id, node);
   }
@@ -401,7 +529,22 @@ export function validateSkillDefs({
       }
     }
 
-    validateEffects(node, knownRecipeIds, knownHubIds, errors);
+    validateNodeEffectList(
+      node.onUnlock,
+      `skillNodes: "${node.id}" onUnlock`,
+      knownRecipeIds,
+      knownHubIds,
+      errors
+    );
+    if (node.onLock != null) {
+      validateNodeEffectList(
+        node.onLock,
+        `skillNodes: "${node.id}" onLock`,
+        knownRecipeIds,
+        knownHubIds,
+        errors
+      );
+    }
     validateRequirements(node, allNodeIds, errors);
   }
 

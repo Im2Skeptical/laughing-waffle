@@ -30,6 +30,14 @@ function toEditorNumber(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function normalizeEffectSpecList(raw) {
+  if (Array.isArray(raw)) {
+    return raw.filter((entry) => isObject(entry)).map((entry) => deepClone(entry));
+  }
+  if (isObject(raw)) return [deepClone(raw)];
+  return [];
+}
+
 function edgeKey(a, b) {
   if (String(a) <= String(b)) return `${a}|${b}`;
   return `${b}|${a}`;
@@ -121,7 +129,7 @@ function normalizeNodeRecord(raw, treeId, fallbackPos = null) {
     tags: uniqueSortedStrings(raw.tags),
     ringId: typeof raw.ringId === "string" && raw.ringId.length ? raw.ringId : null,
     requirements: isObject(raw.requirements) ? deepClone(raw.requirements) : null,
-    effects: isObject(raw.effects) ? deepClone(raw.effects) : {},
+    onUnlock: normalizeEffectSpecList(raw.onUnlock),
     uiNodeRadius: Number.isFinite(raw.uiNodeRadius) ? raw.uiNodeRadius : null,
     editorPos: {
       x: toEditorNumber(raw.editorPos?.x, toEditorNumber(raw.uiPos?.x, fallbackPos?.x ?? 0)),
@@ -148,7 +156,7 @@ function buildNodeRegistryForLayout(graph, { pinnedOnly = false } = {}) {
       cost: Number.isFinite(node.cost) ? Math.max(0, Math.floor(node.cost)) : 1,
       tags: uniqueSortedStrings(node.tags),
       adjacent: adjacencyByNodeId[nodeId] || [],
-      effects: isObject(node.effects) ? deepClone(node.effects) : {},
+      onUnlock: normalizeEffectSpecList(node.onUnlock),
     };
     if (node.ringId) out.ringId = node.ringId;
     if (node.requirements) out.requirements = deepClone(node.requirements);
@@ -390,7 +398,7 @@ function toRuntimeExports(graph) {
       cost: Number.isFinite(node.cost) ? Math.max(0, Math.floor(node.cost)) : 1,
       tags: uniqueSortedStrings(node.tags),
       adjacent: adjacencyByNodeId[nodeId] || [],
-      effects: isObject(node.effects) ? deepClone(node.effects) : {},
+      onUnlock: normalizeEffectSpecList(node.onUnlock),
       uiPos: {
         x: toSafeInt(node.editorPos?.x, 0),
         y: toSafeInt(node.editorPos?.y, 0),

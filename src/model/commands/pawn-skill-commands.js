@@ -1,8 +1,9 @@
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC } from "../../defs/gamesettings/gamerules-defs.js";
+import { runEffect } from "../effects/index.js";
 import { adjustFollowerCount } from "../prestige-system.js";
 import { ensurePawnAI } from "../state.js";
-import { evaluateSkillNodeUnlock } from "../skills.js";
+import { evaluateSkillNodeUnlock, getSkillNodeUnlockEffects } from "../skills.js";
 import { getApCapForSecond } from "./ap-helpers.js";
 import { getPawnById } from "./inventory-helpers.js";
 
@@ -47,6 +48,19 @@ export function cmdUnlockSkillNode(state, { leaderPawnId, pawnId, nodeId } = {})
   leaderPawn.unlockedSkillNodeIds = nextUnlocked;
 
   const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+  const unlockEffects = getSkillNodeUnlockEffects(evaluation.nodeDef);
+  if (unlockEffects.length > 0) {
+    runEffect(state, unlockEffects, {
+      kind: "game",
+      state,
+      source: leaderPawn,
+      pawn: leaderPawn,
+      pawnId: leaderPawn.id,
+      ownerId: leaderPawn.id,
+      tSec: nowSec,
+    });
+  }
+
   state.actionPointCap = getApCapForSecond(state, nowSec);
   state.actionPoints = Math.min(
     Math.max(0, Math.floor(state.actionPoints ?? 0)),

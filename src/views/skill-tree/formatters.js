@@ -16,54 +16,88 @@ export function clamp(value, min, max) {
   return value;
 }
 
+function formatSkillModifierLabel(scope, key) {
+  const scopePrefix = scope === "pawn" ? "Pawn" : "Global";
+  const labels = {
+    forageTierBonus: "forage tier",
+    forageStaminaCostDelta: "forage stamina",
+    farmingStaminaCostDelta: "farming stamina",
+    restStaminaBonusFlat: "rest stamina",
+    restStaminaBonusMult: "rest stamina",
+    apCapBonus: "AP cap",
+    projectionHorizonBonusSec: "projection horizon",
+    populationFoodMult: "population food",
+  };
+  const label = labels[key] || key;
+  return `${scopePrefix} ${label}`;
+}
+
+function formatNodeUnlockEffect(effect) {
+  const op = effect?.op;
+  if (op === "AddModifier") {
+    const scope = effect?.scope === "pawn" ? "pawn" : "global";
+    const key = typeof effect?.key === "string" ? effect.key : null;
+    const amount = Number.isFinite(effect?.amount)
+      ? effect.amount
+      : Number.isFinite(effect?.delta)
+        ? effect.delta
+        : null;
+    if (!key || !Number.isFinite(amount)) return null;
+    const signed = amount >= 0 ? `+${floorInt(amount)}` : `${floorInt(amount)}`;
+    if (key === "projectionHorizonBonusSec") {
+      return `${formatSkillModifierLabel(scope, key)} ${signed}s`;
+    }
+    return `${formatSkillModifierLabel(scope, key)} ${signed}`;
+  }
+
+  if (op === "MulModifier") {
+    const scope = effect?.scope === "pawn" ? "pawn" : "global";
+    const key = typeof effect?.key === "string" ? effect.key : null;
+    const factor = Number.isFinite(effect?.factor)
+      ? effect.factor
+      : Number.isFinite(effect?.multiplier)
+        ? effect.multiplier
+        : Number.isFinite(effect?.amount)
+          ? effect.amount
+          : null;
+    if (!key || !Number.isFinite(factor)) return null;
+    const pct = Math.round((factor - 1) * 100);
+    const signed = pct >= 0 ? `+${pct}%` : `${pct}%`;
+    return `${formatSkillModifierLabel(scope, key)} ${signed}`;
+  }
+
+  if (op === "GrantUnlock" || op === "RevokeUnlock") {
+    const unlockType = effect?.unlockType;
+    const unlockId =
+      typeof effect?.unlockId === "string" && effect.unlockId.length > 0
+        ? effect.unlockId
+        : unlockType === "recipe" && typeof effect?.recipeId === "string"
+          ? effect.recipeId
+          : unlockType === "hubStructure" && typeof effect?.hubStructureId === "string"
+            ? effect.hubStructureId
+            : null;
+    if (!unlockId) return null;
+    const action = op === "GrantUnlock" ? "Unlock" : "Lock";
+    if (unlockType === "recipe") return `${action} recipe: ${unlockId}`;
+    if (unlockType === "hubStructure") return `${action} building: ${unlockId}`;
+  }
+
+  if (typeof op === "string" && op.length > 0) {
+    return `Effect op: ${op}`;
+  }
+  return null;
+}
+
 export function formatNodeEffects(nodeDef) {
   const lines = [];
-  const effects = nodeDef?.effects || null;
-  if (!effects) return lines;
-
-  const pawnMods = effects.pawnMods || null;
-  if (pawnMods) {
-    if (Number.isFinite(pawnMods.forageTierBonus)) {
-      lines.push(`Forage tier +${floorInt(pawnMods.forageTierBonus)}`);
-    }
-    if (Number.isFinite(pawnMods.forageStaminaCostDelta)) {
-      lines.push(`Forage stamina ${floorInt(pawnMods.forageStaminaCostDelta)}`);
-    }
-    if (Number.isFinite(pawnMods.farmingStaminaCostDelta)) {
-      lines.push(`Farming stamina ${floorInt(pawnMods.farmingStaminaCostDelta)}`);
-    }
-    if (Number.isFinite(pawnMods.restStaminaBonusFlat)) {
-      lines.push(`Rest stamina +${floorInt(pawnMods.restStaminaBonusFlat)}`);
-    }
-    if (Number.isFinite(pawnMods.restStaminaBonusMult)) {
-      const pct = Math.round((pawnMods.restStaminaBonusMult - 1) * 100);
-      lines.push(`Rest stamina +${pct}%`);
-    }
-  }
-
-  const globalMods = effects.globalMods || null;
-  if (globalMods) {
-    if (Number.isFinite(globalMods.apCapBonus)) {
-      lines.push(`AP cap +${floorInt(globalMods.apCapBonus)}`);
-    }
-    if (Number.isFinite(globalMods.projectionHorizonBonusSec)) {
-      lines.push(`Projection horizon +${floorInt(globalMods.projectionHorizonBonusSec)}s`);
-    }
-    if (Number.isFinite(globalMods.populationFoodMult)) {
-      const pct = Math.round((1 - globalMods.populationFoodMult) * 100);
-      lines.push(`Population food -${pct}%`);
-    }
-  }
-
-  const unlocks = effects.unlocks || null;
-  if (unlocks) {
-    const recipes = Array.isArray(unlocks.recipes) ? unlocks.recipes : [];
-    const structures = Array.isArray(unlocks.hubStructures)
-      ? unlocks.hubStructures
+  const effects = Array.isArray(nodeDef?.onUnlock)
+    ? nodeDef.onUnlock
+    : nodeDef?.onUnlock && typeof nodeDef.onUnlock === "object"
+      ? [nodeDef.onUnlock]
       : [];
-    if (recipes.length) lines.push(`Unlock recipes: ${recipes.join(", ")}`);
-    if (structures.length) lines.push(`Unlock buildings: ${structures.join(", ")}`);
+  for (const effect of effects) {
+    const line = formatNodeUnlockEffect(effect);
+    if (line) lines.push(line);
   }
-
   return lines;
 }

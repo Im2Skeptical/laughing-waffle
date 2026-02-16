@@ -232,6 +232,17 @@ function getDefaultUnlockedHubStructures(defsInput) {
   return sortStrings(Object.keys(hubStructureDefs || {}));
 }
 
+function normalizeSkillEffectSpecList(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter((entry) => entry && typeof entry === "object");
+  if (typeof raw === "object") return [raw];
+  return [];
+}
+
+export function getSkillNodeUnlockEffects(nodeDef) {
+  return normalizeSkillEffectSpecList(nodeDef?.onUnlock);
+}
+
 function withRuntimeSkillState(state, defsInput = null) {
   if (!state || typeof state !== "object") {
     return normalizeSkillRuntimeShape(null, defsInput);
@@ -499,31 +510,6 @@ export function getUnlockableSkillNodes(state, pawnId, treeId = null) {
   return sortStrings(unlockable);
 }
 
-function accumulateLegacyPawnMods(state, pawnId, out) {
-  const unlocked = sortStrings(Array.from(getUnlockedSkillSet(state, pawnId).values()));
-  for (const nodeId of unlocked) {
-    const node = getSkillNodeDef(null, nodeId);
-    const mods = isObject(node?.effects?.pawnMods) ? node.effects.pawnMods : null;
-    if (!mods) continue;
-
-    if (Number.isFinite(mods.forageTierBonus)) {
-      out.forageTierBonus += Math.floor(mods.forageTierBonus);
-    }
-    if (Number.isFinite(mods.forageStaminaCostDelta)) {
-      out.forageStaminaCostDelta += Math.floor(mods.forageStaminaCostDelta);
-    }
-    if (Number.isFinite(mods.farmingStaminaCostDelta)) {
-      out.farmingStaminaCostDelta += Math.floor(mods.farmingStaminaCostDelta);
-    }
-    if (Number.isFinite(mods.restStaminaBonusFlat)) {
-      out.restStaminaBonusFlat += Math.floor(mods.restStaminaBonusFlat);
-    }
-    if (Number.isFinite(mods.restStaminaBonusMult)) {
-      out.restStaminaBonusMult *= mods.restStaminaBonusMult;
-    }
-  }
-}
-
 export function computePawnSkillMods(state, pawnId) {
   const out = {
     forageTierBonus: 0,
@@ -553,52 +539,8 @@ export function computePawnSkillMods(state, pawnId) {
     }
   }
 
-  // Legacy compatibility for old skill node schemas.
-  accumulateLegacyPawnMods(state, pawnId, out);
-
   out.restStaminaBonusMult = Math.max(0, out.restStaminaBonusMult);
   return out;
-}
-
-function accumulateLegacyGlobalMods(state, out) {
-  const pawns = Array.isArray(state?.pawns) ? state.pawns.slice() : [];
-  pawns.sort((a, b) => {
-    const aid = Number.isFinite(a?.id) ? Math.floor(a.id) : 0;
-    const bid = Number.isFinite(b?.id) ? Math.floor(b.id) : 0;
-    return aid - bid;
-  });
-
-  for (const pawn of pawns) {
-    if (!pawn || pawn.id == null) continue;
-    const unlocked = sortStrings(Array.from(getUnlockedSkillSet(state, pawn.id).values()));
-    for (const nodeId of unlocked) {
-      const node = getSkillNodeDef(null, nodeId);
-      if (!node) continue;
-
-      const globalMods = isObject(node?.effects?.globalMods) ? node.effects.globalMods : null;
-      if (globalMods) {
-        if (Number.isFinite(globalMods.apCapBonus)) {
-          out.apCapBonus += Math.floor(globalMods.apCapBonus);
-        }
-        if (Number.isFinite(globalMods.projectionHorizonBonusSec)) {
-          out.projectionHorizonBonusSec += Math.floor(globalMods.projectionHorizonBonusSec);
-        }
-        if (Number.isFinite(globalMods.populationFoodMult)) {
-          out.populationFoodMult *= globalMods.populationFoodMult;
-        }
-      }
-
-      const unlocks = isObject(node?.effects?.unlocks) ? node.effects.unlocks : null;
-      if (unlocks) {
-        for (const recipeId of uniqueSortedStrings(unlocks.recipes)) {
-          if (recipeDefs[recipeId]) out.unlockedRecipes.add(recipeId);
-        }
-        for (const hubId of uniqueSortedStrings(unlocks.hubStructures)) {
-          if (hubStructureDefs[hubId]) out.unlockedHubStructures.add(hubId);
-        }
-      }
-    }
-  }
 }
 
 export function computeGlobalSkillMods(state) {
@@ -634,9 +576,6 @@ export function computeGlobalSkillMods(state) {
       if (hubStructureDefs[hubId]) out.unlockedHubStructures.add(hubId);
     }
   }
-
-  // Legacy compatibility for old skill node schemas.
-  accumulateLegacyGlobalMods(state, out);
 
   out.populationFoodMult = Math.max(0, out.populationFoodMult);
   return out;
