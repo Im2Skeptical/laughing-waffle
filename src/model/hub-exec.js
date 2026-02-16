@@ -35,6 +35,7 @@ import {
 } from "./process-framework.js";
 import { canOwnerAcceptItem } from "./commands.js";
 import { getGlobalSkillModifier } from "./skills.js";
+import { passiveTimingPasses } from "./passive-timing.js";
 
 function hasProcess(structure, systemId, type) {
   const sys = structure?.systemState?.[systemId];
@@ -151,23 +152,6 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
   }
 
   return true;
-}
-
-function timingPass(timing, state, tSec) {
-  if (!timing || typeof timing !== "object") return true;
-  const cadenceSec = Number.isFinite(timing.cadenceSec)
-    ? Math.max(1, Math.floor(timing.cadenceSec))
-    : null;
-  const onSeasonChange = timing.onSeasonChange === true;
-
-  if (!cadenceSec && !onSeasonChange) return true;
-
-  const cadenceMatch =
-    cadenceSec != null && Number.isFinite(tSec)
-      ? tSec % cadenceSec === 0
-      : false;
-  const seasonMatch = onSeasonChange && state?._seasonChanged === true;
-  return cadenceMatch || seasonMatch;
 }
 
 function isTagDisabled(structure, tagId) {
@@ -1165,7 +1149,7 @@ export function stepHubSecond(state, tSec) {
       const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
       for (const passive of passives) {
         if (!passive || typeof passive !== "object") continue;
-        if (!timingPass(passive.timing, state, tSec)) continue;
+        if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
         if (
           passive.requires &&
           !requirementsPass(passive.requires, seasonKey, structure, hasPawn)

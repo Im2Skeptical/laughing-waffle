@@ -22,6 +22,7 @@ import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { ensurePawnSystems, ensurePawnAI } from "./state.js";
 import { applyFollowerHungerDebt } from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
+import { passiveTimingPasses } from "./passive-timing.js";
 import {
   findEquippedPoolProviderEntry,
   ownerHasEquippedPoolProvider,
@@ -39,23 +40,6 @@ function requirementsPass(requires, pawn) {
     if (!Number.isFinite(cur) || cur > requires.hungerAtMost) return false;
   }
   return true;
-}
-
-function timingPass(timing, state, tSec) {
-  if (!timing || typeof timing !== "object") return true;
-  const cadenceSec = Number.isFinite(timing.cadenceSec)
-    ? Math.max(1, Math.floor(timing.cadenceSec))
-    : null;
-  const onSeasonChange = timing.onSeasonChange === true;
-
-  if (!cadenceSec && !onSeasonChange) return true;
-
-  const cadenceMatch =
-    cadenceSec != null && Number.isFinite(tSec)
-      ? tSec % cadenceSec === 0
-      : false;
-  const seasonMatch = onSeasonChange && state?._seasonChanged === true;
-  return cadenceMatch || seasonMatch;
 }
 
 function spanDistance(aCol, aSpan, bCol, bSpan) {
@@ -386,7 +370,7 @@ function runEquippedItemPassives(state, pawn, tSec, baseContext) {
 
     for (const passive of passives) {
       if (!passive || typeof passive !== "object") continue;
-      if (!timingPass(passive.timing, state, tSec)) continue;
+      if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
       if (!itemPassiveRequirementsPass(passive.requires, { equipped: true })) {
         continue;
       }
@@ -778,7 +762,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
 
     for (const passive of passives) {
       if (!passive || typeof passive !== "object") continue;
-      if (!timingPass(passive.timing, state, tSec)) continue;
+      if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
       if (passive.effect) {
         runEffect(state, passive.effect, { ...context });
       }

@@ -2,21 +2,7 @@
 // Per-second item execution (tag-driven passives).
 
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
-
-function timingPass(timing, state, tSec) {
-  if (!timing || typeof timing !== "object") return true;
-  const cadenceSec = Number.isFinite(timing.cadenceSec)
-    ? Math.max(1, Math.floor(timing.cadenceSec))
-    : null;
-  const onSeasonChange = timing.onSeasonChange === true;
-
-  if (!cadenceSec && !onSeasonChange) return true;
-
-  const cadenceMatch =
-    cadenceSec != null && Number.isFinite(tSec) ? tSec % cadenceSec === 0 : false;
-  const seasonMatch = onSeasonChange && state?._seasonChanged === true;
-  return cadenceMatch || seasonMatch;
-}
+import { passiveTimingPasses } from "./passive-timing.js";
 
 function compareOwnerIds(a, b) {
   const aNum = Number(a);
@@ -104,7 +90,7 @@ function runItemTagPassives(state, runEffect, inv, ownerId, item, tSec) {
     const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
     for (const passive of passives) {
       if (!passive || typeof passive !== "object") continue;
-      if (!timingPass(passive.timing, state, tSec)) continue;
+      if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
       if (passive.effect) runEffect(state, passive.effect, { ...baseContext });
 
       // If the item was removed or transformed, stop processing it this tick.

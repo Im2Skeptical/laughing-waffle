@@ -14,6 +14,7 @@ import { createRng } from "./rng.js";
 import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { pushGameEvent } from "./event-feed.js";
+import { passiveTimingPasses } from "./passive-timing.js";
 
 const EVENT_CADENCE_SEC = 5;
 
@@ -113,23 +114,6 @@ function requirementsPass(requires, seasonKey, tile, hasPawn) {
   }
 
   return true;
-}
-
-function timingPass(timing, state, tSec) {
-  if (!timing || typeof timing !== "object") return true;
-  const cadenceSec = Number.isFinite(timing.cadenceSec)
-    ? Math.max(1, Math.floor(timing.cadenceSec))
-    : null;
-  const onSeasonChange = timing.onSeasonChange === true;
-
-  if (!cadenceSec && !onSeasonChange) return true;
-
-  const cadenceMatch =
-    cadenceSec != null && Number.isFinite(tSec)
-      ? tSec % cadenceSec === 0
-      : false;
-  const seasonMatch = onSeasonChange && state?._seasonChanged === true;
-  return cadenceMatch || seasonMatch;
 }
 
 function isTagDisabled(tile, tagId) {
@@ -936,7 +920,7 @@ export function stepEnvSecond(state, tSec) {
       const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
       for (const passive of passives) {
         if (!passive || typeof passive !== "object") continue;
-        if (!timingPass(passive.timing, state, tSec)) continue;
+        if (!passiveTimingPasses(passive.timing, state, tSec)) continue;
         if (
           passive.requires &&
           !requirementsPass(passive.requires, seasonKey, tile, hasPawn)
