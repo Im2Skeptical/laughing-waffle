@@ -293,7 +293,7 @@ export const hubTagDefs = {
       description: "Provides housing for residents.",
 
     },
-    systems: ["residents"],
+    systems: ["residents", "faith"],
     passives: [],
     intents: [],
   },

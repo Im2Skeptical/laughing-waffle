@@ -33,6 +33,7 @@ import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
 import { createEventLogView } from "./event-log-pixi.js";
 import { createYearEndPerformanceView } from "./year-end-performance-pixi.js";
+import { createRunCompleteView } from "./run-complete-pixi.js";
 import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
@@ -73,6 +74,7 @@ let flashActionLogAp = null;
 let actionLogView = null;
 let eventLogView = null;
 let yearEndPerformanceView = null;
+let runCompleteView = null;
 let externalUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
@@ -80,6 +82,7 @@ let mainUiHiddenBySkillTree = false;
 let stateTintOverlay = null;
 let lastStateTintKey = "__init__";
 const liveSeenYearEndEventIds = new Set();
+const liveSeenRunCompleteEventIds = new Set();
 const FULL_VIEW_REBUILD_REASONS = new Set([
   "init",
   "saveLoad",
@@ -178,6 +181,7 @@ function resizeCanvas() {
   skillTreeView?.resize?.();
   skillTreeEditorView?.resize?.();
   yearEndPerformanceView?.resize?.();
+  runCompleteView?.resize?.();
   if (stateTintOverlay) {
     redrawStateTintOverlayBounds();
   }
@@ -676,6 +680,57 @@ function syncYearEndPerformancePopup() {
   if (liveSeenYearEndEventIds.has(yearEndEntry.id)) return;
   liveSeenYearEndEventIds.add(yearEndEntry.id);
   yearEndPerformanceView?.openForEntry?.(yearEndEntry, { source: "live" });
+}
+
+function hasRunCompleteData(entry) {
+  return !!(
+    entry &&
+    entry.type === "runComplete" &&
+    entry.data &&
+    typeof entry.data === "object"
+  );
+}
+
+function getLatestRunCompleteEventAtSecond(state, tSec) {
+  const targetSec = Math.max(0, Math.floor(tSec ?? 0));
+  const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const entry = feed[i];
+    if (!hasRunCompleteData(entry)) continue;
+    const entrySec = Number.isFinite(entry.tSec) ? Math.floor(entry.tSec) : -1;
+    if (entrySec !== targetSec) continue;
+    return {
+      id: Number.isFinite(entry.id) ? Math.floor(entry.id) : null,
+      tSec: entrySec,
+      type: entry.type,
+      text: typeof entry.text === "string" ? entry.text : "",
+      data: entry.data,
+    };
+  }
+  return null;
+}
+
+function handleRunCompleteClose() {}
+
+function syncRunCompletePopup() {
+  const state = runner.getState?.();
+  if (!state) return;
+
+  const previewing = runner.isPreviewing?.() ?? false;
+  const tSec = Number.isFinite(state.tSec) ? Math.floor(state.tSec) : 0;
+  const runCompleteEntry = getLatestRunCompleteEventAtSecond(state, tSec);
+
+  if (previewing) {
+    if (runCompleteView?.isOpen?.()) {
+      runCompleteView.close("scrub");
+    }
+    return;
+  }
+
+  if (!runCompleteEntry || !Number.isFinite(runCompleteEntry.id)) return;
+  if (liveSeenRunCompleteEventIds.has(runCompleteEntry.id)) return;
+  liveSeenRunCompleteEventIds.add(runCompleteEntry.id);
+  runCompleteView?.openForEntry?.(runCompleteEntry, { source: "live" });
 }
 
 const interactionController = createInteractionController({
@@ -1236,6 +1291,12 @@ yearEndPerformanceView = createYearEndPerformanceView({
   onClose: handleYearEndPerformanceClose,
 });
 
+runCompleteView = createRunCompleteView({
+  app,
+  layer: uiLayers.controlsLayer,
+  onClose: handleRunCompleteClose,
+});
+
 skillTreeView = createSkillTreeView({
   app,
   layer: uiLayers.skillTreeLayer,
@@ -1262,6 +1323,7 @@ sunMoonDisksView.init(); // NEW
 actionLogView.init();
 eventLogView.init();
 yearEndPerformanceView.init();
+runCompleteView.init();
 applyScenarioDevUiBootstrap();
 // Default-off for scroll-first UX; set __DBG_AUTO_OPEN_GRAPHS__ = true to opt in.
 const devAutoOpenGraphs = globalThis?.__DBG_AUTO_OPEN_GRAPHS__ === true;
@@ -1326,8 +1388,10 @@ app.ticker.add((delta) => {
   runTimed("sunMoon.update", () => sunMoonDisksView.update(frameDt)); // NEW
   runTimed("actionLog.update", () => actionLogView.update(frameDt));
   runTimed("yearEnd.sync", () => syncYearEndPerformancePopup());
+  runTimed("runComplete.sync", () => syncRunCompletePopup());
   runTimed("eventLog.update", () => eventLogView.update(frameDt));
   runTimed("yearEnd.update", () => yearEndPerformanceView.update(frameDt));
+  runTimed("runComplete.update", () => runCompleteView.update(frameDt));
   runTimed("skillTree.update", () => skillTreeView?.update?.(frameDt));
   runTimed("skillTreeEditor.update", () => skillTreeEditorView?.update?.(frameDt));
   runTimed("scrollGraph.update", () => scrollGraphOrchestrator?.update?.());

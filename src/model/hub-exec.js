@@ -13,9 +13,15 @@ import {
   YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE,
   YEAR_END_SKILL_POINTS_POPULATION_CHANGE,
   YEAR_END_SKILL_POINTS_POPULATION_HALVING,
+  FAITH_STARTING_TIER,
+  FAITH_GROWTH_STREAK_FOR_UPGRADE,
   SEASON_DISPLAY,
 } from "../defs/gamesettings/gamerules-defs.js";
-import { getCurrentSeasonKey, ensurePawnSystems } from "./state.js";
+import {
+  getCurrentSeasonKey,
+  ensurePawnSystems,
+  syncPhaseToPaused,
+} from "./state.js";
 import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { PAWN_ROLE_LEADER, getLeaderById } from "./prestige-system.js";
@@ -613,6 +619,7 @@ function ensurePopulationTrackerState(state) {
       year: currentYear,
       mealAttempts: 0,
       mealSuccesses: 0,
+      faithGrowthStreak: 0,
     };
   }
   const tracker = state.populationTracker;
@@ -621,6 +628,10 @@ function ensurePopulationTrackerState(state) {
     : currentYear;
   tracker.mealAttempts = normalizePopulationCount(tracker.mealAttempts, 0);
   tracker.mealSuccesses = normalizePopulationCount(tracker.mealSuccesses, 0);
+  tracker.faithGrowthStreak = normalizePopulationCount(
+    tracker.faithGrowthStreak,
+    0
+  );
   if (tracker.mealSuccesses > tracker.mealAttempts) {
     tracker.mealSuccesses = tracker.mealAttempts;
   }
@@ -643,6 +654,47 @@ function getResidentsHousingStructure(anchors) {
     return structure;
   }
   return null;
+}
+
+function normalizeTierId(value, fallback = "bronze") {
+  const defaultTier = TIER_ASC.includes(fallback)
+    ? fallback
+    : TIER_ASC[0] || "bronze";
+  if (typeof value !== "string") return defaultTier;
+  return TIER_ASC.includes(value) ? value : defaultTier;
+}
+
+function getFaithStartingTier() {
+  return normalizeTierId(FAITH_STARTING_TIER, "gold");
+}
+
+function getFaithGrowthStreakThreshold() {
+  const raw = Number.isFinite(FAITH_GROWTH_STREAK_FOR_UPGRADE)
+    ? Math.floor(FAITH_GROWTH_STREAK_FOR_UPGRADE)
+    : 3;
+  return Math.max(1, raw);
+}
+
+function shiftTier(tier, delta = 0) {
+  const normalized = normalizeTierId(tier, TIER_ASC[0] || "bronze");
+  const idx = TIER_ASC.indexOf(normalized);
+  const nextIdx = Math.max(
+    0,
+    Math.min(TIER_ASC.length - 1, idx + Math.floor(delta))
+  );
+  return TIER_ASC[nextIdx] || normalized;
+}
+
+function getFaithTier(structure) {
+  if (!structure) return getFaithStartingTier();
+  ensureHubSystemState(structure, "faith");
+  return normalizeTierId(structure?.systemTiers?.faith, getFaithStartingTier());
+}
+
+function setFaithTier(structure, tier) {
+  if (!structure) return;
+  ensureHubSystemState(structure, "faith");
+  structure.systemTiers.faith = normalizeTierId(tier, getFaithStartingTier());
 }
 
 function ensureRoutingTemplateSlotWithCandidates(slotState, candidates) {
@@ -917,7 +969,7 @@ function consumeResidentsMealsOnSeasonChange(state, structure) {
   return { attempts, successes, misses };
 }
 
-function maybeApplyYearlyPopulationChange(state, tSec) {
+function maybeApplyYearlyPopulationChange(state, tSec, anchors = []) {
   const tracker = ensurePopulationTrackerState(state);
   if (!tracker) return false;
 
@@ -957,6 +1009,42 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
   nextPopulation = normalizePopulationCount(nextPopulation, previousPopulation);
   setPopulationCount(state, nextPopulation);
 
+  const housingStructure = getResidentsHousingStructure(anchors);
+  const hasFaithHousing = !!housingStructure;
+  const faithThreshold = getFaithGrowthStreakThreshold();
+  let faithGrowthStreak = normalizePopulationCount(tracker.faithGrowthStreak, 0);
+  const previousFaithTier = hasFaithHousing ? getFaithTier(housingStructure) : null;
+  let nextFaithTier = previousFaithTier;
+  let faithOutcome = hasFaithHousing ? "faithUnchanged" : "faithUnavailable";
+  let runCompleted = false;
+
+  if (hasFaithHousing) {
+    if (outcomeKind === "populationChanged") {
+      faithGrowthStreak += 1;
+      if (faithGrowthStreak >= faithThreshold) {
+        nextFaithTier = shiftTier(previousFaithTier, 1);
+        faithOutcome =
+          nextFaithTier === previousFaithTier ? "faithAlreadyMax" : "faithUpgraded";
+        faithGrowthStreak = 0;
+      }
+    } else if (outcomeKind === "populationHalved") {
+      faithGrowthStreak = 0;
+      if (previousFaithTier === "bronze") {
+        runCompleted = true;
+        faithOutcome = "faithCollapsed";
+      } else {
+        nextFaithTier = shiftTier(previousFaithTier, -1);
+        faithOutcome = "faithDegraded";
+      }
+    } else {
+      faithGrowthStreak = 0;
+    }
+    setFaithTier(housingStructure, nextFaithTier);
+  } else {
+    faithGrowthStreak = 0;
+  }
+  tracker.faithGrowthStreak = faithGrowthStreak;
+
   const skillPointsPerLeader = getYearEndSkillPointsAward(outcomeKind);
   const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   let leaderCount = 0;
@@ -972,10 +1060,14 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
   const foodTotals = computeYearEndFoodTotals(state);
 
   const priorYear = Math.max(1, currentYear - 1);
-  pushGameEvent(state, {
+  const faithSummaryText =
+    hasFaithHousing && previousFaithTier && nextFaithTier
+      ? `, faith ${previousFaithTier} -> ${nextFaithTier}`
+      : "";
+  const yearlyEntry = pushGameEvent(state, {
     type: "populationYearlyUpdate",
     tSec,
-    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText}), +${skillPointsPerLeader} skill points to each leader`,
+    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})${faithSummaryText}, +${skillPointsPerLeader} skill points to each leader`,
     data: {
       year: priorYear,
       previousPopulation,
@@ -989,6 +1081,15 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
       totalSkillPointsAwarded,
       grainTotal: foodTotals.grainTotal,
       edibleTotal: foodTotals.edibleTotal,
+      faith: {
+        structureId: housingStructure?.instanceId ?? null,
+        previousTier: previousFaithTier,
+        nextTier: nextFaithTier,
+        outcome: faithOutcome,
+        growthStreak: faithGrowthStreak,
+        growthThreshold: faithThreshold,
+        runCompleted,
+      },
       yearEndPerformance: {
         year: priorYear,
         previousPopulation,
@@ -1003,9 +1104,40 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
         skillPointsPerLeader,
         leaderCount,
         totalSkillPointsAwarded,
+        faithPreviousTier: previousFaithTier,
+        faithNextTier: nextFaithTier,
+        faithOutcome,
+        faithGrowthStreak: faithGrowthStreak,
+        faithGrowthThreshold: faithThreshold,
+        runCompleted,
       },
     },
   });
+
+  if (runCompleted && state?.runStatus?.complete !== true) {
+    state.runStatus = {
+      complete: true,
+      reason: "faithCollapsedAtBronze",
+      year: priorYear,
+      tSec: Math.max(0, Math.floor(tSec ?? state?.tSec ?? 0)),
+      triggerEventId: Number.isFinite(yearlyEntry?.id)
+        ? Math.floor(yearlyEntry.id)
+        : null,
+    };
+    state.paused = true;
+    syncPhaseToPaused(state);
+    pushGameEvent(state, {
+      type: "runComplete",
+      tSec,
+      text: `Run complete: civilization lasted until Year ${priorYear}.`,
+      data: {
+        runComplete: true,
+        year: priorYear,
+        reason: "faithCollapsedAtBronze",
+        triggerEventId: state.runStatus.triggerEventId,
+      },
+    });
+  }
 
   tracker.year = currentYear;
   tracker.mealAttempts = 0;
@@ -1016,7 +1148,8 @@ function maybeApplyYearlyPopulationChange(state, tSec) {
 function runPopulationSeasonTick(state, tSec, anchors) {
   if (!state || state._seasonChanged !== true) return false;
 
-  maybeApplyYearlyPopulationChange(state, tSec);
+  maybeApplyYearlyPopulationChange(state, tSec, anchors);
+  if (state?.runStatus?.complete === true) return true;
 
   const tracker = ensurePopulationTrackerState(state);
   if (!tracker) return false;

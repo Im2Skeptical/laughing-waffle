@@ -11,6 +11,13 @@ export const hubSystemDefs = {
       processes: [],
     },
   },
+  faith: {
+    id: "faith",
+    kind: "hubSystem",
+    ui: { name: "Faith", description: "Civilization faith stability tier." },
+    defaultTier: "gold",
+    stateDefaults: {},
+  },
   deposit: {
     id: "deposit",
     kind: "hubSystem",

@@ -54,6 +54,11 @@ export const eventLogTypeDefs = {
     label: "Pop Year",
     color: 0x04ff00,
   },
+  runComplete: {
+    id: "runComplete",
+    label: "Run Complete",
+    color: 0xff4f4f,
+  },
 };
 
 export function getEventLogTypeDef(typeId) {
