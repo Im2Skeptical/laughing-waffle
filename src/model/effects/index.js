@@ -38,6 +38,12 @@ import {
 } from "./ops/tag-ops.js";
 import { handleRemoveEvent, handleTransformEvent } from "./ops/event-ops.js";
 import { handleSetProp, handleAddProp } from "./ops/prop-ops.js";
+import {
+  handleAddModifier,
+  handleGrantUnlock,
+  handleMulModifier,
+  handleRevokeUnlock,
+} from "./ops/skill-ops.js";
 import { processSeasonChangeForItems as processSeasonChangeForItemsImpl } from "./item-tick/item-season.js";
 import { processSecondChangeForItems as processSecondChangeForItemsImpl } from "./item-tick/item-second.js";
 
@@ -73,6 +79,10 @@ const handlers = {
   TransformEvent: handleTransformEvent,
   SetProp: handleSetProp,
   AddProp: handleAddProp,
+  AddModifier: handleAddModifier,
+  MulModifier: handleMulModifier,
+  GrantUnlock: handleGrantUnlock,
+  RevokeUnlock: handleRevokeUnlock,
 };
 
 export { normalizeEffectSpec };

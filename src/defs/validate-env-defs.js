@@ -33,6 +33,10 @@ const EFFECT_OPS = new Set([
   "AdvanceWorkProcess",
   "SetProp",
   "AddProp",
+  "AddModifier",
+  "MulModifier",
+  "GrantUnlock",
+  "RevokeUnlock",
 ]);
 
 const TARGETING_KEYS = new Set([

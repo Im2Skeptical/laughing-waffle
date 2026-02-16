@@ -4,7 +4,7 @@ import {
   AP_INCOME_PER_SEC,
 } from "../../defs/gamesettings/gamerules-defs.js";
 import { getActionPointCapAtSecond, isMoonWaxingAtSecond } from "../moon.js";
-import { computeGlobalSkillMods } from "../skills.js";
+import { getGlobalSkillModifier } from "../skills.js";
 
 export function normalizeApState(state) {
   if (typeof state.actionPoints !== "number") state.actionPoints = 0;
@@ -21,10 +21,7 @@ export function getApCapForSecond(state, tSec) {
     return cap;
   }
   const baseCap = getActionPointCapAtSecond(tSec);
-  const globalMods = computeGlobalSkillMods(state);
-  const bonus = Number.isFinite(globalMods?.apCapBonus)
-    ? Math.floor(globalMods.apCapBonus)
-    : 0;
+  const bonus = Math.floor(getGlobalSkillModifier(state, "apCapBonus", 0));
   return Math.max(0, baseCap + bonus);
 }
 

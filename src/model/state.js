@@ -19,7 +19,10 @@ import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 import { attachRngHelpers, createRng } from "./rng.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 import { Inventory } from "./inventory-model.js";
-import { computeGlobalSkillMods } from "./skills.js";
+import {
+  ensureSkillRuntimeState,
+  getGlobalSkillModifier,
+} from "./skills.js";
 
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event"];
@@ -363,10 +366,12 @@ export function createEmptyState(seed = 123456789) {
     nextFollowerCreationOrderIndex: 1,
     gameEventFeed: [],
     nextGameEventFeedId: 1,
+    skillRuntime: null,
 
     rng: { seed, baseSeed: seed },
   };
 
+  ensureSkillRuntimeState(state);
   attachRngHelpers(state);
   return state;
 }
@@ -913,6 +918,7 @@ export function deserializeGameState(data) {
   state.nextFollowerCreationOrderIndex = nextFollowerIndex;
   state._boardDirty = false;
   state._seasonChanged = false;
+  ensureSkillRuntimeState(state);
 
   // New integer time defaults if missing from save
   if (state.simStepIndex == null) state.simStepIndex = 0;
@@ -965,10 +971,9 @@ export function deserializeGameState(data) {
     );
   } else {
     const baseCap = getActionPointCapAtSecond(state.tSec ?? 0);
-    const globalSkillMods = computeGlobalSkillMods(state);
-    const skillCapBonus = Number.isFinite(globalSkillMods?.apCapBonus)
-      ? Math.floor(globalSkillMods.apCapBonus)
-      : 0;
+    const skillCapBonus = Math.floor(
+      getGlobalSkillModifier(state, "apCapBonus", 0)
+    );
     state.actionPointCap = Math.max(0, baseCap + skillCapBonus);
     // Enforce Cap Clamp immediately on load (in case save data is over-cap)
     state.actionPoints = Math.min(state.actionPoints, state.actionPointCap);

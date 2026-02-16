@@ -16,7 +16,7 @@ import {
   recordTimegraphCacheHit,
   recordTimegraphCacheMiss,
 } from "../perf.js";
-import { computeGlobalSkillMods } from "../skills.js";
+import { getGlobalSkillModifier } from "../skills.js";
 import { DEFAULT_FORECAST_STEP_SEC, MAX_HISTORY_POINTS } from "./constants.js";
 import { clampSec } from "./utils.js";
 import {
@@ -193,11 +193,13 @@ export function createTimeGraphController({
       return Math.floor(horizonSecOverride);
     }
     const base = clampStride(horizonSec, 1200);
-    const state = getCursorState?.() ?? null;
-    const globalMods = computeGlobalSkillMods(state);
-    const bonus = Number.isFinite(globalMods?.projectionHorizonBonusSec)
-      ? Math.floor(globalMods.projectionHorizonBonusSec)
-      : 0;
+    const bonus = Math.floor(
+      getGlobalSkillModifier(
+        getCursorState?.() ?? null,
+        "projectionHorizonBonusSec",
+        0
+      )
+    );
     return clampStride(base + bonus, 1200);
   }
 

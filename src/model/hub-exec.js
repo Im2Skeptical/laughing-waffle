@@ -34,7 +34,7 @@ import {
   isDropEndpoint,
 } from "./process-framework.js";
 import { canOwnerAcceptItem } from "./commands.js";
-import { computeGlobalSkillMods } from "./skills.js";
+import { getGlobalSkillModifier } from "./skills.js";
 
 function hasProcess(structure, systemId, type) {
   const sys = structure?.systemState?.[systemId];
@@ -828,10 +828,10 @@ function tryConsumeResidentMeal(endpoint) {
 
 function consumeResidentsMealsOnSeasonChange(state, structure) {
   const population = getPopulationCount(state);
-  const globalSkillMods = computeGlobalSkillMods(state);
-  const populationFoodMult = Number.isFinite(globalSkillMods?.populationFoodMult)
-    ? Math.max(0, globalSkillMods.populationFoodMult)
-    : 1;
+  const populationFoodMult = Math.max(
+    0,
+    getGlobalSkillModifier(state, "populationFoodMult", 1)
+  );
   const attempts = normalizePopulationCount(
     Math.floor(population * populationFoodMult),
     population
