@@ -553,6 +553,10 @@ export function createSimRunner({
     if (!cursorState) return false;
 
     const prevPauseRequested = pauseRequested;
+    const bounds = getEditableHistoryBounds();
+    const minEditableSec = Number.isFinite(bounds?.minEditableSec)
+      ? Math.max(0, Math.floor(bounds.minEditableSec))
+      : 0;
 
     rewindAccumulatorSec += frameDt * speedAbs;
     const rawSteps = Math.floor(rewindAccumulatorSec);
@@ -561,13 +565,14 @@ export function createSimRunner({
     rewindAccumulatorSec -= rawSteps;
 
     const currentSec = Math.floor(cursorState.tSec ?? 0);
-    if (currentSec <= 0) {
+    if (currentSec <= minEditableSec) {
       rewindAccumulatorSec = 0;
       return false;
     }
 
-    const steps = Math.min(rawSteps, currentSec);
-    const targetSec = Math.max(0, currentSec - steps);
+    const maxStepsWithinEditable = Math.max(0, currentSec - minEditableSec);
+    const steps = Math.min(rawSteps, maxStepsWithinEditable);
+    const targetSec = Math.max(minEditableSec, currentSec - steps);
     if (targetSec === currentSec) return false;
 
     const res = seekCursorSecond(targetSec, null, {
