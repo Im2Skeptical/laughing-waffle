@@ -194,10 +194,32 @@ function getDiskRotationRadAtProjectedSecond({
 function getDiskPlayheadAngleRad(diskId, layout) {
   const diskLayout = getDiskLayout(diskId, layout) || {};
   const phaseZeroAngle = phase01ToRotationRad(0, diskLayout);
-  const offset = Number.isFinite(diskLayout.playheadOffsetRad)
+  const offset = getDiskPlayheadOffsetRad(diskId, layout);
+  return phaseZeroAngle + offset;
+}
+
+function getDiskPlayheadOffsetRad(diskId, layout) {
+  const diskLayout = getDiskLayout(diskId, layout) || {};
+  return Number.isFinite(diskLayout.playheadOffsetRad)
     ? diskLayout.playheadOffsetRad
     : 0;
-  return phaseZeroAngle + offset;
+}
+
+function getDiskRingAngleAtSecond({
+  diskId,
+  state,
+  fromTimeSec,
+  targetSec,
+  layout,
+}) {
+  const baseRot = getDiskRotationRadAtProjectedSecond({
+    diskId,
+    state,
+    fromTimeSec,
+    targetSec,
+    layout,
+  });
+  return baseRot + getDiskPlayheadOffsetRad(diskId, layout);
 }
 
 function getDragDeltaRotationFromAnchorRad(
@@ -253,6 +275,19 @@ function drawInwardPlayheadTriangle(
   gfx.beginFill(fillColor, fillAlpha);
   gfx.drawPolygon([tipX, tipY, b1x, b1y, b2x, b2y]);
   gfx.endFill();
+}
+
+function getPersistentTargetAngleForDisk({
+  diskId,
+  persistentTargetAngleByDisk,
+  layout,
+}) {
+  const persisted =
+    diskId === "moon" || diskId === "season"
+      ? persistentTargetAngleByDisk?.[diskId]
+      : null;
+  if (Number.isFinite(persisted)) return persisted;
+  return getDiskPlayheadAngleRad(diskId, layout);
 }
 
 function getFrontierSec({ getTimeline, getState }) {
@@ -332,8 +367,14 @@ export function createSunAndMoonDisksView({
   }
 
   function getActiveDiskIdForForwardFeedback(forwardStatus) {
-    if (typeof forwardStatus?.diskId === "string") return forwardStatus.diskId;
     if (typeof dragSession?.diskId === "string") return dragSession.diskId;
+    const hasForwardTarget =
+      Number.isFinite(forwardStatus?.targetSec) &&
+      Number.isFinite(forwardStatus?.frontierSec) &&
+      forwardStatus.targetSec > forwardStatus.frontierSec;
+    if (hasForwardTarget && typeof forwardStatus?.diskId === "string") {
+      return forwardStatus.diskId;
+    }
     return "season";
   }
 
@@ -580,6 +621,43 @@ export function createSunAndMoonDisksView({
       strokeAlpha: 0.98,
       strokeWidth: 2,
     });
+    const currentCommittedAngle = getDiskRingAngleAtSecond({
+      diskId: diskIdForFeedback,
+      state,
+      fromTimeSec: baseTimeSec,
+      targetSec: getTSecInt(state),
+      layout,
+    });
+    if (
+      !dragSession &&
+      (diskIdForFeedback === "moon" || diskIdForFeedback === "season")
+    ) {
+      persistentTargetAngleByDisk[diskIdForFeedback] = currentCommittedAngle;
+    }
+    const persistentTargetAngle = getPersistentTargetAngleForDisk({
+      diskId: diskIdForFeedback,
+      persistentTargetAngleByDisk,
+      layout,
+    });
+    const baseDotX = cx + Math.cos(persistentTargetAngle) * ringRadius;
+    const baseDotY = cy + Math.sin(persistentTargetAngle) * ringRadius;
+    feedbackGraphics.lineStyle(1, 0x8ec3f2, 0.5);
+    feedbackGraphics.beginFill(0x8ec3f2, 0.55);
+    feedbackGraphics.drawCircle(baseDotX, baseDotY, 4);
+    feedbackGraphics.endFill();
+    if (diskIdForFeedback === "season") {
+      // Companion seasonal markers: 45-degree spacing from the moving base dot.
+      const seasonalMarkerStepRad = Math.PI / 2;
+      feedbackGraphics.lineStyle(1, 0x8ec3f2, 0.42);
+      feedbackGraphics.beginFill(0x8ec3f2, 0.42);
+      for (let i = 1; i <= 3; i++) {
+        const markerAngle = persistentTargetAngle + seasonalMarkerStepRad * i;
+        const markerX = cx + Math.cos(markerAngle) * ringRadius;
+        const markerY = cy + Math.sin(markerAngle) * ringRadius;
+        feedbackGraphics.drawCircle(markerX, markerY, 3);
+      }
+      feedbackGraphics.endFill();
+    }
 
     const hasDragVisualTarget =
       strategy === "B" &&
@@ -621,7 +699,7 @@ export function createSunAndMoonDisksView({
           resolvedTargetSec,
           dragSession?.targetAngleStartRad
         )
-      : getDiskRotationRadAtProjectedSecond({
+      : getDiskRingAngleAtSecond({
           diskId,
           state,
           fromTimeSec: baseTimeSec,
