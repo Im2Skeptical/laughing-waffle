@@ -89,103 +89,6 @@ const FULL_VIEW_REBUILD_REASONS = new Set([
   "plannerClear",
 ]);
 
-function toSafeTimelineSec(value, fallback = 0) {
-  if (!Number.isFinite(value)) return Math.max(0, Math.floor(fallback));
-  return Math.max(0, Math.floor(value));
-}
-
-function createDiskForwardCommitController({
-  runner,
-  fastForwardScale = 16,
-} = {}) {
-  const ffScale = Math.max(1, Math.floor(fastForwardScale));
-  let targetSec = null;
-  let targetDiskId = null;
-  let dragActive = false;
-  let driveActive = false;
-
-  function getFrontierSec() {
-    const timeline = runner?.getTimeline?.();
-    const historyEndSec = toSafeTimelineSec(timeline?.historyEndSec, 0);
-    return historyEndSec;
-  }
-
-  function stopDrive() {
-    if (!driveActive) return;
-    driveActive = false;
-    runner?.setTimeScaleTarget?.(0, { requestPause: true });
-  }
-
-  return {
-    onDragStart(meta = {}) {
-      dragActive = true;
-      if (typeof meta?.diskId === "string") {
-        targetDiskId = meta.diskId;
-      }
-    },
-
-    onDragEnd(meta = {}) {
-      dragActive = false;
-      if (targetSec == null) {
-        stopDrive();
-        targetDiskId = typeof meta?.diskId === "string" ? meta.diskId : null;
-      }
-    },
-
-    setForwardTargetSec(nextTargetSec, meta = {}) {
-      const sec = toSafeTimelineSec(nextTargetSec, 0);
-      targetSec = sec;
-      if (typeof meta?.diskId === "string") {
-        targetDiskId = meta.diskId;
-      }
-      return { ok: true, targetSec };
-    },
-
-    clearForwardTargetSec(meta = {}) {
-      targetSec = null;
-      stopDrive();
-      if (!dragActive) {
-        targetDiskId = typeof meta?.diskId === "string" ? meta.diskId : null;
-      }
-      return { ok: true };
-    },
-
-    update() {
-      if (!Number.isFinite(targetSec)) {
-        if (!dragActive) stopDrive();
-        return;
-      }
-
-      const frontierSec = getFrontierSec();
-      if (frontierSec < targetSec) {
-        driveActive = true;
-        runner?.setTimeScaleTarget?.(ffScale, { unpause: true });
-        return;
-      }
-
-      targetSec = null;
-      stopDrive();
-      if (!dragActive) {
-        targetDiskId = null;
-      }
-    },
-
-    getStatus() {
-      const frontierSec = getFrontierSec();
-      const safeTargetSec = Number.isFinite(targetSec)
-        ? toSafeTimelineSec(targetSec, 0)
-        : null;
-      return {
-        targetSec: safeTargetSec,
-        diskId: targetDiskId,
-        frontierSec,
-        catchingUp:
-          Number.isFinite(safeTargetSec) && frontierSec < safeTargetSec,
-      };
-    },
-  };
-}
-
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
   onInvalidate: (reason) => {
@@ -216,11 +119,6 @@ const runner = createSimRunner({
   onPlannerApReject: () => {
     flashActionLogAp?.();
   },
-});
-
-const diskForwardCommitController = createDiskForwardCommitController({
-  runner,
-  fastForwardScale: 16,
 });
 
 const actionPlanner = runner.getActionPlanner?.();
@@ -1330,13 +1228,6 @@ const sunMoonDisksView = createSunAndMoonDisksView({
   getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
   browseCursorSecond: (tSec) => runner.browseCursorSecond?.(tSec),
   commitCursorSecond: (tSec) => runner.commitCursorSecond?.(tSec),
-  setForwardTargetSec: (tSec, meta) =>
-    diskForwardCommitController.setForwardTargetSec(tSec, meta),
-  clearForwardTargetSec: (meta) =>
-    diskForwardCommitController.clearForwardTargetSec(meta),
-  onForwardDragStart: (meta) => diskForwardCommitController.onDragStart(meta),
-  onForwardDragEnd: (meta) => diskForwardCommitController.onDragEnd(meta),
-  getForwardStatus: () => diskForwardCommitController.getStatus(),
   layout: SUN_AND_MOON_DISKS_LAYOUT,
 });
 
@@ -1490,7 +1381,6 @@ app.ticker.add((delta) => {
 
   const frameDt = delta / 60;
   runTimed("runner.update", () => runner.update(frameDt));
-  runTimed("sunMoon.forwardCommit", () => diskForwardCommitController.update());
   runTimed("stateTint.update", () => updateStateTintOverlay());
   runTimed("queuedActions.flush", () => flushQueuedActions());
   runTimed("interaction.update", () => interactionController.update(frameDt));

@@ -1,6 +1,6 @@
 // src/views/sunandmoon-disks-pixi.js
 // Two rotating HUD disks: Moon cycle + Season cycle.
-// Pure view module: reads state, never mutates it.
+// Pure view module: reads state and dispatches scrub/commit intents only.
 
 import {
   BASE_EDITABLE_HISTORY_WINDOW_SEC,
@@ -9,11 +9,8 @@ import {
   MOON_PHASE_OFFSET_SEC,
 } from "../defs/gamesettings/gamerules-defs.js";
 
-export const FORWARD_DRAG_STRATEGY = "B"; // "A" (target+catch-up) or "B" (commit-as-you-drag)
-
 export const SUN_AND_MOON_DISKS_LAYOUT = {
   enabled: true,
-  forwardDragStrategy: FORWARD_DRAG_STRATEGY,
 
   moon: {
     x: 1300,
@@ -32,7 +29,7 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
     scale: 0.75,
     alpha: 1.0,
     rotationOffsetRad: 3,
-    playheadOffsetRad: -.7,
+    playheadOffsetRad: -0.7,
     clockwise: true,
     texturePath: "/images/SeasonDisk_01.png",
     quadrants: 4,
@@ -42,10 +39,11 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
 };
 
 const TWO_PI = Math.PI * 2;
-const DRAG_MODE_FORWARD = "forward";
-const DRAG_MODE_BACKWARD = "backward";
-
-// ----------------------------------------------------------------------------
+const DISK_ID_MOON = "moon";
+const DISK_ID_SEASON = "season";
+const ROTATION_CLOCKWISE = "clockwise";
+const ROTATION_ANTICLOCKWISE = "anticlockwise";
+const SEASON_COMPANION_MARKER_STEP_RAD = Math.PI / 2;
 
 function clamp01(v) {
   if (!Number.isFinite(v)) return 0;
@@ -85,25 +83,32 @@ function getTSecInt(state) {
 // Live smoothness: if simStepIndex is consistent with tSec, use it for fractional seconds.
 function getTimeSecForRotation(state) {
   const tSec = getTSecInt(state);
-
   const steps = state?.simStepIndex;
   if (Number.isFinite(steps)) {
     const tf = Math.max(0, steps / 60);
-    // Only trust simStepIndex if it corresponds to the same boundary second.
     if (Math.floor(tf) === tSec) return tf;
   }
-
-  // Fallback: exact boundary time (scrub-safe)
   return tSec;
 }
 
-function phase01ToRotationRad(phase01, { clockwise, rotationOffsetRad }) {
-  const p = clamp01(phase01);
-  const dir = clockwise ? 1 : -1;
-  return (rotationOffsetRad || 0) + dir * p * TWO_PI;
+function getDiskLayout(diskId, layout) {
+  return diskId === DISK_ID_SEASON ? layout?.season : layout?.moon;
 }
 
-// Monotonic orbit phase: 0..1 wrapping, never reverses.
+function getDiskSecondsPerRevolution(diskId, layout) {
+  if (diskId === DISK_ID_SEASON) {
+    const quadrants = Math.max(1, clampInt(layout?.season?.quadrants, 4));
+    return Math.max(1, clampInt(SEASON_DURATION_SEC, 30)) * quadrants;
+  }
+  return Math.max(1, clampInt(MOON_CYCLE_SEC, 30));
+}
+
+function phase01ToRotationRad(phase01, diskLayout) {
+  const p = clamp01(phase01);
+  const dir = diskLayout?.clockwise ? 1 : -1;
+  return (diskLayout?.rotationOffsetRad || 0) + dir * p * TWO_PI;
+}
+
 function getMoonOrbitPhase01AtTime(timeSec) {
   const cycleSec = Math.max(1, clampInt(MOON_CYCLE_SEC, 30));
   const offsetSec = clampInt(MOON_PHASE_OFFSET_SEC, Math.floor(cycleSec / 2));
@@ -112,90 +117,38 @@ function getMoonOrbitPhase01AtTime(timeSec) {
   return clamp01(phaseSec / cycleSec);
 }
 
-// Season progress within current season (0..1).
 function getSeasonProgress01(state, timeSec) {
   const seasonLen = Math.max(1, clampInt(SEASON_DURATION_SEC, 30));
 
-  // Prefer countdown value if present (matches chrome usage)
   const remaining = state?.seasonTimeRemaining;
   if (Number.isFinite(remaining)) {
     return clamp01(1 - remaining / seasonLen);
   }
 
-  // Next preference: explicit clock
   const clock = state?.seasonClockSec;
   if (Number.isFinite(clock)) {
-    const raw = clock / seasonLen;
-    const wrapped = raw - Math.floor(raw);
-    return clamp01(wrapped);
+    return clamp01(clock / seasonLen - Math.floor(clock / seasonLen));
   }
 
-  // Fallback: derive from time modulo
   const t = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
   return clamp01(((t % seasonLen) / seasonLen) || 0);
 }
 
-// Full wheel phase (0..1) including season index quadrant.
 function getSeasonWheelPhase01(state, timeSec, quadrants) {
   const q = Math.max(1, clampInt(quadrants, 4));
-
   const idxRaw = state?.currentSeasonIndex;
   const idx = Number.isFinite(idxRaw) ? Math.floor(idxRaw) : 0;
   const wrappedIdx = ((idx % q) + q) % q;
-
-  const p = getSeasonProgress01(state, timeSec);
-
-  return clamp01((wrappedIdx + p) / q);
-}
-
-function resolveForwardDragStrategy(layout) {
-  const raw = layout?.forwardDragStrategy;
-  if (raw === "A" || raw === "B") return raw;
-  return FORWARD_DRAG_STRATEGY;
-}
-
-function getDiskSecondsPerRevolution(diskId, layout) {
-  if (diskId === "season") {
-    const quadrants = Math.max(1, clampInt(layout?.season?.quadrants, 4));
-    return Math.max(1, clampInt(SEASON_DURATION_SEC, 30)) * quadrants;
-  }
-  return Math.max(1, clampInt(MOON_CYCLE_SEC, 30));
+  const progress = getSeasonProgress01(state, timeSec);
+  return clamp01((wrappedIdx + progress) / q);
 }
 
 function getDiskPhase01AtTime(diskId, state, timeSec, layout) {
-  if (diskId === "season") {
+  if (diskId === DISK_ID_SEASON) {
     const quadrants = Math.max(1, clampInt(layout?.season?.quadrants, 4));
     return getSeasonWheelPhase01(state, timeSec, quadrants);
   }
   return getMoonOrbitPhase01AtTime(timeSec);
-}
-
-function getDiskLayout(diskId, layout) {
-  return diskId === "season" ? layout?.season : layout?.moon;
-}
-
-function getDiskRotationRadAtProjectedSecond({
-  diskId,
-  state,
-  fromTimeSec,
-  targetSec,
-  layout,
-}) {
-  if (!state) return 0;
-  const fromSec = Number.isFinite(fromTimeSec) ? fromTimeSec : 0;
-  const toSec = Number.isFinite(targetSec) ? targetSec : fromSec;
-  const secPerRev = getDiskSecondsPerRevolution(diskId, layout);
-  const basePhase = getDiskPhase01AtTime(diskId, state, fromSec, layout);
-  const deltaPhase = (toSec - fromSec) / Math.max(1, secPerRev);
-  const phase = wrap01(basePhase + deltaPhase);
-  return phase01ToRotationRad(phase, getDiskLayout(diskId, layout));
-}
-
-function getDiskPlayheadAngleRad(diskId, layout) {
-  const diskLayout = getDiskLayout(diskId, layout) || {};
-  const phaseZeroAngle = phase01ToRotationRad(0, diskLayout);
-  const offset = getDiskPlayheadOffsetRad(diskId, layout);
-  return phaseZeroAngle + offset;
 }
 
 function getDiskPlayheadOffsetRad(diskId, layout) {
@@ -205,6 +158,12 @@ function getDiskPlayheadOffsetRad(diskId, layout) {
     : 0;
 }
 
+function getDiskPlayheadAngleRad(diskId, layout) {
+  const diskLayout = getDiskLayout(diskId, layout) || {};
+  const phaseZeroAngle = phase01ToRotationRad(0, diskLayout);
+  return phaseZeroAngle + getDiskPlayheadOffsetRad(diskId, layout);
+}
+
 function getDiskRingAngleAtSecond({
   diskId,
   state,
@@ -212,17 +171,19 @@ function getDiskRingAngleAtSecond({
   targetSec,
   layout,
 }) {
-  const baseRot = getDiskRotationRadAtProjectedSecond({
-    diskId,
-    state,
-    fromTimeSec,
-    targetSec,
-    layout,
-  });
-  return baseRot + getDiskPlayheadOffsetRad(diskId, layout);
+  if (!state) return getDiskPlayheadAngleRad(diskId, layout);
+
+  const fromSec = Number.isFinite(fromTimeSec) ? fromTimeSec : 0;
+  const toSec = Number.isFinite(targetSec) ? targetSec : fromSec;
+  const secPerRev = getDiskSecondsPerRevolution(diskId, layout);
+  const basePhase = getDiskPhase01AtTime(diskId, state, fromSec, layout);
+  const deltaPhase = (toSec - fromSec) / Math.max(1, secPerRev);
+  const phase = wrap01(basePhase + deltaPhase);
+  const diskRotation = phase01ToRotationRad(phase, getDiskLayout(diskId, layout));
+  return diskRotation + getDiskPlayheadOffsetRad(diskId, layout);
 }
 
-function getDragDeltaRotationFromAnchorRad(
+function getDragRingAngleFromAnchorRad(
   diskId,
   layout,
   dragStartSec,
@@ -239,6 +200,39 @@ function getDragDeltaRotationFromAnchorRad(
     ? anchorAngleRad
     : getDiskPlayheadAngleRad(diskId, layout);
   return anchor + dir * deltaPhase * TWO_PI;
+}
+
+function getFrontierSec({ getTimeline, getState }) {
+  const timeline = typeof getTimeline === "function" ? getTimeline() : null;
+  const timelineSec = Math.floor(timeline?.historyEndSec ?? -1);
+  if (Number.isFinite(timelineSec) && timelineSec >= 0) {
+    return timelineSec;
+  }
+  const state = typeof getState === "function" ? getState() : null;
+  return getTSecInt(state);
+}
+
+function getMinEditableSec({ getEditableHistoryBounds, frontierSec }) {
+  const bounds =
+    typeof getEditableHistoryBounds === "function"
+      ? getEditableHistoryBounds()
+      : null;
+  const fromBounds = Math.floor(bounds?.minEditableSec ?? -1);
+  if (Number.isFinite(fromBounds) && fromBounds >= 0) {
+    return Math.min(frontierSec, fromBounds);
+  }
+  const fallbackWindowSec = clampNonNegativeSec(BASE_EDITABLE_HISTORY_WINDOW_SEC, 0);
+  return Math.max(0, frontierSec - fallbackWindowSec);
+}
+
+function getSpritePointerAngleRad(sprite, globalPoint) {
+  if (!sprite || !globalPoint) return null;
+  const center = sprite.getGlobalPosition();
+  const dx = globalPoint.x - center.x;
+  const dy = globalPoint.y - center.y;
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null;
+  if (dx === 0 && dy === 0) return null;
+  return Math.atan2(dy, dx);
 }
 
 function drawInwardPlayheadTriangle(
@@ -277,55 +271,6 @@ function drawInwardPlayheadTriangle(
   gfx.endFill();
 }
 
-function getPersistentTargetAngleForDisk({
-  diskId,
-  persistentTargetAngleByDisk,
-  layout,
-}) {
-  const persisted =
-    diskId === "moon" || diskId === "season"
-      ? persistentTargetAngleByDisk?.[diskId]
-      : null;
-  if (Number.isFinite(persisted)) return persisted;
-  return getDiskPlayheadAngleRad(diskId, layout);
-}
-
-function getFrontierSec({ getTimeline, getState }) {
-  const timeline = typeof getTimeline === "function" ? getTimeline() : null;
-  const timelineSec = Math.floor(timeline?.historyEndSec ?? -1);
-  if (Number.isFinite(timelineSec) && timelineSec >= 0) {
-    return timelineSec;
-  }
-  const state = typeof getState === "function" ? getState() : null;
-  return getTSecInt(state);
-}
-
-function getMinEditableSec({ getEditableHistoryBounds, frontierSec }) {
-  const bounds =
-    typeof getEditableHistoryBounds === "function"
-      ? getEditableHistoryBounds()
-      : null;
-  const fromBounds = Math.floor(bounds?.minEditableSec ?? -1);
-  if (Number.isFinite(fromBounds) && fromBounds >= 0) {
-    return Math.min(frontierSec, fromBounds);
-  }
-
-  const fallbackWindowSec = clampNonNegativeSec(BASE_EDITABLE_HISTORY_WINDOW_SEC, 0);
-  return Math.max(0, frontierSec - fallbackWindowSec);
-}
-
-function getSpritePointerAngleRad(sprite, globalPoint) {
-  if (!sprite || !globalPoint) return null;
-  const center = sprite.getGlobalPosition();
-  const dx = globalPoint.x - center.x;
-  const dy = globalPoint.y - center.y;
-  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null;
-  if (dx === 0 && dy === 0) return null;
-  return Math.atan2(dy, dx);
-}
-
-// ----------------------------------------------------------------------------
-
 export function createSunAndMoonDisksView({
   app,
   layer,
@@ -334,11 +279,6 @@ export function createSunAndMoonDisksView({
   getEditableHistoryBounds,
   browseCursorSecond,
   commitCursorSecond,
-  setForwardTargetSec,
-  clearForwardTargetSec,
-  onForwardDragStart,
-  onForwardDragEnd,
-  getForwardStatus,
   layout = SUN_AND_MOON_DISKS_LAYOUT,
 } = {}) {
   let root = null;
@@ -349,33 +289,26 @@ export function createSunAndMoonDisksView({
   let lastEnabled = null;
 
   let dragSession = null;
+  const ringMarkerAngleByDisk = {
+    [DISK_ID_MOON]: null,
+    [DISK_ID_SEASON]: null,
+  };
+
   let browseRafId = 0;
   let pendingBrowseSec = null;
   let commitRafId = 0;
   let pendingCommitSec = null;
-  const persistentTargetAngleByDisk = {
-    moon: null,
-    season: null,
-  };
 
   let stageMoveHandler = null;
   let stageUpHandler = null;
   let stageListenersBound = false;
 
   function getSpriteByDiskId(diskId) {
-    return diskId === "season" ? seasonSprite : moonSprite;
+    return diskId === DISK_ID_SEASON ? seasonSprite : moonSprite;
   }
 
-  function getActiveDiskIdForForwardFeedback(forwardStatus) {
-    if (typeof dragSession?.diskId === "string") return dragSession.diskId;
-    const hasForwardTarget =
-      Number.isFinite(forwardStatus?.targetSec) &&
-      Number.isFinite(forwardStatus?.frontierSec) &&
-      forwardStatus.targetSec > forwardStatus.frontierSec;
-    if (hasForwardTarget && typeof forwardStatus?.diskId === "string") {
-      return forwardStatus.diskId;
-    }
-    return "season";
+  function getFeedbackDiskId() {
+    return dragSession?.diskId === DISK_ID_MOON ? DISK_ID_MOON : DISK_ID_SEASON;
   }
 
   function flushBrowseRequest() {
@@ -389,12 +322,10 @@ export function createSunAndMoonDisksView({
   function queueBrowseSecond(sec) {
     pendingBrowseSec = Math.max(0, Math.floor(sec));
     if (browseRafId) return;
-
     if (typeof requestAnimationFrame === "function") {
       browseRafId = requestAnimationFrame(flushBrowseRequest);
       return;
     }
-
     flushBrowseRequest();
   }
 
@@ -409,17 +340,11 @@ export function createSunAndMoonDisksView({
   function queueCommitSecond(sec) {
     pendingCommitSec = Math.max(0, Math.floor(sec));
     if (commitRafId) return;
-
     if (typeof requestAnimationFrame === "function") {
       commitRafId = requestAnimationFrame(flushCommitRequest);
       return;
     }
-
     flushCommitRequest();
-  }
-
-  function clearForwardTarget(meta) {
-    clearForwardTargetSec?.(meta || null);
   }
 
   function startDrag(diskId, event) {
@@ -429,49 +354,36 @@ export function createSunAndMoonDisksView({
     const sprite = getSpriteByDiskId(diskId);
     if (!sprite) return;
 
-    const angle = getSpritePointerAngleRad(sprite, event.global);
-    if (!Number.isFinite(angle)) return;
+    const pointerAngleRad = getSpritePointerAngleRad(sprite, event.global);
+    if (!Number.isFinite(pointerAngleRad)) return;
 
-    const frontierSec = getFrontierSec({ getTimeline, getState });
-    const persistedTargetAngle = persistentTargetAngleByDisk[diskId];
-    const anchorAngle = Number.isFinite(persistedTargetAngle)
-      ? persistedTargetAngle
+    const state = typeof getState === "function" ? getState() : null;
+    const dragStartSec = getTSecInt(state);
+    const markerAnchorRad = Number.isFinite(ringMarkerAngleByDisk[diskId])
+      ? ringMarkerAngleByDisk[diskId]
       : getDiskPlayheadAngleRad(diskId, layout);
 
     dragSession = {
       diskId,
       pointerId: Number.isFinite(event.pointerId) ? event.pointerId : null,
-      lastAngleRad: angle,
-      dragStartFrontierSec: frontierSec,
-      targetAngleStartRad: anchorAngle,
+      lastPointerAngleRad: pointerAngleRad,
+      dragStartSec,
+      dragAnchorRingAngleRad: markerAnchorRad,
       accumSec: 0,
-      lastForwardTargetSec: null,
-      lastMode: null,
-      lastRotationDirection: null,
+      visualTargetSec: dragStartSec,
+      lastRotationDirection: ROTATION_CLOCKWISE,
     };
 
     if (moonSprite) moonSprite.cursor = "grabbing";
     if (seasonSprite) seasonSprite.cursor = "grabbing";
-
-    clearForwardTarget({ reason: "dragStart", diskId, frontierSec });
-    onForwardDragStart?.({ diskId, frontierSec });
-
     event.stopPropagation?.();
   }
 
   function endDrag() {
     if (!dragSession) return;
-
-    const session = dragSession;
     dragSession = null;
-
     if (moonSprite) moonSprite.cursor = "grab";
     if (seasonSprite) seasonSprite.cursor = "grab";
-
-    if (session.lastMode !== DRAG_MODE_FORWARD) {
-      clearForwardTarget({ reason: "dragEndNoForward", diskId: session.diskId });
-    }
-    onForwardDragEnd?.({ diskId: session.diskId });
   }
 
   function updateDragFromPointerEvent(event) {
@@ -488,30 +400,28 @@ export function createSunAndMoonDisksView({
     const sprite = getSpriteByDiskId(dragSession.diskId);
     if (!sprite) return;
 
-    const nextAngle = getSpritePointerAngleRad(sprite, event.global);
-    if (!Number.isFinite(nextAngle)) return;
+    const nextPointerAngleRad = getSpritePointerAngleRad(sprite, event.global);
+    if (!Number.isFinite(nextPointerAngleRad)) return;
 
-    const angleDelta = normalizeSignedAngleDeltaRad(
-      nextAngle - dragSession.lastAngleRad
+    const angleDeltaRad = normalizeSignedAngleDeltaRad(
+      nextPointerAngleRad - dragSession.lastPointerAngleRad
     );
-    dragSession.lastAngleRad = nextAngle;
-    if (Math.abs(angleDelta) > 1e-9) {
+    dragSession.lastPointerAngleRad = nextPointerAngleRad;
+
+    if (Math.abs(angleDeltaRad) > 1e-9) {
       dragSession.lastRotationDirection =
-        angleDelta < 0 ? "anticlockwise" : "clockwise";
+        angleDeltaRad < 0 ? ROTATION_ANTICLOCKWISE : ROTATION_CLOCKWISE;
     }
 
     const secPerRev = getDiskSecondsPerRevolution(dragSession.diskId, layout);
     const diskLayout = getDiskLayout(dragSession.diskId, layout) || {};
     const direction = diskLayout.clockwise ? 1 : -1;
-    const deltaPhase = (angleDelta / TWO_PI) * direction;
+    const deltaPhase = (angleDeltaRad / TWO_PI) * direction;
     const deltaSec = deltaPhase * secPerRev;
-
     dragSession.accumSec += deltaSec;
 
     const frontierSec = getFrontierSec({ getTimeline, getState });
-    const dragSec = Math.round(dragSession.dragStartFrontierSec + dragSession.accumSec);
-    const strategy = resolveForwardDragStrategy(layout);
-
+    const dragSec = Math.round(dragSession.dragStartSec + dragSession.accumSec);
     if (dragSec <= frontierSec) {
       const minEditableSec = getMinEditableSec({
         getEditableHistoryBounds,
@@ -519,36 +429,12 @@ export function createSunAndMoonDisksView({
       });
       const clampedSec = Math.max(minEditableSec, Math.min(frontierSec, dragSec));
       dragSession.visualTargetSec = clampedSec;
-      pendingBrowseSec = clampedSec;
       queueBrowseSecond(clampedSec);
-
-      if (dragSession.lastMode !== DRAG_MODE_BACKWARD) {
-        clearForwardTarget({ reason: "dragBackward", diskId: dragSession.diskId });
-      }
-      dragSession.lastMode = DRAG_MODE_BACKWARD;
-      dragSession.lastForwardTargetSec = null;
       return;
     }
 
-    pendingBrowseSec = null;
-    if (strategy === "B") {
-      dragSession.visualTargetSec = dragSec;
-      clearForwardTarget({ reason: "strategyBInstantCommit", diskId: dragSession.diskId });
-      queueCommitSecond(dragSec);
-      dragSession.lastForwardTargetSec = null;
-      dragSession.lastMode = DRAG_MODE_FORWARD;
-      return;
-    }
-
-    if (dragSession.lastForwardTargetSec !== dragSec) {
-      dragSession.visualTargetSec = dragSec;
-      setForwardTargetSec?.(dragSec, {
-        diskId: dragSession.diskId,
-        frontierSec,
-      });
-      dragSession.lastForwardTargetSec = dragSec;
-    }
-    dragSession.lastMode = DRAG_MODE_FORWARD;
+    dragSession.visualTargetSec = dragSec;
+    queueCommitSecond(dragSec);
   }
 
   function bindStageInput() {
@@ -561,7 +447,7 @@ export function createSunAndMoonDisksView({
       event.stopPropagation?.();
     };
 
-    stageUpHandler = (_event) => {
+    stageUpHandler = () => {
       endDrag();
     };
 
@@ -583,14 +469,53 @@ export function createSunAndMoonDisksView({
     stageListenersBound = false;
   }
 
-  function drawForwardFeedback({
-    strategy,
+  function resolveRingMarkerAngleRad({
+    diskId,
     state,
     baseTimeSec,
-    targetSec,
-    frontierSec,
-    forwardStatus,
+    committedSec,
   }) {
+    const committedMarkerAngleRad = getDiskRingAngleAtSecond({
+      diskId,
+      state,
+      fromTimeSec: baseTimeSec,
+      targetSec: committedSec,
+      layout,
+    });
+
+    if (
+      dragSession &&
+      dragSession.diskId === diskId &&
+      Number.isFinite(dragSession.visualTargetSec)
+    ) {
+      const dragMarkerAngleRad = getDragRingAngleFromAnchorRad(
+        diskId,
+        layout,
+        dragSession.dragStartSec,
+        dragSession.visualTargetSec,
+        dragSession.dragAnchorRingAngleRad
+      );
+      ringMarkerAngleByDisk[diskId] = dragMarkerAngleRad;
+      return dragMarkerAngleRad;
+    }
+
+    ringMarkerAngleByDisk[diskId] = committedMarkerAngleRad;
+    return committedMarkerAngleRad;
+  }
+
+  function drawCompanionSeasonMarkers(cx, cy, ringRadius, baseAngleRad) {
+    feedbackGraphics.lineStyle(1, 0x8ec3f2, 0.42);
+    feedbackGraphics.beginFill(0x8ec3f2, 0.42);
+    for (let i = 1; i <= 3; i++) {
+      const markerAngleRad = baseAngleRad + SEASON_COMPANION_MARKER_STEP_RAD * i;
+      const markerX = cx + Math.cos(markerAngleRad) * ringRadius;
+      const markerY = cy + Math.sin(markerAngleRad) * ringRadius;
+      feedbackGraphics.drawCircle(markerX, markerY, 3);
+    }
+    feedbackGraphics.endFill();
+  }
+
+  function drawRingFeedback({ state, baseTimeSec }) {
     if (!feedbackGraphics) return;
 
     feedbackGraphics.clear();
@@ -599,19 +524,21 @@ export function createSunAndMoonDisksView({
       feedbackText.text = "";
     }
 
-    const diskIdForFeedback = getActiveDiskIdForForwardFeedback(forwardStatus);
-    const sprite = getSpriteByDiskId(diskIdForFeedback);
+    const diskId = getFeedbackDiskId();
+    const sprite = getSpriteByDiskId(diskId);
     if (!sprite || !state) return;
 
     const cx = sprite.x;
     const cy = sprite.y;
     const baseRadius = Math.max(sprite.width, sprite.height) * 0.5;
     const ringRadius = Number.isFinite(baseRadius) && baseRadius > 0 ? baseRadius + 10 : 36;
+    const committedSec = getTSecInt(state);
 
-    const playheadAngle = getDiskPlayheadAngleRad(diskIdForFeedback, layout);
     feedbackGraphics.lineStyle(1, 0x8ec3f2, 0.45);
     feedbackGraphics.drawCircle(cx, cy, ringRadius);
-    drawInwardPlayheadTriangle(feedbackGraphics, cx, cy, playheadAngle, {
+
+    const playheadAngleRad = getDiskPlayheadAngleRad(diskId, layout);
+    drawInwardPlayheadTriangle(feedbackGraphics, cx, cy, playheadAngleRad, {
       tipRadius: ringRadius - 0.5,
       baseRadius: ringRadius + 9,
       halfWidth: 5.5,
@@ -621,120 +548,57 @@ export function createSunAndMoonDisksView({
       strokeAlpha: 0.98,
       strokeWidth: 2,
     });
-    const currentCommittedAngle = getDiskRingAngleAtSecond({
-      diskId: diskIdForFeedback,
+
+    const ringMarkerAngleRad = resolveRingMarkerAngleRad({
+      diskId,
       state,
-      fromTimeSec: baseTimeSec,
-      targetSec: getTSecInt(state),
-      layout,
+      baseTimeSec,
+      committedSec,
     });
-    if (
-      !dragSession &&
-      (diskIdForFeedback === "moon" || diskIdForFeedback === "season")
-    ) {
-      persistentTargetAngleByDisk[diskIdForFeedback] = currentCommittedAngle;
-    }
-    const persistentTargetAngle = getPersistentTargetAngleForDisk({
-      diskId: diskIdForFeedback,
-      persistentTargetAngleByDisk,
-      layout,
-    });
-    const baseDotX = cx + Math.cos(persistentTargetAngle) * ringRadius;
-    const baseDotY = cy + Math.sin(persistentTargetAngle) * ringRadius;
+    const baseDotX = cx + Math.cos(ringMarkerAngleRad) * ringRadius;
+    const baseDotY = cy + Math.sin(ringMarkerAngleRad) * ringRadius;
     feedbackGraphics.lineStyle(1, 0x8ec3f2, 0.5);
     feedbackGraphics.beginFill(0x8ec3f2, 0.55);
     feedbackGraphics.drawCircle(baseDotX, baseDotY, 4);
     feedbackGraphics.endFill();
-    if (diskIdForFeedback === "season") {
-      // Companion seasonal markers: 45-degree spacing from the moving base dot.
-      const seasonalMarkerStepRad = Math.PI / 2;
-      feedbackGraphics.lineStyle(1, 0x8ec3f2, 0.42);
-      feedbackGraphics.beginFill(0x8ec3f2, 0.42);
-      for (let i = 1; i <= 3; i++) {
-        const markerAngle = persistentTargetAngle + seasonalMarkerStepRad * i;
-        const markerX = cx + Math.cos(markerAngle) * ringRadius;
-        const markerY = cy + Math.sin(markerAngle) * ringRadius;
-        feedbackGraphics.drawCircle(markerX, markerY, 3);
-      }
-      feedbackGraphics.endFill();
+
+    if (diskId === DISK_ID_SEASON) {
+      drawCompanionSeasonMarkers(cx, cy, ringRadius, ringMarkerAngleRad);
     }
 
-    const hasDragVisualTarget =
-      strategy === "B" &&
-      !!dragSession &&
-      Number.isFinite(dragSession.visualTargetSec);
-    const resolvedTargetSec = hasDragVisualTarget
-      ? clampNonNegativeSec(dragSession.visualTargetSec, 0)
-      : Number.isFinite(targetSec)
-        ? Math.max(0, Math.floor(targetSec))
-        : null;
+    if (!dragSession || dragSession.diskId !== diskId) return;
+    if (!Number.isFinite(dragSession.visualTargetSec)) return;
 
-    const hasTargetVisual =
-      Number.isFinite(resolvedTargetSec) &&
-      (hasDragVisualTarget || resolvedTargetSec > frontierSec);
-    if (!hasTargetVisual) return;
+    const targetSec = clampNonNegativeSec(dragSession.visualTargetSec, committedSec);
+    const targetAngleRad = getDragRingAngleFromAnchorRad(
+      diskId,
+      layout,
+      dragSession.dragStartSec,
+      targetSec,
+      dragSession.dragAnchorRingAngleRad
+    );
 
-    const diskId = hasDragVisualTarget
-      ? dragSession.diskId
-      : getActiveDiskIdForForwardFeedback(forwardStatus);
-    const targetSprite = getSpriteByDiskId(diskId);
-    if (!targetSprite || !state) return;
-    const targetCx = targetSprite.x;
-    const targetCy = targetSprite.y;
-    const targetBaseRadius = Math.max(targetSprite.width, targetSprite.height) * 0.5;
-    const targetRingRadius =
-      Number.isFinite(targetBaseRadius) && targetBaseRadius > 0
-        ? targetBaseRadius + 10
-        : 36;
+    const markerColor =
+      dragSession.lastRotationDirection === ROTATION_ANTICLOCKWISE
+        ? 0xff5c5c
+        : 0x87c7ff;
 
-    // For current A/B testing phase, both strategies share Strategy-B visuals:
-    // committed rotation plus ghost target marker/ring.
-    void strategy;
-
-    const targetRot = hasDragVisualTarget
-      ? getDragDeltaRotationFromAnchorRad(
-          diskId,
-          layout,
-          dragSession?.dragStartFrontierSec,
-          resolvedTargetSec,
-          dragSession?.targetAngleStartRad
-        )
-      : getDiskRingAngleAtSecond({
-          diskId,
-          state,
-          fromTimeSec: baseTimeSec,
-          targetSec: resolvedTargetSec,
-          layout,
-        });
-    if (hasDragVisualTarget && (diskId === "moon" || diskId === "season")) {
-      persistentTargetAngleByDisk[diskId] = targetRot;
-    }
-
-    const markerRadius = targetRingRadius;
-    const mx = targetCx + Math.cos(targetRot) * markerRadius;
-    const my = targetCy + Math.sin(targetRot) * markerRadius;
-    const isAnticlockwiseVisual =
-      hasDragVisualTarget &&
-      dragSession?.lastRotationDirection === "anticlockwise";
-    const markerColor = isAnticlockwiseVisual ? 0xff5c5c : 0x87c7ff;
+    const markerX = cx + Math.cos(targetAngleRad) * ringRadius;
+    const markerY = cy + Math.sin(targetAngleRad) * ringRadius;
 
     feedbackGraphics.lineStyle(2, markerColor, 0.8);
-    feedbackGraphics.drawCircle(targetCx, targetCy, targetRingRadius);
+    feedbackGraphics.drawCircle(cx, cy, ringRadius);
     feedbackGraphics.beginFill(markerColor, 0.95);
-    feedbackGraphics.drawCircle(mx, my, 5);
+    feedbackGraphics.drawCircle(markerX, markerY, 5);
     feedbackGraphics.endFill();
 
     if (feedbackText) {
-      if (hasDragVisualTarget) {
-        const dragStartSec = clampNonNegativeSec(dragSession.dragStartFrontierSec, 0);
-        const dragDeltaSec = Math.floor(resolvedTargetSec - dragStartSec);
-        const sign = dragDeltaSec >= 0 ? "+" : "-";
-        feedbackText.text = `${sign}${Math.abs(dragDeltaSec)} tSec`;
-      } else {
-        feedbackText.text = `Target +${Math.max(0, resolvedTargetSec - frontierSec)}s`;
-      }
-      feedbackText.x = Math.round(targetCx - feedbackText.width * 0.5);
-      feedbackText.y = Math.round(targetCy - targetRingRadius - feedbackText.height - 6);
+      const startSec = clampNonNegativeSec(dragSession.dragStartSec, 0);
+      const dragDeltaSec = Math.floor(targetSec - startSec);
+      const sign = dragDeltaSec >= 0 ? "+" : "-";
+      feedbackText.text = `${sign}${Math.abs(dragDeltaSec)} tSec`;
+      feedbackText.x = Math.round(cx - feedbackText.width * 0.5);
+      feedbackText.y = Math.round(cy - ringRadius - feedbackText.height - 6);
       feedbackText.visible = true;
     }
   }
@@ -747,25 +611,23 @@ export function createSunAndMoonDisksView({
     root.eventMode = "passive";
     root.zIndex = layout?.zIndex ?? 0;
 
-    // Season behind
     {
       const tex = PIXI.Texture.from(layout.season.texturePath);
       seasonSprite = new PIXI.Sprite(tex);
       seasonSprite.anchor.set(0.5);
       seasonSprite.eventMode = "static";
       seasonSprite.cursor = "grab";
-      seasonSprite.on("pointerdown", (event) => startDrag("season", event));
+      seasonSprite.on("pointerdown", (event) => startDrag(DISK_ID_SEASON, event));
       root.addChild(seasonSprite);
     }
 
-    // Moon front
     {
       const tex = PIXI.Texture.from(layout.moon.texturePath);
       moonSprite = new PIXI.Sprite(tex);
       moonSprite.anchor.set(0.5);
       moonSprite.eventMode = "static";
       moonSprite.cursor = "grab";
-      moonSprite.on("pointerdown", (event) => startDrag("moon", event));
+      moonSprite.on("pointerdown", (event) => startDrag(DISK_ID_MOON, event));
       root.addChild(moonSprite);
     }
 
@@ -839,59 +701,25 @@ export function createSunAndMoonDisksView({
     const state = getState();
     if (!state) return;
 
-    const strategy = resolveForwardDragStrategy(layout);
-    const forwardStatus =
-      typeof getForwardStatus === "function" ? getForwardStatus() : null;
-    const targetSec = Number.isFinite(forwardStatus?.targetSec)
-      ? Math.max(0, Math.floor(forwardStatus.targetSec))
-      : null;
-    const frontierSec = getFrontierSec({ getTimeline, getState });
-
     const baseTimeSec = getTimeSecForRotation(state);
-    // For now, both A and B render committed-time rotation (Strategy B visual).
-    const showTargetAsMainRotation = false;
 
     if (moonSprite) {
-      if (showTargetAsMainRotation) {
-        moonSprite.rotation = getDiskRotationRadAtProjectedSecond({
-          diskId: "moon",
-          state,
-          fromTimeSec: baseTimeSec,
-          targetSec,
-          layout,
-        });
-      } else {
-        const orbit01 = getMoonOrbitPhase01AtTime(baseTimeSec);
-        moonSprite.rotation = phase01ToRotationRad(orbit01, layout.moon);
-      }
+      const orbit01 = getMoonOrbitPhase01AtTime(baseTimeSec);
+      moonSprite.rotation = phase01ToRotationRad(orbit01, layout.moon);
     }
 
     if (seasonSprite) {
-      if (showTargetAsMainRotation) {
-        seasonSprite.rotation = getDiskRotationRadAtProjectedSecond({
-          diskId: "season",
-          state,
-          fromTimeSec: baseTimeSec,
-          targetSec,
-          layout,
-        });
-      } else {
-        const q =
-          Number.isFinite(layout.season?.quadrants) && layout.season.quadrants > 0
-            ? layout.season.quadrants
-            : 4;
-        const wheel01 = getSeasonWheelPhase01(state, baseTimeSec, q);
-        seasonSprite.rotation = phase01ToRotationRad(wheel01, layout.season);
-      }
+      const q =
+        Number.isFinite(layout.season?.quadrants) && layout.season.quadrants > 0
+          ? layout.season.quadrants
+          : 4;
+      const wheel01 = getSeasonWheelPhase01(state, baseTimeSec, q);
+      seasonSprite.rotation = phase01ToRotationRad(wheel01, layout.season);
     }
 
-    drawForwardFeedback({
-      strategy,
+    drawRingFeedback({
       state,
       baseTimeSec,
-      targetSec,
-      frontierSec,
-      forwardStatus,
     });
   }
 
@@ -909,8 +737,6 @@ export function createSunAndMoonDisksView({
     }
     commitRafId = 0;
     pendingCommitSec = null;
-
-    clearForwardTarget({ reason: "destroy" });
 
     unbindStageInput();
 
