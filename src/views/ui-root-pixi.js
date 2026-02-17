@@ -1329,6 +1329,7 @@ const sunMoonDisksView = createSunAndMoonDisksView({
   getTimeline: () => runner.getTimeline(),
   getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
   browseCursorSecond: (tSec) => runner.browseCursorSecond?.(tSec),
+  commitCursorSecond: (tSec) => runner.commitCursorSecond?.(tSec),
   setForwardTargetSec: (tSec, meta) =>
     diskForwardCommitController.setForwardTargetSec(tSec, meta),
   clearForwardTargetSec: (meta) =>

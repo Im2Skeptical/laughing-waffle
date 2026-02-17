@@ -16,8 +16,8 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
   forwardDragStrategy: FORWARD_DRAG_STRATEGY,
 
   moon: {
-    x: 1375,
-    y: 30,
+    x: 1300,
+    y: 200,
     scale: 0.5,
     alpha: 1.0,
     rotationOffsetRad: 3,
@@ -232,6 +232,7 @@ export function createSunAndMoonDisksView({
   getTimeline,
   getEditableHistoryBounds,
   browseCursorSecond,
+  commitCursorSecond,
   setForwardTargetSec,
   clearForwardTargetSec,
   onForwardDragStart,
@@ -249,6 +250,8 @@ export function createSunAndMoonDisksView({
   let dragSession = null;
   let browseRafId = 0;
   let pendingBrowseSec = null;
+  let commitRafId = 0;
+  let pendingCommitSec = null;
 
   let stageMoveHandler = null;
   let stageUpHandler = null;
@@ -284,6 +287,26 @@ export function createSunAndMoonDisksView({
     flushBrowseRequest();
   }
 
+  function flushCommitRequest() {
+    commitRafId = 0;
+    const sec = pendingCommitSec;
+    pendingCommitSec = null;
+    if (!Number.isFinite(sec)) return;
+    commitCursorSecond?.(Math.max(0, Math.floor(sec)));
+  }
+
+  function queueCommitSecond(sec) {
+    pendingCommitSec = Math.max(0, Math.floor(sec));
+    if (commitRafId) return;
+
+    if (typeof requestAnimationFrame === "function") {
+      commitRafId = requestAnimationFrame(flushCommitRequest);
+      return;
+    }
+
+    flushCommitRequest();
+  }
+
   function clearForwardTarget(meta) {
     clearForwardTargetSec?.(meta || null);
   }
@@ -308,6 +331,7 @@ export function createSunAndMoonDisksView({
       accumSec: 0,
       lastForwardTargetSec: null,
       lastMode: null,
+      lastRotationDirection: null,
     };
 
     if (moonSprite) moonSprite.cursor = "grabbing";
@@ -355,6 +379,10 @@ export function createSunAndMoonDisksView({
       nextAngle - dragSession.lastAngleRad
     );
     dragSession.lastAngleRad = nextAngle;
+    if (Math.abs(angleDelta) > 1e-9) {
+      dragSession.lastRotationDirection =
+        angleDelta < 0 ? "anticlockwise" : "clockwise";
+    }
 
     const secPerRev = getDiskSecondsPerRevolution(dragSession.diskId, layout);
     const diskLayout = getDiskLayout(dragSession.diskId, layout) || {};
@@ -366,6 +394,7 @@ export function createSunAndMoonDisksView({
 
     const frontierSec = getFrontierSec({ getTimeline, getState });
     const dragSec = Math.round(dragSession.dragStartFrontierSec + dragSession.accumSec);
+    const strategy = resolveForwardDragStrategy(layout);
 
     if (dragSec <= frontierSec) {
       const minEditableSec = getMinEditableSec({
@@ -373,6 +402,7 @@ export function createSunAndMoonDisksView({
         frontierSec,
       });
       const clampedSec = Math.max(minEditableSec, Math.min(frontierSec, dragSec));
+      dragSession.visualTargetSec = clampedSec;
       pendingBrowseSec = clampedSec;
       queueBrowseSecond(clampedSec);
 
@@ -385,7 +415,17 @@ export function createSunAndMoonDisksView({
     }
 
     pendingBrowseSec = null;
+    if (strategy === "B") {
+      dragSession.visualTargetSec = dragSec;
+      clearForwardTarget({ reason: "strategyBInstantCommit", diskId: dragSession.diskId });
+      queueCommitSecond(dragSec);
+      dragSession.lastForwardTargetSec = null;
+      dragSession.lastMode = DRAG_MODE_FORWARD;
+      return;
+    }
+
     if (dragSession.lastForwardTargetSec !== dragSec) {
+      dragSession.visualTargetSec = dragSec;
       setForwardTargetSec?.(dragSec, {
         diskId: dragSession.diskId,
         frontierSec,
@@ -443,10 +483,22 @@ export function createSunAndMoonDisksView({
       feedbackText.text = "";
     }
 
-    if (!Number.isFinite(targetSec)) return;
-    if (targetSec <= frontierSec) return;
+    const hasDragVisualTarget =
+      strategy === "B" &&
+      !!dragSession &&
+      Number.isFinite(dragSession.visualTargetSec);
+    const resolvedTargetSec = hasDragVisualTarget
+      ? clampNonNegativeSec(dragSession.visualTargetSec, 0)
+      : Number.isFinite(targetSec)
+        ? Math.max(0, Math.floor(targetSec))
+        : null;
 
-    const diskId = getActiveDiskIdForForwardFeedback(forwardStatus);
+    if (!Number.isFinite(resolvedTargetSec)) return;
+    if (!hasDragVisualTarget && resolvedTargetSec <= frontierSec) return;
+
+    const diskId = hasDragVisualTarget
+      ? dragSession.diskId
+      : getActiveDiskIdForForwardFeedback(forwardStatus);
     const sprite = getSpriteByDiskId(diskId);
     if (!sprite || !state) return;
 
@@ -455,41 +507,41 @@ export function createSunAndMoonDisksView({
     const baseRadius = Math.max(sprite.width, sprite.height) * 0.5;
     const ringRadius = Number.isFinite(baseRadius) && baseRadius > 0 ? baseRadius + 10 : 36;
 
-    if (strategy === "A") {
-      feedbackGraphics.lineStyle(3, 0xffc965, 0.95);
-      feedbackGraphics.drawCircle(cx, cy, ringRadius);
-      feedbackGraphics.lineStyle(1, 0xffc965, 0.5);
-      feedbackGraphics.drawCircle(cx, cy, ringRadius + 4);
-
-      if (feedbackText) {
-        feedbackText.text = `Catching up +${Math.max(0, targetSec - frontierSec)}s`;
-        feedbackText.x = Math.round(cx - feedbackText.width * 0.5);
-        feedbackText.y = Math.round(cy - ringRadius - feedbackText.height - 6);
-        feedbackText.visible = true;
-      }
-      return;
-    }
+    // For current A/B testing phase, both strategies share Strategy-B visuals:
+    // committed rotation plus ghost target marker/ring.
+    void strategy;
 
     const targetRot = getDiskRotationRadAtProjectedSecond({
       diskId,
       state,
       fromTimeSec: baseTimeSec,
-      targetSec,
+      targetSec: resolvedTargetSec,
       layout,
     });
 
     const markerRadius = ringRadius;
     const mx = cx + Math.cos(targetRot) * markerRadius;
     const my = cy + Math.sin(targetRot) * markerRadius;
+    const isAnticlockwiseVisual =
+      hasDragVisualTarget &&
+      dragSession?.lastRotationDirection === "anticlockwise";
+    const markerColor = isAnticlockwiseVisual ? 0xff5c5c : 0x87c7ff;
 
-    feedbackGraphics.lineStyle(2, 0x87c7ff, 0.8);
+    feedbackGraphics.lineStyle(2, markerColor, 0.8);
     feedbackGraphics.drawCircle(cx, cy, ringRadius);
-    feedbackGraphics.beginFill(0x87c7ff, 0.95);
+    feedbackGraphics.beginFill(markerColor, 0.95);
     feedbackGraphics.drawCircle(mx, my, 5);
     feedbackGraphics.endFill();
 
     if (feedbackText) {
-      feedbackText.text = `Target +${Math.max(0, targetSec - frontierSec)}s`;
+      if (hasDragVisualTarget) {
+        const dragStartSec = clampNonNegativeSec(dragSession.dragStartFrontierSec, 0);
+        const dragDeltaSec = Math.floor(resolvedTargetSec - dragStartSec);
+        const sign = dragDeltaSec >= 0 ? "+" : "-";
+        feedbackText.text = `${sign}${Math.abs(dragDeltaSec)} tSec`;
+      } else {
+        feedbackText.text = `Target +${Math.max(0, resolvedTargetSec - frontierSec)}s`;
+      }
       feedbackText.x = Math.round(cx - feedbackText.width * 0.5);
       feedbackText.y = Math.round(cy - ringRadius - feedbackText.height - 6);
       feedbackText.visible = true;
@@ -605,8 +657,8 @@ export function createSunAndMoonDisksView({
     const frontierSec = getFrontierSec({ getTimeline, getState });
 
     const baseTimeSec = getTimeSecForRotation(state);
-    const showTargetAsMainRotation =
-      strategy === "A" && Number.isFinite(targetSec) && targetSec > frontierSec;
+    // For now, both A and B render committed-time rotation (Strategy B visual).
+    const showTargetAsMainRotation = false;
 
     if (moonSprite) {
       if (showTargetAsMainRotation) {
@@ -660,6 +712,12 @@ export function createSunAndMoonDisksView({
     }
     browseRafId = 0;
     pendingBrowseSec = null;
+
+    if (commitRafId && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(commitRafId);
+    }
+    commitRafId = 0;
+    pendingCommitSec = null;
 
     clearForwardTarget({ reason: "destroy" });
 
