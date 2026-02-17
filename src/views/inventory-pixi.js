@@ -218,6 +218,101 @@ export function createInventoryView({
     return pawns.find((candidatePawn) => candidatePawn?.id === ownerId) || null;
   }
 
+  function getInventoryPawnBadgeLabel(pawn) {
+    if (!pawn || typeof pawn !== "object") return "";
+    if (pawn.role === "follower") {
+      return Number.isFinite(pawn.id) ? `F${Math.floor(pawn.id)}` : "F";
+    }
+    return pawn.name || (Number.isFinite(pawn.id) ? `Pawn ${Math.floor(pawn.id)}` : "Pawn");
+  }
+
+  function drawInventoryPawnBadgeShape(gfx, { isLeader, radius }) {
+    if (isLeader) {
+      gfx.drawPolygon([0, -radius, radius, 0, 0, radius, -radius, 0]);
+      return;
+    }
+    gfx.drawCircle(0, 0, radius);
+  }
+
+  function createInventoryPawnBadge(ownerPawn, panelWidth) {
+    if (!ownerPawn) return null;
+
+    const root = new PIXI.Container();
+    root.eventMode = "none";
+    root.x = Math.floor(panelWidth / 2);
+    // Slightly overlap the header bar while still protruding above it.
+    root.y = -8;
+
+    const iconShadow = new PIXI.Graphics();
+    iconShadow.alpha = 0.35;
+    iconShadow.y = 2;
+    root.addChild(iconShadow);
+
+    const iconFill = new PIXI.Graphics();
+    root.addChild(iconFill);
+
+    const iconOutline = new PIXI.Graphics();
+    root.addChild(iconOutline);
+
+    const label = new PIXI.Text(getInventoryPawnBadgeLabel(ownerPawn), {
+      fill: 0xf0f6ff,
+      fontSize: 12,
+      fontWeight: "bold",
+      stroke: 0x101018,
+      strokeThickness: 0,
+    });
+    label.anchor.set(0.5, 0.5);
+    label.y = 0;
+    root.addChild(label);
+
+    const update = (nextPawn) => {
+      if (!nextPawn) {
+        root.visible = false;
+        return;
+      }
+      root.visible = true;
+      label.text = getInventoryPawnBadgeLabel(nextPawn);
+      const isLeader = nextPawn?.role === "leader";
+      const radius = isLeader ? 24 : 17;
+      const fillColor =
+        typeof nextPawn?.color === "number" ? nextPawn.color : 0xaa66ff;
+
+      iconShadow.clear();
+      iconShadow.beginFill(0x000000, 1);
+      drawInventoryPawnBadgeShape(iconShadow, {
+        isLeader,
+        radius: radius + 2,
+      });
+      iconShadow.endFill();
+
+      iconFill.clear();
+      iconFill.beginFill(fillColor, 1);
+      drawInventoryPawnBadgeShape(iconFill, {
+        isLeader,
+        radius,
+      });
+      iconFill.endFill();
+
+      iconOutline.clear();
+      iconOutline.lineStyle(2, 0x111111, 1);
+      drawInventoryPawnBadgeShape(iconOutline, {
+        isLeader,
+        radius: radius + 1,
+      });
+    };
+
+    update(ownerPawn);
+
+    return {
+      root,
+      label,
+      iconShadow,
+      iconFill,
+      iconOutline,
+      update,
+    };
+  }
+
   function getFollowersForLeader(state, leaderId) {
     if (!state || leaderId == null) return [];
     const pawns = Array.isArray(state.pawns) ? state.pawns : [];
@@ -1194,6 +1289,7 @@ export function createInventoryView({
       paddingY: 4,
       pinOffsetX: 40,
       closeOffsetX: 20,
+      hitAreaTopPadding: 32,
       dragTarget: c,
       canDrag: () => !uiBlocked,
       onDragStart: () => {
@@ -1212,6 +1308,12 @@ export function createInventoryView({
     const title = headerUi.titleText;
     const pinText = headerUi.pinText;
     const closeText = headerUi.closeText;
+    const pawnBadge = ownerPawn
+      ? createInventoryPawnBadge(ownerPawn, w)
+      : null;
+    if (pawnBadge?.root) {
+      header.addChild(pawnBadge.root);
+    }
     const skillsButton =
       ownerPawn && typeof openSkillTree === "function"
         ? createSkillsButton(ownerId, w)
@@ -1267,6 +1369,7 @@ export function createInventoryView({
       title,
       pinText,
       body,
+      pawnBadge,
       skillsButton,
       cols,
       rows,
@@ -1852,6 +1955,9 @@ export function createInventoryView({
     drawItems(win, inv, preview);
 
     win.title.text = getOwnerLabel(ownerId);
+    if (win.pawnBadge?.update) {
+      win.pawnBadge.update(getPawnForOwner(ownerId));
+    }
     updateEquipmentPanel(win);
     updateLeaderPanel(win);
 

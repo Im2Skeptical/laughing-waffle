@@ -22,6 +22,8 @@ export function createWindowHeader(opts = {}) {
     closeStyle = { fill: 0xffffff, fontSize: 12 },
     pinOffsetX = 40,
     closeOffsetX = 20,
+    hitAreaTopPadding = 0,
+    hitAreaBottomPadding = 0,
     dragTarget,
     canDrag,
     onDragStart,
@@ -73,7 +75,14 @@ export function createWindowHeader(opts = {}) {
     bg.beginFill(background);
     bg.drawRoundedRect(0, 0, currentWidth, height, radius);
     bg.endFill();
-    header.hitArea = new PIXI.Rectangle(0, 0, currentWidth, height);
+    const topPad = Math.max(0, Math.floor(hitAreaTopPadding || 0));
+    const bottomPad = Math.max(0, Math.floor(hitAreaBottomPadding || 0));
+    header.hitArea = new PIXI.Rectangle(
+      0,
+      -topPad,
+      currentWidth,
+      height + topPad + bottomPad
+    );
 
     if (pinNode) {
       pinNode.x = currentWidth - pinOffsetX;
