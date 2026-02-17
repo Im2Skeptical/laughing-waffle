@@ -19,7 +19,7 @@ export const SEASON_DISPLAY = {
 // --- Moon / Action Point Cap ---
 export const MOON_CYCLE_SEC = 30;
 export const MOON_PHASE_OFFSET_SEC = 15;
-export const AP_CAP_MIN = 80;
+export const AP_CAP_MIN = 0;
 export const AP_CAP_MAX = 120;
 export const AP_INCOME_PER_SEC = 1;
 export const AP_INCOME_MULT_WAXING = 8;

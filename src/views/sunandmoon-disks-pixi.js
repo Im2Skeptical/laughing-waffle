@@ -20,7 +20,8 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
     y: 200,
     scale: 0.5,
     alpha: 1.0,
-    rotationOffsetRad: 3,
+    rotationOffsetRad: 0,
+    playheadOffsetRad: -1.55,
     clockwise: true,
     texturePath: "/images/MoonDisk_01.png",
   },
@@ -30,7 +31,8 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
     y: 200,
     scale: 0.75,
     alpha: 1.0,
-    rotationOffsetRad: 0,
+    rotationOffsetRad: 3,
+    playheadOffsetRad: -.7,
     clockwise: true,
     texturePath: "/images/SeasonDisk_01.png",
     quadrants: 4,
@@ -189,6 +191,70 @@ function getDiskRotationRadAtProjectedSecond({
   return phase01ToRotationRad(phase, getDiskLayout(diskId, layout));
 }
 
+function getDiskPlayheadAngleRad(diskId, layout) {
+  const diskLayout = getDiskLayout(diskId, layout) || {};
+  const phaseZeroAngle = phase01ToRotationRad(0, diskLayout);
+  const offset = Number.isFinite(diskLayout.playheadOffsetRad)
+    ? diskLayout.playheadOffsetRad
+    : 0;
+  return phaseZeroAngle + offset;
+}
+
+function getDragDeltaRotationFromAnchorRad(
+  diskId,
+  layout,
+  dragStartSec,
+  targetSec,
+  anchorAngleRad
+) {
+  const startSec = Number.isFinite(dragStartSec) ? dragStartSec : 0;
+  const endSec = Number.isFinite(targetSec) ? targetSec : startSec;
+  const secPerRev = getDiskSecondsPerRevolution(diskId, layout);
+  const diskLayout = getDiskLayout(diskId, layout) || {};
+  const dir = diskLayout.clockwise ? 1 : -1;
+  const deltaPhase = (endSec - startSec) / Math.max(1, secPerRev);
+  const anchor = Number.isFinite(anchorAngleRad)
+    ? anchorAngleRad
+    : getDiskPlayheadAngleRad(diskId, layout);
+  return anchor + dir * deltaPhase * TWO_PI;
+}
+
+function drawInwardPlayheadTriangle(
+  gfx,
+  cx,
+  cy,
+  angleRad,
+  {
+    tipRadius,
+    baseRadius,
+    halfWidth,
+    fillColor = 0xffffff,
+    fillAlpha = 0.96,
+    strokeColor = 0x0f1220,
+    strokeAlpha = 0.95,
+    strokeWidth = 2,
+  } = {}
+) {
+  const tipX = cx + Math.cos(angleRad) * tipRadius;
+  const tipY = cy + Math.sin(angleRad) * tipRadius;
+
+  const baseCx = cx + Math.cos(angleRad) * baseRadius;
+  const baseCy = cy + Math.sin(angleRad) * baseRadius;
+
+  const px = Math.cos(angleRad + Math.PI * 0.5) * halfWidth;
+  const py = Math.sin(angleRad + Math.PI * 0.5) * halfWidth;
+
+  const b1x = baseCx + px;
+  const b1y = baseCy + py;
+  const b2x = baseCx - px;
+  const b2y = baseCy - py;
+
+  gfx.lineStyle(strokeWidth, strokeColor, strokeAlpha);
+  gfx.beginFill(fillColor, fillAlpha);
+  gfx.drawPolygon([tipX, tipY, b1x, b1y, b2x, b2y]);
+  gfx.endFill();
+}
+
 function getFrontierSec({ getTimeline, getState }) {
   const timeline = typeof getTimeline === "function" ? getTimeline() : null;
   const timelineSec = Math.floor(timeline?.historyEndSec ?? -1);
@@ -252,6 +318,10 @@ export function createSunAndMoonDisksView({
   let pendingBrowseSec = null;
   let commitRafId = 0;
   let pendingCommitSec = null;
+  const persistentTargetAngleByDisk = {
+    moon: null,
+    season: null,
+  };
 
   let stageMoveHandler = null;
   let stageUpHandler = null;
@@ -322,12 +392,17 @@ export function createSunAndMoonDisksView({
     if (!Number.isFinite(angle)) return;
 
     const frontierSec = getFrontierSec({ getTimeline, getState });
+    const persistedTargetAngle = persistentTargetAngleByDisk[diskId];
+    const anchorAngle = Number.isFinite(persistedTargetAngle)
+      ? persistedTargetAngle
+      : getDiskPlayheadAngleRad(diskId, layout);
 
     dragSession = {
       diskId,
       pointerId: Number.isFinite(event.pointerId) ? event.pointerId : null,
       lastAngleRad: angle,
       dragStartFrontierSec: frontierSec,
+      targetAngleStartRad: anchorAngle,
       accumSec: 0,
       lastForwardTargetSec: null,
       lastMode: null,
@@ -483,6 +558,29 @@ export function createSunAndMoonDisksView({
       feedbackText.text = "";
     }
 
+    const diskIdForFeedback = getActiveDiskIdForForwardFeedback(forwardStatus);
+    const sprite = getSpriteByDiskId(diskIdForFeedback);
+    if (!sprite || !state) return;
+
+    const cx = sprite.x;
+    const cy = sprite.y;
+    const baseRadius = Math.max(sprite.width, sprite.height) * 0.5;
+    const ringRadius = Number.isFinite(baseRadius) && baseRadius > 0 ? baseRadius + 10 : 36;
+
+    const playheadAngle = getDiskPlayheadAngleRad(diskIdForFeedback, layout);
+    feedbackGraphics.lineStyle(1, 0x8ec3f2, 0.45);
+    feedbackGraphics.drawCircle(cx, cy, ringRadius);
+    drawInwardPlayheadTriangle(feedbackGraphics, cx, cy, playheadAngle, {
+      tipRadius: ringRadius - 0.5,
+      baseRadius: ringRadius + 9,
+      halfWidth: 5.5,
+      fillColor: 0xffffff,
+      fillAlpha: 0.98,
+      strokeColor: 0x0f1220,
+      strokeAlpha: 0.98,
+      strokeWidth: 2,
+    });
+
     const hasDragVisualTarget =
       strategy === "B" &&
       !!dragSession &&
@@ -493,42 +591,57 @@ export function createSunAndMoonDisksView({
         ? Math.max(0, Math.floor(targetSec))
         : null;
 
-    if (!Number.isFinite(resolvedTargetSec)) return;
-    if (!hasDragVisualTarget && resolvedTargetSec <= frontierSec) return;
+    const hasTargetVisual =
+      Number.isFinite(resolvedTargetSec) &&
+      (hasDragVisualTarget || resolvedTargetSec > frontierSec);
+    if (!hasTargetVisual) return;
 
     const diskId = hasDragVisualTarget
       ? dragSession.diskId
       : getActiveDiskIdForForwardFeedback(forwardStatus);
-    const sprite = getSpriteByDiskId(diskId);
-    if (!sprite || !state) return;
-
-    const cx = sprite.x;
-    const cy = sprite.y;
-    const baseRadius = Math.max(sprite.width, sprite.height) * 0.5;
-    const ringRadius = Number.isFinite(baseRadius) && baseRadius > 0 ? baseRadius + 10 : 36;
+    const targetSprite = getSpriteByDiskId(diskId);
+    if (!targetSprite || !state) return;
+    const targetCx = targetSprite.x;
+    const targetCy = targetSprite.y;
+    const targetBaseRadius = Math.max(targetSprite.width, targetSprite.height) * 0.5;
+    const targetRingRadius =
+      Number.isFinite(targetBaseRadius) && targetBaseRadius > 0
+        ? targetBaseRadius + 10
+        : 36;
 
     // For current A/B testing phase, both strategies share Strategy-B visuals:
     // committed rotation plus ghost target marker/ring.
     void strategy;
 
-    const targetRot = getDiskRotationRadAtProjectedSecond({
-      diskId,
-      state,
-      fromTimeSec: baseTimeSec,
-      targetSec: resolvedTargetSec,
-      layout,
-    });
+    const targetRot = hasDragVisualTarget
+      ? getDragDeltaRotationFromAnchorRad(
+          diskId,
+          layout,
+          dragSession?.dragStartFrontierSec,
+          resolvedTargetSec,
+          dragSession?.targetAngleStartRad
+        )
+      : getDiskRotationRadAtProjectedSecond({
+          diskId,
+          state,
+          fromTimeSec: baseTimeSec,
+          targetSec: resolvedTargetSec,
+          layout,
+        });
+    if (hasDragVisualTarget && (diskId === "moon" || diskId === "season")) {
+      persistentTargetAngleByDisk[diskId] = targetRot;
+    }
 
-    const markerRadius = ringRadius;
-    const mx = cx + Math.cos(targetRot) * markerRadius;
-    const my = cy + Math.sin(targetRot) * markerRadius;
+    const markerRadius = targetRingRadius;
+    const mx = targetCx + Math.cos(targetRot) * markerRadius;
+    const my = targetCy + Math.sin(targetRot) * markerRadius;
     const isAnticlockwiseVisual =
       hasDragVisualTarget &&
       dragSession?.lastRotationDirection === "anticlockwise";
     const markerColor = isAnticlockwiseVisual ? 0xff5c5c : 0x87c7ff;
 
     feedbackGraphics.lineStyle(2, markerColor, 0.8);
-    feedbackGraphics.drawCircle(cx, cy, ringRadius);
+    feedbackGraphics.drawCircle(targetCx, targetCy, targetRingRadius);
     feedbackGraphics.beginFill(markerColor, 0.95);
     feedbackGraphics.drawCircle(mx, my, 5);
     feedbackGraphics.endFill();
@@ -542,8 +655,8 @@ export function createSunAndMoonDisksView({
       } else {
         feedbackText.text = `Target +${Math.max(0, resolvedTargetSec - frontierSec)}s`;
       }
-      feedbackText.x = Math.round(cx - feedbackText.width * 0.5);
-      feedbackText.y = Math.round(cy - ringRadius - feedbackText.height - 6);
+      feedbackText.x = Math.round(targetCx - feedbackText.width * 0.5);
+      feedbackText.y = Math.round(targetCy - targetRingRadius - feedbackText.height - 6);
       feedbackText.visible = true;
     }
   }
