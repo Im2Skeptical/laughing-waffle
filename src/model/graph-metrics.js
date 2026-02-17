@@ -1,7 +1,7 @@
 // src/model/graph-metrics.js
 // Metric definitions for time graphs.
 
-import { getTotalFoodFromEdibles } from "./query.js";
+import { getTotalFoodFromEdibles, getTotalStackByTag } from "./query.js";
 
 export const GRAPH_METRICS = {
   gold: {
@@ -28,9 +28,9 @@ export const GRAPH_METRICS = {
         id: "grain",
         label: "Grain",
         color: 0xd3b562,
-        getValue: (state, _subject) => state?.resources?.grain ?? state?.grain ?? 0,
+        getValue: (state, _subject) => getTotalStackByTag(state, "grain"),
         getValueFromSnapshot: (snapshot, _subject) =>
-          snapshot?.resources?.grain ?? snapshot?.grain ?? 0,
+          getTotalStackByTag(snapshot, "grain"),
         formatValue: (value) =>
           Number.isFinite(value) ? value.toFixed(1) : "0.0",
       },
