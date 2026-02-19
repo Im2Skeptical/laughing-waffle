@@ -27,6 +27,9 @@ const PANEL_SECTION_GAP = 10;
 const PANEL_TEXT_GAP = 8;
 const PANEL_HEADER_WIDTH = 408;
 const PANEL_COL_B_X = PANEL_X + 212;
+const VIEWPORT_BORDER_DEFAULT = 0x2b3b5f;
+const VIEWPORT_BORDER_ADD = 0x3ca46d;
+const VIEWPORT_BORDER_REMOVE = 0xb04b5f;
 const EDGE_EDIT_MODE_NONE = "none";
 const EDGE_EDIT_MODE_ADD = "add";
 const EDGE_EDIT_MODE_REMOVE = "remove";
@@ -405,7 +408,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   root.addChild(nodeEditorText);
 
   const helpText = new PIXI.Text(
-    "Canvas: drag nodes to move, wheel to zoom, drag empty space to pan.\nHotkeys: E add edge, R remove edge, Esc exits edge mode.",
+    "Canvas: drag nodes to move, wheel to zoom, drag empty space to pan.\nHotkeys: A auto layout, E add edge, R remove edge, Esc exits edge mode.\nViewport border: green=add edge, red=remove edge.",
     {
       fill: 0x91a7cc,
       fontSize: 11,
@@ -1123,6 +1126,22 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     }
     updateEdgeModeButtons();
     updateStatusText();
+    redrawViewportFrame();
+  }
+
+  function getViewportBorderColor() {
+    if (edgeEditMode === EDGE_EDIT_MODE_ADD) return VIEWPORT_BORDER_ADD;
+    if (edgeEditMode === EDGE_EDIT_MODE_REMOVE) return VIEWPORT_BORDER_REMOVE;
+    return VIEWPORT_BORDER_DEFAULT;
+  }
+
+  function redrawViewportFrame() {
+    viewportBg.clear();
+    viewportBg.beginFill(0x101b34, 0.22);
+    viewportBg.lineStyle(edgeEditMode === EDGE_EDIT_MODE_NONE ? 2 : 3, getViewportBorderColor(), 0.95);
+    viewportBg.drawRoundedRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 12);
+    viewportBg.endFill();
+    viewportBg.hitArea = new PIXI.Rectangle(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
   }
 
   function recalcAndRender({ save = true } = {}) {
@@ -2485,12 +2504,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     );
     viewportMask.endFill();
 
-    viewportBg.clear();
-    viewportBg.beginFill(0x101b34, 0.22);
-    viewportBg.lineStyle(2, 0x2b3b5f, 0.95);
-    viewportBg.drawRoundedRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 12);
-    viewportBg.endFill();
-    viewportBg.hitArea = new PIXI.Rectangle(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+    redrawViewportFrame();
     layoutSidebar();
   }
 
