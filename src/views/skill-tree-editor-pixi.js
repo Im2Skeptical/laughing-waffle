@@ -2323,6 +2323,11 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       applyAutoLayout();
       return;
     }
+    if (key === "q") {
+      ev.preventDefault();
+      createQuickNodeFromPanel();
+      return;
+    }
     if ((ev.code || "") === "Escape" || key === "escape") {
       if (edgeEditMode === EDGE_EDIT_MODE_NONE) return;
       ev.preventDefault();
