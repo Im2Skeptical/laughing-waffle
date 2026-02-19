@@ -1308,13 +1308,21 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     const key = typeof ev.key === "string" ? ev.key.toLowerCase() : "";
     if (key === "e") {
       ev.preventDefault();
-      setEdgeEditMode(EDGE_EDIT_MODE_ADD);
+      const nextMode =
+        edgeEditMode === EDGE_EDIT_MODE_ADD
+          ? EDGE_EDIT_MODE_NONE
+          : EDGE_EDIT_MODE_ADD;
+      setEdgeEditMode(nextMode);
       recalcAndRender({ save: false });
       return;
     }
     if (key === "r") {
       ev.preventDefault();
-      setEdgeEditMode(EDGE_EDIT_MODE_REMOVE);
+      const nextMode =
+        edgeEditMode === EDGE_EDIT_MODE_REMOVE
+          ? EDGE_EDIT_MODE_NONE
+          : EDGE_EDIT_MODE_REMOVE;
+      setEdgeEditMode(nextMode);
       recalcAndRender({ save: false });
       return;
     }
