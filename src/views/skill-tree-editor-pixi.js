@@ -686,8 +686,15 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     ) {
       mode = EDGE_EDIT_MODE_NONE;
     }
+    const previousMode = edgeEditMode;
     edgeEditMode = mode;
-    if (edgeEditMode === EDGE_EDIT_MODE_NONE) connectSourceId = null;
+    if (edgeEditMode === EDGE_EDIT_MODE_NONE) {
+      connectSourceId = null;
+      if (previousMode !== EDGE_EDIT_MODE_NONE) {
+        selectedNodeId = null;
+        hoverNodeId = null;
+      }
+    }
     updateEdgeModeButtons();
     updateStatusText();
   }
