@@ -231,6 +231,12 @@ function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
   const lateDefault = Math.max(120, Math.floor(minDim * 0.42));
   const radiiCfg = isObject(layoutCfg?.radii) ? layoutCfg.radii : {};
   const ringOrder = buildRingOrder(layoutCfg, radiiCfg, ringIdsInUse);
+  const radiusEasePower = Number.isFinite(layoutCfg?.radiusEasePower)
+    ? Math.max(0.2, layoutCfg.radiusEasePower)
+    : 1.28;
+  const radiusOuterBoostPx = Number.isFinite(layoutCfg?.radiusOuterBoostPx)
+    ? Math.max(0, layoutCfg.radiusOuterBoostPx)
+    : Math.floor(minDim * 0.08);
   const ringIndexById = {};
   for (let idx = 0; idx < ringOrder.length; idx++) {
     ringIndexById[ringOrder[idx]] = idx;
@@ -245,7 +251,9 @@ function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
       if (ringId === "core") {
         radius = Number.isFinite(radiiCfg.core) ? radiiCfg.core : 0;
       } else if (nonCoreCount > 0) {
-        radius = Math.floor((lateDefault * idx) / nonCoreCount);
+        const t = idx / nonCoreCount;
+        const easedT = Math.pow(t, radiusEasePower);
+        radius = Math.floor(lateDefault * easedT + radiusOuterBoostPx * t * t);
       } else {
         radius = 0;
       }
@@ -279,6 +287,9 @@ function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
     componentBandGapDeg: Number.isFinite(layoutCfg?.componentBandGapDeg)
       ? Math.max(0, layoutCfg.componentBandGapDeg)
       : 8,
+    componentBandGapOuterScale: Number.isFinite(layoutCfg?.componentBandGapOuterScale)
+      ? Math.max(0, layoutCfg.componentBandGapOuterScale)
+      : 0.42,
     radialNudgeIterations: Number.isFinite(layoutCfg?.radialNudgeIterations)
       ? Math.max(0, Math.floor(layoutCfg.radialNudgeIterations))
       : 4,
@@ -294,6 +305,15 @@ function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
     coreSpread: Number.isFinite(layoutCfg?.coreSpread)
       ? Math.max(0, Math.floor(layoutCfg.coreSpread))
       : 48,
+    angularRelaxIterations: Number.isFinite(layoutCfg?.angularRelaxIterations)
+      ? Math.max(0, Math.floor(layoutCfg.angularRelaxIterations))
+      : 4,
+    angularRelaxStrength: Number.isFinite(layoutCfg?.angularRelaxStrength)
+      ? Math.max(0, layoutCfg.angularRelaxStrength)
+      : 0.2,
+    angularRelaxOuterBoost: Number.isFinite(layoutCfg?.angularRelaxOuterBoost)
+      ? Math.max(0, layoutCfg.angularRelaxOuterBoost)
+      : 0.16,
   };
 }
 
@@ -389,6 +409,74 @@ function resolveAngularOverlapsInWedge({
 
   for (let i = 0; i < n; i++) {
     thetaByNodeId[orderedIds[i]] = clampNumber(angles[i], minTheta, maxTheta);
+  }
+}
+
+function unwrapAngleNearReference(angle, reference) {
+  if (!Number.isFinite(angle) || !Number.isFinite(reference)) return angle;
+  let out = angle;
+  while (out - reference > Math.PI) out -= Math.PI * 2;
+  while (out - reference < -Math.PI) out += Math.PI * 2;
+  return out;
+}
+
+function relaxAnglesByAdjacency({
+  nodeIds,
+  ringByNodeId,
+  thetaByNodeId,
+  thetaBoundsByNodeId,
+  nodeById,
+  maxRing,
+  cfg,
+}) {
+  const iterations = Number.isFinite(cfg?.angularRelaxIterations)
+    ? Math.max(0, Math.floor(cfg.angularRelaxIterations))
+    : 0;
+  if (iterations <= 0) return;
+  const baseStrength = Number.isFinite(cfg?.angularRelaxStrength)
+    ? Math.max(0, cfg.angularRelaxStrength)
+    : 0.2;
+  const outerBoost = Number.isFinite(cfg?.angularRelaxOuterBoost)
+    ? Math.max(0, cfg.angularRelaxOuterBoost)
+    : 0.16;
+  const ringDenominator = Math.max(1, maxRing);
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const nextThetaByNodeId = {};
+    for (const nodeId of nodeIds) {
+      const ring = ringByNodeId[nodeId];
+      if (!Number.isFinite(ring) || ring <= 0) continue;
+      const currentTheta = thetaByNodeId[nodeId];
+      if (!Number.isFinite(currentTheta)) continue;
+
+      let sum = 0;
+      let count = 0;
+      for (const neighborId of getAdjacentNodeIds(nodeById.get(nodeId))) {
+        const neighborTheta = thetaByNodeId[neighborId];
+        if (!Number.isFinite(neighborTheta)) continue;
+        const unwrapped = unwrapAngleNearReference(neighborTheta, currentTheta);
+        sum += unwrapped;
+        count += 1;
+      }
+      if (count <= 0) continue;
+
+      const targetTheta = sum / count;
+      const strength = clampNumber(
+        baseStrength + outerBoost * (ring / ringDenominator),
+        0,
+        0.85
+      );
+      let nextTheta = currentTheta + (targetTheta - currentTheta) * strength;
+      const bounds = thetaBoundsByNodeId[nodeId];
+      if (bounds) {
+        nextTheta = clampNumber(nextTheta, bounds.minTheta, bounds.maxTheta);
+      }
+      nextThetaByNodeId[nodeId] = nextTheta;
+    }
+
+    for (const nodeId of Object.keys(nextThetaByNodeId)) {
+      thetaByNodeId[nodeId] = nextThetaByNodeId[nodeId];
+    }
   }
 }
 
@@ -841,6 +929,7 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
   const positionsByNodeId = {};
   const depthByNodeIdOut = {};
   const thetaByNodeId = {};
+  const thetaBoundsByNodeId = {};
   const baseRadiusByNodeId = {};
   const wedgeBandsByRing = new Map();
 
@@ -883,7 +972,8 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
       if (components.length <= 1) {
         bands.push({ ids: ids.slice(), minTheta, maxTheta, radius });
       } else {
-        const gapRad = ((cfg.componentBandGapDeg || 0) * Math.PI) / 180;
+        const outerRingScale = 1 + (cfg.componentBandGapOuterScale || 0) * (ring / Math.max(1, maxRing));
+        const gapRad = (((cfg.componentBandGapDeg || 0) * Math.PI) / 180) * outerRingScale;
         const gapCount = components.length - 1;
         const totalGap = Math.min(span * 0.6, gapRad * gapCount);
         const allocSpan = Math.max(span - totalGap, span * 0.35);
@@ -911,6 +1001,7 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
               ? (band.minTheta + band.maxTheta) / 2
               : band.minTheta + ((band.maxTheta - band.minTheta) * i) / (bandIds.length - 1);
           thetaByNodeId[nodeId] = theta;
+          thetaBoundsByNodeId[nodeId] = { minTheta: band.minTheta, maxTheta: band.maxTheta };
           baseRadiusByNodeId[nodeId] = radius;
           depthByNodeIdOut[nodeId] = ring;
         }
@@ -918,27 +1009,43 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
     }
   }
 
-  for (let ring = 1; ring <= maxRing; ring++) {
-    const ringBands = wedgeBandsByRing.get(ring);
-    if (!ringBands) continue;
-    for (const wedge of wedgeOrder) {
-      const bands = ringBands.get(wedge);
-      if (!bands || !bands.length) continue;
-      for (const band of bands) {
-        if (!band.ids || !band.ids.length) continue;
-        resolveAngularOverlapsInWedge({
-          ids: band.ids,
-          minTheta: band.minTheta,
-          maxTheta: band.maxTheta,
-          ringRadius: band.radius,
-          thetaByNodeId,
-          nodeById,
-          treeDef,
-          cfg,
-        });
+  function resolveAllRingOverlaps() {
+    for (let ring = 1; ring <= maxRing; ring++) {
+      const ringBands = wedgeBandsByRing.get(ring);
+      if (!ringBands) continue;
+      for (const wedge of wedgeOrder) {
+        const bands = ringBands.get(wedge);
+        if (!bands || !bands.length) continue;
+        for (const band of bands) {
+          if (!band.ids || !band.ids.length) continue;
+          resolveAngularOverlapsInWedge({
+            ids: band.ids,
+            minTheta: band.minTheta,
+            maxTheta: band.maxTheta,
+            ringRadius: band.radius,
+            thetaByNodeId,
+            nodeById,
+            treeDef,
+            cfg,
+          });
+        }
       }
     }
   }
+
+  resolveAllRingOverlaps();
+
+  relaxAnglesByAdjacency({
+    nodeIds: eligibleNodeIds,
+    ringByNodeId,
+    thetaByNodeId,
+    thetaBoundsByNodeId,
+    nodeById,
+    maxRing,
+    cfg,
+  });
+
+  resolveAllRingOverlaps();
 
   const radialOffsetByNodeId = computeRadialBreathingOffsets({
     nodeIds: eligibleNodeIds,
