@@ -478,6 +478,41 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     io: false,
     inspect: true,
   };
+  const layoutValueInput = globalThis?.document?.createElement?.("input") || null;
+  const layoutValueInputState = {
+    visible: false,
+    stageX: 0,
+    stageY: 0,
+    stageWidth: 0,
+    stageHeight: 0,
+  };
+
+  if (layoutValueInput) {
+    layoutValueInput.type = "text";
+    layoutValueInput.autocomplete = "off";
+    layoutValueInput.spellcheck = false;
+    layoutValueInput.placeholder = "Value";
+    layoutValueInput.setAttribute("aria-label", "Layout editor value");
+    layoutValueInput.style.position = "fixed";
+    layoutValueInput.style.display = "none";
+    layoutValueInput.style.zIndex = "20";
+    layoutValueInput.style.border = "1px solid #47669a";
+    layoutValueInput.style.borderRadius = "6px";
+    layoutValueInput.style.background = "#11213f";
+    layoutValueInput.style.color = "#e7f0ff";
+    layoutValueInput.style.padding = "6px 8px";
+    layoutValueInput.style.fontSize = "12px";
+    layoutValueInput.style.fontFamily = "monospace";
+    (app?.view?.parentElement || globalThis?.document?.body)?.appendChild?.(
+      layoutValueInput
+    );
+    layoutValueInput.addEventListener("keydown", (ev) => {
+      if ((ev.key || "").toLowerCase() === "enter") {
+        ev.preventDefault();
+        applyLayoutEditorInputValue();
+      }
+    });
+  }
 
   function destroyContainerChildren(container) {
     if (!container?.removeChildren) return;
@@ -719,6 +754,44 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       x: ((clientX - rect.left) * screen.width) / rect.width,
       y: ((clientY - rect.top) * screen.height) / rect.height,
     };
+  }
+
+  function toClientRectFromStageRect(stageX, stageY, stageWidth, stageHeight) {
+    const view = app?.view;
+    const screen = app?.screen;
+    if (!view || !screen) return null;
+    const rect = view.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    const x = rect.left + (stageX / screen.width) * rect.width;
+    const y = rect.top + (stageY / screen.height) * rect.height;
+    const width = (stageWidth / screen.width) * rect.width;
+    const height = (stageHeight / screen.height) * rect.height;
+    return { x, y, width, height };
+  }
+
+  function hideLayoutValueInput() {
+    layoutValueInputState.visible = false;
+    if (!layoutValueInput) return;
+    layoutValueInput.style.display = "none";
+  }
+
+  function placeLayoutValueInput(stageX, stageY, stageWidth, stageHeight) {
+    layoutValueInputState.visible = true;
+    layoutValueInputState.stageX = stageX;
+    layoutValueInputState.stageY = stageY;
+    layoutValueInputState.stageWidth = stageWidth;
+    layoutValueInputState.stageHeight = stageHeight;
+    if (!layoutValueInput) return;
+    const clientRect = toClientRectFromStageRect(stageX, stageY, stageWidth, stageHeight);
+    if (!clientRect || !root.visible || layoutEditorState.open !== true) {
+      layoutValueInput.style.display = "none";
+      return;
+    }
+    layoutValueInput.style.display = "block";
+    layoutValueInput.style.left = `${Math.round(clientRect.x)}px`;
+    layoutValueInput.style.top = `${Math.round(clientRect.y)}px`;
+    layoutValueInput.style.width = `${Math.max(30, Math.round(clientRect.width))}px`;
+    layoutValueInput.style.height = `${Math.max(24, Math.round(clientRect.height))}px`;
   }
 
   function globalToWorld(globalPoint) {
@@ -1489,6 +1562,72 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     };
   }
 
+  function getLayoutEditorInputDescriptor(draft = getLayoutDraft()) {
+    const mode = getCurrentLayoutEditorMode();
+    ensureLayoutEditorIndexes(draft);
+
+    if (mode === LAYOUT_EDITOR_MODE_ORDER) {
+      const ringIds = getLayoutEditorRingIds(draft);
+      const ringId = ringIds[layoutEditorState.ringIndex] || "core";
+      const order = normalizeRingOrder(draft.ringOrder, ringIds);
+      const orderIndex = Math.max(0, order.indexOf(ringId));
+      return {
+        mode,
+        value: String(orderIndex + 1),
+        placeholder: `1-${Math.max(1, order.length)}`,
+      };
+    }
+
+    if (mode === LAYOUT_EDITOR_MODE_RADII) {
+      const ringId = getLayoutEditorRingIds(draft)[layoutEditorState.ringIndex] || "core";
+      const hasOverride = Number.isFinite(draft?.radii?.[ringId]);
+      return {
+        mode,
+        value: hasOverride ? String(Math.floor(draft.radii[ringId])) : "",
+        placeholder: "auto",
+      };
+    }
+
+    if (mode === LAYOUT_EDITOR_MODE_CENTER || mode === LAYOUT_EDITOR_MODE_SPAN) {
+      const wedgeId = LAYOUT_WEDGE_IDS[layoutEditorState.wedgeIndex] || "Blue";
+      const mapKey = mode === LAYOUT_EDITOR_MODE_CENTER ? "wedgeCentersDeg" : "wedgeSpansDeg";
+      const defaults =
+        mode === LAYOUT_EDITOR_MODE_CENTER
+          ? LAYOUT_DEFAULT_WEDGE_CENTERS
+          : LAYOUT_DEFAULT_WEDGE_SPANS;
+      const hasOverride = Number.isFinite(draft?.[mapKey]?.[wedgeId]);
+      return {
+        mode,
+        value: hasOverride ? String(draft[mapKey][wedgeId]) : "",
+        placeholder: String(defaults[wedgeId]),
+      };
+    }
+
+    const list =
+      mode === LAYOUT_EDITOR_MODE_SOLVER ? LAYOUT_SOLVER_FIELDS : LAYOUT_RADIAL_FIELDS;
+    const field =
+      list[
+        mode === LAYOUT_EDITOR_MODE_SOLVER
+          ? layoutEditorState.solverIndex
+          : layoutEditorState.radialIndex
+      ] || list[0];
+    const hasOverride = Number.isFinite(draft?.[field.key]);
+    return {
+      mode,
+      value: hasOverride ? String(draft[field.key]) : "",
+      placeholder: String(field.defaultValue),
+    };
+  }
+
+  function syncLayoutValueInput(descriptor) {
+    if (!layoutValueInput) return;
+    const isFocused = globalThis?.document?.activeElement === layoutValueInput;
+    if (!isFocused) {
+      layoutValueInput.value = descriptor?.value ?? "";
+    }
+    layoutValueInput.placeholder = descriptor?.placeholder ?? "";
+  }
+
   function updateLayoutEditorUi() {
     const mode = getCurrentLayoutEditorMode();
     uiButtons.editLayout?.setLabel?.(
@@ -1515,10 +1654,13 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
 
     if (!layoutEditorState.open) {
       layoutEditorText.text = "";
+      hideLayoutValueInput();
       return;
     }
     const draft = getLayoutDraft();
     const info = getLayoutEditorTargetInfo(draft);
+    const descriptor = getLayoutEditorInputDescriptor(draft);
+    syncLayoutValueInput(descriptor);
     const modeLabel = {
       [LAYOUT_EDITOR_MODE_ORDER]: "Ring Order",
       [LAYOUT_EDITOR_MODE_RADII]: "Ring Radii",
@@ -1533,7 +1675,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       `Mode: ${modeLabel}`,
       `Target: ${info.targetLabel}`,
       `Value: ${info.value} (${overrideText})`,
-      `Use Prev/Next Target and +/- buttons to adjust.`,
+      `Enter value in field and press Apply.`,
     ].join("\n");
   }
 
@@ -1575,14 +1717,14 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     layoutSidebar();
   }
 
-  function moveLayoutEditorRingOrder(slots) {
+  function setLayoutEditorRingOrderIndex(targetIndex) {
     const draft = getLayoutDraft();
     const ringIds = getLayoutEditorRingIds(draft);
     const ringId = ringIds[layoutEditorState.ringIndex] || "core";
     const order = normalizeRingOrder(draft.ringOrder, ringIds);
     const currentIndex = order.indexOf(ringId);
     if (currentIndex < 0) return;
-    const nextIndex = clamp(currentIndex + slots, 0, order.length - 1);
+    const nextIndex = clamp(targetIndex, 0, order.length - 1);
     if (nextIndex === currentIndex) return;
     order.splice(currentIndex, 1);
     order.splice(nextIndex, 0, ringId);
@@ -1590,24 +1732,37 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     applyLayoutDraft(draft, "Ring order updated.");
   }
 
-  function adjustLayoutEditorValue({ direction = 1, large = false } = {}) {
-    if (!graph) return;
-    const sign = direction >= 0 ? 1 : -1;
+  function applyLayoutEditorInputValue() {
+    if (!layoutEditorState.open || !graph) return;
+    const inputRaw = String(layoutValueInput?.value ?? "").trim();
     const mode = getCurrentLayoutEditorMode();
-
-    if (mode === LAYOUT_EDITOR_MODE_ORDER) {
-      moveLayoutEditorRingOrder(sign * (large ? 3 : 1));
-      return;
-    }
+    if (!graph) return;
 
     const draft = getLayoutDraft();
     ensureLayoutEditorIndexes(draft);
 
+    if (mode === LAYOUT_EDITOR_MODE_ORDER) {
+      const ringIds = getLayoutEditorRingIds(draft);
+      const ringId = ringIds[layoutEditorState.ringIndex] || "core";
+      const order = normalizeRingOrder(draft.ringOrder, ringIds);
+      const currentIndex = Math.max(0, order.indexOf(ringId));
+      const inputValue = inputRaw.length ? Number(inputRaw) : currentIndex + 1;
+      if (!Number.isFinite(inputValue)) {
+        setError("Ring order position must be numeric.");
+        return;
+      }
+      setLayoutEditorRingOrderIndex(Math.floor(inputValue) - 1);
+      return;
+    }
+
     if (mode === LAYOUT_EDITOR_MODE_RADII) {
       const ringId = getLayoutEditorRingIds(draft)[layoutEditorState.ringIndex] || "core";
-      const step = large ? 40 : 10;
-      const current = Number.isFinite(draft?.radii?.[ringId]) ? draft.radii[ringId] : 0;
-      const next = Math.max(0, Math.floor(current + sign * step));
+      const parsed = inputRaw.length ? Number(inputRaw) : null;
+      if (!Number.isFinite(parsed)) {
+        setError("Ring radius must be numeric.");
+        return;
+      }
+      const next = Math.max(0, Math.floor(parsed));
       if (!draft.radii || typeof draft.radii !== "object") draft.radii = {};
       draft.radii[ringId] = next;
       applyLayoutDraft(draft, "Ring radius updated.");
@@ -1617,19 +1772,22 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     if (mode === LAYOUT_EDITOR_MODE_CENTER || mode === LAYOUT_EDITOR_MODE_SPAN) {
       const wedgeId = LAYOUT_WEDGE_IDS[layoutEditorState.wedgeIndex] || "Blue";
       const mapKey = mode === LAYOUT_EDITOR_MODE_CENTER ? "wedgeCentersDeg" : "wedgeSpansDeg";
-      const defaults =
-        mode === LAYOUT_EDITOR_MODE_CENTER
-          ? LAYOUT_DEFAULT_WEDGE_CENTERS
-          : LAYOUT_DEFAULT_WEDGE_SPANS;
-      const step = large ? 10 : 2;
-      const current = Number.isFinite(draft?.[mapKey]?.[wedgeId])
-        ? draft[mapKey][wedgeId]
-        : defaults[wedgeId];
-      let next = current + sign * step;
+      if (!inputRaw.length) {
+        setError("Enter a numeric wedge value.");
+        return;
+      }
+      let next = Number(inputRaw);
+      if (!Number.isFinite(next)) {
+        setError("Wedge value must be numeric.");
+        return;
+      }
       if (mode === LAYOUT_EDITOR_MODE_SPAN) next = Math.max(0, next);
       if (!draft[mapKey] || typeof draft[mapKey] !== "object") draft[mapKey] = {};
       draft[mapKey][wedgeId] = next;
-      applyLayoutDraft(draft, mode === LAYOUT_EDITOR_MODE_CENTER ? "Wedge center updated." : "Wedge span updated.");
+      applyLayoutDraft(
+        draft,
+        mode === LAYOUT_EDITOR_MODE_CENTER ? "Wedge center updated." : "Wedge span updated."
+      );
       return;
     }
 
@@ -1642,9 +1800,15 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
             ? layoutEditorState.solverIndex
             : layoutEditorState.radialIndex
         ] || list[0];
-      const step = large ? field.stepLarge : field.stepSmall;
-      const fallback = Number.isFinite(field.defaultValue) ? field.defaultValue : 0;
-      let next = (Number.isFinite(draft[field.key]) ? draft[field.key] : fallback) + sign * step;
+      if (!inputRaw.length) {
+        setError("Enter a numeric tuning value.");
+        return;
+      }
+      let next = Number(inputRaw);
+      if (!Number.isFinite(next)) {
+        setError("Tuning value must be numeric.");
+        return;
+      }
       if (Number.isFinite(field.min)) next = Math.max(field.min, next);
       if (field.integer) next = Math.floor(next);
       draft[field.key] = next;
@@ -1756,16 +1920,14 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       "layoutModeRadial",
       "layoutTargetPrev",
       "layoutTargetNext",
-      "layoutDecSmall",
-      "layoutIncSmall",
-      "layoutDecLarge",
-      "layoutIncLarge",
+      "layoutApplyValue",
       "layoutResetTarget",
       "layoutResetAll",
     ];
     for (const id of allControlButtons) setButtonVisible(id, false);
     statusText.visible = false;
     layoutEditorText.visible = false;
+    hideLayoutValueInput();
     quickPanelHintText.visible = false;
     quickRingLabelText.visible = false;
     selectedText.visible = false;
@@ -1819,9 +1981,10 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
         placeRow("layoutModeCenter", "layoutModeSpan");
         placeRow("layoutModeSolver", "layoutModeRadial");
         placeRow("layoutTargetPrev", "layoutTargetNext");
-        placeRow("layoutDecSmall", "layoutIncSmall");
-        placeRow("layoutDecLarge", "layoutIncLarge");
-        placeRow("layoutResetTarget", "layoutResetAll");
+        placeLayoutValueInput(PANEL_X + 4, rowY + 4, PANEL_WIDTH - 18, 30);
+        rowY += PANEL_ROW_GAP;
+        placeRow("layoutApplyValue", "layoutResetTarget");
+        placeRow("layoutResetAll", null);
       }
       rowY += PANEL_SECTION_GAP;
     }
@@ -1960,18 +2123,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   );
   addButton("layoutTargetPrev", "< Target", 196, () => cycleLayoutEditorTarget(-1));
   addButton("layoutTargetNext", "Target >", 196, () => cycleLayoutEditorTarget(1));
-  addButton("layoutDecSmall", "- Small", 196, () =>
-    adjustLayoutEditorValue({ direction: -1, large: false })
-  );
-  addButton("layoutIncSmall", "+ Small", 196, () =>
-    adjustLayoutEditorValue({ direction: 1, large: false })
-  );
-  addButton("layoutDecLarge", "- Large", 196, () =>
-    adjustLayoutEditorValue({ direction: -1, large: true })
-  );
-  addButton("layoutIncLarge", "+ Large", 196, () =>
-    adjustLayoutEditorValue({ direction: 1, large: true })
-  );
+  addButton("layoutApplyValue", "Apply Value", 196, () => applyLayoutEditorInputValue());
   addButton("layoutResetTarget", "Reset Target", 196, () => resetLayoutEditorTarget());
   addButton("layoutResetAll", "Reset All", 196, () => resetLayoutEditorAll());
   addButton("addEdgeMode", "Add Edge: Off", 196, () => {
@@ -2197,6 +2349,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     hoverNodeId = null;
     connectSourceId = null;
     layoutEditorState.open = false;
+    if (layoutValueInput) layoutValueInput.value = "";
     resetQuickTemplate();
     setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     setError("");
@@ -2218,6 +2371,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     hoverNodeId = null;
     connectSourceId = null;
     layoutEditorState.open = false;
+    hideLayoutValueInput();
     resetQuickTemplate();
     setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     activeTreeId = null;
