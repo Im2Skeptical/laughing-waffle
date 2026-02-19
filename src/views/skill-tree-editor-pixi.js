@@ -45,6 +45,30 @@ const QUICK_TAG_SET = new Set(QUICK_TAGS.map((entry) => entry.id));
 const QUICK_TAG_INACTIVE_FILL = 0x1d2a43;
 const QUICK_TAG_INACTIVE_STROKE = 0x3a4c70;
 const QUICK_TAG_INACTIVE_TEXT = 0x9db4d8;
+const LAYOUT_WEDGE_IDS = [
+  "Blue",
+  "Green",
+  "Red",
+  "Black",
+  "BlueGreen",
+  "GreenRed",
+  "RedBlack",
+  "BlackBlue",
+];
+const LAYOUT_SOLVER_FIELDS = [
+  { key: "barycenterIterations", label: "Barycenter iterations", integer: true, min: 1 },
+  { key: "localSwapIterations", label: "Local swap iterations", integer: true, min: 0 },
+  { key: "overlapIterations", label: "Overlap iterations", integer: true, min: 0 },
+  { key: "overlapPaddingPx", label: "Overlap padding px", integer: false, min: 0 },
+  { key: "componentBandGapDeg", label: "Component band gap deg", integer: false, min: 0 },
+];
+const LAYOUT_RADIAL_FIELDS = [
+  { key: "radialNudgeIterations", label: "Radial nudge iterations", integer: true, min: 0 },
+  { key: "radialNudgeMaxPx", label: "Radial nudge max px", integer: false, min: 0 },
+  { key: "radialNudgePaddingPx", label: "Radial nudge padding px", integer: false, min: 0 },
+  { key: "radialNudgeSpring", label: "Radial nudge spring", integer: false, min: 0 },
+  { key: "coreSpread", label: "Core spread", integer: false, min: 0 },
+];
 
 const PANEL_SECTION_DEFS = [
   { id: "session", headerButtonId: "sectionSession", title: "Session & Layout" },
@@ -79,6 +103,73 @@ function parseTagList(input) {
     out.push(tag);
   }
   return out.sort((a, b) => a.localeCompare(b));
+}
+
+function parseOrderedIdList(input) {
+  if (typeof input !== "string") return [];
+  const out = [];
+  const seen = new Set();
+  const tokens = input.split(/[,\n;]/);
+  for (const raw of tokens) {
+    const value = raw.trim();
+    if (!value.length || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function formatKeyNumberPairs(map, preferredOrder = []) {
+  const source = map && typeof map === "object" ? map : {};
+  const keys = [];
+  const seen = new Set();
+  for (const key of preferredOrder) {
+    if (typeof key !== "string" || !key.length || seen.has(key)) continue;
+    if (!Number.isFinite(source[key])) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  for (const key of Object.keys(source).sort((a, b) => a.localeCompare(b))) {
+    if (seen.has(key) || !Number.isFinite(source[key])) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys.map((key) => `${key}=${source[key]}`).join(", ");
+}
+
+function parseKeyNumberPairs(input, { allowedKeys = null, integer = false, min = null } = {}) {
+  if (typeof input !== "string" || !input.trim().length) {
+    return { ok: true, value: {} };
+  }
+  const allowedSet = Array.isArray(allowedKeys) ? new Set(allowedKeys) : null;
+  const out = {};
+  const entries = input.split(/[,\n;]/);
+  for (const raw of entries) {
+    const token = raw.trim();
+    if (!token.length) continue;
+    const splitAt = token.includes("=") ? token.indexOf("=") : token.indexOf(":");
+    if (splitAt <= 0) {
+      return { ok: false, reason: `Invalid entry "${token}". Use key=value.` };
+    }
+    const key = token.slice(0, splitAt).trim();
+    const valueRaw = token.slice(splitAt + 1).trim();
+    if (!key.length) return { ok: false, reason: `Invalid key in "${token}".` };
+    if (allowedSet && !allowedSet.has(key)) {
+      return { ok: false, reason: `Unknown key "${key}".` };
+    }
+    const parsed = Number(valueRaw);
+    if (!Number.isFinite(parsed)) {
+      return { ok: false, reason: `Value for "${key}" must be numeric.` };
+    }
+    let nextValue = integer ? Math.floor(parsed) : parsed;
+    if (Number.isFinite(min)) {
+      if (nextValue < min) {
+        return { ok: false, reason: `Value for "${key}" must be >= ${min}.` };
+      }
+    }
+    out[key] = nextValue;
+  }
+  return { ok: true, value: out };
 }
 
 function getNodeIds(graph) {
@@ -1145,6 +1236,282 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     recalcAndRender({ save: true });
   }
 
+  function getLayoutDraft() {
+    if (!graph || !graph.layout || typeof graph.layout !== "object") return {};
+    return deepClone(graph.layout);
+  }
+
+  function sanitizeLayoutDraft(draftRaw) {
+    const draft = draftRaw && typeof draftRaw === "object" ? draftRaw : {};
+    const cleaned = {};
+    if (Array.isArray(draft.ringOrder) && draft.ringOrder.length > 0) {
+      cleaned.ringOrder = parseOrderedIdList(draft.ringOrder.join(","));
+    }
+    if (draft.radii && typeof draft.radii === "object") {
+      const radii = {};
+      for (const [key, value] of Object.entries(draft.radii)) {
+        if (!Number.isFinite(value)) continue;
+        radii[key] = Math.max(0, Math.floor(value));
+      }
+      if (Object.keys(radii).length > 0) cleaned.radii = radii;
+    }
+    if (draft.wedgeCentersDeg && typeof draft.wedgeCentersDeg === "object") {
+      const centers = {};
+      for (const [key, value] of Object.entries(draft.wedgeCentersDeg)) {
+        if (!Number.isFinite(value)) continue;
+        centers[key] = value;
+      }
+      if (Object.keys(centers).length > 0) cleaned.wedgeCentersDeg = centers;
+    }
+    if (draft.wedgeSpansDeg && typeof draft.wedgeSpansDeg === "object") {
+      const spans = {};
+      for (const [key, value] of Object.entries(draft.wedgeSpansDeg)) {
+        if (!Number.isFinite(value)) continue;
+        spans[key] = Math.max(0, value);
+      }
+      if (Object.keys(spans).length > 0) cleaned.wedgeSpansDeg = spans;
+    }
+    for (const field of [...LAYOUT_SOLVER_FIELDS, ...LAYOUT_RADIAL_FIELDS]) {
+      const value = draft[field.key];
+      if (!Number.isFinite(value)) continue;
+      const min = Number.isFinite(field.min) ? field.min : null;
+      let nextValue = field.integer ? Math.floor(value) : value;
+      if (Number.isFinite(min)) nextValue = Math.max(min, nextValue);
+      cleaned[field.key] = nextValue;
+    }
+    return cleaned;
+  }
+
+  function applyLayoutDraft(nextDraftRaw, successText = "Layout updated.") {
+    if (!graph) return;
+    const nextDraft = sanitizeLayoutDraft(nextDraftRaw);
+    graph.layout = Object.keys(nextDraft).length > 0 ? nextDraft : null;
+    if (!graph.tree.ui || typeof graph.tree.ui !== "object") graph.tree.ui = {};
+    if (graph.layout) graph.tree.ui.ringLayout = deepClone(graph.layout);
+    else delete graph.tree.ui.ringLayout;
+    recalcAndRender({ save: true });
+    setError(successText);
+  }
+
+  function promptLayoutFieldPairs({
+    title,
+    currentMap = {},
+    preferredKeys = [],
+    allowedKeys = null,
+    integer = false,
+    min = null,
+  }) {
+    const defaultText = formatKeyNumberPairs(currentMap, preferredKeys);
+    const input = globalThis?.prompt?.(title, defaultText);
+    if (input == null) return { ok: false, cancelled: true };
+    if (!input.trim().length) return { ok: true, cleared: true, value: {} };
+    const parsed = parseKeyNumberPairs(input, { allowedKeys, integer, min });
+    if (!parsed.ok) return { ok: false, reason: parsed.reason };
+    return { ok: true, value: parsed.value };
+  }
+
+  function mergeNumericFieldUpdates(draft, fieldDefs, updates) {
+    for (const field of fieldDefs) {
+      if (!Object.prototype.hasOwnProperty.call(updates, field.key)) continue;
+      draft[field.key] = updates[field.key];
+    }
+  }
+
+  function clearNumericFields(draft, fieldDefs) {
+    for (const field of fieldDefs) {
+      delete draft[field.key];
+    }
+  }
+
+  function openLayoutEditor() {
+    if (!graph) return;
+    const draft = getLayoutDraft();
+    const ringIds = sortRingIds(
+      Array.from(
+        new Set([
+          ...collectRingIdsFromGraph(),
+          ...Object.keys(draft.radii || {}),
+          ...(Array.isArray(draft.ringOrder) ? draft.ringOrder : []),
+        ])
+      )
+    );
+    const summary = [
+      "Layout Editor",
+      "1) Edit ring order",
+      "2) Edit ring radii",
+      "3) Edit wedge centers",
+      "4) Edit wedge spans",
+      "5) Edit solver tuning",
+      "6) Edit radial tuning",
+      "7) Reset all layout overrides",
+      "8) Advanced JSON edit",
+      "9) Cancel",
+    ].join("\n");
+    const choice = globalThis?.prompt?.(summary, "1");
+    if (choice == null) return;
+    const option = choice.trim();
+
+    if (option === "1") {
+      const defaultOrder = Array.isArray(draft.ringOrder) ? draft.ringOrder : ringIds;
+      const input = globalThis?.prompt?.(
+        "Ring order as comma-separated ids.\nExample: core, ring_01, ring_02, ring_03\nLeave blank to use automatic ring discovery order.",
+        defaultOrder.join(", ")
+      );
+      if (input == null) return;
+      if (!input.trim().length) delete draft.ringOrder;
+      else draft.ringOrder = parseOrderedIdList(input);
+      applyLayoutDraft(draft, "Ring order updated.");
+      return;
+    }
+
+    if (option === "2") {
+      const edited = promptLayoutFieldPairs({
+        title:
+          "Ring radii as key=value pairs.\nExample: core=0, ring_01=200, ring_02=320\nLeave blank to clear custom radii.",
+        currentMap: draft.radii || {},
+        preferredKeys: ringIds,
+        allowedKeys: null,
+        integer: true,
+        min: 0,
+      });
+      if (edited.cancelled) return;
+      if (!edited.ok) return setError(edited.reason || "Invalid radii input.");
+      if (edited.cleared) delete draft.radii;
+      else draft.radii = edited.value;
+      applyLayoutDraft(draft, "Ring radii updated.");
+      return;
+    }
+
+    if (option === "3") {
+      const edited = promptLayoutFieldPairs({
+        title:
+          "Wedge center angles as key=value.\nAllowed keys: Blue, Green, Red, Black, BlueGreen, GreenRed, RedBlack, BlackBlue.\nLeave blank to clear custom wedge centers.",
+        currentMap: draft.wedgeCentersDeg || {},
+        preferredKeys: LAYOUT_WEDGE_IDS,
+        allowedKeys: LAYOUT_WEDGE_IDS,
+        integer: false,
+      });
+      if (edited.cancelled) return;
+      if (!edited.ok) return setError(edited.reason || "Invalid wedge center input.");
+      if (edited.cleared) delete draft.wedgeCentersDeg;
+      else draft.wedgeCentersDeg = edited.value;
+      applyLayoutDraft(draft, "Wedge centers updated.");
+      return;
+    }
+
+    if (option === "4") {
+      const edited = promptLayoutFieldPairs({
+        title:
+          "Wedge span angles as key=value.\nAllowed keys: Blue, Green, Red, Black, BlueGreen, GreenRed, RedBlack, BlackBlue.\nLeave blank to clear custom wedge spans.",
+        currentMap: draft.wedgeSpansDeg || {},
+        preferredKeys: LAYOUT_WEDGE_IDS,
+        allowedKeys: LAYOUT_WEDGE_IDS,
+        integer: false,
+        min: 0,
+      });
+      if (edited.cancelled) return;
+      if (!edited.ok) return setError(edited.reason || "Invalid wedge span input.");
+      if (edited.cleared) delete draft.wedgeSpansDeg;
+      else draft.wedgeSpansDeg = edited.value;
+      applyLayoutDraft(draft, "Wedge spans updated.");
+      return;
+    }
+
+    if (option === "5") {
+      const current = {};
+      for (const field of LAYOUT_SOLVER_FIELDS) {
+        if (Number.isFinite(draft[field.key])) current[field.key] = draft[field.key];
+      }
+      const edited = promptLayoutFieldPairs({
+        title:
+          "Solver tuning key=value pairs.\nKeys: barycenterIterations, localSwapIterations, overlapIterations, overlapPaddingPx, componentBandGapDeg\nLeave blank to clear this tuning group.",
+        currentMap: current,
+        preferredKeys: LAYOUT_SOLVER_FIELDS.map((field) => field.key),
+        allowedKeys: LAYOUT_SOLVER_FIELDS.map((field) => field.key),
+      });
+      if (edited.cancelled) return;
+      if (!edited.ok) return setError(edited.reason || "Invalid solver tuning input.");
+      if (edited.cleared) {
+        clearNumericFields(draft, LAYOUT_SOLVER_FIELDS);
+      } else {
+        for (const field of LAYOUT_SOLVER_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(edited.value, field.key)) continue;
+          let nextValue = edited.value[field.key];
+          if (field.integer) nextValue = Math.floor(nextValue);
+          if (Number.isFinite(field.min)) nextValue = Math.max(field.min, nextValue);
+          edited.value[field.key] = nextValue;
+        }
+        mergeNumericFieldUpdates(draft, LAYOUT_SOLVER_FIELDS, edited.value);
+      }
+      applyLayoutDraft(draft, "Solver tuning updated.");
+      return;
+    }
+
+    if (option === "6") {
+      const current = {};
+      for (const field of LAYOUT_RADIAL_FIELDS) {
+        if (Number.isFinite(draft[field.key])) current[field.key] = draft[field.key];
+      }
+      const edited = promptLayoutFieldPairs({
+        title:
+          "Radial tuning key=value pairs.\nKeys: radialNudgeIterations, radialNudgeMaxPx, radialNudgePaddingPx, radialNudgeSpring, coreSpread\nLeave blank to clear this tuning group.",
+        currentMap: current,
+        preferredKeys: LAYOUT_RADIAL_FIELDS.map((field) => field.key),
+        allowedKeys: LAYOUT_RADIAL_FIELDS.map((field) => field.key),
+      });
+      if (edited.cancelled) return;
+      if (!edited.ok) return setError(edited.reason || "Invalid radial tuning input.");
+      if (edited.cleared) {
+        clearNumericFields(draft, LAYOUT_RADIAL_FIELDS);
+      } else {
+        for (const field of LAYOUT_RADIAL_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(edited.value, field.key)) continue;
+          let nextValue = edited.value[field.key];
+          if (field.integer) nextValue = Math.floor(nextValue);
+          if (Number.isFinite(field.min)) nextValue = Math.max(field.min, nextValue);
+          edited.value[field.key] = nextValue;
+        }
+        mergeNumericFieldUpdates(draft, LAYOUT_RADIAL_FIELDS, edited.value);
+      }
+      applyLayoutDraft(draft, "Radial tuning updated.");
+      return;
+    }
+
+    if (option === "7") {
+      const confirmation = globalThis?.prompt?.(
+        "Type RESET to clear all custom ringLayout overrides.",
+        ""
+      );
+      if (confirmation !== "RESET") return;
+      applyLayoutDraft({}, "Layout overrides reset.");
+      return;
+    }
+
+    if (option === "8") {
+      const currentText = JSON.stringify(draft, null, 2);
+      const input = globalThis?.prompt?.(
+        "Advanced ringLayout JSON edit (blank clears all overrides):",
+        currentText
+      );
+      if (input == null) return;
+      try {
+        const parsed = input.trim().length ? JSON.parse(input) : {};
+        if (parsed != null && typeof parsed !== "object") {
+          setError("Layout must be a JSON object or blank.");
+          return;
+        }
+        applyLayoutDraft(parsed && typeof parsed === "object" ? parsed : {}, "Layout updated.");
+      } catch (_) {
+        setError("Invalid layout JSON.");
+      }
+      return;
+    }
+
+    if (option !== "9") {
+      setError("Unknown layout editor option.");
+    }
+  }
+
   function addButton(id, label, width, onTap) {
     const btn = makeButton(label, width, onTap);
     uiButtons[id] = {
@@ -1360,29 +1727,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   addButton("loadSession", "Load Session", 196, () => loadSession());
   addButton("resetDefs", "Reset Defs", 196, () => resetFromDefs());
   addButton("autoLayout", "Auto Layout", 196, () => applyAutoLayout());
-  addButton("editLayout", "Edit Layout", 196, () => {
-    if (!graph) return;
-    const currentText = JSON.stringify(graph.layout || {}, null, 2);
-    const input = globalThis?.prompt?.("Edit ringLayout JSON:", currentText);
-    if (input == null) return;
-    try {
-      const parsed = input.trim().length ? JSON.parse(input) : null;
-      if (parsed != null && typeof parsed !== "object") {
-        setError("Layout must be an object or empty.");
-        return;
-      }
-      graph.layout = parsed && typeof parsed === "object" ? parsed : null;
-      if (!graph.tree.ui || typeof graph.tree.ui !== "object") graph.tree.ui = {};
-      if (graph.layout) {
-        graph.tree.ui.ringLayout = deepClone(graph.layout);
-      } else if (graph.tree.ui.ringLayout) {
-        delete graph.tree.ui.ringLayout;
-      }
-      recalcAndRender({ save: true });
-    } catch (_) {
-      setError("Invalid layout JSON.");
-    }
-  });
+  addButton("editLayout", "Edit Layout", 196, () => openLayoutEditor());
   addButton("addEdgeMode", "Add Edge: Off", 196, () => {
     const nextMode =
       edgeEditMode === EDGE_EDIT_MODE_ADD
