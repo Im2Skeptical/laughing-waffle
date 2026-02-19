@@ -544,9 +544,9 @@ function optimizeAnglesWithLocalSwaps({
         const ids = ringMap.get(wedge);
         if (!ids || ids.length <= 1) continue;
 
-        let changed = true;
-        while (changed) {
-          changed = false;
+        const maxBubblePasses = Math.max(1, Math.min(ids.length, 24));
+        for (let bubblePass = 0; bubblePass < maxBubblePasses; bubblePass++) {
+          let changed = false;
           for (let i = 0; i < ids.length - 1; i++) {
             const leftId = ids[i];
             const rightId = ids[i + 1];
@@ -569,6 +569,7 @@ function optimizeAnglesWithLocalSwaps({
               changed = true;
             }
           }
+          if (!changed) break;
         }
       }
     }
