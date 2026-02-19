@@ -2299,6 +2299,11 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       recalcAndRender({ save: false });
       return;
     }
+    if (key === "a") {
+      ev.preventDefault();
+      applyAutoLayout();
+      return;
+    }
     if ((ev.code || "") === "Escape" || key === "escape") {
       if (edgeEditMode === EDGE_EDIT_MODE_NONE) return;
       ev.preventDefault();
