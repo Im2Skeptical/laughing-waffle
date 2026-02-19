@@ -199,6 +199,14 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   };
   const uiButtons = {};
 
+  function destroyContainerChildren(container) {
+    if (!container?.removeChildren) return;
+    const removed = container.removeChildren();
+    for (const child of removed) {
+      child?.destroy?.({ children: true });
+    }
+  }
+
   function isTypingTarget(target) {
     if (!target || typeof target !== "object") return false;
     const tag = target.tagName;
@@ -421,7 +429,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   }
 
   function renderGraph() {
-    treeWorld.removeChildren();
+    destroyContainerChildren(treeWorld);
     if (!graph) return;
 
     const nodeIds = getNodeIds(graph);
@@ -1142,7 +1150,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     root.visible = false;
     endPan();
     onNodeDragEnd();
-    treeWorld.removeChildren();
+    destroyContainerChildren(treeWorld);
     graph = null;
     baseGraph = null;
     validation = { ok: true, errors: [], warnings: [] };
