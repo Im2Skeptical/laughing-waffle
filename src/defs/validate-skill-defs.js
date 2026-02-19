@@ -371,6 +371,72 @@ export function validateSkillDefs({
             `skillTrees: "${tree.id}" ui.ringLayout.radialNudgeSpring must be >= 0 when provided.`
           );
         }
+        if (
+          ringLayout.angleSwapIterations != null &&
+          (!Number.isFinite(ringLayout.angleSwapIterations) || ringLayout.angleSwapIterations < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.angleSwapIterations must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.angleSwapAdjacentRingWeight != null &&
+          (!Number.isFinite(ringLayout.angleSwapAdjacentRingWeight) ||
+            ringLayout.angleSwapAdjacentRingWeight < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.angleSwapAdjacentRingWeight must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.angleSwapSameRingWeight != null &&
+          (!Number.isFinite(ringLayout.angleSwapSameRingWeight) || ringLayout.angleSwapSameRingWeight < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.angleSwapSameRingWeight must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.angleSwapFarRingWeight != null &&
+          (!Number.isFinite(ringLayout.angleSwapFarRingWeight) || ringLayout.angleSwapFarRingWeight < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.angleSwapFarRingWeight must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.angleSwapTeleportWeight != null &&
+          (!Number.isFinite(ringLayout.angleSwapTeleportWeight) || ringLayout.angleSwapTeleportWeight < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.angleSwapTeleportWeight must be >= 0 when provided.`
+          );
+        }
+        if (
+          ringLayout.angleSwapTeleportRingDeltaStart != null &&
+          (!Number.isFinite(ringLayout.angleSwapTeleportRingDeltaStart) ||
+            ringLayout.angleSwapTeleportRingDeltaStart < 1)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.angleSwapTeleportRingDeltaStart must be >= 1 when provided.`
+          );
+        }
+        if (
+          ringLayout.angleSwapTeleportAngleDeg != null &&
+          (!Number.isFinite(ringLayout.angleSwapTeleportAngleDeg) ||
+            ringLayout.angleSwapTeleportAngleDeg < 0)
+        ) {
+          addIssue(
+            errors,
+            `skillTrees: "${tree.id}" ui.ringLayout.angleSwapTeleportAngleDeg must be >= 0 when provided.`
+          );
+        }
         treeDeclaredRingIds.set(tree.id, declaredRingIds);
         treeHasExplicitRingDecl.set(tree.id, hasExplicitDecl);
       }

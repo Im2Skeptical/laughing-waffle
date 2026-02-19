@@ -326,6 +326,15 @@ function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
     angleSwapFarRingWeight: Number.isFinite(layoutCfg?.angleSwapFarRingWeight)
       ? Math.max(0, layoutCfg.angleSwapFarRingWeight)
       : 1.2,
+    angleSwapTeleportWeight: Number.isFinite(layoutCfg?.angleSwapTeleportWeight)
+      ? Math.max(0, layoutCfg.angleSwapTeleportWeight)
+      : 2.4,
+    angleSwapTeleportRingDeltaStart: Number.isFinite(layoutCfg?.angleSwapTeleportRingDeltaStart)
+      ? Math.max(1, Math.floor(layoutCfg.angleSwapTeleportRingDeltaStart))
+      : 2,
+    angleSwapTeleportAngleDeg: Number.isFinite(layoutCfg?.angleSwapTeleportAngleDeg)
+      ? Math.max(0, layoutCfg.angleSwapTeleportAngleDeg)
+      : 38,
   };
 }
 
@@ -514,6 +523,16 @@ function optimizeAnglesWithLocalSwaps({
   const farRingWeight = Number.isFinite(cfg?.angleSwapFarRingWeight)
     ? Math.max(0, cfg.angleSwapFarRingWeight)
     : 1.2;
+  const teleportWeight = Number.isFinite(cfg?.angleSwapTeleportWeight)
+    ? Math.max(0, cfg.angleSwapTeleportWeight)
+    : 2.4;
+  const teleportRingDeltaStart = Number.isFinite(cfg?.angleSwapTeleportRingDeltaStart)
+    ? Math.max(1, Math.floor(cfg.angleSwapTeleportRingDeltaStart))
+    : 2;
+  const teleportAngleThresholdRad =
+    ((Number.isFinite(cfg?.angleSwapTeleportAngleDeg) ? Math.max(0, cfg.angleSwapTeleportAngleDeg) : 38) *
+      Math.PI) /
+    180;
 
   function getAngleCostAtTheta(nodeId, testTheta) {
     if (!Number.isFinite(testTheta)) return 0;
@@ -526,12 +545,23 @@ function optimizeAnglesWithLocalSwaps({
       const diff = Math.abs(unwrapped - testTheta);
       const neighborRing = ringByNodeId[neighborId];
       let weight = farRingWeight;
+      let ringDelta = Number.NaN;
       if (Number.isFinite(ring) && Number.isFinite(neighborRing)) {
-        const ringDelta = Math.abs(ring - neighborRing);
+        ringDelta = Math.abs(ring - neighborRing);
         if (ringDelta === 1) weight = adjacentRingWeight;
         else if (ringDelta === 0) weight = sameRingWeight;
       }
       cost += diff * weight;
+      if (
+        teleportWeight > 0 &&
+        Number.isFinite(ringDelta) &&
+        ringDelta >= teleportRingDeltaStart &&
+        diff > teleportAngleThresholdRad
+      ) {
+        const ringFactor = ringDelta - teleportRingDeltaStart + 1;
+        const angleExcess = diff - teleportAngleThresholdRad;
+        cost += angleExcess * ringFactor * teleportWeight;
+      }
     }
     return cost;
   }
