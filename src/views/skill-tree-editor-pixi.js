@@ -21,9 +21,38 @@ const VIEWPORT_Y = 20;
 const VIEWPORT_WIDTH = 1410;
 const VIEWPORT_HEIGHT = 1040;
 const PANEL_X = 1450;
+const PANEL_WIDTH = 430;
+const PANEL_ROW_GAP = 40;
+const PANEL_SECTION_GAP = 10;
+const PANEL_TEXT_GAP = 8;
+const PANEL_HEADER_WIDTH = 408;
+const PANEL_COL_B_X = PANEL_X + 212;
 const EDGE_EDIT_MODE_NONE = "none";
 const EDGE_EDIT_MODE_ADD = "add";
 const EDGE_EDIT_MODE_REMOVE = "remove";
+const QUICK_TAGS = [
+  { id: "Black", activeFill: 0x232833, activeText: 0xf5f8ff, activeStroke: 0x808da6 },
+  { id: "Green", activeFill: 0x1f5b43, activeText: 0xdfffea, activeStroke: 0x7fd8aa },
+  { id: "Blue", activeFill: 0x204f7a, activeText: 0xe2f1ff, activeStroke: 0x87c7ff },
+  { id: "Red", activeFill: 0x6f2a38, activeText: 0xffe6ea, activeStroke: 0xff9bac },
+  { id: "Early", activeFill: 0x34506d, activeText: 0xdce9ff, activeStroke: 0x8fb6f2 },
+  { id: "Mid", activeFill: 0x405a4f, activeText: 0xdff4e9, activeStroke: 0x98d6b5 },
+  { id: "Late", activeFill: 0x5e4d2c, activeText: 0xfff1d4, activeStroke: 0xe5c27f },
+  { id: "Hybrid", activeFill: 0x4f3f74, activeText: 0xf0e8ff, activeStroke: 0xc2a7ff },
+  { id: "Notable", activeFill: 0x6b5b25, activeText: 0xfff8d8, activeStroke: 0xe8d184 },
+];
+const QUICK_TAG_SET = new Set(QUICK_TAGS.map((entry) => entry.id));
+const QUICK_TAG_INACTIVE_FILL = 0x1d2a43;
+const QUICK_TAG_INACTIVE_STROKE = 0x3a4c70;
+const QUICK_TAG_INACTIVE_TEXT = 0x9db4d8;
+
+const PANEL_SECTION_DEFS = [
+  { id: "session", headerButtonId: "sectionSession", title: "Session & Layout" },
+  { id: "graph", headerButtonId: "sectionGraph", title: "Graph Edit" },
+  { id: "quick", headerButtonId: "sectionQuick", title: "Quick Tags & Ring" },
+  { id: "io", headerButtonId: "sectionIO", title: "Import / Export" },
+  { id: "inspect", headerButtonId: "sectionInspect", title: "Selection & Validation" },
+];
 
 function roundPos(value) {
   return Number.isFinite(value) ? Math.round(value) : 0;
@@ -68,6 +97,78 @@ function edgeExists(graph, a, b) {
     : false;
 }
 
+function toEditorNumber(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function getRingIdSortKey(ringId) {
+  const id = String(ringId || "");
+  if (!id.length) return [4, 0, id];
+  if (id === "core") return [0, 0, id];
+  const match = /^ring[_-]?(\d+)$/i.exec(id);
+  if (match) return [1, Number(match[1]), id];
+  if (id === "early") return [2, 0, id];
+  if (id === "mid") return [2, 1, id];
+  if (id === "late") return [2, 2, id];
+  return [3, 0, id];
+}
+
+function sortRingIds(ringIds) {
+  return ringIds.slice().sort((left, right) => {
+    const lk = getRingIdSortKey(left);
+    const rk = getRingIdSortKey(right);
+    if (lk[0] !== rk[0]) return lk[0] - rk[0];
+    if (lk[1] !== rk[1]) return lk[1] - rk[1];
+    return String(lk[2]).localeCompare(String(rk[2]));
+  });
+}
+
+function makeToggleChip(label, width, height, onTap) {
+  const root = new PIXI.Container();
+  root.eventMode = "static";
+  root.cursor = "pointer";
+
+  const bg = new PIXI.Graphics();
+  root.addChild(bg);
+
+  const panelBg = new PIXI.Graphics();
+  root.addChild(panelBg);
+
+  const text = new PIXI.Text(label, {
+    fill: QUICK_TAG_INACTIVE_TEXT,
+    fontSize: 12,
+    fontWeight: "bold",
+  });
+  text.anchor.set(0.5, 0.5);
+  text.x = Math.floor(width / 2);
+  text.y = Math.floor(height / 2);
+  root.addChild(text);
+
+  root.on("pointertap", (ev) => {
+    ev?.stopPropagation?.();
+    onTap?.();
+  });
+
+  function setActive(active, style = {}) {
+    const fill = active ? style.activeFill ?? QUICK_TAG_INACTIVE_FILL : QUICK_TAG_INACTIVE_FILL;
+    const stroke = active
+      ? style.activeStroke ?? QUICK_TAG_INACTIVE_STROKE
+      : QUICK_TAG_INACTIVE_STROKE;
+    const textFill = active ? style.activeText ?? 0xffffff : QUICK_TAG_INACTIVE_TEXT;
+    bg.clear();
+    bg.lineStyle(2, stroke, 1);
+    bg.beginFill(fill, 0.96);
+    bg.drawRoundedRect(0, 0, width, height, 7);
+    bg.endFill();
+    text.style.fill = textFill;
+    text.text = label;
+    text.x = Math.floor(width / 2);
+  }
+
+  setActive(false);
+  return { root, setActive };
+}
+
 export function createSkillTreeEditorView({ app, layer } = {}) {
   const root = new PIXI.Container();
   root.visible = false;
@@ -88,13 +189,11 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
 
   const statusText = new PIXI.Text("", {
     fill: 0xb7d6ff,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17,
     wordWrap: true,
-    wordWrapWidth: 440,
+    wordWrapWidth: PANEL_WIDTH - 12,
   });
-  statusText.x = PANEL_X;
-  statusText.y = 54;
   root.addChild(statusText);
 
   const errorText = new PIXI.Text("", {
@@ -102,10 +201,8 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     fontSize: 12,
     lineHeight: 16,
     wordWrap: true,
-    wordWrapWidth: 440,
+    wordWrapWidth: PANEL_WIDTH - 12,
   });
-  errorText.x = PANEL_X;
-  errorText.y = 760;
   root.addChild(errorText);
 
   const selectedText = new PIXI.Text("", {
@@ -113,10 +210,8 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     fontSize: 12,
     lineHeight: 16,
     wordWrap: true,
-    wordWrapWidth: 440,
+    wordWrapWidth: PANEL_WIDTH - 12,
   });
-  selectedText.x = PANEL_X;
-  selectedText.y = 522;
   root.addChild(selectedText);
 
   const validationText = new PIXI.Text("", {
@@ -124,10 +219,8 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     fontSize: 12,
     lineHeight: 16,
     wordWrap: true,
-    wordWrapWidth: 440,
+    wordWrapWidth: PANEL_WIDTH - 12,
   });
-  validationText.x = PANEL_X;
-  validationText.y = 845;
   root.addChild(validationText);
 
   const helpText = new PIXI.Text(
@@ -137,12 +230,26 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       fontSize: 11,
       lineHeight: 15,
       wordWrap: true,
-      wordWrapWidth: 440,
+      wordWrapWidth: PANEL_WIDTH - 12,
     }
   );
-  helpText.x = PANEL_X;
-  helpText.y = 998;
   root.addChild(helpText);
+
+  const quickPanelHintText = new PIXI.Text("", {
+    fill: 0x93adcf,
+    fontSize: 11,
+    lineHeight: 15,
+    wordWrap: true,
+    wordWrapWidth: PANEL_WIDTH - 12,
+  });
+  root.addChild(quickPanelHintText);
+
+  const quickRingLabelText = new PIXI.Text("Ring: (none)", {
+    fill: 0xd5e4ff,
+    fontSize: 12,
+    fontWeight: "bold",
+  });
+  root.addChild(quickRingLabelText);
 
   const viewport = new PIXI.Container();
   viewport.x = VIEWPORT_X;
@@ -166,8 +273,8 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     fontSize: 12,
     fontWeight: "bold",
   });
-  zoomText.x = PANEL_X + 308;
-  zoomText.y = 122;
+  zoomText.x = PANEL_X + 332;
+  zoomText.y = 24;
   root.addChild(zoomText);
 
   let graph = null;
@@ -198,6 +305,18 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     moved: false,
   };
   const uiButtons = {};
+  const quickTagButtons = {};
+  let quickTagValues = {};
+  let quickRingId = null;
+  let quickRingOptions = [null];
+  let quickTemplateSourceNodeId = null;
+  const sectionExpanded = {
+    session: true,
+    graph: true,
+    quick: true,
+    io: false,
+    inspect: true,
+  };
 
   function destroyContainerChildren(container) {
     if (!container?.removeChildren) return;
@@ -229,6 +348,191 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
 
   function getStorageKey() {
     return getSkillTreeEditorStorageKey(activeTreeId || "default");
+  }
+
+  function getSelectedNode() {
+    if (!graph || !selectedNodeId) return null;
+    return graph.nodesById?.[selectedNodeId] || null;
+  }
+
+  function collectRingIdsFromGraph() {
+    const ringIdSet = new Set();
+    for (const nodeId of getNodeIds(graph)) {
+      const node = graph?.nodesById?.[nodeId];
+      if (typeof node?.ringId === "string" && node.ringId.length > 0) {
+        ringIdSet.add(node.ringId);
+      }
+    }
+    for (const ringId of graph?.layout?.ringOrder || []) {
+      if (typeof ringId === "string" && ringId.length > 0) ringIdSet.add(ringId);
+    }
+    for (const ringId of Object.keys(graph?.layout?.radii || {})) {
+      if (typeof ringId === "string" && ringId.length > 0) ringIdSet.add(ringId);
+    }
+    return sortRingIds(Array.from(ringIdSet));
+  }
+
+  function rebuildQuickRingOptions() {
+    const next = [null, ...collectRingIdsFromGraph()];
+    quickRingOptions = next.length > 0 ? next : [null];
+    if (!quickRingOptions.includes(quickRingId)) {
+      quickRingId = null;
+    }
+  }
+
+  function updateSectionHeaderLabels() {
+    for (const section of PANEL_SECTION_DEFS) {
+      const btn = uiButtons[section.headerButtonId];
+      if (!btn) continue;
+      const expanded = sectionExpanded[section.id] !== false;
+      const prefix = expanded ? "[-]" : "[+]";
+      btn.setLabel(`${prefix} ${section.title}`);
+    }
+  }
+
+  function syncQuickValuesFromNode(node, { trackSource = true } = {}) {
+    if (!node) return;
+    const next = {};
+    const tagSet = new Set(Array.isArray(node.tags) ? node.tags : []);
+    for (const entry of QUICK_TAGS) {
+      next[entry.id] = tagSet.has(entry.id);
+    }
+    quickTagValues = next;
+    quickRingId =
+      typeof node.ringId === "string" && node.ringId.length > 0 ? node.ringId : null;
+    if (trackSource) quickTemplateSourceNodeId = node.id;
+    rebuildQuickRingOptions();
+  }
+
+  function resetQuickTemplate() {
+    quickTemplateSourceNodeId = null;
+    quickRingId = null;
+    const next = {};
+    for (const entry of QUICK_TAGS) next[entry.id] = false;
+    quickTagValues = next;
+    rebuildQuickRingOptions();
+    updateQuickPanelUi();
+  }
+
+  function updateQuickPanelUi() {
+    for (const entry of QUICK_TAGS) {
+      const btn = quickTagButtons[entry.id];
+      if (!btn) continue;
+      btn.setActive(quickTagValues[entry.id] === true, entry);
+    }
+    const ringLabel = quickRingId || "(none)";
+    quickRingLabelText.text = `Ring: ${ringLabel}`;
+    const sourceText = quickTemplateSourceNodeId
+      ? `Template Source: ${quickTemplateSourceNodeId}`
+      : "Template Source: (none)";
+    quickPanelHintText.text = `${sourceText}\nQuickTag toggles update selected node, or act as a template when nothing is selected.`;
+  }
+
+  function setQuickRingValue(nextRingId, { applyToSelected = true } = {}) {
+    const normalized =
+      typeof nextRingId === "string" && nextRingId.trim().length > 0
+        ? nextRingId.trim()
+        : null;
+    quickRingId = normalized;
+    rebuildQuickRingOptions();
+    updateQuickPanelUi();
+    const selectedNode = getSelectedNode();
+    if (!applyToSelected || !selectedNode) return;
+    selectedNode.ringId = quickRingId;
+    quickTemplateSourceNodeId = selectedNode.id;
+    recalcAndRender({ save: true });
+  }
+
+  function stepQuickRing(direction) {
+    rebuildQuickRingOptions();
+    if (!quickRingOptions.length) return;
+    const currentIndex = Math.max(0, quickRingOptions.indexOf(quickRingId));
+    const delta = direction >= 0 ? 1 : -1;
+    const nextIndex =
+      (currentIndex + delta + quickRingOptions.length) % quickRingOptions.length;
+    setQuickRingValue(quickRingOptions[nextIndex], { applyToSelected: true });
+  }
+
+  function applyQuickTagToggle(tagId) {
+    if (!QUICK_TAG_SET.has(tagId)) return;
+    const nextEnabled = quickTagValues[tagId] !== true;
+    quickTagValues[tagId] = nextEnabled;
+    const selectedNode = getSelectedNode();
+    if (!selectedNode) {
+      updateQuickPanelUi();
+      return;
+    }
+    const tagSet = new Set(Array.isArray(selectedNode.tags) ? selectedNode.tags : []);
+    if (nextEnabled) tagSet.add(tagId);
+    else tagSet.delete(tagId);
+    selectedNode.tags = sortedStrings(Array.from(tagSet));
+    quickTemplateSourceNodeId = selectedNode.id;
+    recalcAndRender({ save: true });
+  }
+
+  function getNextAvailableNodeIdFromSource(sourceId) {
+    const nodeIdSet = new Set(getNodeIds(graph));
+    const source = typeof sourceId === "string" ? sourceId.trim() : "";
+    const match = /^(.*?)(\d+)$/.exec(source);
+    let prefix = "";
+    let width = 2;
+    let start = 1;
+    if (match) {
+      prefix = match[1];
+      width = Math.max(1, match[2].length);
+      start = Number(match[2]) + 1;
+    } else if (source.length > 0) {
+      prefix = source.endsWith("_") ? source : `${source}_`;
+    } else {
+      prefix = "QuickNode_";
+    }
+    for (let index = start; index < start + 10000; index++) {
+      const candidate = `${prefix}${String(index).padStart(width, "0")}`;
+      if (!nodeIdSet.has(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  function suggestQuickNodeId() {
+    if (!graph) return null;
+    const sourceNodeId = quickTemplateSourceNodeId || selectedNodeId || "QuickNode_00";
+    return (
+      getNextAvailableNodeIdFromSource(sourceNodeId) ||
+      getNextAvailableNodeIdFromSource("QuickNode_00") ||
+      null
+    );
+  }
+
+  function createQuickNodeFromPanel() {
+    if (!graph) return;
+    const nodeId = suggestQuickNodeId();
+    if (!nodeId) {
+      setError("Unable to generate a unique QuickNode id.");
+      return;
+    }
+    const worldX = roundPos((VIEWPORT_WIDTH / 2 - camera.x) / camera.scale);
+    const worldY = roundPos((VIEWPORT_HEIGHT / 2 - camera.y) / camera.scale);
+    const tags = QUICK_TAGS.filter((entry) => quickTagValues[entry.id] === true).map(
+      (entry) => entry.id
+    );
+    graph.nodesById[nodeId] = {
+      id: nodeId,
+      treeId: graph.treeId,
+      name: nodeId,
+      desc: "",
+      cost: 1,
+      tags,
+      ringId: quickRingId,
+      requirements: null,
+      effects: {},
+      uiNodeRadius: null,
+      editorPos: { x: worldX, y: worldY },
+      editorPinned: false,
+      editorNotes: "",
+    };
+    selectedNodeId = nodeId;
+    quickTemplateSourceNodeId = nodeId;
+    recalcAndRender({ save: true });
   }
 
   function applyCamera() {
@@ -338,15 +642,15 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   }
 
   function updateSelectedText() {
-    const node =
-      graph && selectedNodeId && graph.nodesById
-        ? graph.nodesById[selectedNodeId] || null
-        : null;
+    const node = getSelectedNode();
     if (!node) {
       selectedText.text = "Selected: none";
       uiButtons.togglePin?.setLabel?.("Pin");
+      rebuildQuickRingOptions();
+      updateQuickPanelUi();
       return;
     }
+    syncQuickValuesFromNode(node, { trackSource: true });
     const lines = [
       `Selected: ${node.id}`,
       `Name: ${node.name || ""}`,
@@ -360,6 +664,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     ];
     selectedText.text = lines.join("\n");
     uiButtons.togglePin?.setLabel?.(node.editorPinned ? "Unpin" : "Pin");
+    updateQuickPanelUi();
   }
 
   function updateEdgeModeButtons() {
@@ -389,9 +694,11 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
 
   function recalcAndRender({ save = true } = {}) {
     validation = validateEditorGraph(graph);
+    rebuildQuickRingOptions();
     updateStatusText();
     updateSelectedText();
     updateValidationText();
+    layoutSidebar();
     renderGraph();
     if (save) autosaveSession();
   }
@@ -792,6 +1099,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       activeTreeId = parsed.graph.treeId;
       selectedNodeId = null;
       connectSourceId = null;
+      resetQuickTemplate();
       setError("Session loaded.");
       fitCameraToGraph();
       recalcAndRender({ save: false });
@@ -810,6 +1118,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     baseGraph = cloneEditorGraph(next);
     selectedNodeId = null;
     connectSourceId = null;
+    resetQuickTemplate();
     fitCameraToGraph();
     recalcAndRender({ save: true });
     setError("Reset from defs complete.");
@@ -842,42 +1151,155 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     return uiButtons[id];
   }
 
-  function layoutButtons() {
-    const colA = PANEL_X;
-    const colB = PANEL_X + 212;
-    let row = 102;
-    const rowGap = 40;
+  function setButtonVisible(id, visible) {
+    const btn = uiButtons[id];
+    if (!btn) return;
+    btn.root.visible = visible;
+  }
 
-    function place(id, col = "a") {
-      const btn = uiButtons[id];
-      if (!btn) return;
-      btn.root.x = col === "a" ? colA : colB;
-      btn.root.y = row;
-      if (col === "b") row += rowGap;
+  function layoutSidebar() {
+    const allControlButtons = [
+      "exit",
+      "saveSession",
+      "loadSession",
+      "resetDefs",
+      "autoLayout",
+      "editLayout",
+      "addEdgeMode",
+      "removeEdgeMode",
+      "addNode",
+      "deleteNode",
+      "editId",
+      "editName",
+      "editDesc",
+      "editTags",
+      "editRing",
+      "editCost",
+      "editNotes",
+      "togglePin",
+      "quickRingPrev",
+      "quickRingNext",
+      "quickNode",
+      "exportRuntime",
+      "exportLayout",
+      "exportEditor",
+      "importEditor",
+    ];
+    for (const id of allControlButtons) setButtonVisible(id, false);
+    statusText.visible = false;
+    quickPanelHintText.visible = false;
+    quickRingLabelText.visible = false;
+    selectedText.visible = false;
+    validationText.visible = false;
+    helpText.visible = false;
+    for (const entry of QUICK_TAGS) {
+      if (quickTagButtons[entry.id]) quickTagButtons[entry.id].root.visible = false;
     }
 
-    place("exit", "a");
-    place("saveSession", "b");
-    place("loadSession", "a");
-    place("resetDefs", "b");
-    place("autoLayout", "a");
-    place("editLayout", "b");
-    place("addEdgeMode", "a");
-    place("removeEdgeMode", "b");
-    place("addNode", "a");
-    place("deleteNode", "b");
-    place("editId", "a");
-    place("editName", "b");
-    place("editDesc", "a");
-    place("editTags", "b");
-    place("editRing", "a");
-    place("editCost", "b");
-    place("editNotes", "a");
-    place("togglePin", "b");
-    place("exportRuntime", "a");
-    place("exportLayout", "b");
-    place("exportEditor", "a");
-    place("importEditor", "b");
+    let rowY = 64;
+    function placeHeader(sectionId) {
+      const sectionDef = PANEL_SECTION_DEFS.find((entry) => entry.id === sectionId);
+      if (!sectionDef) return;
+      const btn = uiButtons[sectionDef.headerButtonId];
+      if (!btn) return;
+      btn.root.visible = true;
+      btn.root.x = PANEL_X;
+      btn.root.y = rowY;
+      rowY += PANEL_ROW_GAP;
+    }
+
+    function placeRow(leftId, rightId) {
+      if (leftId) {
+        setButtonVisible(leftId, true);
+        uiButtons[leftId].root.x = PANEL_X;
+        uiButtons[leftId].root.y = rowY;
+      }
+      if (rightId) {
+        setButtonVisible(rightId, true);
+        uiButtons[rightId].root.x = PANEL_COL_B_X;
+        uiButtons[rightId].root.y = rowY;
+      }
+      rowY += PANEL_ROW_GAP;
+    }
+
+    placeHeader("session");
+    if (sectionExpanded.session) {
+      statusText.visible = true;
+      statusText.x = PANEL_X + 4;
+      statusText.y = rowY;
+      rowY += statusText.height + PANEL_TEXT_GAP;
+      placeRow("exit", "saveSession");
+      placeRow("loadSession", "resetDefs");
+      placeRow("autoLayout", "editLayout");
+      rowY += PANEL_SECTION_GAP;
+    }
+
+    placeHeader("graph");
+    if (sectionExpanded.graph) {
+      placeRow("addEdgeMode", "removeEdgeMode");
+      placeRow("addNode", "deleteNode");
+      placeRow("editId", "editName");
+      placeRow("editTags", "editRing");
+      placeRow("editDesc", "editCost");
+      placeRow("editNotes", "togglePin");
+      rowY += PANEL_SECTION_GAP;
+    }
+
+    placeHeader("quick");
+    if (sectionExpanded.quick) {
+      quickPanelHintText.visible = true;
+      quickPanelHintText.x = PANEL_X + 4;
+      quickPanelHintText.y = rowY;
+      rowY += quickPanelHintText.height + PANEL_TEXT_GAP;
+
+      for (let idx = 0; idx < QUICK_TAGS.length; idx++) {
+        const entry = QUICK_TAGS[idx];
+        const chip = quickTagButtons[entry.id];
+        if (!chip) continue;
+        const col = idx % 3;
+        const chipRow = Math.floor(idx / 3);
+        chip.root.visible = true;
+        chip.root.x = PANEL_X + col * 138;
+        chip.root.y = rowY + chipRow * 34;
+      }
+      rowY += Math.ceil(QUICK_TAGS.length / 3) * 34 + PANEL_TEXT_GAP;
+
+      quickRingLabelText.visible = true;
+      quickRingLabelText.x = PANEL_X + 4;
+      quickRingLabelText.y = rowY;
+      rowY += 20;
+      placeRow("quickRingPrev", "quickRingNext");
+      placeRow("quickNode", null);
+      rowY += PANEL_SECTION_GAP;
+    }
+
+    placeHeader("io");
+    if (sectionExpanded.io) {
+      placeRow("exportRuntime", "exportLayout");
+      placeRow("exportEditor", "importEditor");
+      rowY += PANEL_SECTION_GAP;
+    }
+
+    placeHeader("inspect");
+    if (sectionExpanded.inspect) {
+      selectedText.visible = true;
+      selectedText.x = PANEL_X + 4;
+      selectedText.y = rowY;
+      rowY += selectedText.height + PANEL_TEXT_GAP;
+
+      validationText.visible = true;
+      validationText.x = PANEL_X + 4;
+      validationText.y = rowY;
+      rowY += validationText.height + PANEL_TEXT_GAP;
+
+      helpText.visible = true;
+      helpText.x = PANEL_X + 4;
+      helpText.y = rowY;
+      rowY += helpText.height + PANEL_TEXT_GAP;
+    }
+
+    errorText.x = PANEL_X + 4;
+    errorText.y = rowY + 2;
   }
 
   function handleGlobalKeyDown(ev) {
@@ -905,6 +1327,14 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   }
 
   window.addEventListener("keydown", handleGlobalKeyDown);
+
+  for (const section of PANEL_SECTION_DEFS) {
+    addButton(section.headerButtonId, section.title, PANEL_HEADER_WIDTH, () => {
+      sectionExpanded[section.id] = sectionExpanded[section.id] !== true;
+      updateSectionHeaderLabels();
+      layoutSidebar();
+    });
+  }
 
   addButton("exit", "Back", 196, () => {
     const exitCb = onExit;
@@ -1026,6 +1456,9 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       node.editorPinned = node.editorPinned !== true;
     })
   );
+  addButton("quickRingPrev", "< Ring", 196, () => stepQuickRing(-1));
+  addButton("quickRingNext", "Ring >", 196, () => stepQuickRing(1));
+  addButton("quickNode", "QuickNode", 196, () => createQuickNodeFromPanel());
 
   addButton("exportRuntime", "Export Runtime", 196, async () => {
     if (!graph) return;
@@ -1063,11 +1496,21 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     activeTreeId = parsed.graph.treeId;
     selectedNodeId = null;
     connectSourceId = null;
+    resetQuickTemplate();
     fitCameraToGraph();
     recalcAndRender({ save: true });
   });
 
-  layoutButtons();
+  quickTagValues = {};
+  for (const entry of QUICK_TAGS) {
+    quickTagValues[entry.id] = false;
+    const chip = makeToggleChip(entry.id, 132, 28, () => applyQuickTagToggle(entry.id));
+    quickTagButtons[entry.id] = chip;
+    root.addChild(chip.root);
+  }
+  updateSectionHeaderLabels();
+  updateQuickPanelUi();
+  layoutSidebar();
 
   viewportBg.on("pointerdown", startPan);
   viewportBg.on("pointertap", (ev) => {
@@ -1094,6 +1537,13 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     bg.drawRect(0, 0, width, height);
     bg.endFill();
 
+    const panelHeight = Math.max(240, height - 24);
+    panelBg.clear();
+    panelBg.beginFill(0x0c172f, 0.98);
+    panelBg.lineStyle(2, 0x273f6d, 0.98);
+    panelBg.drawRoundedRect(PANEL_X - 10, 12, PANEL_WIDTH, panelHeight, 12);
+    panelBg.endFill();
+
     viewportMask.clear();
     viewportMask.beginFill(0xffffff, 1);
     viewportMask.drawRoundedRect(
@@ -1111,6 +1561,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     viewportBg.drawRoundedRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 12);
     viewportBg.endFill();
     viewportBg.hitArea = new PIXI.Rectangle(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+    layoutSidebar();
   }
 
   function open({ treeId = null, defsInput = null, onExit: onExitCb = null } = {}) {
@@ -1138,6 +1589,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     selectedNodeId = null;
     hoverNodeId = null;
     connectSourceId = null;
+    resetQuickTemplate();
     setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     setError("");
     root.visible = true;
@@ -1157,6 +1609,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     selectedNodeId = null;
     hoverNodeId = null;
     connectSourceId = null;
+    resetQuickTemplate();
     setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     activeTreeId = null;
     activeDefs = null;
