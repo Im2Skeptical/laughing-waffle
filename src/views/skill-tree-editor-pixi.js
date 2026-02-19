@@ -81,6 +81,25 @@ const LAYOUT_EDITOR_MODE_CENTER = "center";
 const LAYOUT_EDITOR_MODE_SPAN = "span";
 const LAYOUT_EDITOR_MODE_SOLVER = "solver";
 const LAYOUT_EDITOR_MODE_RADIAL = "radial";
+const NODE_EDITOR_FIELDS = [
+  { key: "id", label: "ID", placeholder: "node_id", selectedHint: (node) => node?.id || "" },
+  { key: "name", label: "Name", placeholder: "Display name", selectedHint: (node) => node?.name || "" },
+  { key: "desc", label: "Desc", placeholder: "Description", selectedHint: (node) => node?.desc || "" },
+  {
+    key: "tags",
+    label: "Tags",
+    placeholder: "Tag1, Tag2",
+    selectedHint: (node) => (Array.isArray(node?.tags) ? node.tags.join(", ") : ""),
+  },
+  { key: "ringId", label: "Ring", placeholder: "ring_01 (blank clears)", selectedHint: (node) => node?.ringId || "" },
+  {
+    key: "cost",
+    label: "Cost",
+    placeholder: "0",
+    selectedHint: (node) => String(Number.isFinite(node?.cost) ? node.cost : 1),
+  },
+  { key: "editorNotes", label: "Notes", placeholder: "Editor notes", selectedHint: (node) => node?.editorNotes || "" },
+];
 const LAYOUT_SOLVER_FIELDS = [
   {
     key: "barycenterIterations",
@@ -376,6 +395,15 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   });
   root.addChild(layoutEditorText);
 
+  const nodeEditorText = new PIXI.Text("", {
+    fill: 0xbfd5f7,
+    fontSize: 11,
+    lineHeight: 15,
+    wordWrap: true,
+    wordWrapWidth: PANEL_WIDTH - 12,
+  });
+  root.addChild(nodeEditorText);
+
   const helpText = new PIXI.Text(
     "Canvas: drag nodes to move, wheel to zoom, drag empty space to pan.\nHotkeys: E add edge, R remove edge, Esc exits edge mode.",
     {
@@ -471,6 +499,9 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     solverIndex: 0,
     radialIndex: 0,
   };
+  const nodeEditorState = {
+    fieldKey: "name",
+  };
   const sectionExpanded = {
     session: true,
     graph: true,
@@ -500,6 +531,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     layoutValueInput.style.borderRadius = "6px";
     layoutValueInput.style.background = "#11213f";
     layoutValueInput.style.color = "#e7f0ff";
+    layoutValueInput.style.boxSizing = "border-box";
     layoutValueInput.style.padding = "6px 8px";
     layoutValueInput.style.fontSize = "12px";
     layoutValueInput.style.fontFamily = "monospace";
@@ -510,6 +542,41 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       if ((ev.key || "").toLowerCase() === "enter") {
         ev.preventDefault();
         applyLayoutEditorInputValue();
+      }
+    });
+  }
+
+  const nodeValueInput = globalThis?.document?.createElement?.("input") || null;
+  const nodeValueInputState = {
+    visible: false,
+    stageX: 0,
+    stageY: 0,
+    stageWidth: 0,
+    stageHeight: 0,
+  };
+
+  if (nodeValueInput) {
+    nodeValueInput.type = "text";
+    nodeValueInput.autocomplete = "off";
+    nodeValueInput.spellcheck = false;
+    nodeValueInput.placeholder = "Node value";
+    nodeValueInput.setAttribute("aria-label", "Node editor value");
+    nodeValueInput.style.position = "fixed";
+    nodeValueInput.style.display = "none";
+    nodeValueInput.style.zIndex = "20";
+    nodeValueInput.style.border = "1px solid #47669a";
+    nodeValueInput.style.borderRadius = "6px";
+    nodeValueInput.style.background = "#11213f";
+    nodeValueInput.style.color = "#e7f0ff";
+    nodeValueInput.style.boxSizing = "border-box";
+    nodeValueInput.style.padding = "6px 8px";
+    nodeValueInput.style.fontSize = "12px";
+    nodeValueInput.style.fontFamily = "monospace";
+    (app?.view?.parentElement || globalThis?.document?.body)?.appendChild?.(nodeValueInput);
+    nodeValueInput.addEventListener("keydown", (ev) => {
+      if ((ev.key || "").toLowerCase() === "enter") {
+        ev.preventDefault();
+        applyNodeEditorInputValue();
       }
     });
   }
@@ -549,6 +616,106 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   function getSelectedNode() {
     if (!graph || !selectedNodeId) return null;
     return graph.nodesById?.[selectedNodeId] || null;
+  }
+
+  function getNodeEditorFieldDef(fieldKey = nodeEditorState.fieldKey) {
+    return (
+      NODE_EDITOR_FIELDS.find((entry) => entry.key === fieldKey) ||
+      NODE_EDITOR_FIELDS[0]
+    );
+  }
+
+  function setNodeEditorField(fieldKey) {
+    const field = getNodeEditorFieldDef(fieldKey);
+    nodeEditorState.fieldKey = field.key;
+    updateNodeEditorUi();
+    layoutSidebar();
+  }
+
+  function updateNodeEditorUi() {
+    const field = getNodeEditorFieldDef();
+    const node = getSelectedNode();
+    uiButtons.editId?.setLabel?.(field.key === "id" ? "[ID]" : "Edit ID");
+    uiButtons.editName?.setLabel?.(field.key === "name" ? "[Name]" : "Edit Name");
+    uiButtons.editDesc?.setLabel?.(field.key === "desc" ? "[Desc]" : "Edit Desc");
+    uiButtons.editTags?.setLabel?.(field.key === "tags" ? "[Tags]" : "Edit Tags");
+    uiButtons.editRing?.setLabel?.(field.key === "ringId" ? "[Ring]" : "Edit Ring");
+    uiButtons.editCost?.setLabel?.(field.key === "cost" ? "[Cost]" : "Edit Cost");
+    uiButtons.editNotes?.setLabel?.(
+      field.key === "editorNotes" ? "[Notes]" : "Edit Notes"
+    );
+    const currentValue = node ? field.selectedHint(node) : "";
+    nodeEditorText.text = [
+      "Node Field Editor",
+      `Field: ${field.label}`,
+      `Selected Node: ${node?.id || "(none)"}`,
+      `Current: ${currentValue || "(empty)"}`,
+      "Enter value and press Apply.",
+    ].join("\n");
+    if (!nodeValueInput) return;
+    const isFocused = globalThis?.document?.activeElement === nodeValueInput;
+    if (!isFocused) {
+      nodeValueInput.value = currentValue || "";
+    }
+    nodeValueInput.placeholder = field.placeholder;
+  }
+
+  function applyNodeEditorInputValue() {
+    const node = getSelectedNode();
+    if (!node) {
+      setError("Select a node first.");
+      return;
+    }
+    const field = getNodeEditorFieldDef();
+    const raw = String(nodeValueInput?.value ?? "").trim();
+    if (field.key === "id") {
+      if (!raw.length) {
+        setError("Node id cannot be empty.");
+        return;
+      }
+      if (raw === node.id) return;
+      const rename = renameNodeId(node.id, raw);
+      if (!rename.ok) {
+        setError(`Rename failed: ${rename.reason || "unknown"}`);
+        return;
+      }
+      recalcAndRender({ save: true });
+      return;
+    }
+    if (field.key === "name") {
+      node.name = raw;
+      recalcAndRender({ save: true });
+      return;
+    }
+    if (field.key === "desc") {
+      node.desc = raw;
+      recalcAndRender({ save: true });
+      return;
+    }
+    if (field.key === "tags") {
+      node.tags = parseTagList(raw);
+      recalcAndRender({ save: true });
+      return;
+    }
+    if (field.key === "ringId") {
+      node.ringId = raw.length ? raw : null;
+      recalcAndRender({ save: true });
+      return;
+    }
+    if (field.key === "cost") {
+      const next = Math.max(0, Math.floor(Number(raw)));
+      if (!Number.isFinite(next)) {
+        setError("Cost must be numeric.");
+        return;
+      }
+      node.cost = next;
+      recalcAndRender({ save: true });
+      return;
+    }
+    if (field.key === "editorNotes") {
+      node.editorNotes = raw;
+      recalcAndRender({ save: true });
+    }
   }
 
   function collectRingIdsFromGraph() {
@@ -794,6 +961,31 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     layoutValueInput.style.height = `${Math.max(24, Math.round(clientRect.height))}px`;
   }
 
+  function hideNodeValueInput() {
+    nodeValueInputState.visible = false;
+    if (!nodeValueInput) return;
+    nodeValueInput.style.display = "none";
+  }
+
+  function placeNodeValueInput(stageX, stageY, stageWidth, stageHeight) {
+    nodeValueInputState.visible = true;
+    nodeValueInputState.stageX = stageX;
+    nodeValueInputState.stageY = stageY;
+    nodeValueInputState.stageWidth = stageWidth;
+    nodeValueInputState.stageHeight = stageHeight;
+    if (!nodeValueInput) return;
+    const clientRect = toClientRectFromStageRect(stageX, stageY, stageWidth, stageHeight);
+    if (!clientRect || !root.visible) {
+      nodeValueInput.style.display = "none";
+      return;
+    }
+    nodeValueInput.style.display = "block";
+    nodeValueInput.style.left = `${Math.round(clientRect.x)}px`;
+    nodeValueInput.style.top = `${Math.round(clientRect.y)}px`;
+    nodeValueInput.style.width = `${Math.max(30, Math.round(clientRect.width))}px`;
+    nodeValueInput.style.height = `${Math.max(24, Math.round(clientRect.height))}px`;
+  }
+
   function globalToWorld(globalPoint) {
     return treeWorld.toLocal(globalPoint, app.stage);
   }
@@ -940,6 +1132,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     updateSelectedText();
     updateValidationText();
     updateLayoutEditorUi();
+    updateNodeEditorUi();
     layoutSidebar();
     renderGraph();
     if (save) autosaveSession();
@@ -1260,11 +1453,24 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     recalcAndRender({ save: true });
   }
 
-  function addNodeAtCenter() {
+  function nextDefaultNodeId(prefix = "new_node") {
+    const nodeIds = new Set(getNodeIds(graph));
+    if (!nodeIds.has(prefix)) return prefix;
+    for (let index = 1; index < 10000; index++) {
+      const candidate = `${prefix}_${String(index).padStart(2, "0")}`;
+      if (!nodeIds.has(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  function addNodeAtCenter(requestedId = null) {
     if (!graph) return;
-    const suggested = globalThis?.prompt?.("New node id:", "new_node");
-    if (!suggested) return;
-    const nodeId = suggested.trim();
+    const trimmedInput = typeof requestedId === "string" ? requestedId.trim() : "";
+    const nodeId = trimmedInput.length ? trimmedInput : nextDefaultNodeId("new_node");
+    if (!nodeId) {
+      setError("Unable to generate node id.");
+      return;
+    }
     if (!nodeId.length) return;
     if (graph.nodesById[nodeId]) {
       setError(`Node "${nodeId}" already exists.`);
@@ -1756,6 +1962,10 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     }
 
     if (mode === LAYOUT_EDITOR_MODE_RADII) {
+      if (!inputRaw.length) {
+        resetLayoutEditorTarget();
+        return;
+      }
       const ringId = getLayoutEditorRingIds(draft)[layoutEditorState.ringIndex] || "core";
       const parsed = inputRaw.length ? Number(inputRaw) : null;
       if (!Number.isFinite(parsed)) {
@@ -1770,12 +1980,12 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     }
 
     if (mode === LAYOUT_EDITOR_MODE_CENTER || mode === LAYOUT_EDITOR_MODE_SPAN) {
-      const wedgeId = LAYOUT_WEDGE_IDS[layoutEditorState.wedgeIndex] || "Blue";
-      const mapKey = mode === LAYOUT_EDITOR_MODE_CENTER ? "wedgeCentersDeg" : "wedgeSpansDeg";
       if (!inputRaw.length) {
-        setError("Enter a numeric wedge value.");
+        resetLayoutEditorTarget();
         return;
       }
+      const wedgeId = LAYOUT_WEDGE_IDS[layoutEditorState.wedgeIndex] || "Blue";
+      const mapKey = mode === LAYOUT_EDITOR_MODE_CENTER ? "wedgeCentersDeg" : "wedgeSpansDeg";
       let next = Number(inputRaw);
       if (!Number.isFinite(next)) {
         setError("Wedge value must be numeric.");
@@ -1792,6 +2002,10 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     }
 
     if (mode === LAYOUT_EDITOR_MODE_SOLVER || mode === LAYOUT_EDITOR_MODE_RADIAL) {
+      if (!inputRaw.length) {
+        resetLayoutEditorTarget();
+        return;
+      }
       const list =
         mode === LAYOUT_EDITOR_MODE_SOLVER ? LAYOUT_SOLVER_FIELDS : LAYOUT_RADIAL_FIELDS;
       const field =
@@ -1800,10 +2014,6 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
             ? layoutEditorState.solverIndex
             : layoutEditorState.radialIndex
         ] || list[0];
-      if (!inputRaw.length) {
-        setError("Enter a numeric tuning value.");
-        return;
-      }
       let next = Number(inputRaw);
       if (!Number.isFinite(next)) {
         setError("Tuning value must be numeric.");
@@ -1923,11 +2133,14 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       "layoutApplyValue",
       "layoutResetTarget",
       "layoutResetAll",
+      "applyNodeValue",
     ];
     for (const id of allControlButtons) setButtonVisible(id, false);
     statusText.visible = false;
     layoutEditorText.visible = false;
+    nodeEditorText.visible = false;
     hideLayoutValueInput();
+    hideNodeValueInput();
     quickPanelHintText.visible = false;
     quickRingLabelText.visible = false;
     selectedText.visible = false;
@@ -1981,10 +2194,9 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
         placeRow("layoutModeCenter", "layoutModeSpan");
         placeRow("layoutModeSolver", "layoutModeRadial");
         placeRow("layoutTargetPrev", "layoutTargetNext");
-        placeLayoutValueInput(PANEL_X + 4, rowY + 4, PANEL_WIDTH - 18, 30);
-        rowY += PANEL_ROW_GAP;
-        placeRow("layoutApplyValue", "layoutResetTarget");
-        placeRow("layoutResetAll", null);
+        placeLayoutValueInput(PANEL_X + 4, rowY + 4, 196, 30);
+        placeRow(null, "layoutApplyValue");
+        placeRow("layoutResetTarget", "layoutResetAll");
       }
       rowY += PANEL_SECTION_GAP;
     }
@@ -1997,6 +2209,12 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
       placeRow("editTags", "editRing");
       placeRow("editDesc", "editCost");
       placeRow("editNotes", "togglePin");
+      nodeEditorText.visible = true;
+      nodeEditorText.x = PANEL_X + 4;
+      nodeEditorText.y = rowY;
+      rowY += nodeEditorText.height + PANEL_TEXT_GAP;
+      placeNodeValueInput(PANEL_X + 4, rowY + 4, 196, 30);
+      placeRow(null, "applyNodeValue");
       rowY += PANEL_SECTION_GAP;
     }
 
@@ -2142,73 +2360,20 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     setEdgeEditMode(nextMode);
     recalcAndRender({ save: false });
   });
-  addButton("addNode", "Add Node", 196, () => addNodeAtCenter());
+  addButton("addNode", "Add Node", 196, () => {
+    const requestedId = String(nodeValueInput?.value ?? "");
+    addNodeAtCenter(requestedId);
+  });
   addButton("deleteNode", "Delete Node", 196, () => deleteSelectedNode());
 
-  addButton("editId", "Edit ID", 196, () => {
-    if (!selectedNodeId) return setError("Select a node first.");
-    const node = graph?.nodesById?.[selectedNodeId];
-    if (!node) return;
-    const nextId = globalThis?.prompt?.("Node id:", node.id);
-    if (!nextId) return;
-    const trimmed = nextId.trim();
-    if (!trimmed.length) return;
-    if (trimmed === node.id) return;
-    const rename = renameNodeId(node.id, trimmed);
-    if (!rename.ok) {
-      setError(`Rename failed: ${rename.reason || "unknown"}`);
-      return;
-    }
-    recalcAndRender({ save: true });
-  });
-  addButton("editName", "Edit Name", 196, () =>
-    withSelectedNode((node) => {
-      const value = globalThis?.prompt?.("Name:", node.name || node.id);
-      if (value == null) return;
-      node.name = value;
-    })
-  );
-  addButton("editDesc", "Edit Desc", 196, () =>
-    withSelectedNode((node) => {
-      const value = globalThis?.prompt?.("Description:", node.desc || "");
-      if (value == null) return;
-      node.desc = value;
-    })
-  );
-  addButton("editTags", "Edit Tags", 196, () =>
-    withSelectedNode((node) => {
-      const value = globalThis?.prompt?.("Tags (comma separated):", (node.tags || []).join(", "));
-      if (value == null) return;
-      node.tags = parseTagList(value);
-    })
-  );
-  addButton("editRing", "Edit Ring", 196, () =>
-    withSelectedNode((node) => {
-      const value = globalThis?.prompt?.("Ring id (blank to clear):", node.ringId || "");
-      if (value == null) return;
-      const next = value.trim();
-      node.ringId = next.length ? next : null;
-    })
-  );
-  addButton("editCost", "Edit Cost", 196, () =>
-    withSelectedNode((node) => {
-      const value = globalThis?.prompt?.("Cost:", String(node.cost ?? 1));
-      if (value == null) return;
-      const next = Math.max(0, Math.floor(Number(value)));
-      if (!Number.isFinite(next)) {
-        setError("Cost must be numeric.");
-        return;
-      }
-      node.cost = next;
-    })
-  );
-  addButton("editNotes", "Edit Notes", 196, () =>
-    withSelectedNode((node) => {
-      const value = globalThis?.prompt?.("Notes:", node.editorNotes || "");
-      if (value == null) return;
-      node.editorNotes = value;
-    })
-  );
+  addButton("editId", "Edit ID", 196, () => setNodeEditorField("id"));
+  addButton("editName", "Edit Name", 196, () => setNodeEditorField("name"));
+  addButton("editDesc", "Edit Desc", 196, () => setNodeEditorField("desc"));
+  addButton("editTags", "Edit Tags", 196, () => setNodeEditorField("tags"));
+  addButton("editRing", "Edit Ring", 196, () => setNodeEditorField("ringId"));
+  addButton("editCost", "Edit Cost", 196, () => setNodeEditorField("cost"));
+  addButton("editNotes", "Edit Notes", 196, () => setNodeEditorField("editorNotes"));
+  addButton("applyNodeValue", "Apply Field", 196, () => applyNodeEditorInputValue());
   addButton("togglePin", "Pin", 196, () =>
     withSelectedNode((node) => {
       node.editorPinned = node.editorPinned !== true;
@@ -2269,6 +2434,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   updateSectionHeaderLabels();
   updateQuickPanelUi();
   updateLayoutEditorUi();
+  updateNodeEditorUi();
   layoutSidebar();
 
   viewportBg.on("pointerdown", startPan);
@@ -2350,6 +2516,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     connectSourceId = null;
     layoutEditorState.open = false;
     if (layoutValueInput) layoutValueInput.value = "";
+    if (nodeValueInput) nodeValueInput.value = "";
     resetQuickTemplate();
     setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     setError("");
@@ -2372,6 +2539,7 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
     connectSourceId = null;
     layoutEditorState.open = false;
     hideLayoutValueInput();
+    hideNodeValueInput();
     resetQuickTemplate();
     setEdgeEditMode(EDGE_EDIT_MODE_NONE);
     activeTreeId = null;
