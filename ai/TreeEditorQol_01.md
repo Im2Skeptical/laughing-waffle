@@ -10,18 +10,18 @@ After reaching the end of the list, roughly summarize changes and restate any in
 
 ---
 
-Mermory issues - Currently if i work in the skill tree for a few minutes its memory use will slowly increase and then it will crash. Please investigate
+Mermory issues - Currently if I work in the skill tree for a few minutes the memory use of the browser will slowly increase and then the tab containing the game will become unresponsive. Please investigate
 
 ---
 
-Quick Tags - There should be some feature to quickly assign/remove commonly used tags to existing nodes or when creating new ones. The rough design should be some 'QuickTag' panel with a list of items you can click on and off. The items contained need to at minimum be
+Quick Tags - There should be some feature to quickly view/assign/remove commonly used tags on existing nodes or when creating new ones. The rough design should be some 'QuickTag' panel with a list of items you can click on and off. The items contained need to at minimum be
 
 - colors (Black, Green, Blue, Red)
 - Early, Mid, Late
 - Hybrid
 - Notable
 
-There should be a clear on and off state for each quick tag item
+There should be a clear on and off state for each quick tag item. Perhaps each is a box with a label and the background/text changes color when on or off and each acts as a toggle push button you click to turn on or off. Go with whatever seems semsible.
 
 When you select an existing node these options in the quick tag panel will reflect what tags are attached. You should be able to use the items in the quick tag panel to quickly add and remove tags.
 
@@ -29,10 +29,11 @@ There should also be a create 'QuickNode' button. This will create a node based 
 
 By default the QuickNode created can automatically assign an id that iterates on the id of the node who's tags were last read by the panel. So if I selected node with id "BlackBlueEarly_02" it will autogenerate the next id not yet taken (for example if there is BlackBlueEarly_03 and BlackBlueEarly_04 already it will pick BlackBlueEarly_05).
  
-
 With these features we should be able to easily view a node's tags, edit those tags, and create nodes based on the tags of other nodes. 
 
- ---
+As part of this stage you will need to do some work on the layout of the sidepanel - attached to the prompt is a picture of the current state of the info on the right hand side. Please lay things out a bit more neatly when making space for this. You will need to add some kind of system to hide/collapse features together as sensible - like having expandable/colaspable buttons or drawers to keep all the import/export/ settings together seperated from edit/information/save etc.
+
+---
 
 Although not exactly 'tags' - The Quicktag panel should also contain a similar way to see, change, and transfer ringId settings. But because tags are more like 'enums' and ringId is more like an 'array' loosly speaking, we want to treat ringId differently, perhaps an option from a dropdown or anything else more sensible. 
 
