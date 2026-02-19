@@ -131,9 +131,6 @@ function makeToggleChip(label, width, height, onTap) {
   const bg = new PIXI.Graphics();
   root.addChild(bg);
 
-  const panelBg = new PIXI.Graphics();
-  root.addChild(panelBg);
-
   const text = new PIXI.Text(label, {
     fill: QUICK_TAG_INACTIVE_TEXT,
     fontSize: 12,
@@ -177,6 +174,9 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
 
   const bg = new PIXI.Graphics();
   root.addChild(bg);
+
+  const panelBg = new PIXI.Graphics();
+  root.addChild(panelBg);
 
   const title = new PIXI.Text("Skill Tree Editor", {
     fill: 0xffffff,
