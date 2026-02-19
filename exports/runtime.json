@@ -30,43 +30,120 @@
             ],
             "radii": {
               "core": 0,
-              "ring_01": 200,
-              "ring_02": 300,
-              "ring_03": 400,
+              "ring_01": 300,
+              "ring_02": 500,
+              "ring_03": 800,
               "early": 500,
-              "ring_04": 600,
-              "ring_05": 700,
-              "ring_06": 800,
+              "ring_04": 1000,
+              "ring_05": 1200,
+              "ring_06": 1500,
               "mid": 900,
-              "ring_07": 1000,
-              "ring_08": 1100,
-              "ring_09": 1200,
+              "ring_07": 1600,
+              "ring_08": 1700,
+              "ring_09": 1800,
               "late": 1200
             },
             "wedgeSpansDeg": {
-              "Blue": 40,
-              "Green": 40,
-              "Red": 40,
-              "Black": 40,
-              "BlueGreen": 20,
-              "GreenRed": 20,
-              "RedBlack": 20,
-              "BlackBlue": 20
+              "Blue": 50,
+              "Green": 50,
+              "Red": 50,
+              "Black": 50,
+              "BlueGreen": 25,
+              "GreenRed": 25,
+              "RedBlack": 25,
+              "BlackBlue": 25
             },
-            "barycenterIterations": 8,
-            "localSwapIterations": 3,
-            "overlapIterations": 4,
-            "overlapPaddingPx": 8,
-            "componentBandGapDeg": 10,
-            "radialNudgeIterations": 10,
-            "radialNudgeMaxPx": 50,
-            "radialNudgePaddingPx": 120,
-            "radialNudgeSpring": 0.2
+            "barycenterIterations": 32,
+            "localSwapIterations": 32,
+            "overlapIterations": 32,
+            "overlapPaddingPx": 16,
+            "componentBandGapDeg": 16,
+            "angleSwapTeleportWeight": 4,
+            "radialNudgeIterations": 64,
+            "radialNudgeMaxPx": 248,
+            "radialNudgePaddingPx": 64,
+            "radialNudgeSpring": 8,
+            "coreSpread": 16
           }
         }
       }
     },
     "skillNodes": {
+      "Astronomy": {
+        "id": "Astronomy",
+        "treeId": "systemColorMap",
+        "name": "Papyrus_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueEarly_01",
+          "BlueEarly_03",
+          "Cooking",
+          "core_origin",
+          "Crafting"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 636,
+          "y": 605
+        },
+        "ringId": "ring_02"
+      },
+      "Basket": {
+        "id": "Basket",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Notable"
+        ],
+        "adjacent": [
+          "Cooking",
+          "core_origin",
+          "Forage",
+          "GreenEarly_01",
+          "GreenEarly_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 815,
+          "y": 628
+        },
+        "ringId": "ring_02"
+      },
+      "Beer": {
+        "id": "Beer",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_Notable2",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Notable"
+        ],
+        "adjacent": [
+          "GreenEarly_06",
+          "GreenEarly_08",
+          "GreenEarly_09",
+          "GreenEarly_11",
+          "GreenMid_01"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1434,
+          "y": 1223
+        },
+        "ringId": "ring_04"
+      },
       "BlackBlueEarly_01": {
         "id": "BlackBlueEarly_01",
         "treeId": "systemColorMap",
@@ -80,16 +157,15 @@
           "Hybrid"
         ],
         "adjacent": [
-          "BlackBlueEarly_02",
-          "BlackEarly_Notable",
-          "BlueEarly_Notable"
+          "BlackBlueEarly_03",
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 271,
-          "y": 608
+          "x": 226,
+          "y": 638
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "BlackBlueEarly_02": {
         "id": "BlackBlueEarly_02",
@@ -104,16 +180,15 @@
           "Hybrid"
         ],
         "adjacent": [
-          "BlackBlueEarly_01",
           "BlackBlueEarly_03",
-          "BlackBlueMid_Notable"
+          "BlackEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 365,
-          "y": 550
+          "x": 226,
+          "y": 421
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "BlackBlueEarly_03": {
         "id": "BlackBlueEarly_03",
@@ -128,13 +203,14 @@
           "Hybrid"
         ],
         "adjacent": [
+          "BlackBlueEarly_01",
           "BlackBlueEarly_02",
-          "BlackBlueEarly_04"
+          "BlackBlueEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 265,
-          "y": 503
+          "x": -85,
+          "y": 530
         },
         "ringId": "ring_03"
       },
@@ -151,16 +227,41 @@
           "Hybrid"
         ],
         "adjacent": [
-          "BlackBlueEarly_03",
-          "BlackMid_Notable",
-          "BlueEarly_Notable"
+          "BlackBlueEarly_Notable",
+          "BlueBlackEarly_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 368,
-          "y": 468
+          "x": -485,
+          "y": 529
         },
-        "ringId": "ring_03"
+        "ringId": "ring_05"
+      },
+      "BlackBlueEarly_Notable": {
+        "id": "BlackBlueEarly_Notable",
+        "treeId": "systemColorMap",
+        "name": "BlackBlueEarly_Notable_02",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early",
+          "Hybrid",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackBlueEarly_03",
+          "BlackBlueEarly_04",
+          "BlueBlackEarly_06",
+          "BlueBlackEarly_08"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -285,
+          "y": 529
+        },
+        "ringId": "ring_04"
       },
       "BlackBlueMid_Notable": {
         "id": "BlackBlueMid_Notable",
@@ -176,35 +277,36 @@
           "Notable"
         ],
         "adjacent": [
-          "BlackBlueEarly_02",
-          "BlackMid_01",
-          "BlueMid_01"
+          "BlackMid_04",
+          "BlueBlackEarly_05",
+          "BlueMid_06"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 15,
-          "y": 530
+          "x": -885,
+          "y": 523
         },
-        "ringId": "ring_05"
+        "ringId": "ring_07"
       },
       "BlackEarly_01": {
         "id": "BlackEarly_01",
         "treeId": "systemColorMap",
         "name": "BlackNodeEarly_01",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Black",
           "Early"
         ],
         "adjacent": [
-          "BlackEarly_04",
-          "core_origin"
+          "BlackEarly_02",
+          "BlackEarly_Notable",
+          "Weaving"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 609,
-          "y": 303
+          "x": 414,
+          "y": 391
         },
         "ringId": "ring_01"
       },
@@ -213,19 +315,19 @@
         "treeId": "systemColorMap",
         "name": "BlackNodeEarly_02",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Black",
           "Early"
         ],
         "adjacent": [
-          "BlackEarly_03",
-          "core_origin"
+          "BlackEarly_01",
+          "RitualShrine"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 600,
-          "y": 433
+          "x": 473,
+          "y": 350
         },
         "ringId": "ring_01"
       },
@@ -234,19 +336,19 @@
         "treeId": "systemColorMap",
         "name": "BlackNodeEarly_03",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Black",
           "Early"
         ],
         "adjacent": [
-          "BlackEarly_02",
-          "BlackEarly_Notable"
+          "BlackEarly_04",
+          "RitualShrine"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 488,
-          "y": 424
+          "x": 573,
+          "y": 265
         },
         "ringId": "ring_01"
       },
@@ -255,19 +357,19 @@
         "treeId": "systemColorMap",
         "name": "BlackNodeEarly_04",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Black",
           "Early"
         ],
         "adjacent": [
-          "BlackEarly_01",
+          "BlackEarly_03",
           "BlackEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 568,
-          "y": 355
+          "x": 539,
+          "y": 286
         },
         "ringId": "ring_01"
       },
@@ -283,13 +385,14 @@
         ],
         "adjacent": [
           "BlackEarly_06",
-          "BlackEarly_07"
+          "BlackEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 257,
-          "y": 316
-        }
+          "x": 66,
+          "y": 61
+        },
+        "ringId": "ring_03"
       },
       "BlackEarly_06": {
         "id": "BlackEarly_06",
@@ -303,13 +406,14 @@
         ],
         "adjacent": [
           "BlackEarly_05",
-          "BlackEarly_08"
+          "BlackEarly_Notable_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 310,
-          "y": 210
-        }
+          "x": 44,
+          "y": 94
+        },
+        "ringId": "ring_03"
       },
       "BlackEarly_07": {
         "id": "BlackEarly_07",
@@ -322,15 +426,15 @@
           "Early"
         ],
         "adjacent": [
-          "BlackEarly_05",
           "BlackEarly_08",
           "BlackEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 395,
-          "y": 126
-        }
+          "x": 279,
+          "y": -141
+        },
+        "ringId": "ring_03"
       },
       "BlackEarly_08": {
         "id": "BlackEarly_08",
@@ -343,15 +447,99 @@
           "Early"
         ],
         "adjacent": [
-          "BlackEarly_06",
           "BlackEarly_07",
-          "BlackEarly_Notable"
+          "BlackEarly_Notable_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 502,
-          "y": 73
-        }
+          "x": 246,
+          "y": -119
+        },
+        "ringId": "ring_03"
+      },
+      "BlackEarly_09": {
+        "id": "BlackEarly_09",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_09",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackEarly_10",
+          "BlackEarly_Notable_02"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 4,
+          "y": -438
+        },
+        "ringId": "ring_05"
+      },
+      "BlackEarly_10": {
+        "id": "BlackEarly_10",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_10",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackEarly_09",
+          "BlackEarly_Notable_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 174,
+          "y": -542
+        },
+        "ringId": "ring_05"
+      },
+      "BlackEarly_11": {
+        "id": "BlackEarly_11",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_11",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackEarly_12",
+          "BlackEarly_Notable_02"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -540,
+          "y": -292
+        },
+        "ringId": "ring_06"
+      },
+      "BlackEarly_12": {
+        "id": "BlackEarly_12",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_12",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackEarly_11",
+          "BlackEarly_Notable_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -366,
+          "y": 7
+        },
+        "ringId": "ring_05"
       },
       "BlackEarly_Notable": {
         "id": "BlackEarly_Notable",
@@ -365,21 +553,88 @@
           "Notable"
         ],
         "adjacent": [
-          "BlackBlueEarly_01",
-          "BlackEarly_03",
+          "BlackBlueEarly_02",
+          "BlackEarly_01",
           "BlackEarly_04",
+          "BlackEarly_05",
           "BlackEarly_07",
-          "BlackEarly_08",
-          "BlackMid_01",
-          "RedBlackEarly_01",
-          "RedBlackEarly_04"
+          "RedBlackEarly_01"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 467,
-          "y": 282
+          "x": 360,
+          "y": 177
         },
         "ringId": "ring_02"
+      },
+      "BlackEarly_Notable_02": {
+        "id": "BlackEarly_Notable_02",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_Notable_02",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackEarly_06",
+          "BlackEarly_08",
+          "BlackEarly_09",
+          "BlackEarly_11",
+          "BlackMid_01"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 8,
+          "y": -178
+        },
+        "ringId": "ring_04"
+      },
+      "BlackEarly_Notable_03": {
+        "id": "BlackEarly_Notable_03",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_Notable_03",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackEarly_10",
+          "RedBlackEarly_09"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 372,
+          "y": -410
+        },
+        "ringId": "ring_04"
+      },
+      "BlackEarly_Notable_04": {
+        "id": "BlackEarly_Notable_04",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_Notable_04",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackEarly_12",
+          "BlueBlackEarly_09"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -225,
+          "y": 186
+        },
+        "ringId": "ring_04"
       },
       "BlackLate_01": {
         "id": "BlackLate_01",
@@ -397,9 +652,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -373,
-          "y": 22
-        }
+          "x": -733,
+          "y": -541
+        },
+        "ringId": "ring_09"
       },
       "BlackLate_02": {
         "id": "BlackLate_02",
@@ -417,9 +673,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -227,
-          "y": -215
-        }
+          "x": -709,
+          "y": -573
+        },
+        "ringId": "ring_09"
       },
       "BlackLate_03": {
         "id": "BlackLate_03",
@@ -437,9 +694,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -30,
-          "y": -412
-        }
+          "x": -684,
+          "y": -604
+        },
+        "ringId": "ring_09"
       },
       "BlackLate_Notable": {
         "id": "BlackLate_Notable",
@@ -457,9 +715,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 207,
-          "y": -558
-        }
+          "x": -651,
+          "y": -644
+        },
+        "ringId": "ring_09"
       },
       "BlackMid_01": {
         "id": "BlackMid_01",
@@ -472,16 +731,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlackBlueMid_Notable",
-          "BlackEarly_Notable",
-          "BlackMid_02",
-          "RedBlackMid_Notable"
+          "BlackEarly_Notable_02",
+          "BlackMid_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -74,
-          "y": 43
-        }
+          "x": -126,
+          "y": -713
+        },
+        "ringId": "ring_06"
       },
       "BlackMid_02": {
         "id": "BlackMid_02",
@@ -495,13 +753,14 @@
         ],
         "adjacent": [
           "BlackMid_01",
-          "BlackMid_03"
+          "BlackMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 8,
-          "y": -29
-        }
+          "x": -130,
+          "y": -830
+        },
+        "ringId": "ring_07"
       },
       "BlackMid_03": {
         "id": "BlackMid_03",
@@ -514,14 +773,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlackMid_02",
-          "BlackMid_04"
+          "BlackMid_04",
+          "BlackMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 69,
-          "y": -116
-        }
+          "x": -695,
+          "y": -421
+        },
+        "ringId": "ring_08"
       },
       "BlackMid_04": {
         "id": "BlackMid_04",
@@ -534,14 +794,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlackMid_03",
-          "BlackMid_05"
+          "BlackBlueMid_Notable",
+          "BlackMid_03"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 152,
-          "y": -181
-        }
+          "x": -789,
+          "y": -18
+        },
+        "ringId": "ring_07"
       },
       "BlackMid_05": {
         "id": "BlackMid_05",
@@ -554,14 +815,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlackMid_04",
-          "BlackMid_06"
+          "BlackMid_06",
+          "BlackMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 234,
-          "y": -249
-        }
+          "x": -59,
+          "y": -1096
+        },
+        "ringId": "ring_09"
       },
       "BlackMid_06": {
         "id": "BlackMid_06",
@@ -575,13 +837,14 @@
         ],
         "adjacent": [
           "BlackMid_05",
-          "BlackMid_Notable"
+          "RedBlackMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 334,
-          "y": -286
-        }
+          "x": 133,
+          "y": -1068
+        },
+        "ringId": "ring_08"
       },
       "BlackMid_Notable": {
         "id": "BlackMid_Notable",
@@ -595,34 +858,147 @@
           "Notable"
         ],
         "adjacent": [
-          "BlackBlueEarly_04",
           "BlackLate_01",
-          "BlackMid_06"
+          "BlackMid_02",
+          "BlackMid_03",
+          "BlackMid_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -96,
-          "y": 152
-        }
+          "x": -296,
+          "y": -711
+        },
+        "ringId": "ring_07"
+      },
+      "BlueBlackEarly_05": {
+        "id": "BlueBlackEarly_05",
+        "treeId": "systemColorMap",
+        "name": "BlueBlackEarly_05",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackBlueEarly_04",
+          "BlackBlueMid_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -785,
+          "y": 526
+        },
+        "ringId": "ring_06"
+      },
+      "BlueBlackEarly_06": {
+        "id": "BlueBlackEarly_06",
+        "treeId": "systemColorMap",
+        "name": "BlueBlackEarly_06",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackBlueEarly_Notable",
+          "BlueBlackEarly_07"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -470,
+          "y": 721
+        },
+        "ringId": "ring_05"
+      },
+      "BlueBlackEarly_07": {
+        "id": "BlueBlackEarly_07",
+        "treeId": "systemColorMap",
+        "name": "BlueBlackEarly_07",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlueBlackEarly_06",
+          "BlueEarlyNotable_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -262,
+          "y": 746
+        },
+        "ringId": "ring_04"
+      },
+      "BlueBlackEarly_08": {
+        "id": "BlueBlackEarly_08",
+        "treeId": "systemColorMap",
+        "name": "BlueBlackEarly_08",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackBlueEarly_Notable",
+          "BlueBlackEarly_09"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -470,
+          "y": 338
+        },
+        "ringId": "ring_05"
+      },
+      "BlueBlackEarly_09": {
+        "id": "BlueBlackEarly_09",
+        "treeId": "systemColorMap",
+        "name": "BlueBlackEarly_09",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlackEarly_Notable_04",
+          "BlueBlackEarly_08"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -262,
+          "y": 313
+        },
+        "ringId": "ring_04"
       },
       "BlueEarly_01": {
         "id": "BlueEarly_01",
         "treeId": "systemColorMap",
         "name": "BlueNodeEarly_01",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Blue",
           "Early"
         ],
         "adjacent": [
-          "BlueEarly_03",
-          "core_origin"
+          "Astronomy",
+          "BlueEarly_02",
+          "Farming"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 609,
-          "y": 756
+          "x": 573,
+          "y": 792
         },
         "ringId": "ring_01"
       },
@@ -631,19 +1007,19 @@
         "treeId": "systemColorMap",
         "name": "BlueNodeEarly_02",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Blue",
           "Early"
         ],
         "adjacent": [
-          "BlueEarly_04",
-          "core_origin"
+          "BlueEarly_01",
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 600,
-          "y": 626
+          "x": 520,
+          "y": 792
         },
         "ringId": "ring_01"
       },
@@ -652,19 +1028,19 @@
         "treeId": "systemColorMap",
         "name": "BlueNodeEarly_03",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Blue",
           "Early"
         ],
         "adjacent": [
-          "BlueEarly_01",
-          "BlueEarly_Notable"
+          "Astronomy",
+          "BlueEarly_04"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 566,
-          "y": 706
+          "x": 470,
+          "y": 676
         },
         "ringId": "ring_01"
       },
@@ -673,19 +1049,20 @@
         "treeId": "systemColorMap",
         "name": "BlueNodeEarly_04",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Blue",
           "Early"
         ],
         "adjacent": [
-          "BlueEarly_02",
-          "BlueEarly_Notable"
+          "BlueEarly_03",
+          "Papyrus",
+          "Weaving"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 488,
-          "y": 635
+          "x": 437,
+          "y": 645
         },
         "ringId": "ring_01"
       },
@@ -701,13 +1078,14 @@
         ],
         "adjacent": [
           "BlueEarly_06",
-          "BlueEarly_Notable"
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 508,
-          "y": 973
-        }
+          "x": 246,
+          "y": 1178
+        },
+        "ringId": "ring_03"
       },
       "BlueEarly_06": {
         "id": "BlueEarly_06",
@@ -721,13 +1099,14 @@
         ],
         "adjacent": [
           "BlueEarly_05",
-          "BlueEarlyNotable2"
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 399,
-          "y": 980
-        }
+          "x": 279,
+          "y": 1200
+        },
+        "ringId": "ring_03"
       },
       "BlueEarly_07": {
         "id": "BlueEarly_07",
@@ -741,13 +1120,14 @@
         ],
         "adjacent": [
           "BlueEarly_08",
-          "BlueEarlyNotable2"
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 176,
-          "y": 889
-        }
+          "x": 66,
+          "y": 998
+        },
+        "ringId": "ring_03"
       },
       "BlueEarly_08": {
         "id": "BlueEarly_08",
@@ -761,45 +1141,103 @@
         ],
         "adjacent": [
           "BlueEarly_07",
-          "BlueEarly_Notable"
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 264,
-          "y": 845
-        }
+          "x": 44,
+          "y": 965
+        },
+        "ringId": "ring_03"
       },
-      "BlueEarly_Notable": {
-        "id": "BlueEarly_Notable",
+      "BlueEarly_09": {
+        "id": "BlueEarly_09",
         "treeId": "systemColorMap",
-        "name": "BlueNodeEarlyNotable_01",
-        "desc": "Cluster punctuation.",
-        "cost": 2,
+        "name": "BlueEarly_09",
+        "desc": "",
+        "cost": 1,
         "tags": [
           "Blue",
-          "Early",
-          "Notable"
+          "Early"
         ],
         "adjacent": [
-          "BlackBlueEarly_01",
-          "BlackBlueEarly_04",
-          "BlueEarly_03",
-          "BlueEarly_04",
-          "BlueEarly_05",
-          "BlueEarly_08",
-          "BlueGreenEarly_01"
+          "BlueEarly_10",
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 467,
-          "y": 777
+          "x": 176,
+          "y": 1602
         },
-        "ringId": "ring_02"
+        "ringId": "ring_05"
       },
-      "BlueEarlyNotable2": {
-        "id": "BlueEarlyNotable2",
+      "BlueEarly_10": {
+        "id": "BlueEarly_10",
         "treeId": "systemColorMap",
-        "name": "BlueEarlyNotable2",
+        "name": "BlueEarly_10",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlueEarly_09",
+          "BlueEarlyNotable_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 245,
+          "y": 1412
+        },
+        "ringId": "ring_04"
+      },
+      "BlueEarly_11": {
+        "id": "BlueEarly_11",
+        "treeId": "systemColorMap",
+        "name": "BlueEarly_11",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlueEarly_12",
+          "Prophecy"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -63,
+          "y": 1159
+        },
+        "ringId": "ring_04"
+      },
+      "BlueEarly_12": {
+        "id": "BlueEarly_12",
+        "treeId": "systemColorMap",
+        "name": "BlueEarly_12",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early"
+        ],
+        "adjacent": [
+          "BlueEarly_11",
+          "BlueEarlyNotable_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -358,
+          "y": 1068
+        },
+        "ringId": "ring_05"
+      },
+      "BlueEarlyNotable_03": {
+        "id": "BlueEarlyNotable_03",
+        "treeId": "systemColorMap",
+        "name": "BlueEarlyNotable_03",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -808,22 +1246,44 @@
           "Notable"
         ],
         "adjacent": [
-          "BlueEarly_06",
-          "BlueEarly_07",
-          "BlueMid_01"
+          "BlueEarly_10",
+          "BlueGreenEarly_07"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 246,
-          "y": 968
-        }
+          "x": 370,
+          "y": 1468
+        },
+        "ringId": "ring_04"
+      },
+      "BlueEarlyNotable_04": {
+        "id": "BlueEarlyNotable_04",
+        "treeId": "systemColorMap",
+        "name": "BlueEarlyNotable_04",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueBlackEarly_07",
+          "BlueEarly_12"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -225,
+          "y": 872
+        },
+        "ringId": "ring_04"
       },
       "BlueGreenEarly_01": {
         "id": "BlueGreenEarly_01",
         "treeId": "systemColorMap",
         "name": "BlueGreenEarly_01",
         "desc": "Hybrid bridge.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Blue",
           "Early",
@@ -831,23 +1291,22 @@
           "Hybrid"
         ],
         "adjacent": [
-          "BlueEarly_Notable",
-          "BlueGreenEarly_02",
-          "BlueGreenEarly_03"
+          "BlueGreenEarly_03",
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 638,
-          "y": 915
+          "x": 649,
+          "y": 1025
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "BlueGreenEarly_02": {
         "id": "BlueGreenEarly_02",
         "treeId": "systemColorMap",
         "name": "BlueGreenEarly_02",
         "desc": "Hybrid bridge.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Blue",
           "Early",
@@ -855,16 +1314,15 @@
           "Hybrid"
         ],
         "adjacent": [
-          "BlueGreenEarly_01",
-          "BlueGreenEarly_04",
-          "GreenEarly_Notable"
+          "BlueGreenEarly_03",
+          "Storehouse"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 774,
-          "y": 907
+          "x": 780,
+          "y": 1025
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "BlueGreenEarly_03": {
         "id": "BlueGreenEarly_03",
@@ -880,13 +1338,13 @@
         ],
         "adjacent": [
           "BlueGreenEarly_01",
-          "BlueGreenEarly_04",
-          "BlueGreenMid_Notable"
+          "BlueGreenEarly_02",
+          "BlueGreenEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 653,
-          "y": 1019
+          "x": 715,
+          "y": 1329
         },
         "ringId": "ring_03"
       },
@@ -903,16 +1361,155 @@
           "Hybrid"
         ],
         "adjacent": [
-          "BlueGreenEarly_02",
-          "BlueGreenEarly_03",
+          "BlueGreenEarly_05",
+          "BlueGreenEarly_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 715,
+          "y": 1729
+        },
+        "ringId": "ring_05"
+      },
+      "BlueGreenEarly_05": {
+        "id": "BlueGreenEarly_05",
+        "treeId": "systemColorMap",
+        "name": "BlueGreenEarly_05",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Green"
+        ],
+        "adjacent": [
+          "BlueGreenEarly_04",
           "BlueGreenMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 778,
-          "y": 1029
+          "x": 715,
+          "y": 2030
         },
-        "ringId": "ring_03"
+        "ringId": "ring_06"
+      },
+      "BlueGreenEarly_06": {
+        "id": "BlueGreenEarly_06",
+        "treeId": "systemColorMap",
+        "name": "BlueGreenEarly_06",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Green",
+          "Hybrid"
+        ],
+        "adjacent": [
+          "BlueGreenEarly_07",
+          "BlueGreenEarly_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 577,
+          "y": 1520
+        },
+        "ringId": "ring_04"
+      },
+      "BlueGreenEarly_07": {
+        "id": "BlueGreenEarly_07",
+        "treeId": "systemColorMap",
+        "name": "BlueGreenEarly_07",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Green",
+          "Hybrid"
+        ],
+        "adjacent": [
+          "BlueEarlyNotable_03",
+          "BlueGreenEarly_06"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 455,
+          "y": 1701
+        },
+        "ringId": "ring_05"
+      },
+      "BlueGreenEarly_08": {
+        "id": "BlueGreenEarly_08",
+        "treeId": "systemColorMap",
+        "name": "BlueGreenEarly_08",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Green",
+          "Hybrid"
+        ],
+        "adjacent": [
+          "BlueGreenEarly_09",
+          "GreenEarly_Notable_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 974,
+          "y": 1701
+        },
+        "ringId": "ring_05"
+      },
+      "BlueGreenEarly_09": {
+        "id": "BlueGreenEarly_09",
+        "treeId": "systemColorMap",
+        "name": "BlueGreenEarly_09",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Green",
+          "Hybrid"
+        ],
+        "adjacent": [
+          "BlueGreenEarly_08",
+          "BlueGreenEarly_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 852,
+          "y": 1520
+        },
+        "ringId": "ring_04"
+      },
+      "BlueGreenEarly_Notable": {
+        "id": "BlueGreenEarly_Notable",
+        "treeId": "systemColorMap",
+        "name": "BlueGreenEarly_Notable",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Green",
+          "Hybrid",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueGreenEarly_03",
+          "BlueGreenEarly_04",
+          "BlueGreenEarly_06",
+          "BlueGreenEarly_09"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 715,
+          "y": 1529
+        },
+        "ringId": "ring_04"
       },
       "BlueGreenMid_Notable": {
         "id": "BlueGreenMid_Notable",
@@ -928,17 +1525,16 @@
           "Notable"
         ],
         "adjacent": [
-          "BlueGreenEarly_03",
-          "BlueGreenEarly_04",
-          "BlueMid_01",
-          "GreenMid_01"
+          "BlueGreenEarly_05",
+          "BlueMid_04",
+          "GreenMid_04"
         ],
         "onUnlock": [],
         "uiPos": {
           "x": 715,
-          "y": 1230
+          "y": 2130
         },
-        "ringId": "ring_05"
+        "ringId": "ring_07"
       },
       "BlueLate_01": {
         "id": "BlueLate_01",
@@ -956,9 +1552,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -373,
-          "y": 1037
-        }
+          "x": -365,
+          "y": 1970
+        },
+        "ringId": "ring_09"
       },
       "BlueLate_02": {
         "id": "BlueLate_02",
@@ -976,9 +1573,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 207,
-          "y": 1617
-        }
+          "x": -460,
+          "y": 1893
+        },
+        "ringId": "ring_09"
       },
       "BlueLate_03": {
         "id": "BlueLate_03",
@@ -996,9 +1594,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -30,
-          "y": 1471
-        }
+          "x": -667,
+          "y": 1683
+        },
+        "ringId": "ring_09"
       },
       "BlueLate_Notable": {
         "id": "BlueLate_Notable",
@@ -1016,9 +1615,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -227,
-          "y": 1274
-        }
+          "x": -761,
+          "y": 1560
+        },
+        "ringId": "ring_09"
       },
       "BlueMid_01": {
         "id": "BlueMid_01",
@@ -1031,16 +1631,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlackBlueMid_Notable",
-          "BlueEarlyNotable2",
-          "BlueGreenMid_Notable",
-          "BlueMid_02"
+          "BlueMid_02",
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 127,
-          "y": 1099
-        }
+          "x": -83,
+          "y": 1426
+        },
+        "ringId": "ring_05"
       },
       "BlueMid_02": {
         "id": "BlueMid_02",
@@ -1054,13 +1653,14 @@
         ],
         "adjacent": [
           "BlueMid_01",
-          "BlueMid_03"
+          "BlueMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 334,
-          "y": 1346
-        }
+          "x": -183,
+          "y": 1731
+        },
+        "ringId": "ring_06"
       },
       "BlueMid_03": {
         "id": "BlueMid_03",
@@ -1073,14 +1673,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlueMid_02",
-          "BlueMid_04"
+          "BlueMid_04",
+          "BlueMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 234,
-          "y": 1309
-        }
+          "x": -178,
+          "y": 1976
+        },
+        "ringId": "ring_08"
       },
       "BlueMid_04": {
         "id": "BlueMid_04",
@@ -1093,14 +1694,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlueMid_03",
-          "BlueMid_05"
+          "BlueGreenMid_Notable",
+          "BlueMid_03"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 152,
-          "y": 1241
-        }
+          "x": 133,
+          "y": 2127
+        },
+        "ringId": "ring_08"
       },
       "BlueMid_05": {
         "id": "BlueMid_05",
@@ -1113,14 +1715,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlueMid_04",
-          "BlueMid_06"
+          "BlueMid_06",
+          "BlueMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 72,
-          "y": 1172
-        }
+          "x": -697,
+          "y": 1478
+        },
+        "ringId": "ring_08"
       },
       "BlueMid_06": {
         "id": "BlueMid_06",
@@ -1133,14 +1736,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlueMid_05",
-          "BlueMid_Notable"
+          "BlackBlueMid_Notable",
+          "BlueMid_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 2,
-          "y": 1093
-        }
+          "x": -883,
+          "y": 1111
+        },
+        "ringId": "ring_08"
       },
       "BlueMid_Notable": {
         "id": "BlueMid_Notable",
@@ -1155,13 +1759,39 @@
         ],
         "adjacent": [
           "BlueLate_01",
-          "BlueMid_06"
+          "BlueMid_02",
+          "BlueMid_03",
+          "BlueMid_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": -69,
-          "y": 1013
-        }
+          "x": -336,
+          "y": 1736
+        },
+        "ringId": "ring_07"
+      },
+      "Cooking": {
+        "id": "Cooking",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Notable"
+        ],
+        "adjacent": [
+          "Astronomy",
+          "Basket",
+          "core_origin"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 727,
+          "y": 649
+        },
+        "ringId": "ring_02"
       },
       "core_origin": {
         "id": "core_origin",
@@ -1173,40 +1803,137 @@
           "Core"
         ],
         "adjacent": [
-          "BlackEarly_01",
-          "BlackEarly_02",
-          "BlueEarly_01",
-          "BlueEarly_02",
-          "GreenEarly_01",
-          "GreenEarly_02",
-          "RedEarly_01",
-          "RedEarly_02"
+          "Astronomy",
+          "Basket",
+          "Cooking",
+          "Crafting",
+          "Fish",
+          "Forage",
+          "MudHouses",
+          "RitualShrine"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 715,
-          "y": 530
+          "x": 731,
+          "y": 536
         },
         "uiNodeRadius": 28
+      },
+      "Crafting": {
+        "id": "Crafting",
+        "treeId": "systemColorMap",
+        "name": "BlackBlueEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early",
+          "Hybrid",
+          "Notable"
+        ],
+        "adjacent": [
+          "Astronomy",
+          "core_origin",
+          "RitualShrine"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 608,
+          "y": 531
+        },
+        "ringId": "ring_04"
+      },
+      "Farming": {
+        "id": "Farming",
+        "treeId": "systemColorMap",
+        "name": "BlueGreenEarly_Notable_01",
+        "desc": "",
+        "cost": 2,
+        "tags": [
+          "Blue",
+          "Early",
+          "Green",
+          "Hybrid",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueEarly_01",
+          "GreenEarly_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 707,
+          "y": 875
+        },
+        "ringId": "ring_04"
+      },
+      "Fish": {
+        "id": "Fish",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "core_origin",
+          "Forage",
+          "MudHouses",
+          "RedEarly_01",
+          "RedEarly_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 828,
+          "y": 461
+        },
+        "ringId": "ring_02"
+      },
+      "Forage": {
+        "id": "Forage",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "Basket",
+          "core_origin",
+          "Fish"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 857,
+          "y": 547
+        },
+        "ringId": "ring_02"
       },
       "GreenEarly_01": {
         "id": "GreenEarly_01",
         "treeId": "systemColorMap",
         "name": "GreenNodeEarly_01",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Early",
           "Green"
         ],
         "adjacent": [
-          "core_origin",
-          "GreenEarly_03"
+          "Basket",
+          "GreenEarly_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 941,
-          "y": 635
+          "x": 977,
+          "y": 675
         },
         "ringId": "ring_01"
       },
@@ -1215,19 +1942,19 @@
         "treeId": "systemColorMap",
         "name": "GreenNodeEarly_02",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Early",
           "Green"
         ],
         "adjacent": [
-          "core_origin",
-          "GreenEarly_04"
+          "GreenEarly_01",
+          "Storehouse"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 820,
-          "y": 756
+          "x": 956,
+          "y": 709
         },
         "ringId": "ring_01"
       },
@@ -1236,19 +1963,19 @@
         "treeId": "systemColorMap",
         "name": "GreenNodeEarly_03",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Early",
           "Green"
         ],
         "adjacent": [
-          "GreenEarly_01",
-          "GreenEarly_Notable"
+          "Basket",
+          "GreenEarly_04"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 829,
-          "y": 626
+          "x": 849,
+          "y": 773
         },
         "ringId": "ring_01"
       },
@@ -1257,19 +1984,20 @@
         "treeId": "systemColorMap",
         "name": "GreenNodeEarly_04",
         "desc": "Early ring.",
-        "cost": 1,
+        "cost": 2,
         "tags": [
           "Early",
           "Green"
         ],
         "adjacent": [
-          "GreenEarly_02",
-          "GreenEarly_Notable"
+          "Farming",
+          "GreenEarly_03",
+          "Storehouse"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 863,
-          "y": 707
+          "x": 817,
+          "y": 812
         },
         "ringId": "ring_01"
       },
@@ -1285,13 +2013,14 @@
         ],
         "adjacent": [
           "GreenEarly_06",
-          "GreenEarly_07"
+          "Storehouse"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1172,
-          "y": 743
-        }
+          "x": 1363,
+          "y": 998
+        },
+        "ringId": "ring_03"
       },
       "GreenEarly_06": {
         "id": "GreenEarly_06",
@@ -1304,14 +2033,15 @@
           "Green"
         ],
         "adjacent": [
-          "GreenEarly_05",
-          "GreenEarly_08"
+          "Beer",
+          "GreenEarly_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1119,
-          "y": 849
-        }
+          "x": 1466,
+          "y": 803
+        },
+        "ringId": "ring_03"
       },
       "GreenEarly_07": {
         "id": "GreenEarly_07",
@@ -1324,15 +2054,15 @@
           "Green"
         ],
         "adjacent": [
-          "GreenEarly_05",
           "GreenEarly_08",
-          "GreenEarly_Notable"
+          "Storehouse"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1034,
-          "y": 933
-        }
+          "x": 988,
+          "y": 1281
+        },
+        "ringId": "ring_03"
       },
       "GreenEarly_08": {
         "id": "GreenEarly_08",
@@ -1345,42 +2075,143 @@
           "Green"
         ],
         "adjacent": [
-          "GreenEarly_06",
-          "GreenEarly_07",
-          "GreenEarly_Notable"
+          "Beer",
+          "GreenEarly_07"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 927,
-          "y": 986
-        }
+          "x": 1183,
+          "y": 1178
+        },
+        "ringId": "ring_03"
       },
-      "GreenEarly_Notable": {
-        "id": "GreenEarly_Notable",
+      "GreenEarly_09": {
+        "id": "GreenEarly_09",
         "treeId": "systemColorMap",
-        "name": "GreenNodeEarlyNotable_01",
-        "desc": "Cluster punctuation.",
-        "cost": 2,
+        "name": "GreenEarly_09",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green"
+        ],
+        "adjacent": [
+          "Beer",
+          "GreenEarly_10"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1754,
+          "y": 1130
+        },
+        "ringId": "ring_05"
+      },
+      "GreenEarly_10": {
+        "id": "GreenEarly_10",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_10",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green"
+        ],
+        "adjacent": [
+          "GreenEarly_09",
+          "GreenEarly_Notable_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1842,
+          "y": 940
+        },
+        "ringId": "ring_05"
+      },
+      "GreenEarly_11": {
+        "id": "GreenEarly_11",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_11",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green"
+        ],
+        "adjacent": [
+          "Beer",
+          "GreenEarly_12"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1533,
+          "y": 1786
+        },
+        "ringId": "ring_06"
+      },
+      "GreenEarly_12": {
+        "id": "GreenEarly_12",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_12",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green"
+        ],
+        "adjacent": [
+          "GreenEarly_11",
+          "GreenEarly_Notable_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1220,
+          "y": 1618
+        },
+        "ringId": "ring_05"
+      },
+      "GreenEarly_Notable_03": {
+        "id": "GreenEarly_Notable_03",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_Notable_03",
+        "desc": "",
+        "cost": 1,
         "tags": [
           "Early",
           "Green",
           "Notable"
         ],
         "adjacent": [
-          "BlueGreenEarly_02",
-          "GreenEarly_03",
-          "GreenEarly_04",
-          "GreenEarly_07",
-          "GreenEarly_08",
-          "GreenMid_01",
-          "GreenRedEarly_01"
+          "GreenEarly_10",
+          "GreenRedEarly_07"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 962,
-          "y": 777
+          "x": 1654,
+          "y": 872
         },
-        "ringId": "ring_02"
+        "ringId": "ring_04"
+      },
+      "GreenEarly_Notable_04": {
+        "id": "GreenEarly_Notable_04",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_Notable_04",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueGreenEarly_08",
+          "GreenEarly_12"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1057,
+          "y": 1469
+        },
+        "ringId": "ring_04"
       },
       "GreenLate_01": {
         "id": "GreenLate_01",
@@ -1398,9 +2229,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1222,
-          "y": 1617
-        }
+          "x": 2166,
+          "y": 1594
+        },
+        "ringId": "ring_09"
       },
       "GreenLate_02": {
         "id": "GreenLate_02",
@@ -1418,9 +2250,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1802,
-          "y": 1037
-        }
+          "x": 2081,
+          "y": 1702
+        },
+        "ringId": "ring_09"
       },
       "GreenLate_03": {
         "id": "GreenLate_03",
@@ -1438,9 +2271,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1656,
-          "y": 1274
-        }
+          "x": 1868,
+          "y": 1911
+        },
+        "ringId": "ring_09"
       },
       "GreenLate_Notable": {
         "id": "GreenLate_Notable",
@@ -1458,9 +2292,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1459,
-          "y": 1471
-        }
+          "x": 1745,
+          "y": 2005
+        },
+        "ringId": "ring_09"
       },
       "GreenMid_01": {
         "id": "GreenMid_01",
@@ -1473,16 +2308,15 @@
           "Mid"
         ],
         "adjacent": [
-          "BlueGreenMid_Notable",
-          "GreenEarly_Notable",
-          "GreenMid_02",
-          "GreenRedMid_Notable"
+          "Beer",
+          "GreenMid_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1531,
-          "y": 910
-        }
+          "x": 1754,
+          "y": 1130
+        },
+        "ringId": "ring_05"
       },
       "GreenMid_02": {
         "id": "GreenMid_02",
@@ -1496,13 +2330,14 @@
         ],
         "adjacent": [
           "GreenMid_01",
-          "GreenMid_03"
+          "GreenMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1494,
-          "y": 1010
-        }
+          "x": 1947,
+          "y": 1385
+        },
+        "ringId": "ring_06"
       },
       "GreenMid_03": {
         "id": "GreenMid_03",
@@ -1515,14 +2350,15 @@
           "Mid"
         ],
         "adjacent": [
-          "GreenMid_02",
-          "GreenMid_04"
+          "GreenMid_04",
+          "GreenMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1425,
-          "y": 1091
-        }
+          "x": 1665,
+          "y": 1939
+        },
+        "ringId": "ring_08"
       },
       "GreenMid_04": {
         "id": "GreenMid_04",
@@ -1535,14 +2371,15 @@
           "Mid"
         ],
         "adjacent": [
-          "GreenMid_03",
-          "GreenMid_05"
+          "BlueGreenMid_Notable",
+          "GreenMid_03"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1359,
-          "y": 1174
-        }
+          "x": 1296,
+          "y": 2127
+        },
+        "ringId": "ring_08"
       },
       "GreenMid_05": {
         "id": "GreenMid_05",
@@ -1555,14 +2392,15 @@
           "Mid"
         ],
         "adjacent": [
-          "GreenMid_04",
-          "GreenMid_06"
+          "GreenMid_06",
+          "GreenMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1275,
-          "y": 1239
-        }
+          "x": 2170,
+          "y": 1408
+        },
+        "ringId": "ring_08"
       },
       "GreenMid_06": {
         "id": "GreenMid_06",
@@ -1576,13 +2414,14 @@
         ],
         "adjacent": [
           "GreenMid_05",
-          "GreenMid_Notable"
+          "GreenRedMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1199,
-          "y": 1315
-        }
+          "x": 2312,
+          "y": 1111
+        },
+        "ringId": "ring_08"
       },
       "GreenMid_Notable": {
         "id": "GreenMid_Notable",
@@ -1597,14 +2436,16 @@
         ],
         "adjacent": [
           "GreenLate_01",
-          "GreenMid_06",
-          "GreenRedEarly_04"
+          "GreenMid_02",
+          "GreenMid_03",
+          "GreenMid_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1093,
-          "y": 1341
-        }
+          "x": 1947,
+          "y": 1550
+        },
+        "ringId": "ring_07"
       },
       "GreenRedEarly_01": {
         "id": "GreenRedEarly_01",
@@ -1619,16 +2460,15 @@
           "Red"
         ],
         "adjacent": [
-          "GreenEarly_Notable",
-          "GreenRedEarly_02",
+          "GreenRedEarly_03",
           "RedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1164,
-          "y": 503
+          "x": 1203,
+          "y": 421
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "GreenRedEarly_02": {
         "id": "GreenRedEarly_02",
@@ -1643,16 +2483,15 @@
           "Red"
         ],
         "adjacent": [
-          "GreenRedEarly_01",
           "GreenRedEarly_03",
-          "GreenRedMid_Notable"
+          "Storehouse"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1064,
-          "y": 550
+          "x": 1203,
+          "y": 638
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "GreenRedEarly_03": {
         "id": "GreenRedEarly_03",
@@ -1667,13 +2506,14 @@
           "Red"
         ],
         "adjacent": [
+          "GreenRedEarly_01",
           "GreenRedEarly_02",
-          "GreenRedEarly_04"
+          "GreenRedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1158,
-          "y": 608
+          "x": 1514,
+          "y": 531
         },
         "ringId": "ring_03"
       },
@@ -1690,16 +2530,151 @@
           "Red"
         ],
         "adjacent": [
-          "GreenMid_Notable",
-          "GreenRedEarly_03",
-          "RedEarly_Notable"
+          "GreenRedEarly_05",
+          "GreenRedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1060,
-          "y": 469
+          "x": 1914,
+          "y": 530
         },
-        "ringId": "ring_03"
+        "ringId": "ring_05"
+      },
+      "GreenRedEarly_05": {
+        "id": "GreenRedEarly_05",
+        "treeId": "systemColorMap",
+        "name": "GreenRedEarly_05",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenRedEarly_04",
+          "GreenRedMid_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 2215,
+          "y": 530
+        },
+        "ringId": "ring_06"
+      },
+      "GreenRedEarly_06": {
+        "id": "GreenRedEarly_06",
+        "treeId": "systemColorMap",
+        "name": "GreenRedEarly_06",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenRedEarly_07",
+          "GreenRedEarly_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1705,
+          "y": 667
+        },
+        "ringId": "ring_04"
+      },
+      "GreenRedEarly_07": {
+        "id": "GreenRedEarly_07",
+        "treeId": "systemColorMap",
+        "name": "GreenRedEarly_07",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenEarly_Notable_03",
+          "GreenRedEarly_06"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1886,
+          "y": 789
+        },
+        "ringId": "ring_05"
+      },
+      "GreenRedEarly_08": {
+        "id": "GreenRedEarly_08",
+        "treeId": "systemColorMap",
+        "name": "GreenRedEarly_08",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenRedEarly_09",
+          "GreenRedEarly_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1705,
+          "y": 392
+        },
+        "ringId": "ring_04"
+      },
+      "GreenRedEarly_09": {
+        "id": "GreenRedEarly_09",
+        "treeId": "systemColorMap",
+        "name": "GreenRedEarly_09",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenRedEarly_08",
+          "RedEarly_Notable_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1886,
+          "y": 270
+        },
+        "ringId": "ring_05"
+      },
+      "GreenRedEarly_Notable": {
+        "id": "GreenRedEarly_Notable",
+        "treeId": "systemColorMap",
+        "name": "GreenRedEarly_Notable",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Hybrid",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenRedEarly_03",
+          "GreenRedEarly_04",
+          "GreenRedEarly_06",
+          "GreenRedEarly_08"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1714,
+          "y": 530
+        },
+        "ringId": "ring_04"
       },
       "GreenRedMid_Notable": {
         "id": "GreenRedMid_Notable",
@@ -1715,16 +2690,92 @@
           "Red"
         ],
         "adjacent": [
-          "GreenMid_01",
-          "GreenRedEarly_02",
-          "RedMid_01"
+          "GreenMid_06",
+          "GreenRedEarly_05",
+          "RedMid_06"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1415,
+          "x": 2315,
           "y": 530
         },
-        "ringId": "ring_05"
+        "ringId": "ring_07"
+      },
+      "MudHouses": {
+        "id": "MudHouses",
+        "treeId": "systemColorMap",
+        "name": "RedBlackEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Hybrid",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "core_origin",
+          "Fish",
+          "RitualShrine"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 740,
+          "y": 428
+        },
+        "ringId": "ring_04"
+      },
+      "Papyrus": {
+        "id": "Papyrus",
+        "treeId": "systemColorMap",
+        "name": "BlueNodeEarlyNotable_01",
+        "desc": "Cluster punctuation.",
+        "cost": 2,
+        "tags": [
+          "Blue",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackBlueEarly_01",
+          "BlueEarly_02",
+          "BlueEarly_04",
+          "BlueEarly_05",
+          "BlueEarly_08",
+          "BlueGreenEarly_01"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 364,
+          "y": 885
+        },
+        "ringId": "ring_02"
+      },
+      "Prophecy": {
+        "id": "Prophecy",
+        "treeId": "systemColorMap",
+        "name": "BlueEarlyNotable2",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueEarly_06",
+          "BlueEarly_07",
+          "BlueEarly_09",
+          "BlueEarly_11",
+          "BlueMid_01"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 33,
+          "y": 1261
+        },
+        "ringId": "ring_04"
       },
       "RedBlackEarly_01": {
         "id": "RedBlackEarly_01",
@@ -1740,15 +2791,14 @@
         ],
         "adjacent": [
           "BlackEarly_Notable",
-          "RedBlackEarly_02",
-          "RedEarly_Notable"
+          "RedBlackEarly_03"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 688,
-          "y": 80
+          "x": 606,
+          "y": 41
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "RedBlackEarly_02": {
         "id": "RedBlackEarly_02",
@@ -1763,16 +2813,15 @@
           "Red"
         ],
         "adjacent": [
-          "RedBlackEarly_01",
           "RedBlackEarly_03",
-          "RedBlackMid_Notable"
+          "RedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 735,
-          "y": 180
+          "x": 823,
+          "y": 41
         },
-        "ringId": "ring_03"
+        "ringId": "ring_02"
       },
       "RedBlackEarly_03": {
         "id": "RedBlackEarly_03",
@@ -1787,13 +2836,14 @@
           "Red"
         ],
         "adjacent": [
+          "RedBlackEarly_01",
           "RedBlackEarly_02",
-          "RedBlackEarly_04"
+          "RedBlackEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 793,
-          "y": 86
+          "x": 715,
+          "y": -270
         },
         "ringId": "ring_03"
       },
@@ -1810,16 +2860,151 @@
           "Red"
         ],
         "adjacent": [
-          "BlackEarly_Notable",
-          "RedBlackEarly_03",
-          "RedMid_Notable"
+          "RedBlackEarly_05",
+          "RedBlackEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 654,
-          "y": 184
+          "x": 714,
+          "y": -670
         },
-        "ringId": "ring_03"
+        "ringId": "ring_05"
+      },
+      "RedBlackEarly_05": {
+        "id": "RedBlackEarly_05",
+        "treeId": "systemColorMap",
+        "name": "RedBlackEarly_05",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedBlackEarly_04",
+          "RedBlackMid_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 709,
+          "y": -970
+        },
+        "ringId": "ring_06"
+      },
+      "RedBlackEarly_06": {
+        "id": "RedBlackEarly_06",
+        "treeId": "systemColorMap",
+        "name": "RedBlackEarly_06",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedBlackEarly_07",
+          "RedBlackEarly_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 852,
+          "y": -461
+        },
+        "ringId": "ring_04"
+      },
+      "RedBlackEarly_07": {
+        "id": "RedBlackEarly_07",
+        "treeId": "systemColorMap",
+        "name": "RedBlackEarly_07",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedBlackEarly_06",
+          "RedEarly_Notable_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 974,
+          "y": -642
+        },
+        "ringId": "ring_05"
+      },
+      "RedBlackEarly_08": {
+        "id": "RedBlackEarly_08",
+        "treeId": "systemColorMap",
+        "name": "RedBlackEarly_08",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedBlackEarly_09",
+          "RedBlackEarly_Notable"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 577,
+          "y": -461
+        },
+        "ringId": "ring_04"
+      },
+      "RedBlackEarly_09": {
+        "id": "RedBlackEarly_09",
+        "treeId": "systemColorMap",
+        "name": "RedBlackEarly_09",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "BlackEarly_Notable_03",
+          "RedBlackEarly_08"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 455,
+          "y": -642
+        },
+        "ringId": "ring_05"
+      },
+      "RedBlackEarly_Notable": {
+        "id": "RedBlackEarly_Notable",
+        "treeId": "systemColorMap",
+        "name": "RedBlackEarly_Notable",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Hybrid",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "RedBlackEarly_03",
+          "RedBlackEarly_04",
+          "RedBlackEarly_06",
+          "RedBlackEarly_08"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 714,
+          "y": -470
+        },
+        "ringId": "ring_04"
       },
       "RedBlackMid_Notable": {
         "id": "RedBlackMid_Notable",
@@ -1835,16 +3020,16 @@
           "Red"
         ],
         "adjacent": [
-          "BlackMid_01",
-          "RedBlackEarly_02",
-          "RedMid_01"
+          "BlackMid_06",
+          "RedBlackEarly_05",
+          "RedMid_04"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 715,
-          "y": -170
+          "x": 705,
+          "y": -1070
         },
-        "ringId": "ring_05"
+        "ringId": "ring_07"
       },
       "RedEarly_01": {
         "id": "RedEarly_01",
@@ -1857,13 +3042,13 @@
           "Red"
         ],
         "adjacent": [
-          "core_origin",
-          "RedEarly_03"
+          "Fish",
+          "RedEarly_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 811,
-          "y": 415
+          "x": 860,
+          "y": 267
         },
         "ringId": "ring_01"
       },
@@ -1878,13 +3063,13 @@
           "Red"
         ],
         "adjacent": [
-          "core_origin",
-          "RedEarly_04"
+          "RedEarly_01",
+          "RedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 941,
-          "y": 424
+          "x": 894,
+          "y": 288
         },
         "ringId": "ring_01"
       },
@@ -1899,13 +3084,13 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_01",
-          "RedEarly_Notable"
+          "Fish",
+          "RedEarly_04"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 820,
-          "y": 303
+          "x": 978,
+          "y": 385
         },
         "ringId": "ring_01"
       },
@@ -1920,13 +3105,13 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_02",
+          "RedEarly_03",
           "RedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 887,
-          "y": 385
+          "x": 995,
+          "y": 421
         },
         "ringId": "ring_01"
       },
@@ -1942,13 +3127,14 @@
         ],
         "adjacent": [
           "RedEarly_06",
-          "RedEarly_07"
+          "RedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 928,
-          "y": 72
-        }
+          "x": 1183,
+          "y": -119
+        },
+        "ringId": "ring_03"
       },
       "RedEarly_06": {
         "id": "RedEarly_06",
@@ -1962,13 +3148,14 @@
         ],
         "adjacent": [
           "RedEarly_05",
-          "RedEarly_08"
+          "RedEarly_Notable_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1034,
-          "y": 125
-        }
+          "x": 988,
+          "y": -222
+        },
+        "ringId": "ring_03"
       },
       "RedEarly_07": {
         "id": "RedEarly_07",
@@ -1981,15 +3168,15 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_05",
           "RedEarly_08",
           "RedEarly_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1118,
-          "y": 210
-        }
+          "x": 1466,
+          "y": 256
+        },
+        "ringId": "ring_03"
       },
       "RedEarly_08": {
         "id": "RedEarly_08",
@@ -2002,15 +3189,99 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_06",
           "RedEarly_07",
-          "RedEarly_Notable"
+          "RedEarly_Notable_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1171,
-          "y": 317
-        }
+          "x": 1363,
+          "y": 61
+        },
+        "ringId": "ring_03"
+      },
+      "RedEarly_09": {
+        "id": "RedEarly_09",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_09",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedEarly_10",
+          "RedEarly_Notable_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1231,
+          "y": -553
+        },
+        "ringId": "ring_05"
+      },
+      "RedEarly_10": {
+        "id": "RedEarly_10",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_10",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedEarly_09",
+          "RedEarly_Notable_02"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1379,
+          "y": -470
+        },
+        "ringId": "ring_05"
+      },
+      "RedEarly_11": {
+        "id": "RedEarly_11",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_11",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedEarly_12",
+          "RedEarly_Notable_02"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1696,
+          "y": -161
+        },
+        "ringId": "ring_05"
+      },
+      "RedEarly_12": {
+        "id": "RedEarly_12",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_12",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Red"
+        ],
+        "adjacent": [
+          "RedEarly_11",
+          "RedEarly_Notable_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1795,
+          "y": 8
+        },
+        "ringId": "ring_05"
       },
       "RedEarly_Notable": {
         "id": "RedEarly_Notable",
@@ -2025,20 +3296,87 @@
         ],
         "adjacent": [
           "GreenRedEarly_01",
-          "GreenRedEarly_04",
-          "RedBlackEarly_01",
-          "RedEarly_03",
+          "RedBlackEarly_02",
+          "RedEarly_02",
           "RedEarly_04",
-          "RedEarly_07",
+          "RedEarly_05",
+          "RedEarly_07"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1118,
+          "y": 232
+        },
+        "ringId": "ring_02"
+      },
+      "RedEarly_Notable_02": {
+        "id": "RedEarly_Notable_02",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_Notable_02",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "RedEarly_06",
           "RedEarly_08",
+          "RedEarly_10",
+          "RedEarly_11",
           "RedMid_01"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 962,
-          "y": 282
+          "x": 1388,
+          "y": -210
         },
-        "ringId": "ring_02"
+        "ringId": "ring_04"
+      },
+      "RedEarly_Notable_03": {
+        "id": "RedEarly_Notable_03",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_Notable_03",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "RedBlackEarly_07",
+          "RedEarly_09"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1057,
+          "y": -410
+        },
+        "ringId": "ring_04"
+      },
+      "RedEarly_Notable_04": {
+        "id": "RedEarly_Notable_04",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_Notable_04",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenRedEarly_09",
+          "RedEarly_12"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1654,
+          "y": 187
+        },
+        "ringId": "ring_04"
       },
       "RedLate_01": {
         "id": "RedLate_01",
@@ -2056,9 +3394,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1802,
-          "y": 22
-        }
+          "x": 1819,
+          "y": -892
+        },
+        "ringId": "ring_09"
       },
       "RedLate_02": {
         "id": "RedLate_02",
@@ -2076,9 +3415,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1222,
-          "y": -558
-        }
+          "x": 1893,
+          "y": -831
+        },
+        "ringId": "ring_09"
       },
       "RedLate_03": {
         "id": "RedLate_03",
@@ -2096,9 +3436,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1459,
-          "y": -412
-        }
+          "x": 2096,
+          "y": -624
+        },
+        "ringId": "ring_09"
       },
       "RedLate_Notable": {
         "id": "RedLate_Notable",
@@ -2116,9 +3457,10 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1656,
-          "y": -215
-        }
+          "x": 2190,
+          "y": -501
+        },
+        "ringId": "ring_09"
       },
       "RedMid_01": {
         "id": "RedMid_01",
@@ -2131,16 +3473,15 @@
           "Red"
         ],
         "adjacent": [
-          "GreenRedMid_Notable",
-          "RedBlackMid_Notable",
-          "RedEarly_Notable",
+          "RedEarly_Notable_02",
           "RedMid_02"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1095,
-          "y": -287
-        }
+          "x": 1717,
+          "y": -586
+        },
+        "ringId": "ring_06"
       },
       "RedMid_02": {
         "id": "RedMid_02",
@@ -2154,13 +3495,14 @@
         ],
         "adjacent": [
           "RedMid_01",
-          "RedMid_03"
+          "RedMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1195,
-          "y": -250
-        }
+          "x": 1809,
+          "y": -496
+        },
+        "ringId": "ring_06"
       },
       "RedMid_03": {
         "id": "RedMid_03",
@@ -2173,14 +3515,15 @@
           "Red"
         ],
         "adjacent": [
-          "RedMid_02",
-          "RedMid_04"
+          "RedMid_04",
+          "RedMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1276,
-          "y": -181
-        }
+          "x": 1631,
+          "y": -902
+        },
+        "ringId": "ring_08"
       },
       "RedMid_04": {
         "id": "RedMid_04",
@@ -2193,14 +3536,15 @@
           "Red"
         ],
         "adjacent": [
-          "RedMid_03",
-          "RedMid_05"
+          "RedBlackMid_Notable",
+          "RedMid_03"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1359,
-          "y": -115
-        }
+          "x": 1296,
+          "y": -1068
+        },
+        "ringId": "ring_08"
       },
       "RedMid_05": {
         "id": "RedMid_05",
@@ -2213,14 +3557,15 @@
           "Red"
         ],
         "adjacent": [
-          "RedMid_04",
-          "RedMid_06"
+          "RedMid_06",
+          "RedMid_Notable"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1424,
-          "y": -31
-        }
+          "x": 2141,
+          "y": -395
+        },
+        "ringId": "ring_08"
       },
       "RedMid_06": {
         "id": "RedMid_06",
@@ -2233,14 +3578,15 @@
           "Red"
         ],
         "adjacent": [
-          "RedMid_05",
-          "RedMid_Notable"
+          "GreenRedMid_Notable",
+          "RedMid_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1500,
-          "y": 45
-        }
+          "x": 2312,
+          "y": -52
+        },
+        "ringId": "ring_08"
       },
       "RedMid_Notable": {
         "id": "RedMid_Notable",
@@ -2254,15 +3600,92 @@
           "Red"
         ],
         "adjacent": [
-          "RedBlackEarly_04",
           "RedLate_01",
-          "RedMid_06"
+          "RedMid_02",
+          "RedMid_03",
+          "RedMid_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1526,
-          "y": 151
-        }
+          "x": 1828,
+          "y": -620
+        },
+        "ringId": "ring_07"
+      },
+      "RitualShrine": {
+        "id": "RitualShrine",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackEarly_02",
+          "BlackEarly_03",
+          "core_origin",
+          "Crafting",
+          "MudHouses"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 650,
+          "y": 456
+        },
+        "ringId": "ring_02"
+      },
+      "Storehouse": {
+        "id": "Storehouse",
+        "treeId": "systemColorMap",
+        "name": "Granary",
+        "desc": "Cluster punctuation.",
+        "cost": 2,
+        "tags": [
+          "Early",
+          "Green",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueGreenEarly_02",
+          "GreenEarly_02",
+          "GreenEarly_04",
+          "GreenEarly_05",
+          "GreenEarly_07",
+          "GreenRedEarly_02"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 997,
+          "y": 942
+        },
+        "ringId": "ring_02"
+      },
+      "Weaving": {
+        "id": "Weaving",
+        "treeId": "systemColorMap",
+        "name": "BlackBlueEarly_Notable_01",
+        "desc": "",
+        "cost": 2,
+        "tags": [
+          "Black",
+          "Blue",
+          "Early",
+          "Hybrid",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackEarly_01",
+          "BlueEarly_04"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 393,
+          "y": 522
+        },
+        "ringId": "ring_04"
       }
     }
   },

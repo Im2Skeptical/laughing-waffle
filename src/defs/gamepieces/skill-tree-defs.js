@@ -68,47 +68,124 @@ export const skillTrees = {
         ],
         radii: {
           core: 0,
-          ring_01: 200,
-          ring_02: 300,
-          ring_03: 400,
+          ring_01: 300,
+          ring_02: 500,
+          ring_03: 800,
           early: 500,
-          ring_04: 600,
-          ring_05: 700,
-          ring_06: 800,
+          ring_04: 1000,
+          ring_05: 1200,
+          ring_06: 1500,
           mid: 900,
-          ring_07: 1000,
-          ring_08: 1100,
-          ring_09: 1200,
+          ring_07: 1600,
+          ring_08: 1700,
+          ring_09: 1800,
           late: 1200
         },
         wedgeSpansDeg: {
-          Blue: 40,
-          Green: 40,
-          Red: 40,
-          Black: 40,
-          BlueGreen: 20,
-          GreenRed: 20,
-          RedBlack: 20,
-          BlackBlue: 20
+          Blue: 50,
+          Green: 50,
+          Red: 50,
+          Black: 50,
+          BlueGreen: 25,
+          GreenRed: 25,
+          RedBlack: 25,
+          BlackBlue: 25
         },
-        barycenterIterations: 8,
-        localSwapIterations: 3,
-        overlapIterations: 4,
-        overlapPaddingPx: 8,
-        componentBandGapDeg: 10,
-        radialNudgeIterations: 10,
-        radialNudgeMaxPx: 50,
-        radialNudgePaddingPx: 120,
-        radialNudgeSpring: 0.2
+        barycenterIterations: 32,
+        localSwapIterations: 32,
+        overlapIterations: 32,
+        overlapPaddingPx: 16,
+        componentBandGapDeg: 16,
+        angleSwapTeleportWeight: 4,
+        radialNudgeIterations: 64,
+        radialNudgeMaxPx: 248,
+        radialNudgePaddingPx: 64,
+        radialNudgeSpring: 8,
+        coreSpread: 16
       }
     }
   }
 };
 
 export const skillNodes = {
+  Astronomy: {
+    id: "Astronomy",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "Papyrus_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueEarly_01",
+      "BlueEarly_03",
+      "Cooking",
+      "core_origin",
+      "Crafting"
+    ],
+    uiPos: {
+      x: 636,
+      y: 605
+    },
+    onUnlock: []
+  },
+  Basket: {
+    id: "Basket",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "GreenEarly_Notable_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Notable"
+    ],
+    adjacent: [
+      "Cooking",
+      "core_origin",
+      "Forage",
+      "GreenEarly_01",
+      "GreenEarly_03"
+    ],
+    uiPos: {
+      x: 815,
+      y: 628
+    },
+    onUnlock: []
+  },
+  Beer: {
+    id: "Beer",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "GreenEarly_Notable2",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Notable"
+    ],
+    adjacent: [
+      "GreenEarly_06",
+      "GreenEarly_08",
+      "GreenEarly_09",
+      "GreenEarly_11",
+      "GreenMid_01"
+    ],
+    uiPos: {
+      x: 1434,
+      y: 1223
+    },
+    onUnlock: []
+  },
   BlackBlueEarly_01: {
     id: "BlackBlueEarly_01",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "BlackBlueEarly_01",
     desc: "Hybrid bridge.",
@@ -120,19 +197,19 @@ export const skillNodes = {
       "Hybrid"
     ],
     adjacent: [
-      "BlackBlueEarly_02",
-      "BlackEarly_Notable",
-      "BlueEarly_Notable"
+      "BlackBlueEarly_03",
+      "BlueEarly_Notable",
+      "Papyrus"
     ],
     uiPos: {
-      x: 271,
-      y: 608
+      x: 226,
+      y: 638
     },
     onUnlock: []
   },
   BlackBlueEarly_02: {
     id: "BlackBlueEarly_02",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "BlackBlueEarly_02",
     desc: "Hybrid bridge.",
@@ -144,13 +221,12 @@ export const skillNodes = {
       "Hybrid"
     ],
     adjacent: [
-      "BlackBlueEarly_01",
       "BlackBlueEarly_03",
-      "BlackBlueMid_Notable"
+      "BlackEarly_Notable"
     ],
     uiPos: {
-      x: 365,
-      y: 550
+      x: 226,
+      y: 421
     },
     onUnlock: []
   },
@@ -168,18 +244,19 @@ export const skillNodes = {
       "Hybrid"
     ],
     adjacent: [
+      "BlackBlueEarly_01",
       "BlackBlueEarly_02",
-      "BlackBlueEarly_04"
+      "BlackBlueEarly_Notable"
     ],
     uiPos: {
-      x: 265,
-      y: 503
+      x: -85,
+      y: 530
     },
     onUnlock: []
   },
   BlackBlueEarly_04: {
     id: "BlackBlueEarly_04",
-    ringId: "ring_03",
+    ringId: "ring_05",
     treeId: "systemColorMap",
     name: "BlackBlueEarly_04",
     desc: "Hybrid bridge.",
@@ -191,19 +268,45 @@ export const skillNodes = {
       "Hybrid"
     ],
     adjacent: [
-      "BlackBlueEarly_03",
-      "BlackMid_Notable",
+      "BlackBlueEarly_Notable",
+      "BlueBlackEarly_05",
       "BlueEarly_Notable"
     ],
     uiPos: {
-      x: 368,
-      y: 468
+      x: -485,
+      y: 529
+    },
+    onUnlock: []
+  },
+  BlackBlueEarly_Notable: {
+    id: "BlackBlueEarly_Notable",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlackBlueEarly_Notable_02",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Blue",
+      "Early",
+      "Hybrid",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackBlueEarly_03",
+      "BlackBlueEarly_04",
+      "BlueBlackEarly_06",
+      "BlueBlackEarly_08"
+    ],
+    uiPos: {
+      x: -285,
+      y: 529
     },
     onUnlock: []
   },
   BlackBlueMid_Notable: {
     id: "BlackBlueMid_Notable",
-    ringId: "ring_05",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "BlackBlueMidNotable_01",
     desc: "Bridge anchor (immediate domain).",
@@ -216,13 +319,13 @@ export const skillNodes = {
       "Notable"
     ],
     adjacent: [
-      "BlackBlueEarly_02",
-      "BlackMid_01",
-      "BlueMid_01"
+      "BlackMid_04",
+      "BlueBlackEarly_05",
+      "BlueMid_06"
     ],
     uiPos: {
-      x: 15,
-      y: 530
+      x: -885,
+      y: 523
     },
     onUnlock: []
   },
@@ -232,18 +335,19 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlackNodeEarly_01",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Black",
       "Early"
     ],
     adjacent: [
-      "BlackEarly_04",
-      "core_origin"
+      "BlackEarly_02",
+      "BlackEarly_Notable",
+      "Weaving"
     ],
     uiPos: {
-      x: 609,
-      y: 303
+      x: 414,
+      y: 391
     },
     onUnlock: []
   },
@@ -253,18 +357,18 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlackNodeEarly_02",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Black",
       "Early"
     ],
     adjacent: [
-      "BlackEarly_03",
-      "core_origin"
+      "BlackEarly_01",
+      "RitualShrine"
     ],
     uiPos: {
-      x: 600,
-      y: 433
+      x: 473,
+      y: 350
     },
     onUnlock: []
   },
@@ -274,18 +378,18 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlackNodeEarly_03",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Black",
       "Early"
     ],
     adjacent: [
-      "BlackEarly_02",
-      "BlackEarly_Notable"
+      "BlackEarly_04",
+      "RitualShrine"
     ],
     uiPos: {
-      x: 488,
-      y: 424
+      x: 573,
+      y: 265
     },
     onUnlock: []
   },
@@ -295,23 +399,24 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlackNodeEarly_04",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Black",
       "Early"
     ],
     adjacent: [
-      "BlackEarly_01",
+      "BlackEarly_03",
       "BlackEarly_Notable"
     ],
     uiPos: {
-      x: 568,
-      y: 355
+      x: 539,
+      y: 286
     },
     onUnlock: []
   },
   BlackEarly_05: {
     id: "BlackEarly_05",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlackNodeEarly_05",
     desc: "Early ring cluster B.",
@@ -322,16 +427,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackEarly_06",
-      "BlackEarly_07"
+      "BlackEarly_Notable"
     ],
     uiPos: {
-      x: 257,
-      y: 316
+      x: 66,
+      y: 61
     },
     onUnlock: []
   },
   BlackEarly_06: {
     id: "BlackEarly_06",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlackNodeEarly_06",
     desc: "Early ring cluster B.",
@@ -342,16 +448,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackEarly_05",
-      "BlackEarly_08"
+      "BlackEarly_Notable_02"
     ],
     uiPos: {
-      x: 310,
-      y: 210
+      x: 44,
+      y: 94
     },
     onUnlock: []
   },
   BlackEarly_07: {
     id: "BlackEarly_07",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlackNodeEarly_07",
     desc: "Early ring cluster B.",
@@ -361,18 +468,18 @@ export const skillNodes = {
       "Early"
     ],
     adjacent: [
-      "BlackEarly_05",
       "BlackEarly_08",
       "BlackEarly_Notable"
     ],
     uiPos: {
-      x: 395,
-      y: 126
+      x: 279,
+      y: -141
     },
     onUnlock: []
   },
   BlackEarly_08: {
     id: "BlackEarly_08",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlackNodeEarly_08",
     desc: "Early ring cluster B.",
@@ -382,13 +489,96 @@ export const skillNodes = {
       "Early"
     ],
     adjacent: [
-      "BlackEarly_06",
       "BlackEarly_07",
-      "BlackEarly_Notable"
+      "BlackEarly_Notable_02"
     ],
     uiPos: {
-      x: 502,
-      y: 73
+      x: 246,
+      y: -119
+    },
+    onUnlock: []
+  },
+  BlackEarly_09: {
+    id: "BlackEarly_09",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlackEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early"
+    ],
+    adjacent: [
+      "BlackEarly_10",
+      "BlackEarly_Notable_02"
+    ],
+    uiPos: {
+      x: 4,
+      y: -438
+    },
+    onUnlock: []
+  },
+  BlackEarly_10: {
+    id: "BlackEarly_10",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlackEarly_10",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early"
+    ],
+    adjacent: [
+      "BlackEarly_09",
+      "BlackEarly_Notable_03"
+    ],
+    uiPos: {
+      x: 174,
+      y: -542
+    },
+    onUnlock: []
+  },
+  BlackEarly_11: {
+    id: "BlackEarly_11",
+    ringId: "ring_06",
+    treeId: "systemColorMap",
+    name: "BlackEarly_11",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early"
+    ],
+    adjacent: [
+      "BlackEarly_12",
+      "BlackEarly_Notable_02"
+    ],
+    uiPos: {
+      x: -540,
+      y: -292
+    },
+    onUnlock: []
+  },
+  BlackEarly_12: {
+    id: "BlackEarly_12",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlackEarly_12",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early"
+    ],
+    adjacent: [
+      "BlackEarly_11",
+      "BlackEarly_Notable_04"
+    ],
+    uiPos: {
+      x: -366,
+      y: 7
     },
     onUnlock: []
   },
@@ -405,23 +595,91 @@ export const skillNodes = {
       "Notable"
     ],
     adjacent: [
-      "BlackBlueEarly_01",
-      "BlackEarly_03",
+      "BlackBlueEarly_02",
+      "BlackEarly_01",
       "BlackEarly_04",
+      "BlackEarly_05",
       "BlackEarly_07",
-      "BlackEarly_08",
-      "BlackMid_01",
-      "RedBlackEarly_01",
-      "RedBlackEarly_04"
+      "RedBlackEarly_01"
     ],
     uiPos: {
-      x: 467,
-      y: 282
+      x: 360,
+      y: 177
+    },
+    onUnlock: []
+  },
+  BlackEarly_Notable_02: {
+    id: "BlackEarly_Notable_02",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlackEarly_Notable_02",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackEarly_06",
+      "BlackEarly_08",
+      "BlackEarly_09",
+      "BlackEarly_11",
+      "BlackMid_01"
+    ],
+    uiPos: {
+      x: 8,
+      y: -178
+    },
+    onUnlock: []
+  },
+  BlackEarly_Notable_03: {
+    id: "BlackEarly_Notable_03",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlackEarly_Notable_03",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackEarly_10",
+      "RedBlackEarly_09"
+    ],
+    uiPos: {
+      x: 372,
+      y: -410
+    },
+    onUnlock: []
+  },
+  BlackEarly_Notable_04: {
+    id: "BlackEarly_Notable_04",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlackEarly_Notable_04",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackEarly_12",
+      "BlueBlackEarly_09"
+    ],
+    uiPos: {
+      x: -225,
+      y: 186
     },
     onUnlock: []
   },
   BlackLate_01: {
     id: "BlackLate_01",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlackNodeLate_01",
     desc: "Late ring.",
@@ -435,13 +693,14 @@ export const skillNodes = {
       "BlackMid_Notable"
     ],
     uiPos: {
-      x: -373,
-      y: 22
+      x: -733,
+      y: -541
     },
     onUnlock: []
   },
   BlackLate_02: {
     id: "BlackLate_02",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlackNodeLate_02",
     desc: "Late ring.",
@@ -455,13 +714,14 @@ export const skillNodes = {
       "BlackLate_03"
     ],
     uiPos: {
-      x: -227,
-      y: -215
+      x: -709,
+      y: -573
     },
     onUnlock: []
   },
   BlackLate_03: {
     id: "BlackLate_03",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlackNodeLate_03",
     desc: "Late ring.",
@@ -475,13 +735,14 @@ export const skillNodes = {
       "BlackLate_Notable"
     ],
     uiPos: {
-      x: -30,
-      y: -412
+      x: -684,
+      y: -604
     },
     onUnlock: []
   },
   BlackLate_Notable: {
     id: "BlackLate_Notable",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlackNodeLateNotable_01",
     desc: "Outer edge anchor.",
@@ -495,13 +756,14 @@ export const skillNodes = {
       "BlackLate_03"
     ],
     uiPos: {
-      x: 207,
-      y: -558
+      x: -651,
+      y: -644
     },
     onUnlock: []
   },
   BlackMid_01: {
     id: "BlackMid_01",
+    ringId: "ring_06",
     treeId: "systemColorMap",
     name: "BlackNodeMid_01",
     desc: "Mid ring.",
@@ -511,19 +773,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlackBlueMid_Notable",
-      "BlackEarly_Notable",
-      "BlackMid_02",
-      "RedBlackMid_Notable"
+      "BlackEarly_Notable_02",
+      "BlackMid_02"
     ],
     uiPos: {
-      x: -74,
-      y: 43
+      x: -126,
+      y: -713
     },
     onUnlock: []
   },
   BlackMid_02: {
     id: "BlackMid_02",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "BlackNodeMid_02",
     desc: "Mid ring.",
@@ -534,16 +795,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackMid_01",
-      "BlackMid_03"
+      "BlackMid_Notable"
     ],
     uiPos: {
-      x: 8,
-      y: -29
+      x: -130,
+      y: -830
     },
     onUnlock: []
   },
   BlackMid_03: {
     id: "BlackMid_03",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "BlackNodeMid_03",
     desc: "Mid ring.",
@@ -553,17 +815,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlackMid_02",
-      "BlackMid_04"
+      "BlackMid_04",
+      "BlackMid_Notable"
     ],
     uiPos: {
-      x: 69,
-      y: -116
+      x: -695,
+      y: -421
     },
     onUnlock: []
   },
   BlackMid_04: {
     id: "BlackMid_04",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "BlackNodeMid_04",
     desc: "Mid ring.",
@@ -573,17 +836,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlackMid_03",
-      "BlackMid_05"
+      "BlackBlueMid_Notable",
+      "BlackMid_03"
     ],
     uiPos: {
-      x: 152,
-      y: -181
+      x: -789,
+      y: -18
     },
     onUnlock: []
   },
   BlackMid_05: {
     id: "BlackMid_05",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlackNodeMid_05",
     desc: "Mid ring.",
@@ -593,17 +857,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlackMid_04",
-      "BlackMid_06"
+      "BlackMid_06",
+      "BlackMid_Notable"
     ],
     uiPos: {
-      x: 234,
-      y: -249
+      x: -59,
+      y: -1096
     },
     onUnlock: []
   },
   BlackMid_06: {
     id: "BlackMid_06",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "BlackNodeMid_06",
     desc: "Mid ring.",
@@ -614,16 +879,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackMid_05",
-      "BlackMid_Notable"
+      "RedBlackMid_Notable"
     ],
     uiPos: {
-      x: 334,
-      y: -286
+      x: 133,
+      y: -1068
     },
     onUnlock: []
   },
   BlackMid_Notable: {
     id: "BlackMid_Notable",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "BlackNodeMidNotable_01",
     desc: "Mid anchor.",
@@ -634,13 +900,124 @@ export const skillNodes = {
       "Notable"
     ],
     adjacent: [
-      "BlackBlueEarly_04",
       "BlackLate_01",
-      "BlackMid_06"
+      "BlackMid_02",
+      "BlackMid_03",
+      "BlackMid_05"
     ],
     uiPos: {
-      x: -96,
-      y: 152
+      x: -296,
+      y: -711
+    },
+    onUnlock: []
+  },
+  BlueBlackEarly_05: {
+    id: "BlueBlackEarly_05",
+    ringId: "ring_06",
+    treeId: "systemColorMap",
+    name: "BlueBlackEarly_05",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlackBlueEarly_04",
+      "BlackBlueMid_Notable"
+    ],
+    uiPos: {
+      x: -785,
+      y: 526
+    },
+    onUnlock: []
+  },
+  BlueBlackEarly_06: {
+    id: "BlueBlackEarly_06",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlueBlackEarly_06",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlackBlueEarly_Notable",
+      "BlueBlackEarly_07"
+    ],
+    uiPos: {
+      x: -470,
+      y: 721
+    },
+    onUnlock: []
+  },
+  BlueBlackEarly_07: {
+    id: "BlueBlackEarly_07",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueBlackEarly_07",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlueBlackEarly_06",
+      "BlueEarlyNotable_04"
+    ],
+    uiPos: {
+      x: -262,
+      y: 746
+    },
+    onUnlock: []
+  },
+  BlueBlackEarly_08: {
+    id: "BlueBlackEarly_08",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlueBlackEarly_08",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlackBlueEarly_Notable",
+      "BlueBlackEarly_09"
+    ],
+    uiPos: {
+      x: -470,
+      y: 338
+    },
+    onUnlock: []
+  },
+  BlueBlackEarly_09: {
+    id: "BlueBlackEarly_09",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueBlackEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlackEarly_Notable_04",
+      "BlueBlackEarly_08"
+    ],
+    uiPos: {
+      x: -262,
+      y: 313
     },
     onUnlock: []
   },
@@ -650,18 +1027,19 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlueNodeEarly_01",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Blue",
       "Early"
     ],
     adjacent: [
-      "BlueEarly_03",
-      "core_origin"
+      "Astronomy",
+      "BlueEarly_02",
+      "Farming"
     ],
     uiPos: {
-      x: 609,
-      y: 756
+      x: 573,
+      y: 792
     },
     onUnlock: []
   },
@@ -671,18 +1049,18 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlueNodeEarly_02",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Blue",
       "Early"
     ],
     adjacent: [
-      "BlueEarly_04",
-      "core_origin"
+      "BlueEarly_01",
+      "Papyrus"
     ],
     uiPos: {
-      x: 600,
-      y: 626
+      x: 520,
+      y: 792
     },
     onUnlock: []
   },
@@ -692,18 +1070,19 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlueNodeEarly_03",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Blue",
       "Early"
     ],
     adjacent: [
-      "BlueEarly_01",
+      "Astronomy",
+      "BlueEarly_04",
       "BlueEarly_Notable"
     ],
     uiPos: {
-      x: 566,
-      y: 706
+      x: 470,
+      y: 676
     },
     onUnlock: []
   },
@@ -713,23 +1092,26 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "BlueNodeEarly_04",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Blue",
       "Early"
     ],
     adjacent: [
-      "BlueEarly_02",
-      "BlueEarly_Notable"
+      "BlueEarly_03",
+      "BlueEarly_Notable",
+      "Papyrus",
+      "Weaving"
     ],
     uiPos: {
-      x: 488,
-      y: 635
+      x: 437,
+      y: 645
     },
     onUnlock: []
   },
   BlueEarly_05: {
     id: "BlueEarly_05",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlueNodeEarly_05",
     desc: "Early ring cluster B.",
@@ -740,16 +1122,18 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_06",
-      "BlueEarly_Notable"
+      "BlueEarly_Notable",
+      "Papyrus"
     ],
     uiPos: {
-      x: 508,
-      y: 973
+      x: 246,
+      y: 1178
     },
     onUnlock: []
   },
   BlueEarly_06: {
     id: "BlueEarly_06",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlueNodeEarly_06",
     desc: "Early ring cluster B.",
@@ -760,16 +1144,18 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_05",
-      "BlueEarlyNotable2"
+      "BlueEarlyNotable2",
+      "Prophecy"
     ],
     uiPos: {
-      x: 399,
-      y: 980
+      x: 279,
+      y: 1200
     },
     onUnlock: []
   },
   BlueEarly_07: {
     id: "BlueEarly_07",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlueNodeEarly_07",
     desc: "Early ring cluster B.",
@@ -780,16 +1166,18 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_08",
-      "BlueEarlyNotable2"
+      "BlueEarlyNotable2",
+      "Prophecy"
     ],
     uiPos: {
-      x: 176,
-      y: 889
+      x: 66,
+      y: 998
     },
     onUnlock: []
   },
   BlueEarly_08: {
     id: "BlueEarly_08",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "BlueNodeEarly_08",
     desc: "Early ring cluster B.",
@@ -800,11 +1188,96 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_07",
-      "BlueEarly_Notable"
+      "BlueEarly_Notable",
+      "Papyrus"
     ],
     uiPos: {
-      x: 264,
-      y: 845
+      x: 44,
+      y: 965
+    },
+    onUnlock: []
+  },
+  BlueEarly_09: {
+    id: "BlueEarly_09",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlueEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlueEarly_10",
+      "Prophecy"
+    ],
+    uiPos: {
+      x: 176,
+      y: 1602
+    },
+    onUnlock: []
+  },
+  BlueEarly_10: {
+    id: "BlueEarly_10",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueEarly_10",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlueEarly_09",
+      "BlueEarlyNotable_03"
+    ],
+    uiPos: {
+      x: 245,
+      y: 1412
+    },
+    onUnlock: []
+  },
+  BlueEarly_11: {
+    id: "BlueEarly_11",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueEarly_11",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlueEarly_12",
+      "Prophecy"
+    ],
+    uiPos: {
+      x: -63,
+      y: 1159
+    },
+    onUnlock: []
+  },
+  BlueEarly_12: {
+    id: "BlueEarly_12",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlueEarly_12",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early"
+    ],
+    adjacent: [
+      "BlueEarly_11",
+      "BlueEarlyNotable_04"
+    ],
+    uiPos: {
+      x: -358,
+      y: 1068
     },
     onUnlock: []
   },
@@ -835,6 +1308,50 @@ export const skillNodes = {
     },
     onUnlock: []
   },
+  BlueEarlyNotable_03: {
+    id: "BlueEarlyNotable_03",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueEarlyNotable_03",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueEarly_10",
+      "BlueGreenEarly_07"
+    ],
+    uiPos: {
+      x: 370,
+      y: 1468
+    },
+    onUnlock: []
+  },
+  BlueEarlyNotable_04: {
+    id: "BlueEarlyNotable_04",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueEarlyNotable_04",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueBlackEarly_07",
+      "BlueEarly_12"
+    ],
+    uiPos: {
+      x: -225,
+      y: 872
+    },
+    onUnlock: []
+  },
   BlueEarlyNotable2: {
     id: "BlueEarlyNotable2",
     treeId: "systemColorMap",
@@ -859,11 +1376,11 @@ export const skillNodes = {
   },
   BlueGreenEarly_01: {
     id: "BlueGreenEarly_01",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "BlueGreenEarly_01",
     desc: "Hybrid bridge.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Blue",
       "Early",
@@ -872,22 +1389,22 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_Notable",
-      "BlueGreenEarly_02",
-      "BlueGreenEarly_03"
+      "BlueGreenEarly_03",
+      "Papyrus"
     ],
     uiPos: {
-      x: 638,
-      y: 915
+      x: 649,
+      y: 1025
     },
     onUnlock: []
   },
   BlueGreenEarly_02: {
     id: "BlueGreenEarly_02",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "BlueGreenEarly_02",
     desc: "Hybrid bridge.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Blue",
       "Early",
@@ -895,13 +1412,13 @@ export const skillNodes = {
       "Hybrid"
     ],
     adjacent: [
-      "BlueGreenEarly_01",
-      "BlueGreenEarly_04",
-      "GreenEarly_Notable"
+      "BlueGreenEarly_03",
+      "GreenEarly_Notable",
+      "Storehouse"
     ],
     uiPos: {
-      x: 774,
-      y: 907
+      x: 780,
+      y: 1025
     },
     onUnlock: []
   },
@@ -920,18 +1437,18 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueGreenEarly_01",
-      "BlueGreenEarly_04",
-      "BlueGreenMid_Notable"
+      "BlueGreenEarly_02",
+      "BlueGreenEarly_Notable"
     ],
     uiPos: {
-      x: 653,
-      y: 1019
+      x: 715,
+      y: 1329
     },
     onUnlock: []
   },
   BlueGreenEarly_04: {
     id: "BlueGreenEarly_04",
-    ringId: "ring_03",
+    ringId: "ring_05",
     treeId: "systemColorMap",
     name: "BlueGreenEarly_04",
     desc: "Hybrid bridge.",
@@ -943,19 +1460,158 @@ export const skillNodes = {
       "Hybrid"
     ],
     adjacent: [
-      "BlueGreenEarly_02",
-      "BlueGreenEarly_03",
+      "BlueGreenEarly_05",
+      "BlueGreenEarly_Notable"
+    ],
+    uiPos: {
+      x: 715,
+      y: 1729
+    },
+    onUnlock: []
+  },
+  BlueGreenEarly_05: {
+    id: "BlueGreenEarly_05",
+    ringId: "ring_06",
+    treeId: "systemColorMap",
+    name: "BlueGreenEarly_05",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Green"
+    ],
+    adjacent: [
+      "BlueGreenEarly_04",
       "BlueGreenMid_Notable"
     ],
     uiPos: {
-      x: 778,
-      y: 1029
+      x: 715,
+      y: 2030
+    },
+    onUnlock: []
+  },
+  BlueGreenEarly_06: {
+    id: "BlueGreenEarly_06",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueGreenEarly_06",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Green",
+      "Hybrid"
+    ],
+    adjacent: [
+      "BlueGreenEarly_07",
+      "BlueGreenEarly_Notable"
+    ],
+    uiPos: {
+      x: 577,
+      y: 1520
+    },
+    onUnlock: []
+  },
+  BlueGreenEarly_07: {
+    id: "BlueGreenEarly_07",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlueGreenEarly_07",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Green",
+      "Hybrid"
+    ],
+    adjacent: [
+      "BlueEarlyNotable_03",
+      "BlueGreenEarly_06"
+    ],
+    uiPos: {
+      x: 455,
+      y: 1701
+    },
+    onUnlock: []
+  },
+  BlueGreenEarly_08: {
+    id: "BlueGreenEarly_08",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "BlueGreenEarly_08",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Green",
+      "Hybrid"
+    ],
+    adjacent: [
+      "BlueGreenEarly_09",
+      "GreenEarly_Notable_04"
+    ],
+    uiPos: {
+      x: 974,
+      y: 1701
+    },
+    onUnlock: []
+  },
+  BlueGreenEarly_09: {
+    id: "BlueGreenEarly_09",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueGreenEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Green",
+      "Hybrid"
+    ],
+    adjacent: [
+      "BlueGreenEarly_08",
+      "BlueGreenEarly_Notable"
+    ],
+    uiPos: {
+      x: 852,
+      y: 1520
+    },
+    onUnlock: []
+  },
+  BlueGreenEarly_Notable: {
+    id: "BlueGreenEarly_Notable",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueGreenEarly_Notable",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Green",
+      "Hybrid",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueGreenEarly_03",
+      "BlueGreenEarly_04",
+      "BlueGreenEarly_06",
+      "BlueGreenEarly_09"
+    ],
+    uiPos: {
+      x: 715,
+      y: 1529
     },
     onUnlock: []
   },
   BlueGreenMid_Notable: {
     id: "BlueGreenMid_Notable",
-    ringId: "ring_05",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "BlueGreenMidNotable_01",
     desc: "Bridge anchor (deferred domain).",
@@ -968,19 +1624,19 @@ export const skillNodes = {
       "Notable"
     ],
     adjacent: [
-      "BlueGreenEarly_03",
-      "BlueGreenEarly_04",
-      "BlueMid_01",
-      "GreenMid_01"
+      "BlueGreenEarly_05",
+      "BlueMid_04",
+      "GreenMid_04"
     ],
     uiPos: {
       x: 715,
-      y: 1230
+      y: 2130
     },
     onUnlock: []
   },
   BlueLate_01: {
     id: "BlueLate_01",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlueNodeLate_01",
     desc: "Late ring.",
@@ -994,13 +1650,14 @@ export const skillNodes = {
       "BlueMid_Notable"
     ],
     uiPos: {
-      x: -373,
-      y: 1037
+      x: -365,
+      y: 1970
     },
     onUnlock: []
   },
   BlueLate_02: {
     id: "BlueLate_02",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlueNodeLate_02",
     desc: "Late ring.",
@@ -1014,13 +1671,14 @@ export const skillNodes = {
       "BlueLate_03"
     ],
     uiPos: {
-      x: 207,
-      y: 1617
+      x: -460,
+      y: 1893
     },
     onUnlock: []
   },
   BlueLate_03: {
     id: "BlueLate_03",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlueNodeLate_03",
     desc: "Late ring.",
@@ -1034,13 +1692,14 @@ export const skillNodes = {
       "BlueLate_Notable"
     ],
     uiPos: {
-      x: -30,
-      y: 1471
+      x: -667,
+      y: 1683
     },
     onUnlock: []
   },
   BlueLate_Notable: {
     id: "BlueLate_Notable",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "BlueNodeLateNotable_01",
     desc: "Outer edge anchor.",
@@ -1054,13 +1713,14 @@ export const skillNodes = {
       "BlueLate_03"
     ],
     uiPos: {
-      x: -227,
-      y: 1274
+      x: -761,
+      y: 1560
     },
     onUnlock: []
   },
   BlueMid_01: {
     id: "BlueMid_01",
+    ringId: "ring_05",
     treeId: "systemColorMap",
     name: "BlueNodeMid_01",
     desc: "Mid ring.",
@@ -1070,19 +1730,19 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlackBlueMid_Notable",
       "BlueEarlyNotable2",
-      "BlueGreenMid_Notable",
-      "BlueMid_02"
+      "BlueMid_02",
+      "Prophecy"
     ],
     uiPos: {
-      x: 127,
-      y: 1099
+      x: -83,
+      y: 1426
     },
     onUnlock: []
   },
   BlueMid_02: {
     id: "BlueMid_02",
+    ringId: "ring_06",
     treeId: "systemColorMap",
     name: "BlueNodeMid_02",
     desc: "Mid ring.",
@@ -1093,16 +1753,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueMid_01",
-      "BlueMid_03"
+      "BlueMid_Notable"
     ],
     uiPos: {
-      x: 334,
-      y: 1346
+      x: -183,
+      y: 1731
     },
     onUnlock: []
   },
   BlueMid_03: {
     id: "BlueMid_03",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "BlueNodeMid_03",
     desc: "Mid ring.",
@@ -1112,17 +1773,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlueMid_02",
-      "BlueMid_04"
+      "BlueMid_04",
+      "BlueMid_Notable"
     ],
     uiPos: {
-      x: 234,
-      y: 1309
+      x: -178,
+      y: 1976
     },
     onUnlock: []
   },
   BlueMid_04: {
     id: "BlueMid_04",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "BlueNodeMid_04",
     desc: "Mid ring.",
@@ -1132,17 +1794,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlueMid_03",
-      "BlueMid_05"
+      "BlueGreenMid_Notable",
+      "BlueMid_03"
     ],
     uiPos: {
-      x: 152,
-      y: 1241
+      x: 133,
+      y: 2127
     },
     onUnlock: []
   },
   BlueMid_05: {
     id: "BlueMid_05",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "BlueNodeMid_05",
     desc: "Mid ring.",
@@ -1152,17 +1815,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlueMid_04",
-      "BlueMid_06"
+      "BlueMid_06",
+      "BlueMid_Notable"
     ],
     uiPos: {
-      x: 72,
-      y: 1172
+      x: -697,
+      y: 1478
     },
     onUnlock: []
   },
   BlueMid_06: {
     id: "BlueMid_06",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "BlueNodeMid_06",
     desc: "Mid ring.",
@@ -1172,17 +1836,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlueMid_05",
-      "BlueMid_Notable"
+      "BlackBlueMid_Notable",
+      "BlueMid_05"
     ],
     uiPos: {
-      x: 2,
-      y: 1093
+      x: -883,
+      y: 1111
     },
     onUnlock: []
   },
   BlueMid_Notable: {
     id: "BlueMid_Notable",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "BlueNodeMidNotable_01",
     desc: "Mid anchor.",
@@ -1194,11 +1859,36 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueLate_01",
-      "BlueMid_06"
+      "BlueMid_02",
+      "BlueMid_03",
+      "BlueMid_05"
     ],
     uiPos: {
-      x: -69,
-      y: 1013
+      x: -336,
+      y: 1736
+    },
+    onUnlock: []
+  },
+  Cooking: {
+    id: "Cooking",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "GreenEarly_Notable_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Notable"
+    ],
+    adjacent: [
+      "Astronomy",
+      "Basket",
+      "core_origin"
+    ],
+    uiPos: {
+      x: 727,
+      y: 649
     },
     onUnlock: []
   },
@@ -1212,20 +1902,117 @@ export const skillNodes = {
       "Core"
     ],
     adjacent: [
-      "BlackEarly_01",
-      "BlackEarly_02",
-      "BlueEarly_01",
-      "BlueEarly_02",
-      "GreenEarly_01",
-      "GreenEarly_02",
-      "RedEarly_01",
-      "RedEarly_02"
+      "Astronomy",
+      "Basket",
+      "Cooking",
+      "Crafting",
+      "Fish",
+      "Forage",
+      "MudHouses",
+      "RitualShrine"
     ],
     uiPos: {
-      x: 715,
-      y: 530
+      x: 731,
+      y: 536
     },
     uiNodeRadius: 28,
+    onUnlock: []
+  },
+  Crafting: {
+    id: "Crafting",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlackBlueEarly_Notable_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Blue",
+      "Early",
+      "Hybrid",
+      "Notable"
+    ],
+    adjacent: [
+      "Astronomy",
+      "core_origin",
+      "RitualShrine"
+    ],
+    uiPos: {
+      x: 608,
+      y: 531
+    },
+    onUnlock: []
+  },
+  Farming: {
+    id: "Farming",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueGreenEarly_Notable_01",
+    desc: "",
+    cost: 2,
+    tags: [
+      "Blue",
+      "Early",
+      "Green",
+      "Hybrid",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueEarly_01",
+      "GreenEarly_04"
+    ],
+    uiPos: {
+      x: 707,
+      y: 875
+    },
+    onUnlock: []
+  },
+  Fish: {
+    id: "Fish",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "RedEarly_Notable_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "core_origin",
+      "Forage",
+      "MudHouses",
+      "RedEarly_01",
+      "RedEarly_03"
+    ],
+    uiPos: {
+      x: 828,
+      y: 461
+    },
+    onUnlock: []
+  },
+  Forage: {
+    id: "Forage",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "RedEarly_Notable_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "Basket",
+      "core_origin",
+      "Fish"
+    ],
+    uiPos: {
+      x: 857,
+      y: 547
+    },
     onUnlock: []
   },
   GreenEarly_01: {
@@ -1234,18 +2021,18 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "GreenNodeEarly_01",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Early",
       "Green"
     ],
     adjacent: [
-      "core_origin",
-      "GreenEarly_03"
+      "Basket",
+      "GreenEarly_02"
     ],
     uiPos: {
-      x: 941,
-      y: 635
+      x: 977,
+      y: 675
     },
     onUnlock: []
   },
@@ -1255,18 +2042,18 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "GreenNodeEarly_02",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Early",
       "Green"
     ],
     adjacent: [
-      "core_origin",
-      "GreenEarly_04"
+      "GreenEarly_01",
+      "Storehouse"
     ],
     uiPos: {
-      x: 820,
-      y: 756
+      x: 956,
+      y: 709
     },
     onUnlock: []
   },
@@ -1276,18 +2063,19 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "GreenNodeEarly_03",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Early",
       "Green"
     ],
     adjacent: [
-      "GreenEarly_01",
+      "Basket",
+      "GreenEarly_04",
       "GreenEarly_Notable"
     ],
     uiPos: {
-      x: 829,
-      y: 626
+      x: 849,
+      y: 773
     },
     onUnlock: []
   },
@@ -1297,23 +2085,26 @@ export const skillNodes = {
     treeId: "systemColorMap",
     name: "GreenNodeEarly_04",
     desc: "Early ring.",
-    cost: 1,
+    cost: 2,
     tags: [
       "Early",
       "Green"
     ],
     adjacent: [
-      "GreenEarly_02",
-      "GreenEarly_Notable"
+      "Farming",
+      "GreenEarly_03",
+      "GreenEarly_Notable",
+      "Storehouse"
     ],
     uiPos: {
-      x: 863,
-      y: 707
+      x: 817,
+      y: 812
     },
     onUnlock: []
   },
   GreenEarly_05: {
     id: "GreenEarly_05",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "GreenNodeEarly_05",
     desc: "Early ring cluster B.",
@@ -1324,16 +2115,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "GreenEarly_06",
-      "GreenEarly_07"
+      "Storehouse"
     ],
     uiPos: {
-      x: 1172,
-      y: 743
+      x: 1363,
+      y: 998
     },
     onUnlock: []
   },
   GreenEarly_06: {
     id: "GreenEarly_06",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "GreenNodeEarly_06",
     desc: "Early ring cluster B.",
@@ -1343,17 +2135,18 @@ export const skillNodes = {
       "Green"
     ],
     adjacent: [
-      "GreenEarly_05",
-      "GreenEarly_08"
+      "Beer",
+      "GreenEarly_05"
     ],
     uiPos: {
-      x: 1119,
-      y: 849
+      x: 1466,
+      y: 803
     },
     onUnlock: []
   },
   GreenEarly_07: {
     id: "GreenEarly_07",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "GreenNodeEarly_07",
     desc: "Early ring cluster B.",
@@ -1363,18 +2156,19 @@ export const skillNodes = {
       "Green"
     ],
     adjacent: [
-      "GreenEarly_05",
       "GreenEarly_08",
-      "GreenEarly_Notable"
+      "GreenEarly_Notable",
+      "Storehouse"
     ],
     uiPos: {
-      x: 1034,
-      y: 933
+      x: 988,
+      y: 1281
     },
     onUnlock: []
   },
   GreenEarly_08: {
     id: "GreenEarly_08",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "GreenNodeEarly_08",
     desc: "Early ring cluster B.",
@@ -1384,13 +2178,97 @@ export const skillNodes = {
       "Green"
     ],
     adjacent: [
-      "GreenEarly_06",
+      "Beer",
       "GreenEarly_07",
       "GreenEarly_Notable"
     ],
     uiPos: {
-      x: 927,
-      y: 986
+      x: 1183,
+      y: 1178
+    },
+    onUnlock: []
+  },
+  GreenEarly_09: {
+    id: "GreenEarly_09",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "GreenEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green"
+    ],
+    adjacent: [
+      "Beer",
+      "GreenEarly_10"
+    ],
+    uiPos: {
+      x: 1754,
+      y: 1130
+    },
+    onUnlock: []
+  },
+  GreenEarly_10: {
+    id: "GreenEarly_10",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "GreenEarly_10",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green"
+    ],
+    adjacent: [
+      "GreenEarly_09",
+      "GreenEarly_Notable_03"
+    ],
+    uiPos: {
+      x: 1842,
+      y: 940
+    },
+    onUnlock: []
+  },
+  GreenEarly_11: {
+    id: "GreenEarly_11",
+    ringId: "ring_06",
+    treeId: "systemColorMap",
+    name: "GreenEarly_11",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green"
+    ],
+    adjacent: [
+      "Beer",
+      "GreenEarly_12"
+    ],
+    uiPos: {
+      x: 1533,
+      y: 1786
+    },
+    onUnlock: []
+  },
+  GreenEarly_12: {
+    id: "GreenEarly_12",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "GreenEarly_12",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green"
+    ],
+    adjacent: [
+      "GreenEarly_11",
+      "GreenEarly_Notable_04"
+    ],
+    uiPos: {
+      x: 1220,
+      y: 1618
     },
     onUnlock: []
   },
@@ -1421,8 +2299,53 @@ export const skillNodes = {
     },
     onUnlock: []
   },
+  GreenEarly_Notable_03: {
+    id: "GreenEarly_Notable_03",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "GreenEarly_Notable_03",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Notable"
+    ],
+    adjacent: [
+      "GreenEarly_10",
+      "GreenRedEarly_07"
+    ],
+    uiPos: {
+      x: 1654,
+      y: 872
+    },
+    onUnlock: []
+  },
+  GreenEarly_Notable_04: {
+    id: "GreenEarly_Notable_04",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "GreenEarly_Notable_04",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueGreenEarly_08",
+      "GreenEarly_12"
+    ],
+    uiPos: {
+      x: 1057,
+      y: 1469
+    },
+    onUnlock: []
+  },
   GreenLate_01: {
     id: "GreenLate_01",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "GreenNodeLate_01",
     desc: "Late ring.",
@@ -1436,13 +2359,14 @@ export const skillNodes = {
       "GreenMid_Notable"
     ],
     uiPos: {
-      x: 1222,
-      y: 1617
+      x: 2166,
+      y: 1594
     },
     onUnlock: []
   },
   GreenLate_02: {
     id: "GreenLate_02",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "GreenNodeLate_02",
     desc: "Late ring.",
@@ -1456,13 +2380,14 @@ export const skillNodes = {
       "GreenLate_03"
     ],
     uiPos: {
-      x: 1802,
-      y: 1037
+      x: 2081,
+      y: 1702
     },
     onUnlock: []
   },
   GreenLate_03: {
     id: "GreenLate_03",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "GreenNodeLate_03",
     desc: "Late ring.",
@@ -1476,13 +2401,14 @@ export const skillNodes = {
       "GreenLate_Notable"
     ],
     uiPos: {
-      x: 1656,
-      y: 1274
+      x: 1868,
+      y: 1911
     },
     onUnlock: []
   },
   GreenLate_Notable: {
     id: "GreenLate_Notable",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "GreenNodeLateNotable_01",
     desc: "Outer edge anchor.",
@@ -1496,13 +2422,14 @@ export const skillNodes = {
       "GreenLate_03"
     ],
     uiPos: {
-      x: 1459,
-      y: 1471
+      x: 1745,
+      y: 2005
     },
     onUnlock: []
   },
   GreenMid_01: {
     id: "GreenMid_01",
+    ringId: "ring_05",
     treeId: "systemColorMap",
     name: "GreenNodeMid_01",
     desc: "Mid ring.",
@@ -1512,19 +2439,19 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "BlueGreenMid_Notable",
+      "Beer",
       "GreenEarly_Notable",
-      "GreenMid_02",
-      "GreenRedMid_Notable"
+      "GreenMid_02"
     ],
     uiPos: {
-      x: 1531,
-      y: 910
+      x: 1754,
+      y: 1130
     },
     onUnlock: []
   },
   GreenMid_02: {
     id: "GreenMid_02",
+    ringId: "ring_06",
     treeId: "systemColorMap",
     name: "GreenNodeMid_02",
     desc: "Mid ring.",
@@ -1535,16 +2462,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "GreenMid_01",
-      "GreenMid_03"
+      "GreenMid_Notable"
     ],
     uiPos: {
-      x: 1494,
-      y: 1010
+      x: 1947,
+      y: 1385
     },
     onUnlock: []
   },
   GreenMid_03: {
     id: "GreenMid_03",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "GreenNodeMid_03",
     desc: "Mid ring.",
@@ -1554,17 +2482,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "GreenMid_02",
-      "GreenMid_04"
+      "GreenMid_04",
+      "GreenMid_Notable"
     ],
     uiPos: {
-      x: 1425,
-      y: 1091
+      x: 1665,
+      y: 1939
     },
     onUnlock: []
   },
   GreenMid_04: {
     id: "GreenMid_04",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "GreenNodeMid_04",
     desc: "Mid ring.",
@@ -1574,17 +2503,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "GreenMid_03",
-      "GreenMid_05"
+      "BlueGreenMid_Notable",
+      "GreenMid_03"
     ],
     uiPos: {
-      x: 1359,
-      y: 1174
+      x: 1296,
+      y: 2127
     },
     onUnlock: []
   },
   GreenMid_05: {
     id: "GreenMid_05",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "GreenNodeMid_05",
     desc: "Mid ring.",
@@ -1594,17 +2524,18 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
-      "GreenMid_04",
-      "GreenMid_06"
+      "GreenMid_06",
+      "GreenMid_Notable"
     ],
     uiPos: {
-      x: 1275,
-      y: 1239
+      x: 2170,
+      y: 1408
     },
     onUnlock: []
   },
   GreenMid_06: {
     id: "GreenMid_06",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "GreenNodeMid_06",
     desc: "Mid ring.",
@@ -1615,16 +2546,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "GreenMid_05",
-      "GreenMid_Notable"
+      "GreenRedMid_Notable"
     ],
     uiPos: {
-      x: 1199,
-      y: 1315
+      x: 2312,
+      y: 1111
     },
     onUnlock: []
   },
   GreenMid_Notable: {
     id: "GreenMid_Notable",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "GreenNodeMidNotable_01",
     desc: "Mid anchor.",
@@ -1636,18 +2568,19 @@ export const skillNodes = {
     ],
     adjacent: [
       "GreenLate_01",
-      "GreenMid_06",
-      "GreenRedEarly_04"
+      "GreenMid_02",
+      "GreenMid_03",
+      "GreenMid_05"
     ],
     uiPos: {
-      x: 1093,
-      y: 1341
+      x: 1947,
+      y: 1550
     },
     onUnlock: []
   },
   GreenRedEarly_01: {
     id: "GreenRedEarly_01",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "GreenRedEarly_01",
     desc: "Hybrid bridge.",
@@ -1660,18 +2593,18 @@ export const skillNodes = {
     ],
     adjacent: [
       "GreenEarly_Notable",
-      "GreenRedEarly_02",
+      "GreenRedEarly_03",
       "RedEarly_Notable"
     ],
     uiPos: {
-      x: 1164,
-      y: 503
+      x: 1203,
+      y: 421
     },
     onUnlock: []
   },
   GreenRedEarly_02: {
     id: "GreenRedEarly_02",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "GreenRedEarly_02",
     desc: "Hybrid bridge.",
@@ -1683,13 +2616,12 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "GreenRedEarly_01",
       "GreenRedEarly_03",
-      "GreenRedMid_Notable"
+      "Storehouse"
     ],
     uiPos: {
-      x: 1064,
-      y: 550
+      x: 1203,
+      y: 638
     },
     onUnlock: []
   },
@@ -1707,18 +2639,19 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
+      "GreenRedEarly_01",
       "GreenRedEarly_02",
-      "GreenRedEarly_04"
+      "GreenRedEarly_Notable"
     ],
     uiPos: {
-      x: 1158,
-      y: 608
+      x: 1514,
+      y: 531
     },
     onUnlock: []
   },
   GreenRedEarly_04: {
     id: "GreenRedEarly_04",
-    ringId: "ring_03",
+    ringId: "ring_05",
     treeId: "systemColorMap",
     name: "GreenRedEarly_04",
     desc: "Hybrid bridge.",
@@ -1730,19 +2663,154 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "GreenMid_Notable",
-      "GreenRedEarly_03",
-      "RedEarly_Notable"
+      "GreenRedEarly_05",
+      "GreenRedEarly_Notable"
     ],
     uiPos: {
-      x: 1060,
-      y: 469
+      x: 1914,
+      y: 530
+    },
+    onUnlock: []
+  },
+  GreenRedEarly_05: {
+    id: "GreenRedEarly_05",
+    ringId: "ring_06",
+    treeId: "systemColorMap",
+    name: "GreenRedEarly_05",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Red"
+    ],
+    adjacent: [
+      "GreenRedEarly_04",
+      "GreenRedMid_Notable"
+    ],
+    uiPos: {
+      x: 2215,
+      y: 530
+    },
+    onUnlock: []
+  },
+  GreenRedEarly_06: {
+    id: "GreenRedEarly_06",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "GreenRedEarly_06",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Red"
+    ],
+    adjacent: [
+      "GreenRedEarly_07",
+      "GreenRedEarly_Notable"
+    ],
+    uiPos: {
+      x: 1705,
+      y: 667
+    },
+    onUnlock: []
+  },
+  GreenRedEarly_07: {
+    id: "GreenRedEarly_07",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "GreenRedEarly_07",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Red"
+    ],
+    adjacent: [
+      "GreenEarly_Notable_03",
+      "GreenRedEarly_06"
+    ],
+    uiPos: {
+      x: 1886,
+      y: 789
+    },
+    onUnlock: []
+  },
+  GreenRedEarly_08: {
+    id: "GreenRedEarly_08",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "GreenRedEarly_08",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Red"
+    ],
+    adjacent: [
+      "GreenRedEarly_09",
+      "GreenRedEarly_Notable"
+    ],
+    uiPos: {
+      x: 1705,
+      y: 392
+    },
+    onUnlock: []
+  },
+  GreenRedEarly_09: {
+    id: "GreenRedEarly_09",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "GreenRedEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Red"
+    ],
+    adjacent: [
+      "GreenRedEarly_08",
+      "RedEarly_Notable_04"
+    ],
+    uiPos: {
+      x: 1886,
+      y: 270
+    },
+    onUnlock: []
+  },
+  GreenRedEarly_Notable: {
+    id: "GreenRedEarly_Notable",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "GreenRedEarly_Notable",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Green",
+      "Hybrid",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "GreenRedEarly_03",
+      "GreenRedEarly_04",
+      "GreenRedEarly_06",
+      "GreenRedEarly_08"
+    ],
+    uiPos: {
+      x: 1714,
+      y: 530
     },
     onUnlock: []
   },
   GreenRedMid_Notable: {
     id: "GreenRedMid_Notable",
-    ringId: "ring_05",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "GreenRedMidNotable_01",
     desc: "Bridge anchor (preserve domain).",
@@ -1755,19 +2823,95 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "GreenMid_01",
-      "GreenRedEarly_02",
-      "RedMid_01"
+      "GreenMid_06",
+      "GreenRedEarly_05",
+      "RedMid_06"
     ],
     uiPos: {
-      x: 1415,
+      x: 2315,
       y: 530
+    },
+    onUnlock: []
+  },
+  MudHouses: {
+    id: "MudHouses",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "RedBlackEarly_Notable_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Hybrid",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "core_origin",
+      "Fish",
+      "RitualShrine"
+    ],
+    uiPos: {
+      x: 740,
+      y: 428
+    },
+    onUnlock: []
+  },
+  Papyrus: {
+    id: "Papyrus",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "BlueNodeEarlyNotable_01",
+    desc: "Cluster punctuation.",
+    cost: 2,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackBlueEarly_01",
+      "BlueEarly_02",
+      "BlueEarly_04",
+      "BlueEarly_05",
+      "BlueEarly_08",
+      "BlueGreenEarly_01"
+    ],
+    uiPos: {
+      x: 364,
+      y: 885
+    },
+    onUnlock: []
+  },
+  Prophecy: {
+    id: "Prophecy",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlueEarlyNotable2",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueEarly_06",
+      "BlueEarly_07",
+      "BlueEarly_09",
+      "BlueEarly_11",
+      "BlueMid_01"
+    ],
+    uiPos: {
+      x: 33,
+      y: 1261
     },
     onUnlock: []
   },
   RedBlackEarly_01: {
     id: "RedBlackEarly_01",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "RedBlackEarly_01",
     desc: "Hybrid bridge.",
@@ -1780,18 +2924,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackEarly_Notable",
-      "RedBlackEarly_02",
-      "RedEarly_Notable"
+      "RedBlackEarly_03"
     ],
     uiPos: {
-      x: 688,
-      y: 80
+      x: 606,
+      y: 41
     },
     onUnlock: []
   },
   RedBlackEarly_02: {
     id: "RedBlackEarly_02",
-    ringId: "ring_03",
+    ringId: "ring_02",
     treeId: "systemColorMap",
     name: "RedBlackEarly_02",
     desc: "Hybrid bridge.",
@@ -1803,13 +2946,12 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedBlackEarly_01",
       "RedBlackEarly_03",
-      "RedBlackMid_Notable"
+      "RedEarly_Notable"
     ],
     uiPos: {
-      x: 735,
-      y: 180
+      x: 823,
+      y: 41
     },
     onUnlock: []
   },
@@ -1827,18 +2969,19 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
+      "RedBlackEarly_01",
       "RedBlackEarly_02",
-      "RedBlackEarly_04"
+      "RedBlackEarly_Notable"
     ],
     uiPos: {
-      x: 793,
-      y: 86
+      x: 715,
+      y: -270
     },
     onUnlock: []
   },
   RedBlackEarly_04: {
     id: "RedBlackEarly_04",
-    ringId: "ring_03",
+    ringId: "ring_05",
     treeId: "systemColorMap",
     name: "RedBlackEarly_04",
     desc: "Hybrid bridge.",
@@ -1850,19 +2993,154 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "BlackEarly_Notable",
-      "RedBlackEarly_03",
-      "RedMid_Notable"
+      "RedBlackEarly_05",
+      "RedBlackEarly_Notable"
     ],
     uiPos: {
-      x: 654,
-      y: 184
+      x: 714,
+      y: -670
+    },
+    onUnlock: []
+  },
+  RedBlackEarly_05: {
+    id: "RedBlackEarly_05",
+    ringId: "ring_06",
+    treeId: "systemColorMap",
+    name: "RedBlackEarly_05",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedBlackEarly_04",
+      "RedBlackMid_Notable"
+    ],
+    uiPos: {
+      x: 709,
+      y: -970
+    },
+    onUnlock: []
+  },
+  RedBlackEarly_06: {
+    id: "RedBlackEarly_06",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "RedBlackEarly_06",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedBlackEarly_07",
+      "RedBlackEarly_Notable"
+    ],
+    uiPos: {
+      x: 852,
+      y: -461
+    },
+    onUnlock: []
+  },
+  RedBlackEarly_07: {
+    id: "RedBlackEarly_07",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "RedBlackEarly_07",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedBlackEarly_06",
+      "RedEarly_Notable_03"
+    ],
+    uiPos: {
+      x: 974,
+      y: -642
+    },
+    onUnlock: []
+  },
+  RedBlackEarly_08: {
+    id: "RedBlackEarly_08",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "RedBlackEarly_08",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedBlackEarly_09",
+      "RedBlackEarly_Notable"
+    ],
+    uiPos: {
+      x: 577,
+      y: -461
+    },
+    onUnlock: []
+  },
+  RedBlackEarly_09: {
+    id: "RedBlackEarly_09",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "RedBlackEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "BlackEarly_Notable_03",
+      "RedBlackEarly_08"
+    ],
+    uiPos: {
+      x: 455,
+      y: -642
+    },
+    onUnlock: []
+  },
+  RedBlackEarly_Notable: {
+    id: "RedBlackEarly_Notable",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "RedBlackEarly_Notable",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Hybrid",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "RedBlackEarly_03",
+      "RedBlackEarly_04",
+      "RedBlackEarly_06",
+      "RedBlackEarly_08"
+    ],
+    uiPos: {
+      x: 714,
+      y: -470
     },
     onUnlock: []
   },
   RedBlackMid_Notable: {
     id: "RedBlackMid_Notable",
-    ringId: "ring_05",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "RedBlackMidNotable_01",
     desc: "Bridge anchor (immediate domain).",
@@ -1875,13 +3153,13 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "BlackMid_01",
-      "RedBlackEarly_02",
-      "RedMid_01"
+      "BlackMid_06",
+      "RedBlackEarly_05",
+      "RedMid_04"
     ],
     uiPos: {
-      x: 715,
-      y: -170
+      x: 705,
+      y: -1070
     },
     onUnlock: []
   },
@@ -1897,12 +3175,12 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "core_origin",
-      "RedEarly_03"
+      "Fish",
+      "RedEarly_02"
     ],
     uiPos: {
-      x: 811,
-      y: 415
+      x: 860,
+      y: 267
     },
     onUnlock: []
   },
@@ -1918,12 +3196,12 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "core_origin",
-      "RedEarly_04"
+      "RedEarly_01",
+      "RedEarly_Notable"
     ],
     uiPos: {
-      x: 941,
-      y: 424
+      x: 894,
+      y: 288
     },
     onUnlock: []
   },
@@ -1939,12 +3217,12 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedEarly_01",
-      "RedEarly_Notable"
+      "Fish",
+      "RedEarly_04"
     ],
     uiPos: {
-      x: 820,
-      y: 303
+      x: 978,
+      y: 385
     },
     onUnlock: []
   },
@@ -1960,17 +3238,18 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedEarly_02",
+      "RedEarly_03",
       "RedEarly_Notable"
     ],
     uiPos: {
-      x: 887,
-      y: 385
+      x: 995,
+      y: 421
     },
     onUnlock: []
   },
   RedEarly_05: {
     id: "RedEarly_05",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "RedNodeEarly_05",
     desc: "Early ring cluster B.",
@@ -1981,16 +3260,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "RedEarly_06",
-      "RedEarly_07"
+      "RedEarly_Notable"
     ],
     uiPos: {
-      x: 928,
-      y: 72
+      x: 1183,
+      y: -119
     },
     onUnlock: []
   },
   RedEarly_06: {
     id: "RedEarly_06",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "RedNodeEarly_06",
     desc: "Early ring cluster B.",
@@ -2001,16 +3281,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "RedEarly_05",
-      "RedEarly_08"
+      "RedEarly_Notable_02"
     ],
     uiPos: {
-      x: 1034,
-      y: 125
+      x: 988,
+      y: -222
     },
     onUnlock: []
   },
   RedEarly_07: {
     id: "RedEarly_07",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "RedNodeEarly_07",
     desc: "Early ring cluster B.",
@@ -2020,18 +3301,18 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedEarly_05",
       "RedEarly_08",
       "RedEarly_Notable"
     ],
     uiPos: {
-      x: 1118,
-      y: 210
+      x: 1466,
+      y: 256
     },
     onUnlock: []
   },
   RedEarly_08: {
     id: "RedEarly_08",
+    ringId: "ring_03",
     treeId: "systemColorMap",
     name: "RedNodeEarly_08",
     desc: "Early ring cluster B.",
@@ -2041,13 +3322,96 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedEarly_06",
       "RedEarly_07",
-      "RedEarly_Notable"
+      "RedEarly_Notable_02"
     ],
     uiPos: {
-      x: 1171,
-      y: 317
+      x: 1363,
+      y: 61
+    },
+    onUnlock: []
+  },
+  RedEarly_09: {
+    id: "RedEarly_09",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "RedEarly_09",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedEarly_10",
+      "RedEarly_Notable_03"
+    ],
+    uiPos: {
+      x: 1231,
+      y: -553
+    },
+    onUnlock: []
+  },
+  RedEarly_10: {
+    id: "RedEarly_10",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "RedEarly_10",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedEarly_09",
+      "RedEarly_Notable_02"
+    ],
+    uiPos: {
+      x: 1379,
+      y: -470
+    },
+    onUnlock: []
+  },
+  RedEarly_11: {
+    id: "RedEarly_11",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "RedEarly_11",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedEarly_12",
+      "RedEarly_Notable_02"
+    ],
+    uiPos: {
+      x: 1696,
+      y: -161
+    },
+    onUnlock: []
+  },
+  RedEarly_12: {
+    id: "RedEarly_12",
+    ringId: "ring_05",
+    treeId: "systemColorMap",
+    name: "RedEarly_12",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Red"
+    ],
+    adjacent: [
+      "RedEarly_11",
+      "RedEarly_Notable_04"
+    ],
+    uiPos: {
+      x: 1795,
+      y: 8
     },
     onUnlock: []
   },
@@ -2065,22 +3429,90 @@ export const skillNodes = {
     ],
     adjacent: [
       "GreenRedEarly_01",
-      "GreenRedEarly_04",
-      "RedBlackEarly_01",
-      "RedEarly_03",
+      "RedBlackEarly_02",
+      "RedEarly_02",
       "RedEarly_04",
-      "RedEarly_07",
+      "RedEarly_05",
+      "RedEarly_07"
+    ],
+    uiPos: {
+      x: 1118,
+      y: 232
+    },
+    onUnlock: []
+  },
+  RedEarly_Notable_02: {
+    id: "RedEarly_Notable_02",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "RedEarly_Notable_02",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "RedEarly_06",
       "RedEarly_08",
+      "RedEarly_10",
+      "RedEarly_11",
       "RedMid_01"
     ],
     uiPos: {
-      x: 962,
-      y: 282
+      x: 1388,
+      y: -210
+    },
+    onUnlock: []
+  },
+  RedEarly_Notable_03: {
+    id: "RedEarly_Notable_03",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "RedEarly_Notable_03",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "RedBlackEarly_07",
+      "RedEarly_09"
+    ],
+    uiPos: {
+      x: 1057,
+      y: -410
+    },
+    onUnlock: []
+  },
+  RedEarly_Notable_04: {
+    id: "RedEarly_Notable_04",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "RedEarly_Notable_04",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Early",
+      "Notable",
+      "Red"
+    ],
+    adjacent: [
+      "GreenRedEarly_09",
+      "RedEarly_12"
+    ],
+    uiPos: {
+      x: 1654,
+      y: 187
     },
     onUnlock: []
   },
   RedLate_01: {
     id: "RedLate_01",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "RedNodeLate_01",
     desc: "Late ring.",
@@ -2094,13 +3526,14 @@ export const skillNodes = {
       "RedMid_Notable"
     ],
     uiPos: {
-      x: 1802,
-      y: 22
+      x: 1819,
+      y: -892
     },
     onUnlock: []
   },
   RedLate_02: {
     id: "RedLate_02",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "RedNodeLate_02",
     desc: "Late ring.",
@@ -2114,13 +3547,14 @@ export const skillNodes = {
       "RedLate_03"
     ],
     uiPos: {
-      x: 1222,
-      y: -558
+      x: 1893,
+      y: -831
     },
     onUnlock: []
   },
   RedLate_03: {
     id: "RedLate_03",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "RedNodeLate_03",
     desc: "Late ring.",
@@ -2134,13 +3568,14 @@ export const skillNodes = {
       "RedLate_Notable"
     ],
     uiPos: {
-      x: 1459,
-      y: -412
+      x: 2096,
+      y: -624
     },
     onUnlock: []
   },
   RedLate_Notable: {
     id: "RedLate_Notable",
+    ringId: "ring_09",
     treeId: "systemColorMap",
     name: "RedNodeLateNotable_01",
     desc: "Outer edge anchor.",
@@ -2154,13 +3589,14 @@ export const skillNodes = {
       "RedLate_03"
     ],
     uiPos: {
-      x: 1656,
-      y: -215
+      x: 2190,
+      y: -501
     },
     onUnlock: []
   },
   RedMid_01: {
     id: "RedMid_01",
+    ringId: "ring_06",
     treeId: "systemColorMap",
     name: "RedNodeMid_01",
     desc: "Mid ring.",
@@ -2170,19 +3606,18 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "GreenRedMid_Notable",
-      "RedBlackMid_Notable",
-      "RedEarly_Notable",
+      "RedEarly_Notable_02",
       "RedMid_02"
     ],
     uiPos: {
-      x: 1095,
-      y: -287
+      x: 1717,
+      y: -586
     },
     onUnlock: []
   },
   RedMid_02: {
     id: "RedMid_02",
+    ringId: "ring_06",
     treeId: "systemColorMap",
     name: "RedNodeMid_02",
     desc: "Mid ring.",
@@ -2193,16 +3628,17 @@ export const skillNodes = {
     ],
     adjacent: [
       "RedMid_01",
-      "RedMid_03"
+      "RedMid_Notable"
     ],
     uiPos: {
-      x: 1195,
-      y: -250
+      x: 1809,
+      y: -496
     },
     onUnlock: []
   },
   RedMid_03: {
     id: "RedMid_03",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "RedNodeMid_03",
     desc: "Mid ring.",
@@ -2212,17 +3648,18 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedMid_02",
-      "RedMid_04"
+      "RedMid_04",
+      "RedMid_Notable"
     ],
     uiPos: {
-      x: 1276,
-      y: -181
+      x: 1631,
+      y: -902
     },
     onUnlock: []
   },
   RedMid_04: {
     id: "RedMid_04",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "RedNodeMid_04",
     desc: "Mid ring.",
@@ -2232,17 +3669,18 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedMid_03",
-      "RedMid_05"
+      "RedBlackMid_Notable",
+      "RedMid_03"
     ],
     uiPos: {
-      x: 1359,
-      y: -115
+      x: 1296,
+      y: -1068
     },
     onUnlock: []
   },
   RedMid_05: {
     id: "RedMid_05",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "RedNodeMid_05",
     desc: "Mid ring.",
@@ -2252,17 +3690,18 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedMid_04",
-      "RedMid_06"
+      "RedMid_06",
+      "RedMid_Notable"
     ],
     uiPos: {
-      x: 1424,
-      y: -31
+      x: 2141,
+      y: -395
     },
     onUnlock: []
   },
   RedMid_06: {
     id: "RedMid_06",
+    ringId: "ring_08",
     treeId: "systemColorMap",
     name: "RedNodeMid_06",
     desc: "Mid ring.",
@@ -2272,17 +3711,18 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedMid_05",
-      "RedMid_Notable"
+      "GreenRedMid_Notable",
+      "RedMid_05"
     ],
     uiPos: {
-      x: 1500,
-      y: 45
+      x: 2312,
+      y: -52
     },
     onUnlock: []
   },
   RedMid_Notable: {
     id: "RedMid_Notable",
+    ringId: "ring_07",
     treeId: "systemColorMap",
     name: "RedNodeMidNotable_01",
     desc: "Mid anchor.",
@@ -2293,13 +3733,89 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
-      "RedBlackEarly_04",
       "RedLate_01",
-      "RedMid_06"
+      "RedMid_02",
+      "RedMid_03",
+      "RedMid_05"
     ],
     uiPos: {
-      x: 1526,
-      y: 151
+      x: 1828,
+      y: -620
+    },
+    onUnlock: []
+  },
+  RitualShrine: {
+    id: "RitualShrine",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "BlackEarly_Notable_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Black",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackEarly_02",
+      "BlackEarly_03",
+      "core_origin",
+      "Crafting",
+      "MudHouses"
+    ],
+    uiPos: {
+      x: 650,
+      y: 456
+    },
+    onUnlock: []
+  },
+  Storehouse: {
+    id: "Storehouse",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "Granary",
+    desc: "Cluster punctuation.",
+    cost: 2,
+    tags: [
+      "Early",
+      "Green",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueGreenEarly_02",
+      "GreenEarly_02",
+      "GreenEarly_04",
+      "GreenEarly_05",
+      "GreenEarly_07",
+      "GreenRedEarly_02"
+    ],
+    uiPos: {
+      x: 997,
+      y: 942
+    },
+    onUnlock: []
+  },
+  Weaving: {
+    id: "Weaving",
+    ringId: "ring_04",
+    treeId: "systemColorMap",
+    name: "BlackBlueEarly_Notable_01",
+    desc: "",
+    cost: 2,
+    tags: [
+      "Black",
+      "Blue",
+      "Early",
+      "Hybrid",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackEarly_01",
+      "BlueEarly_04"
+    ],
+    uiPos: {
+      x: 393,
+      y: 522
     },
     onUnlock: []
   }

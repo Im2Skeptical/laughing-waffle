@@ -332,7 +332,7 @@
       "treeId": "systemColorMap",
       "name": "BlackNodeEarly_01",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Black",
         "Early"
@@ -353,7 +353,7 @@
       "treeId": "systemColorMap",
       "name": "BlackNodeEarly_02",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Black",
         "Early"
@@ -374,7 +374,7 @@
       "treeId": "systemColorMap",
       "name": "BlackNodeEarly_03",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Black",
         "Early"
@@ -395,7 +395,7 @@
       "treeId": "systemColorMap",
       "name": "BlackNodeEarly_04",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Black",
         "Early"
@@ -1015,7 +1015,7 @@
       "treeId": "systemColorMap",
       "name": "BlueNodeEarly_01",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Blue",
         "Early"
@@ -1036,7 +1036,7 @@
       "treeId": "systemColorMap",
       "name": "BlueNodeEarly_02",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Blue",
         "Early"
@@ -1046,7 +1046,7 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 519,
+        "x": 520,
         "y": 792
       },
       "editorPinned": false,
@@ -1057,7 +1057,7 @@
       "treeId": "systemColorMap",
       "name": "BlueNodeEarly_03",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Blue",
         "Early"
@@ -1067,8 +1067,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 458,
-        "y": 670
+        "x": 470,
+        "y": 676
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1078,7 +1078,7 @@
       "treeId": "systemColorMap",
       "name": "BlueNodeEarly_04",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Blue",
         "Early"
@@ -1311,7 +1311,7 @@
       "treeId": "systemColorMap",
       "name": "BlueGreenEarly_01",
       "desc": "Hybrid bridge.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Blue",
         "Early",
@@ -1334,7 +1334,7 @@
       "treeId": "systemColorMap",
       "name": "BlueGreenEarly_02",
       "desc": "Hybrid bridge.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Blue",
         "Early",
@@ -1864,7 +1864,7 @@
       "treeId": "systemColorMap",
       "name": "BlueGreenEarly_Notable_01",
       "desc": "",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Blue",
         "Early",
@@ -1932,7 +1932,7 @@
       "treeId": "systemColorMap",
       "name": "GreenNodeEarly_01",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Early",
         "Green"
@@ -1953,7 +1953,7 @@
       "treeId": "systemColorMap",
       "name": "GreenNodeEarly_02",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Early",
         "Green"
@@ -1974,7 +1974,7 @@
       "treeId": "systemColorMap",
       "name": "GreenNodeEarly_03",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Early",
         "Green"
@@ -1995,7 +1995,7 @@
       "treeId": "systemColorMap",
       "name": "GreenNodeEarly_04",
       "desc": "Early ring.",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Early",
         "Green"
@@ -3646,7 +3646,7 @@
       "treeId": "systemColorMap",
       "name": "BlackBlueEarly_Notable_01",
       "desc": "",
-      "cost": 1,
+      "cost": 2,
       "tags": [
         "Black",
         "Blue",
@@ -4471,6 +4471,6 @@
   "meta": {
     "createdAtIso": "2026-02-10T13:13:41.778Z",
     "source": "defs",
-    "savedAtIso": "2026-02-19T05:27:26.579Z"
+    "savedAtIso": "2026-02-19T05:30:07.038Z"
   }
 }
