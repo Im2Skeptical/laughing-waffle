@@ -697,12 +697,20 @@ function buildBfsLayout(treeDef, opts, nodesRegistry) {
 function buildRingLayout(treeDef, opts, nodesRegistry) {
   const nodes = getTreeNodes(treeDef.id, nodesRegistry);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  if (!nodeById.has(treeDef.startNodeId)) return null;
+  const nodeIds = sortStrings(nodes.map((node) => node.id));
+  if (!nodeIds.length) {
+    return {
+      positionsByNodeId: {},
+      depthByNodeId: {},
+      orderedNodeIds: [],
+      edges: buildEdgeList(nodeById),
+    };
+  }
 
   const ringIdByNodeId = {};
   for (const node of nodes) {
     const ringId = getNodeRingId(node);
-    if (typeof ringId !== "string" || ringId.length === 0) return null;
+    if (typeof ringId !== "string" || ringId.length === 0) continue;
     ringIdByNodeId[node.id] = ringId;
   }
 
@@ -711,19 +719,21 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
   const wedgeByNodeId = {};
   for (const node of nodes) {
     const ringId = ringIdByNodeId[node.id];
+    if (typeof ringId !== "string" || ringId.length === 0) continue;
     const ring = cfg.ringIndexById[ringId];
-    if (!Number.isFinite(ring)) return null;
+    if (!Number.isFinite(ring)) continue;
     const wedge = ring === 0 ? "Core" : getWedgeIdFromTags(node);
-    if (!wedge) return null;
+    if (!wedge) continue;
     ringByNodeId[node.id] = ring;
     wedgeByNodeId[node.id] = wedge;
   }
+  const eligibleNodeIds = sortStrings(Object.keys(ringByNodeId));
 
   const wedgeIds = new Set();
-  for (const node of nodes) {
-    const ring = ringByNodeId[node.id];
+  for (const nodeId of eligibleNodeIds) {
+    const ring = ringByNodeId[nodeId];
     if (ring <= 0) continue;
-    wedgeIds.add(wedgeByNodeId[node.id]);
+    wedgeIds.add(wedgeByNodeId[nodeId]);
   }
 
   const wedgeOrder = Array.from(wedgeIds.values()).sort((a, b) => {
@@ -734,8 +744,7 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
   });
 
   const groupsByRing = new Map();
-  const nodeIds = sortStrings(nodes.map((node) => node.id));
-  for (const nodeId of nodeIds) {
+  for (const nodeId of eligibleNodeIds) {
     const ring = ringByNodeId[nodeId];
     const wedge = wedgeByNodeId[nodeId];
     if (!groupsByRing.has(ring)) groupsByRing.set(ring, new Map());
@@ -932,7 +941,7 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
   }
 
   const radialOffsetByNodeId = computeRadialBreathingOffsets({
-    nodeIds,
+    nodeIds: eligibleNodeIds,
     ringByNodeId,
     wedgeByNodeId,
     thetaByNodeId,
@@ -969,12 +978,35 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
     }
   }
 
+  const maxConfiguredRadius = Math.max(
+    0,
+    ...Object.values(cfg.radiiByRing).map((value) => (Number.isFinite(value) ? value : 0))
+  );
+  const missingNodeIds = nodeIds.filter((nodeId) => !positionsByNodeId[nodeId]);
+  const missingBaseByNodeId = {};
+  const stackColumns = 4;
+  const stackCell = 86;
+  const stackStartX = Math.floor(cfg.centerX + Math.max(240, maxConfiguredRadius + 140));
+  const stackStartY = Math.floor(cfg.centerY - Math.max(220, stackCell * 2));
+  for (let idx = 0; idx < missingNodeIds.length; idx++) {
+    const nodeId = missingNodeIds[idx];
+    const col = idx % stackColumns;
+    const row = Math.floor(idx / stackColumns);
+    missingBaseByNodeId[nodeId] = {
+      x: stackStartX + col * stackCell,
+      y: stackStartY + row * stackCell,
+      depth: maxRing + 1,
+    };
+  }
+
   for (const nodeId of nodeIds) {
     const node = nodeById.get(nodeId);
     const basePos = positionsByNodeId[nodeId] ?? {
-      x: cfg.centerX,
-      y: cfg.centerY,
-      depth: Number.isFinite(ringByNodeId[nodeId]) ? ringByNodeId[nodeId] : 0,
+      ...(missingBaseByNodeId[nodeId] || {
+        x: cfg.centerX,
+        y: cfg.centerY,
+        depth: Number.isFinite(ringByNodeId[nodeId]) ? ringByNodeId[nodeId] : maxRing + 1,
+      }),
     };
     const pos = applyNodeUiPosition(node, basePos);
     positionsByNodeId[nodeId] = { ...pos, depth: basePos.depth };
@@ -1003,15 +1035,13 @@ export function computeSkillTreeLayout(treeDef, nodesRegistry, opts = {}) {
   const mode = typeof opts?.layoutMode === "string" ? opts.layoutMode : treeDef?.ui?.layoutMode;
   if (mode === "ringByTags") {
     const ringLayout = buildRingLayout(treeDef, opts, nodesRegistry);
-    if (ringLayout) {
-      return {
-        treeId: treeDef.id,
-        positionsByNodeId: ringLayout.positionsByNodeId,
-        depthByNodeId: ringLayout.depthByNodeId,
-        orderedNodeIds: ringLayout.orderedNodeIds,
-        edges: ringLayout.edges,
-      };
-    }
+    return {
+      treeId: treeDef.id,
+      positionsByNodeId: ringLayout.positionsByNodeId,
+      depthByNodeId: ringLayout.depthByNodeId,
+      orderedNodeIds: ringLayout.orderedNodeIds,
+      edges: ringLayout.edges,
+    };
   }
 
   const bfsLayout = buildBfsLayout(treeDef, opts, nodesRegistry);

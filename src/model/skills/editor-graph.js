@@ -141,6 +141,36 @@ function normalizeNodeRecord(raw, treeId, fallbackPos = null) {
   return out;
 }
 
+function getLegacyRingIdFromTags(node) {
+  const tags = uniqueSortedStrings(node?.tags);
+  if (tags.includes("Core")) return "core";
+  if (tags.includes("Early")) return "early";
+  if (tags.includes("Mid")) return "mid";
+  if (tags.includes("Late")) return "late";
+  return null;
+}
+
+function getNodeRingIdForLayout(node) {
+  if (typeof node?.ringId === "string" && node.ringId.length > 0) {
+    return node.ringId;
+  }
+  return getLegacyRingIdFromTags(node);
+}
+
+function hasRingLayoutWedgeTags(node) {
+  const tags = new Set(uniqueSortedStrings(node?.tags));
+  if (tags.has("Core")) return true;
+  const colors = ["Blue", "Green", "Red", "Black"];
+  return colors.some((color) => tags.has(color));
+}
+
+function shouldPreserveUiPosForMissingRingLayoutInfo(node) {
+  const ringId = getNodeRingIdForLayout(node);
+  if (typeof ringId !== "string" || !ringId.length) return true;
+  if (ringId === "core") return false;
+  return !hasRingLayoutWedgeTags(node);
+}
+
 function buildNodeRegistryForLayout(graph, { pinnedOnly = false } = {}) {
   const nodesOut = {};
   const nodeIds = sortStrings(Object.keys(graph?.nodesById || {}));
@@ -161,7 +191,11 @@ function buildNodeRegistryForLayout(graph, { pinnedOnly = false } = {}) {
     if (node.ringId) out.ringId = node.ringId;
     if (node.requirements) out.requirements = deepClone(node.requirements);
     if (Number.isFinite(node.uiNodeRadius)) out.uiNodeRadius = node.uiNodeRadius;
-    if (node.editorPinned === true || !pinnedOnly) {
+    const preservePosition =
+      node.editorPinned === true ||
+      !pinnedOnly ||
+      shouldPreserveUiPosForMissingRingLayoutInfo(node);
+    if (preservePosition) {
       out.uiPos = {
         x: toEditorNumber(node.editorPos?.x, 0),
         y: toEditorNumber(node.editorPos?.y, 0),
