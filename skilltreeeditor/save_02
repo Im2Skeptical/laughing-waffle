@@ -30,38 +30,40 @@
         ],
         "radii": {
           "core": 0,
-          "ring_01": 200,
-          "ring_02": 300,
-          "ring_03": 400,
+          "ring_01": 300,
+          "ring_02": 500,
+          "ring_03": 800,
           "early": 500,
-          "ring_04": 600,
-          "ring_05": 700,
-          "ring_06": 800,
+          "ring_04": 1000,
+          "ring_05": 1200,
+          "ring_06": 1500,
           "mid": 900,
-          "ring_07": 1000,
-          "ring_08": 1100,
-          "ring_09": 1200,
+          "ring_07": 1600,
+          "ring_08": 1700,
+          "ring_09": 1800,
           "late": 1200
         },
         "wedgeSpansDeg": {
-          "Blue": 40,
-          "Green": 40,
-          "Red": 40,
-          "Black": 40,
-          "BlueGreen": 20,
-          "GreenRed": 20,
-          "RedBlack": 20,
-          "BlackBlue": 20
+          "Blue": 50,
+          "Green": 50,
+          "Red": 50,
+          "Black": 50,
+          "BlueGreen": 25,
+          "GreenRed": 25,
+          "RedBlack": 25,
+          "BlackBlue": 25
         },
-        "barycenterIterations": 8,
-        "localSwapIterations": 3,
-        "overlapIterations": 4,
-        "overlapPaddingPx": 8,
-        "componentBandGapDeg": 10,
-        "radialNudgeIterations": 10,
-        "radialNudgeMaxPx": 50,
-        "radialNudgePaddingPx": 120,
-        "radialNudgeSpring": 0.2
+        "barycenterIterations": 32,
+        "localSwapIterations": 32,
+        "overlapIterations": 32,
+        "overlapPaddingPx": 16,
+        "componentBandGapDeg": 16,
+        "angleSwapTeleportWeight": 4,
+        "radialNudgeIterations": 64,
+        "radialNudgeMaxPx": 248,
+        "radialNudgePaddingPx": 64,
+        "radialNudgeSpring": 8,
+        "coreSpread": 16
       }
     }
   },
@@ -83,40 +85,108 @@
     ],
     "radii": {
       "core": 0,
-      "ring_01": 200,
-      "ring_02": 300,
-      "ring_03": 400,
+      "ring_01": 300,
+      "ring_02": 500,
+      "ring_03": 800,
       "early": 500,
-      "ring_04": 600,
-      "ring_05": 700,
-      "ring_06": 800,
+      "ring_04": 1000,
+      "ring_05": 1200,
+      "ring_06": 1500,
       "mid": 900,
-      "ring_07": 1000,
-      "ring_08": 1100,
-      "ring_09": 1200,
+      "ring_07": 1600,
+      "ring_08": 1700,
+      "ring_09": 1800,
       "late": 1200
     },
     "wedgeSpansDeg": {
-      "Blue": 40,
-      "Green": 40,
-      "Red": 40,
-      "Black": 40,
-      "BlueGreen": 20,
-      "GreenRed": 20,
-      "RedBlack": 20,
-      "BlackBlue": 20
+      "Blue": 50,
+      "Green": 50,
+      "Red": 50,
+      "Black": 50,
+      "BlueGreen": 25,
+      "GreenRed": 25,
+      "RedBlack": 25,
+      "BlackBlue": 25
     },
-    "barycenterIterations": 8,
-    "localSwapIterations": 3,
-    "overlapIterations": 4,
-    "overlapPaddingPx": 8,
-    "componentBandGapDeg": 10,
-    "radialNudgeIterations": 10,
-    "radialNudgeMaxPx": 50,
-    "radialNudgePaddingPx": 120,
-    "radialNudgeSpring": 0.2
+    "barycenterIterations": 32,
+    "localSwapIterations": 32,
+    "overlapIterations": 32,
+    "overlapPaddingPx": 16,
+    "componentBandGapDeg": 16,
+    "angleSwapTeleportWeight": 4,
+    "radialNudgeIterations": 64,
+    "radialNudgeMaxPx": 248,
+    "radialNudgePaddingPx": 64,
+    "radialNudgeSpring": 8,
+    "coreSpread": 16
   },
   "nodes": [
+    {
+      "id": "Astronomy",
+      "treeId": "systemColorMap",
+      "name": "Papyrus_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 636,
+        "y": 605
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Basket",
+      "treeId": "systemColorMap",
+      "name": "GreenEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 815,
+        "y": 628
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Beer",
+      "treeId": "systemColorMap",
+      "name": "GreenEarly_Notable2",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1434,
+        "y": 1223
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
     {
       "id": "BlackBlueEarly_01",
       "treeId": "systemColorMap",
@@ -129,13 +199,13 @@
         "Early",
         "Hybrid"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 324,
-        "y": 648
+        "x": 226,
+        "y": 638
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -152,13 +222,13 @@
         "Early",
         "Hybrid"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 411,
-        "y": 527
+        "x": 226,
+        "y": 421
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -180,8 +250,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 297,
-        "y": 568
+        "x": -85,
+        "y": 530
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -198,13 +268,13 @@
         "Early",
         "Hybrid"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 339,
-        "y": 472
+        "x": -485,
+        "y": 529
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -222,13 +292,13 @@
         "Hybrid",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 172,
-        "y": 550
+        "x": -285,
+        "y": 529
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -246,13 +316,13 @@
         "Mid",
         "Notable"
       ],
-      "ringId": "ring_05",
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 15,
-        "y": 530
+        "x": -885,
+        "y": 523
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -272,8 +342,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 488,
-        "y": 424
+        "x": 414,
+        "y": 391
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -293,8 +363,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 600,
-        "y": 433
+        "x": 473,
+        "y": 350
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -314,8 +384,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 609,
-        "y": 303
+        "x": 573,
+        "y": 265
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -335,8 +405,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 568,
-        "y": 354
+        "x": 539,
+        "y": 286
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -351,13 +421,13 @@
         "Black",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 252,
-        "y": 314
+        "x": 66,
+        "y": 61
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -372,13 +442,13 @@
         "Black",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 326,
-        "y": 141
+        "x": 44,
+        "y": 94
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -393,13 +463,13 @@
         "Black",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 421,
-        "y": 110
+        "x": 279,
+        "y": -141
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -414,13 +484,97 @@
         "Black",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 504,
-        "y": 77
+        "x": 246,
+        "y": -119
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_09",
+      "treeId": "systemColorMap",
+      "name": "BlackEarly_09",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 4,
+        "y": -438
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_10",
+      "treeId": "systemColorMap",
+      "name": "BlackEarly_10",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 174,
+        "y": -542
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_11",
+      "treeId": "systemColorMap",
+      "name": "BlackEarly_11",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_06",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -540,
+        "y": -292
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_12",
+      "treeId": "systemColorMap",
+      "name": "BlackEarly_12",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -366,
+        "y": 7
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -441,8 +595,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 467,
-        "y": 282
+        "x": 360,
+        "y": 177
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -458,13 +612,57 @@
         "Early",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 339,
-        "y": 38
+        "x": 8,
+        "y": -178
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_Notable_03",
+      "treeId": "systemColorMap",
+      "name": "BlackEarly_Notable_03",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 372,
+        "y": -410
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlackEarly_Notable_04",
+      "treeId": "systemColorMap",
+      "name": "BlackEarly_Notable_04",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -225,
+        "y": 186
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -479,13 +677,13 @@
         "Black",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -373,
-        "y": 22
+        "x": -733,
+        "y": -541
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -500,13 +698,13 @@
         "Black",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -227,
-        "y": -215
+        "x": -709,
+        "y": -573
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -521,13 +719,13 @@
         "Black",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -30,
-        "y": -412
+        "x": -684,
+        "y": -604
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -543,13 +741,13 @@
         "Late",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 207,
-        "y": -558
+        "x": -651,
+        "y": -644
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -564,13 +762,13 @@
         "Black",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -74,
-        "y": 43
+        "x": -126,
+        "y": -713
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -585,13 +783,13 @@
         "Black",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 8,
-        "y": -29
+        "x": -130,
+        "y": -830
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -606,13 +804,13 @@
         "Black",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 69,
-        "y": -116
+        "x": -695,
+        "y": -421
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -627,13 +825,13 @@
         "Black",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 152,
-        "y": -181
+        "x": -789,
+        "y": -18
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -648,13 +846,13 @@
         "Black",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 234,
-        "y": -249
+        "x": -59,
+        "y": -1096
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -669,13 +867,13 @@
         "Black",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 334,
-        "y": -286
+        "x": 133,
+        "y": -1068
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -691,13 +889,13 @@
         "Mid",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -96,
-        "y": 152
+        "x": -296,
+        "y": -711
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -713,13 +911,101 @@
         "Blue",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 197,
-        "y": 461
+        "x": -785,
+        "y": 526
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueBlackEarly_06",
+      "treeId": "systemColorMap",
+      "name": "BlueBlackEarly_06",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -470,
+        "y": 721
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueBlackEarly_07",
+      "treeId": "systemColorMap",
+      "name": "BlueBlackEarly_07",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -262,
+        "y": 746
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueBlackEarly_08",
+      "treeId": "systemColorMap",
+      "name": "BlueBlackEarly_08",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -470,
+        "y": 338
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueBlackEarly_09",
+      "treeId": "systemColorMap",
+      "name": "BlueBlackEarly_09",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -262,
+        "y": 313
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -739,8 +1025,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 609,
-        "y": 756
+        "x": 573,
+        "y": 792
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -760,8 +1046,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 618,
-        "y": 644
+        "x": 519,
+        "y": 792
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -781,8 +1067,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 523,
-        "y": 690
+        "x": 458,
+        "y": 670
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -802,8 +1088,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 512,
-        "y": 624
+        "x": 437,
+        "y": 645
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -818,13 +1104,13 @@
         "Blue",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 508,
-        "y": 973
+        "x": 246,
+        "y": 1178
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -839,13 +1125,13 @@
         "Blue",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 399,
-        "y": 980
+        "x": 279,
+        "y": 1200
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -860,13 +1146,13 @@
         "Blue",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 380,
-        "y": 864
+        "x": 66,
+        "y": 998
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -881,43 +1167,105 @@
         "Blue",
         "Early"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 264,
-        "y": 845
+        "x": 44,
+        "y": 965
       },
       "editorPinned": false,
       "editorNotes": ""
     },
     {
-      "id": "BlueEarly_Notable",
+      "id": "BlueEarly_09",
       "treeId": "systemColorMap",
-      "name": "BlueNodeEarlyNotable_01",
-      "desc": "Cluster punctuation.",
-      "cost": 2,
+      "name": "BlueEarly_09",
+      "desc": "",
+      "cost": 1,
       "tags": [
         "Blue",
-        "Early",
-        "Notable"
+        "Early"
       ],
-      "ringId": "ring_02",
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 467,
-        "y": 777
+        "x": 176,
+        "y": 1602
       },
       "editorPinned": false,
       "editorNotes": ""
     },
     {
-      "id": "BlueEarlyNotable_02",
+      "id": "BlueEarly_10",
       "treeId": "systemColorMap",
-      "name": "BlueEarlyNotable2",
+      "name": "BlueEarly_10",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 245,
+        "y": 1412
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_11",
+      "treeId": "systemColorMap",
+      "name": "BlueEarly_11",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -63,
+        "y": 1159
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarly_12",
+      "treeId": "systemColorMap",
+      "name": "BlueEarly_12",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -358,
+        "y": 1068
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarlyNotable_03",
+      "treeId": "systemColorMap",
+      "name": "BlueEarlyNotable_03",
       "desc": "",
       "cost": 1,
       "tags": [
@@ -925,13 +1273,35 @@
         "Early",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 194,
-        "y": 989
+        "x": 370,
+        "y": 1468
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueEarlyNotable_04",
+      "treeId": "systemColorMap",
+      "name": "BlueEarlyNotable_04",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": -225,
+        "y": 872
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -948,13 +1318,13 @@
         "Green",
         "Hybrid"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 646,
-        "y": 848
+        "x": 649,
+        "y": 1025
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -971,13 +1341,13 @@
         "Green",
         "Hybrid"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 790,
-        "y": 840
+        "x": 780,
+        "y": 1025
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -999,8 +1369,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 742,
-        "y": 870
+        "x": 715,
+        "y": 1329
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1017,13 +1387,13 @@
         "Green",
         "Hybrid"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 658,
-        "y": 898
+        "x": 715,
+        "y": 1729
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1039,13 +1409,105 @@
         "Early",
         "Green"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 780,
-        "y": 1024
+        "x": 715,
+        "y": 2030
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_06",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_06",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 577,
+        "y": 1520
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_07",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_07",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 455,
+        "y": 1701
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_08",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_08",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 974,
+        "y": 1701
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "BlueGreenEarly_09",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_09",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 852,
+        "y": 1520
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1063,13 +1525,13 @@
         "Hybrid",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 735,
-        "y": 929
+        "x": 715,
+        "y": 1529
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1087,13 +1549,13 @@
         "Mid",
         "Notable"
       ],
-      "ringId": "ring_05",
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
         "x": 715,
-        "y": 1230
+        "y": 2130
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1108,13 +1570,13 @@
         "Blue",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -373,
-        "y": 1037
+        "x": -365,
+        "y": 1970
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1129,13 +1591,13 @@
         "Blue",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 207,
-        "y": 1617
+        "x": -460,
+        "y": 1893
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1150,13 +1612,13 @@
         "Blue",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -30,
-        "y": 1471
+        "x": -667,
+        "y": 1683
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1172,13 +1634,13 @@
         "Late",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -227,
-        "y": 1274
+        "x": -761,
+        "y": 1560
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1193,13 +1655,13 @@
         "Blue",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -101,
-        "y": 910
+        "x": -83,
+        "y": 1426
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1214,13 +1676,13 @@
         "Blue",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 334,
-        "y": 1346
+        "x": -183,
+        "y": 1731
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1235,13 +1697,13 @@
         "Blue",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 234,
-        "y": 1309
+        "x": -178,
+        "y": 1976
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1256,13 +1718,13 @@
         "Blue",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 152,
-        "y": 1241
+        "x": 133,
+        "y": 2127
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1277,13 +1739,13 @@
         "Blue",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 72,
-        "y": 1172
+        "x": -697,
+        "y": 1478
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1298,13 +1760,13 @@
         "Blue",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 2,
-        "y": 1093
+        "x": -883,
+        "y": 1111
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1320,13 +1782,35 @@
         "Mid",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": -69,
-        "y": 1013
+        "x": -336,
+        "y": 1736
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Cooking",
+      "treeId": "systemColorMap",
+      "name": "GreenEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 727,
+        "y": 649
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1345,8 +1829,100 @@
       "onUnlock": [],
       "uiNodeRadius": 28,
       "editorPos": {
-        "x": 715,
-        "y": 530
+        "x": 731,
+        "y": 536
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Crafting",
+      "treeId": "systemColorMap",
+      "name": "BlackBlueEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early",
+        "Hybrid",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 608,
+        "y": 531
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Farming",
+      "treeId": "systemColorMap",
+      "name": "BlueGreenEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Green",
+        "Hybrid",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 707,
+        "y": 875
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Fish",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 828,
+        "y": 461
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Forage",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 857,
+        "y": 547
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1366,8 +1942,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 941,
-        "y": 635
+        "x": 977,
+        "y": 675
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1387,8 +1963,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 829,
-        "y": 626
+        "x": 956,
+        "y": 709
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1408,8 +1984,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 820,
-        "y": 756
+        "x": 849,
+        "y": 773
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1429,8 +2005,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 861,
-        "y": 705
+        "x": 817,
+        "y": 812
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1445,13 +2021,13 @@
         "Early",
         "Green"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1158,
-        "y": 736
+        "x": 1363,
+        "y": 998
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1466,13 +2042,13 @@
         "Early",
         "Green"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1165,
-        "y": 845
+        "x": 1466,
+        "y": 803
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1487,13 +2063,13 @@
         "Early",
         "Green"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1057,
-        "y": 872
+        "x": 988,
+        "y": 1281
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1508,43 +2084,105 @@
         "Early",
         "Green"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1030,
-        "y": 980
+        "x": 1183,
+        "y": 1178
       },
       "editorPinned": false,
       "editorNotes": ""
     },
     {
-      "id": "GreenEarly_Notable",
+      "id": "GreenEarly_09",
       "treeId": "systemColorMap",
-      "name": "Granary",
-      "desc": "Cluster punctuation.",
-      "cost": 2,
+      "name": "GreenEarly_09",
+      "desc": "",
+      "cost": 1,
       "tags": [
         "Early",
-        "Green",
-        "Notable"
+        "Green"
       ],
-      "ringId": "ring_02",
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 962,
-        "y": 777
+        "x": 1754,
+        "y": 1130
       },
       "editorPinned": false,
       "editorNotes": ""
     },
     {
-      "id": "GreenEarly_Notable_02",
+      "id": "GreenEarly_10",
       "treeId": "systemColorMap",
-      "name": "GreenEarly_Notable2",
+      "name": "GreenEarly_10",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1842,
+        "y": 940
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_11",
+      "treeId": "systemColorMap",
+      "name": "GreenEarly_11",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": "ring_06",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1533,
+        "y": 1786
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_12",
+      "treeId": "systemColorMap",
+      "name": "GreenEarly_12",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1220,
+        "y": 1618
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_Notable_03",
+      "treeId": "systemColorMap",
+      "name": "GreenEarly_Notable_03",
       "desc": "",
       "cost": 1,
       "tags": [
@@ -1552,13 +2190,35 @@
         "Green",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1174,
-        "y": 954
+        "x": 1654,
+        "y": 872
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenEarly_Notable_04",
+      "treeId": "systemColorMap",
+      "name": "GreenEarly_Notable_04",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1057,
+        "y": 1469
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1573,13 +2233,13 @@
         "Green",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1222,
-        "y": 1617
+        "x": 2166,
+        "y": 1594
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1594,13 +2254,13 @@
         "Green",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1802,
-        "y": 1037
+        "x": 2081,
+        "y": 1702
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1615,13 +2275,13 @@
         "Green",
         "Late"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1656,
-        "y": 1274
+        "x": 1868,
+        "y": 1911
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1637,13 +2297,13 @@
         "Late",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1459,
-        "y": 1471
+        "x": 1745,
+        "y": 2005
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1658,13 +2318,13 @@
         "Green",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1095,
-        "y": 1345
+        "x": 1754,
+        "y": 1130
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1679,13 +2339,13 @@
         "Green",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1531,
-        "y": 910
+        "x": 1947,
+        "y": 1385
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1700,13 +2360,13 @@
         "Green",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1494,
-        "y": 1010
+        "x": 1665,
+        "y": 1939
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1721,13 +2381,13 @@
         "Green",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1426,
-        "y": 1092
+        "x": 1296,
+        "y": 2127
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1742,13 +2402,13 @@
         "Green",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1357,
-        "y": 1172
+        "x": 2170,
+        "y": 1408
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1763,13 +2423,13 @@
         "Green",
         "Mid"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1278,
-        "y": 1242
+        "x": 2312,
+        "y": 1111
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1785,13 +2445,13 @@
         "Mid",
         "Notable"
       ],
-      "ringId": null,
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1198,
-        "y": 1313
+        "x": 1947,
+        "y": 1550
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1808,13 +2468,13 @@
         "Hybrid",
         "Red"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1109,
-        "y": 424
+        "x": 1203,
+        "y": 421
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1831,13 +2491,13 @@
         "Hybrid",
         "Red"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1064,
-        "y": 514
+        "x": 1203,
+        "y": 638
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1859,8 +2519,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1060,
-        "y": 469
+        "x": 1514,
+        "y": 531
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1877,13 +2537,13 @@
         "Hybrid",
         "Red"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1287,
-        "y": 541
+        "x": 1914,
+        "y": 530
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1899,13 +2559,101 @@
         "Green",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1208,
-        "y": 465
+        "x": 2215,
+        "y": 530
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_06",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_06",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Red"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1705,
+        "y": 667
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_07",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_07",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1886,
+        "y": 789
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_08",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_08",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Red"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1705,
+        "y": 392
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "GreenRedEarly_09",
+      "treeId": "systemColorMap",
+      "name": "GreenRedEarly_09",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Green",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1886,
+        "y": 270
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1923,13 +2671,13 @@
         "Notable",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1260,
-        "y": 601
+        "x": 1714,
+        "y": 530
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1947,13 +2695,81 @@
         "Notable",
         "Red"
       ],
-      "ringId": "ring_05",
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1415,
+        "x": 2315,
         "y": 530
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "MudHouses",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Hybrid",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 740,
+        "y": 428
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Papyrus",
+      "treeId": "systemColorMap",
+      "name": "BlueNodeEarlyNotable_01",
+      "desc": "Cluster punctuation.",
+      "cost": 2,
+      "tags": [
+        "Blue",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 364,
+        "y": 885
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Prophecy",
+      "treeId": "systemColorMap",
+      "name": "BlueEarlyNotable2",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Blue",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 33,
+        "y": 1261
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1970,13 +2786,13 @@
         "Hybrid",
         "Red"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 619,
-        "y": 190
+        "x": 606,
+        "y": 41
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -1993,13 +2809,13 @@
         "Hybrid",
         "Red"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_02",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 744,
-        "y": 206
+        "x": 823,
+        "y": 41
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2021,8 +2837,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 643,
-        "y": 125
+        "x": 715,
+        "y": -270
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2039,13 +2855,13 @@
         "Hybrid",
         "Red"
       ],
-      "ringId": "ring_03",
+      "ringId": "ring_05",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 729,
-        "y": -1
+        "x": 714,
+        "y": -670
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2061,13 +2877,101 @@
         "Early",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 650,
-        "y": 37
+        "x": 709,
+        "y": -970
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_06",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_06",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 852,
+        "y": -461
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_07",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_07",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 974,
+        "y": -642
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_08",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_08",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 577,
+        "y": -461
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedBlackEarly_09",
+      "treeId": "systemColorMap",
+      "name": "RedBlackEarly_09",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 455,
+        "y": -642
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2085,13 +2989,13 @@
         "Notable",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 738,
-        "y": 103
+        "x": 714,
+        "y": -470
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2109,13 +3013,13 @@
         "Notable",
         "Red"
       ],
-      "ringId": "ring_05",
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 715,
-        "y": -170
+        "x": 705,
+        "y": -1070
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2135,8 +3039,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 811,
-        "y": 415
+        "x": 860,
+        "y": 267
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2156,8 +3060,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 820,
-        "y": 303
+        "x": 894,
+        "y": 288
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2177,8 +3081,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 941,
-        "y": 424
+        "x": 978,
+        "y": 385
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2198,8 +3102,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 887,
-        "y": 384
+        "x": 995,
+        "y": 421
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2214,13 +3118,13 @@
         "Early",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 921,
-        "y": 86
+        "x": 1183,
+        "y": -119
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2235,13 +3139,13 @@
         "Early",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1030,
-        "y": 79
+        "x": 988,
+        "y": -222
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2256,13 +3160,13 @@
         "Early",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1057,
-        "y": 187
+        "x": 1466,
+        "y": 256
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2277,13 +3181,97 @@
         "Early",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_03",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1165,
-        "y": 214
+        "x": 1363,
+        "y": 61
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_09",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_09",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1231,
+        "y": -553
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_10",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_10",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1379,
+        "y": -470
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_11",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_11",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1696,
+        "y": -161
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_12",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_12",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Red"
+      ],
+      "ringId": "ring_05",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1795,
+        "y": 8
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2304,8 +3292,8 @@
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 962,
-        "y": 282
+        "x": 1118,
+        "y": 232
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2321,13 +3309,57 @@
         "Notable",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_04",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1130,
-        "y": 126
+        "x": 1388,
+        "y": -210
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_Notable_03",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_Notable_03",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1057,
+        "y": -410
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RedEarly_Notable_04",
+      "treeId": "systemColorMap",
+      "name": "RedEarly_Notable_04",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Early",
+        "Notable",
+        "Red"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 1654,
+        "y": 187
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2342,13 +3374,13 @@
         "Late",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1802,
-        "y": 22
+        "x": 1819,
+        "y": -892
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2363,13 +3395,13 @@
         "Late",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1222,
-        "y": -558
+        "x": 1893,
+        "y": -831
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2384,13 +3416,13 @@
         "Late",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1459,
-        "y": -412
+        "x": 2096,
+        "y": -624
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2406,13 +3438,13 @@
         "Notable",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_09",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1656,
-        "y": -215
+        "x": 2190,
+        "y": -501
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2427,13 +3459,13 @@
         "Mid",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1530,
-        "y": 149
+        "x": 1717,
+        "y": -586
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2448,13 +3480,13 @@
         "Mid",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_06",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1095,
-        "y": -287
+        "x": 1809,
+        "y": -496
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2469,13 +3501,13 @@
         "Mid",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1195,
-        "y": -250
+        "x": 1631,
+        "y": -902
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2490,13 +3522,13 @@
         "Mid",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1277,
-        "y": -182
+        "x": 1296,
+        "y": -1068
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2511,13 +3543,13 @@
         "Mid",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1357,
-        "y": -113
+        "x": 2141,
+        "y": -395
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2532,13 +3564,13 @@
         "Mid",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_08",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1427,
-        "y": -34
+        "x": 2312,
+        "y": -52
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2554,13 +3586,81 @@
         "Notable",
         "Red"
       ],
-      "ringId": null,
+      "ringId": "ring_07",
       "requirements": null,
       "onUnlock": [],
       "uiNodeRadius": null,
       "editorPos": {
-        "x": 1498,
-        "y": 46
+        "x": 1828,
+        "y": -620
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "RitualShrine",
+      "treeId": "systemColorMap",
+      "name": "BlackEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Early",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 650,
+        "y": 456
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Storehouse",
+      "treeId": "systemColorMap",
+      "name": "Granary",
+      "desc": "Cluster punctuation.",
+      "cost": 2,
+      "tags": [
+        "Early",
+        "Green",
+        "Notable"
+      ],
+      "ringId": "ring_02",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 997,
+        "y": 942
+      },
+      "editorPinned": false,
+      "editorNotes": ""
+    },
+    {
+      "id": "Weaving",
+      "treeId": "systemColorMap",
+      "name": "BlackBlueEarly_Notable_01",
+      "desc": "",
+      "cost": 1,
+      "tags": [
+        "Black",
+        "Blue",
+        "Early",
+        "Hybrid",
+        "Notable"
+      ],
+      "ringId": "ring_04",
+      "requirements": null,
+      "onUnlock": [],
+      "uiNodeRadius": null,
+      "editorPos": {
+        "x": 393,
+        "y": 522
       },
       "editorPinned": false,
       "editorNotes": ""
@@ -2568,12 +3668,72 @@
   ],
   "edges": [
     {
+      "a": "Astronomy",
+      "b": "BlueEarly_01"
+    },
+    {
+      "a": "Astronomy",
+      "b": "BlueEarly_03"
+    },
+    {
+      "a": "Astronomy",
+      "b": "Cooking"
+    },
+    {
+      "a": "Astronomy",
+      "b": "core_origin"
+    },
+    {
+      "a": "Astronomy",
+      "b": "Crafting"
+    },
+    {
+      "a": "Basket",
+      "b": "Cooking"
+    },
+    {
+      "a": "Basket",
+      "b": "core_origin"
+    },
+    {
+      "a": "Basket",
+      "b": "Forage"
+    },
+    {
+      "a": "Basket",
+      "b": "GreenEarly_01"
+    },
+    {
+      "a": "Basket",
+      "b": "GreenEarly_03"
+    },
+    {
+      "a": "Beer",
+      "b": "GreenEarly_06"
+    },
+    {
+      "a": "Beer",
+      "b": "GreenEarly_08"
+    },
+    {
+      "a": "Beer",
+      "b": "GreenEarly_09"
+    },
+    {
+      "a": "Beer",
+      "b": "GreenEarly_11"
+    },
+    {
+      "a": "Beer",
+      "b": "GreenMid_01"
+    },
+    {
       "a": "BlackBlueEarly_01",
       "b": "BlackBlueEarly_03"
     },
     {
       "a": "BlackBlueEarly_01",
-      "b": "BlueEarly_Notable"
+      "b": "Papyrus"
     },
     {
       "a": "BlackBlueEarly_02",
@@ -2596,8 +3756,24 @@
       "b": "BlueBlackEarly_05"
     },
     {
+      "a": "BlackBlueEarly_Notable",
+      "b": "BlueBlackEarly_06"
+    },
+    {
+      "a": "BlackBlueEarly_Notable",
+      "b": "BlueBlackEarly_08"
+    },
+    {
+      "a": "BlackBlueMid_Notable",
+      "b": "BlackMid_04"
+    },
+    {
       "a": "BlackBlueMid_Notable",
       "b": "BlueBlackEarly_05"
+    },
+    {
+      "a": "BlackBlueMid_Notable",
+      "b": "BlueMid_06"
     },
     {
       "a": "BlackEarly_01",
@@ -2608,8 +3784,12 @@
       "b": "BlackEarly_Notable"
     },
     {
+      "a": "BlackEarly_01",
+      "b": "Weaving"
+    },
+    {
       "a": "BlackEarly_02",
-      "b": "core_origin"
+      "b": "RitualShrine"
     },
     {
       "a": "BlackEarly_03",
@@ -2617,7 +3797,7 @@
     },
     {
       "a": "BlackEarly_03",
-      "b": "core_origin"
+      "b": "RitualShrine"
     },
     {
       "a": "BlackEarly_04",
@@ -2648,12 +3828,44 @@
       "b": "BlackEarly_Notable_02"
     },
     {
+      "a": "BlackEarly_09",
+      "b": "BlackEarly_10"
+    },
+    {
+      "a": "BlackEarly_09",
+      "b": "BlackEarly_Notable_02"
+    },
+    {
+      "a": "BlackEarly_10",
+      "b": "BlackEarly_Notable_03"
+    },
+    {
+      "a": "BlackEarly_11",
+      "b": "BlackEarly_12"
+    },
+    {
+      "a": "BlackEarly_11",
+      "b": "BlackEarly_Notable_02"
+    },
+    {
+      "a": "BlackEarly_12",
+      "b": "BlackEarly_Notable_04"
+    },
+    {
       "a": "BlackEarly_Notable",
       "b": "RedBlackEarly_01"
     },
     {
       "a": "BlackEarly_Notable_02",
       "b": "BlackMid_01"
+    },
+    {
+      "a": "BlackEarly_Notable_03",
+      "b": "RedBlackEarly_09"
+    },
+    {
+      "a": "BlackEarly_Notable_04",
+      "b": "BlueBlackEarly_09"
     },
     {
       "a": "BlackLate_01",
@@ -2684,16 +3896,32 @@
       "b": "BlackMid_04"
     },
     {
-      "a": "BlackMid_04",
-      "b": "BlackMid_05"
+      "a": "BlackMid_03",
+      "b": "BlackMid_Notable"
     },
     {
       "a": "BlackMid_05",
       "b": "BlackMid_06"
     },
     {
-      "a": "BlackMid_06",
+      "a": "BlackMid_05",
       "b": "BlackMid_Notable"
+    },
+    {
+      "a": "BlackMid_06",
+      "b": "RedBlackMid_Notable"
+    },
+    {
+      "a": "BlueBlackEarly_06",
+      "b": "BlueBlackEarly_07"
+    },
+    {
+      "a": "BlueBlackEarly_07",
+      "b": "BlueEarlyNotable_04"
+    },
+    {
+      "a": "BlueBlackEarly_08",
+      "b": "BlueBlackEarly_09"
     },
     {
       "a": "BlueEarly_01",
@@ -2701,23 +3929,23 @@
     },
     {
       "a": "BlueEarly_01",
-      "b": "core_origin"
+      "b": "Farming"
     },
     {
       "a": "BlueEarly_02",
-      "b": "BlueEarly_Notable"
+      "b": "Papyrus"
     },
     {
       "a": "BlueEarly_03",
       "b": "BlueEarly_04"
     },
     {
-      "a": "BlueEarly_03",
-      "b": "core_origin"
+      "a": "BlueEarly_04",
+      "b": "Papyrus"
     },
     {
       "a": "BlueEarly_04",
-      "b": "BlueEarly_Notable"
+      "b": "Weaving"
     },
     {
       "a": "BlueEarly_05",
@@ -2725,43 +3953,67 @@
     },
     {
       "a": "BlueEarly_05",
-      "b": "BlueEarly_Notable"
+      "b": "Papyrus"
+    },
+    {
+      "a": "BlueEarly_06",
+      "b": "Prophecy"
     },
     {
       "a": "BlueEarly_07",
       "b": "BlueEarly_08"
     },
     {
+      "a": "BlueEarly_07",
+      "b": "Prophecy"
+    },
+    {
       "a": "BlueEarly_08",
-      "b": "BlueEarly_Notable"
+      "b": "Papyrus"
     },
     {
-      "a": "BlueEarly_Notable",
-      "b": "BlueGreenEarly_01"
+      "a": "BlueEarly_09",
+      "b": "BlueEarly_10"
     },
     {
-      "a": "BlueEarlyNotable_02",
-      "b": "BlueEarly_06"
+      "a": "BlueEarly_09",
+      "b": "Prophecy"
     },
     {
-      "a": "BlueEarlyNotable_02",
-      "b": "BlueEarly_07"
+      "a": "BlueEarly_11",
+      "b": "BlueEarly_12"
     },
     {
-      "a": "BlueEarlyNotable_02",
-      "b": "BlueMid_01"
+      "a": "BlueEarly_11",
+      "b": "Prophecy"
+    },
+    {
+      "a": "BlueEarlyNotable_03",
+      "b": "BlueEarly_10"
+    },
+    {
+      "a": "BlueEarlyNotable_03",
+      "b": "BlueGreenEarly_07"
+    },
+    {
+      "a": "BlueEarlyNotable_04",
+      "b": "BlueEarly_12"
     },
     {
       "a": "BlueGreenEarly_01",
       "b": "BlueGreenEarly_03"
     },
     {
+      "a": "BlueGreenEarly_01",
+      "b": "Papyrus"
+    },
+    {
       "a": "BlueGreenEarly_02",
       "b": "BlueGreenEarly_03"
     },
     {
       "a": "BlueGreenEarly_02",
-      "b": "GreenEarly_Notable"
+      "b": "Storehouse"
     },
     {
       "a": "BlueGreenEarly_03",
@@ -2778,6 +4030,34 @@
     {
       "a": "BlueGreenEarly_05",
       "b": "BlueGreenMid_Notable"
+    },
+    {
+      "a": "BlueGreenEarly_06",
+      "b": "BlueGreenEarly_07"
+    },
+    {
+      "a": "BlueGreenEarly_06",
+      "b": "BlueGreenEarly_Notable"
+    },
+    {
+      "a": "BlueGreenEarly_08",
+      "b": "BlueGreenEarly_09"
+    },
+    {
+      "a": "BlueGreenEarly_08",
+      "b": "GreenEarly_Notable_04"
+    },
+    {
+      "a": "BlueGreenEarly_09",
+      "b": "BlueGreenEarly_Notable"
+    },
+    {
+      "a": "BlueGreenMid_Notable",
+      "b": "BlueMid_04"
+    },
+    {
+      "a": "BlueGreenMid_Notable",
+      "b": "GreenMid_04"
     },
     {
       "a": "BlueLate_01",
@@ -2800,6 +4080,10 @@
       "b": "BlueMid_02"
     },
     {
+      "a": "BlueMid_01",
+      "b": "Prophecy"
+    },
+    {
       "a": "BlueMid_02",
       "b": "BlueMid_Notable"
     },
@@ -2808,19 +4092,55 @@
       "b": "BlueMid_04"
     },
     {
-      "a": "BlueMid_04",
-      "b": "BlueMid_05"
+      "a": "BlueMid_03",
+      "b": "BlueMid_Notable"
     },
     {
       "a": "BlueMid_05",
       "b": "BlueMid_06"
     },
     {
-      "a": "BlueMid_06",
+      "a": "BlueMid_05",
       "b": "BlueMid_Notable"
     },
     {
-      "a": "GreenEarly_01",
+      "a": "Cooking",
+      "b": "core_origin"
+    },
+    {
+      "a": "Crafting",
+      "b": "core_origin"
+    },
+    {
+      "a": "Crafting",
+      "b": "RitualShrine"
+    },
+    {
+      "a": "Farming",
+      "b": "GreenEarly_04"
+    },
+    {
+      "a": "Fish",
+      "b": "core_origin"
+    },
+    {
+      "a": "Fish",
+      "b": "Forage"
+    },
+    {
+      "a": "Fish",
+      "b": "MudHouses"
+    },
+    {
+      "a": "Fish",
+      "b": "RedEarly_01"
+    },
+    {
+      "a": "Fish",
+      "b": "RedEarly_03"
+    },
+    {
+      "a": "Forage",
       "b": "core_origin"
     },
     {
@@ -2829,11 +4149,7 @@
     },
     {
       "a": "GreenEarly_02",
-      "b": "GreenEarly_Notable"
-    },
-    {
-      "a": "GreenEarly_03",
-      "b": "core_origin"
+      "b": "Storehouse"
     },
     {
       "a": "GreenEarly_03",
@@ -2841,7 +4157,7 @@
     },
     {
       "a": "GreenEarly_04",
-      "b": "GreenEarly_Notable"
+      "b": "Storehouse"
     },
     {
       "a": "GreenEarly_05",
@@ -2849,11 +4165,7 @@
     },
     {
       "a": "GreenEarly_05",
-      "b": "GreenEarly_Notable"
-    },
-    {
-      "a": "GreenEarly_06",
-      "b": "GreenEarly_Notable_02"
+      "b": "Storehouse"
     },
     {
       "a": "GreenEarly_07",
@@ -2861,19 +4173,27 @@
     },
     {
       "a": "GreenEarly_07",
-      "b": "GreenEarly_Notable"
+      "b": "Storehouse"
     },
     {
-      "a": "GreenEarly_08",
-      "b": "GreenEarly_Notable_02"
+      "a": "GreenEarly_09",
+      "b": "GreenEarly_10"
     },
     {
-      "a": "GreenEarly_Notable",
-      "b": "GreenRedEarly_02"
+      "a": "GreenEarly_10",
+      "b": "GreenEarly_Notable_03"
     },
     {
-      "a": "GreenEarly_Notable_02",
-      "b": "GreenMid_01"
+      "a": "GreenEarly_11",
+      "b": "GreenEarly_12"
+    },
+    {
+      "a": "GreenEarly_12",
+      "b": "GreenEarly_Notable_04"
+    },
+    {
+      "a": "GreenEarly_Notable_03",
+      "b": "GreenRedEarly_07"
     },
     {
       "a": "GreenLate_01",
@@ -2904,16 +4224,20 @@
       "b": "GreenMid_04"
     },
     {
-      "a": "GreenMid_04",
-      "b": "GreenMid_05"
+      "a": "GreenMid_03",
+      "b": "GreenMid_Notable"
     },
     {
       "a": "GreenMid_05",
       "b": "GreenMid_06"
     },
     {
-      "a": "GreenMid_06",
+      "a": "GreenMid_05",
       "b": "GreenMid_Notable"
+    },
+    {
+      "a": "GreenMid_06",
+      "b": "GreenRedMid_Notable"
     },
     {
       "a": "GreenRedEarly_01",
@@ -2926,6 +4250,10 @@
     {
       "a": "GreenRedEarly_02",
       "b": "GreenRedEarly_03"
+    },
+    {
+      "a": "GreenRedEarly_02",
+      "b": "Storehouse"
     },
     {
       "a": "GreenRedEarly_03",
@@ -2942,6 +4270,38 @@
     {
       "a": "GreenRedEarly_05",
       "b": "GreenRedMid_Notable"
+    },
+    {
+      "a": "GreenRedEarly_06",
+      "b": "GreenRedEarly_07"
+    },
+    {
+      "a": "GreenRedEarly_06",
+      "b": "GreenRedEarly_Notable"
+    },
+    {
+      "a": "GreenRedEarly_08",
+      "b": "GreenRedEarly_09"
+    },
+    {
+      "a": "GreenRedEarly_08",
+      "b": "GreenRedEarly_Notable"
+    },
+    {
+      "a": "GreenRedEarly_09",
+      "b": "RedEarly_Notable_04"
+    },
+    {
+      "a": "GreenRedMid_Notable",
+      "b": "RedMid_06"
+    },
+    {
+      "a": "MudHouses",
+      "b": "core_origin"
+    },
+    {
+      "a": "MudHouses",
+      "b": "RitualShrine"
     },
     {
       "a": "RedBlackEarly_01",
@@ -2972,8 +4332,28 @@
       "b": "RedBlackMid_Notable"
     },
     {
-      "a": "RedEarly_01",
-      "b": "core_origin"
+      "a": "RedBlackEarly_06",
+      "b": "RedBlackEarly_07"
+    },
+    {
+      "a": "RedBlackEarly_06",
+      "b": "RedBlackEarly_Notable"
+    },
+    {
+      "a": "RedBlackEarly_07",
+      "b": "RedEarly_Notable_03"
+    },
+    {
+      "a": "RedBlackEarly_08",
+      "b": "RedBlackEarly_09"
+    },
+    {
+      "a": "RedBlackEarly_08",
+      "b": "RedBlackEarly_Notable"
+    },
+    {
+      "a": "RedBlackMid_Notable",
+      "b": "RedMid_04"
     },
     {
       "a": "RedEarly_01",
@@ -2982,10 +4362,6 @@
     {
       "a": "RedEarly_02",
       "b": "RedEarly_Notable"
-    },
-    {
-      "a": "RedEarly_03",
-      "b": "core_origin"
     },
     {
       "a": "RedEarly_03",
@@ -3020,6 +4396,30 @@
       "b": "RedEarly_Notable_02"
     },
     {
+      "a": "RedEarly_09",
+      "b": "RedEarly_10"
+    },
+    {
+      "a": "RedEarly_09",
+      "b": "RedEarly_Notable_03"
+    },
+    {
+      "a": "RedEarly_10",
+      "b": "RedEarly_Notable_02"
+    },
+    {
+      "a": "RedEarly_11",
+      "b": "RedEarly_12"
+    },
+    {
+      "a": "RedEarly_11",
+      "b": "RedEarly_Notable_02"
+    },
+    {
+      "a": "RedEarly_12",
+      "b": "RedEarly_Notable_04"
+    },
+    {
       "a": "RedEarly_Notable_02",
       "b": "RedMid_01"
     },
@@ -3052,21 +4452,25 @@
       "b": "RedMid_04"
     },
     {
-      "a": "RedMid_04",
-      "b": "RedMid_05"
+      "a": "RedMid_03",
+      "b": "RedMid_Notable"
     },
     {
       "a": "RedMid_05",
       "b": "RedMid_06"
     },
     {
-      "a": "RedMid_06",
+      "a": "RedMid_05",
       "b": "RedMid_Notable"
+    },
+    {
+      "a": "RitualShrine",
+      "b": "core_origin"
     }
   ],
   "meta": {
     "createdAtIso": "2026-02-10T13:13:41.778Z",
     "source": "defs",
-    "savedAtIso": "2026-02-17T13:49:20.140Z"
+    "savedAtIso": "2026-02-19T05:27:26.579Z"
   }
 }
