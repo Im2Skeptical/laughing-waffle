@@ -314,6 +314,18 @@ function getRingLayoutConfig(treeDef, opts, ringIdsInUse = []) {
     angularRelaxOuterBoost: Number.isFinite(layoutCfg?.angularRelaxOuterBoost)
       ? Math.max(0, layoutCfg.angularRelaxOuterBoost)
       : 0.16,
+    angleSwapIterations: Number.isFinite(layoutCfg?.angleSwapIterations)
+      ? Math.max(0, Math.floor(layoutCfg.angleSwapIterations))
+      : 3,
+    angleSwapAdjacentRingWeight: Number.isFinite(layoutCfg?.angleSwapAdjacentRingWeight)
+      ? Math.max(0, layoutCfg.angleSwapAdjacentRingWeight)
+      : 2.1,
+    angleSwapSameRingWeight: Number.isFinite(layoutCfg?.angleSwapSameRingWeight)
+      ? Math.max(0, layoutCfg.angleSwapSameRingWeight)
+      : 0.5,
+    angleSwapFarRingWeight: Number.isFinite(layoutCfg?.angleSwapFarRingWeight)
+      ? Math.max(0, layoutCfg.angleSwapFarRingWeight)
+      : 1.2,
   };
 }
 
@@ -476,6 +488,89 @@ function relaxAnglesByAdjacency({
 
     for (const nodeId of Object.keys(nextThetaByNodeId)) {
       thetaByNodeId[nodeId] = nextThetaByNodeId[nodeId];
+    }
+  }
+}
+
+function optimizeAnglesWithLocalSwaps({
+  groupsByRing,
+  wedgeOrder,
+  maxRing,
+  nodeById,
+  ringByNodeId,
+  thetaByNodeId,
+  cfg,
+}) {
+  const iterations = Number.isFinite(cfg?.angleSwapIterations)
+    ? Math.max(0, Math.floor(cfg.angleSwapIterations))
+    : 0;
+  if (iterations <= 0) return;
+  const adjacentRingWeight = Number.isFinite(cfg?.angleSwapAdjacentRingWeight)
+    ? Math.max(0, cfg.angleSwapAdjacentRingWeight)
+    : 2.1;
+  const sameRingWeight = Number.isFinite(cfg?.angleSwapSameRingWeight)
+    ? Math.max(0, cfg.angleSwapSameRingWeight)
+    : 0.5;
+  const farRingWeight = Number.isFinite(cfg?.angleSwapFarRingWeight)
+    ? Math.max(0, cfg.angleSwapFarRingWeight)
+    : 1.2;
+
+  function getAngleCostAtTheta(nodeId, testTheta) {
+    if (!Number.isFinite(testTheta)) return 0;
+    const ring = ringByNodeId[nodeId];
+    let cost = 0;
+    for (const neighborId of getAdjacentNodeIds(nodeById.get(nodeId))) {
+      const neighborTheta = thetaByNodeId[neighborId];
+      if (!Number.isFinite(neighborTheta)) continue;
+      const unwrapped = unwrapAngleNearReference(neighborTheta, testTheta);
+      const diff = Math.abs(unwrapped - testTheta);
+      const neighborRing = ringByNodeId[neighborId];
+      let weight = farRingWeight;
+      if (Number.isFinite(ring) && Number.isFinite(neighborRing)) {
+        const ringDelta = Math.abs(ring - neighborRing);
+        if (ringDelta === 1) weight = adjacentRingWeight;
+        else if (ringDelta === 0) weight = sameRingWeight;
+      }
+      cost += diff * weight;
+    }
+    return cost;
+  }
+
+  for (let pass = 0; pass < iterations; pass++) {
+    for (let ring = 1; ring <= maxRing; ring++) {
+      const ringMap = groupsByRing.get(ring);
+      if (!ringMap) continue;
+      for (const wedge of wedgeOrder) {
+        const ids = ringMap.get(wedge);
+        if (!ids || ids.length <= 1) continue;
+
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (let i = 0; i < ids.length - 1; i++) {
+            const leftId = ids[i];
+            const rightId = ids[i + 1];
+            const leftTheta = thetaByNodeId[leftId];
+            const rightTheta = thetaByNodeId[rightId];
+            if (!Number.isFinite(leftTheta) || !Number.isFinite(rightTheta)) continue;
+
+            const before =
+              getAngleCostAtTheta(leftId, leftTheta) +
+              getAngleCostAtTheta(rightId, rightTheta);
+            const after =
+              getAngleCostAtTheta(leftId, rightTheta) +
+              getAngleCostAtTheta(rightId, leftTheta);
+
+            if (after + 0.0001 < before) {
+              ids[i] = rightId;
+              ids[i + 1] = leftId;
+              thetaByNodeId[leftId] = rightTheta;
+              thetaByNodeId[rightId] = leftTheta;
+              changed = true;
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -1042,6 +1137,16 @@ function buildRingLayout(treeDef, opts, nodesRegistry) {
     thetaBoundsByNodeId,
     nodeById,
     maxRing,
+    cfg,
+  });
+
+  optimizeAnglesWithLocalSwaps({
+    groupsByRing,
+    wedgeOrder,
+    maxRing,
+    nodeById,
+    ringByNodeId,
+    thetaByNodeId,
     cfg,
   });
 
