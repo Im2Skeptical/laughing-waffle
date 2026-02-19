@@ -11,6 +11,8 @@ import { GRAPH_METRICS } from "../src/model/graph-metrics.js";
 import { cropDefs } from "../src/defs/gamepieces/crops-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { deserializeGameState } from "../src/model/state.js";
+import { createInitialState } from "../src/model/game-model.js";
+import { computeAvailableRecipesAndBuildings } from "../src/model/skills.js";
 
 function assertOk(res, label) {
   assert.equal(res?.ok, true, `${label} failed: ${JSON.stringify(res)}`);
@@ -98,7 +100,62 @@ function assertPawnAt(stateData, pawnId, envCol, label) {
   assert.equal(pawn.envCol ?? null, envCol, `${label}: pawn ${pawnId} expected env ${envCol}`);
 }
 
+function runScenarioSkillProgressionOverrideChecks() {
+  const scenario = {
+    rngSeed: 123,
+    skillProgressionDefs: {
+      defaultStartingSkillPoints: 2,
+      startingSkillPointsByPawnDefId: {
+        default: 4,
+      },
+      defaultUnlockedRecipes: ["roastBarley"],
+      defaultUnlockedHubStructures: ["granary"],
+    },
+    board: {
+      cols: 1,
+      tiles: ["tile_hinterland"],
+    },
+    hub: {
+      cols: 10,
+      structures: [{ defId: "granary", hubCol: 0 }],
+    },
+    pawns: [{ name: "Override Pawn", role: "leader", hubCol: 0 }],
+  };
+
+  const state = createInitialState(scenario);
+  assert.equal(
+    state?.pawns?.[0]?.skillPoints,
+    4,
+    "scenario skillProgressionDefs should set default starting skill points"
+  );
+
+  const availability = computeAvailableRecipesAndBuildings(state);
+  assert.deepEqual(
+    Array.from(availability.recipeIds.values()),
+    ["roastBarley"],
+    "scenario skillProgressionDefs should override default unlocked recipes"
+  );
+  assert.deepEqual(
+    Array.from(availability.hubStructureIds.values()),
+    ["granary"],
+    "scenario skillProgressionDefs should override default unlocked hub structures"
+  );
+
+  const explicitPawnScenario = {
+    ...scenario,
+    pawns: [{ name: "Explicit Pawn", role: "leader", hubCol: 0, skillPoints: 9 }],
+  };
+  const explicitState = createInitialState(explicitPawnScenario);
+  assert.equal(
+    explicitState?.pawns?.[0]?.skillPoints,
+    9,
+    "explicit pawn skillPoints should still override progression defaults"
+  );
+}
+
 function run() {
+  runScenarioSkillProgressionOverrideChecks();
+
   const runner = createSimRunner({ setupId: "testing" });
   runner.init();
   assertOk(runner.commitCursorSecond(0), "pause at t=0");

@@ -377,6 +377,7 @@ export function createEmptyState(seed = 123456789) {
     nextFollowerCreationOrderIndex: 1,
     gameEventFeed: [],
     nextGameEventFeedId: 1,
+    skillProgressionDefs: null,
     skillRuntime: null,
     passiveTimingRuntime: null,
 
@@ -875,6 +876,13 @@ export function deserializeGameState(data) {
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
   if (!Array.isArray(state.gameEventFeed)) state.gameEventFeed = [];
+  if (
+    !state.skillProgressionDefs ||
+    typeof state.skillProgressionDefs !== "object" ||
+    Array.isArray(state.skillProgressionDefs)
+  ) {
+    state.skillProgressionDefs = null;
+  }
   if (!Number.isFinite(state.nextGameEventFeedId)) {
     let maxEventId = 0;
     for (const entry of state.gameEventFeed) {

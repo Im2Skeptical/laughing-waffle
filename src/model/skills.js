@@ -215,7 +215,29 @@ function hasAnyAdjacentUnlocked(nodeDef, unlockedSet) {
 }
 
 function getProgressionDefs(defsInput) {
-  return defsInput?.skillProgressionDefs ?? skillProgressionDefs;
+  const overrides = defsInput?.skillProgressionDefs;
+  if (!isObject(overrides)) return skillProgressionDefs;
+
+  const baseByPawn = isObject(skillProgressionDefs?.startingSkillPointsByPawnDefId)
+    ? skillProgressionDefs.startingSkillPointsByPawnDefId
+    : {};
+  const overrideByPawn = isObject(overrides?.startingSkillPointsByPawnDefId)
+    ? overrides.startingSkillPointsByPawnDefId
+    : null;
+
+  return {
+    ...skillProgressionDefs,
+    ...overrides,
+    startingSkillPointsByPawnDefId: overrideByPawn
+      ? { ...baseByPawn, ...overrideByPawn }
+      : { ...baseByPawn },
+  };
+}
+
+function getStateSkillDefsInput(state) {
+  const progression = state?.skillProgressionDefs;
+  if (!isObject(progression)) return null;
+  return { skillProgressionDefs: progression };
 }
 
 function getDefaultUnlockedRecipes(defsInput) {
@@ -545,13 +567,14 @@ export function computePawnSkillMods(state, pawnId) {
 
 export function computeGlobalSkillMods(state) {
   const runtime = withRuntimeSkillState(state);
+  const defsInput = getStateSkillDefsInput(state);
 
   const out = {
     apCapBonus: 0,
     projectionHorizonBonusSec: 0,
     populationFoodMult: 1,
-    unlockedRecipes: new Set(getDefaultUnlockedRecipes()),
-    unlockedHubStructures: new Set(getDefaultUnlockedHubStructures()),
+    unlockedRecipes: new Set(getDefaultUnlockedRecipes(defsInput)),
+    unlockedHubStructures: new Set(getDefaultUnlockedHubStructures(defsInput)),
   };
 
   const runtimeGlobal = runtime?.modifiers?.global ?? null;

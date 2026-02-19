@@ -127,8 +127,8 @@ export const skillNodes = {
       "Crafting"
     ],
     uiPos: {
-      x: 632,
-      y: 613
+      x: 636,
+      y: 605
     },
     onUnlock: []
   },
@@ -1821,8 +1821,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
-      "Basket",
-      "Hearth"
+      "Basket"
     ],
     uiPos: {
       x: 727,
@@ -1846,7 +1845,6 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
-      "Hearth",
       "RitualShrine"
     ],
     uiPos: {
@@ -1917,12 +1915,11 @@ export const skillNodes = {
     ],
     adjacent: [
       "Basket",
-      "Fish",
-      "Hearth"
+      "Fish"
     ],
     uiPos: {
       x: 857,
-      y: 546
+      y: 547
     },
     onUnlock: []
   },
@@ -2711,27 +2708,6 @@ export const skillNodes = {
     },
     onUnlock: []
   },
-  Hearth: {
-    id: "Hearth",
-    treeId: "systemColorMap",
-    name: "RedEarly_Notable_01",
-    desc: "",
-    cost: 1,
-    tags: [
-      "Notable"
-    ],
-    adjacent: [
-      "Cooking",
-      "Crafting",
-      "Forage",
-      "MudHouses"
-    ],
-    uiPos: {
-      x: 731,
-      y: 537
-    },
-    onUnlock: []
-  },
   MudHouses: {
     id: "MudHouses",
     ringId: "ring_04",
@@ -2748,7 +2724,6 @@ export const skillNodes = {
     ],
     adjacent: [
       "Fish",
-      "Hearth",
       "RitualShrine"
     ],
     uiPos: {

@@ -131,7 +131,7 @@ export function buildScrollTimegraphState(typeId, subjectId) {
     windowMode: typeDef.windowMode,
     anchoredToManufacture: typeDef.anchoredToManufacture,
     requiresManufacturedSec: typeDef.requiresManufacturedSec,
-    manufacturedSec: null,
+    manufacturedSec: 0,
     horizonSec: SCROLL_GRAPH_DEFAULT_HORIZON_SEC,
     historyWindowSec: SCROLL_GRAPH_DEFAULT_HISTORY_WINDOW_SEC,
     frozen: typeDef.frozen,

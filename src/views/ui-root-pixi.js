@@ -1,4 +1,11 @@
 // src/views/ui-root-pixi.js
+
+
+// Scenario Selector - Options for boot are in scenario-defs.js
+
+//const BOOT_SETUP_ID = "devGym01";
+const BOOT_SETUP_ID = "devPlaytesting01";
+
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
@@ -53,7 +60,8 @@ import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrat
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
-const BOOT_SETUP_ID = "testing";
+
+
 if (
   typeof globalThis !== "undefined" &&
   globalThis.__PERF_ENABLED__ == null

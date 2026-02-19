@@ -88,8 +88,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 636,
-          "y": 605
+          "x": 632,
+          "y": 613
         },
         "ringId": "ring_02"
       },
@@ -1781,7 +1781,8 @@
         ],
         "adjacent": [
           "Astronomy",
-          "Basket"
+          "Basket",
+          "Hearth"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1805,6 +1806,7 @@
         ],
         "adjacent": [
           "Astronomy",
+          "Hearth",
           "RitualShrine"
         ],
         "onUnlock": [],
@@ -1875,12 +1877,13 @@
         ],
         "adjacent": [
           "Basket",
-          "Fish"
+          "Fish",
+          "Hearth"
         ],
         "onUnlock": [],
         "uiPos": {
           "x": 857,
-          "y": 547
+          "y": 546
         },
         "ringId": "ring_02"
       },
@@ -2669,6 +2672,27 @@
         },
         "ringId": "ring_07"
       },
+      "Hearth": {
+        "id": "Hearth",
+        "treeId": "systemColorMap",
+        "name": "RedEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Notable"
+        ],
+        "adjacent": [
+          "Cooking",
+          "Crafting",
+          "Forage",
+          "MudHouses"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 731,
+          "y": 537
+        }
+      },
       "MudHouses": {
         "id": "MudHouses",
         "treeId": "systemColorMap",
@@ -2684,6 +2708,7 @@
         ],
         "adjacent": [
           "Fish",
+          "Hearth",
           "RitualShrine"
         ],
         "onUnlock": [],

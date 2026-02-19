@@ -5,6 +5,13 @@ IdleCiv Game Prototype
 ***Run from Visual Studio Code***
 npx live-server
 
+
+
+
+
+
+
+
 ***Install***
 npm ci
 

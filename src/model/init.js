@@ -20,6 +20,17 @@ import { Inventory } from "./inventory-model.js";
 
 const HUB_COLS = 10;
 
+function cloneSerializable(value) {
+  if (value == null) return null;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getSetupSkillProgressionDefs(setup) {
+  const raw = setup?.skillProgressionDefs;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  return cloneSerializable(raw);
+}
+
 function normalizeUnlockedSkillNodeIds(value) {
   const raw = Array.isArray(value) ? value : [];
   const seen = new Set();
@@ -48,6 +59,10 @@ export function createInitialState(scenario = "testing", seed = null) {
   }
 
   const state = createEmptyState(seed ?? setup.rngSeed ?? 123456789);
+  state.skillProgressionDefs = getSetupSkillProgressionDefs(setup);
+  const skillDefsInput = state.skillProgressionDefs
+    ? { skillProgressionDefs: state.skillProgressionDefs }
+    : null;
 
   // baseline sim fields
   state.phase = "simulation";
@@ -114,7 +129,7 @@ export function createInitialState(scenario = "testing", seed = null) {
       systemState,
       skillPoints: Number.isFinite(c?.skillPoints)
         ? Math.max(0, Math.floor(c.skillPoints))
-        : getDefaultSkillPointsForPawnDefId(pawnDefId),
+        : getDefaultSkillPointsForPawnDefId(pawnDefId, skillDefsInput),
       unlockedSkillNodeIds: normalizeUnlockedSkillNodeIds(
         c?.unlockedSkillNodeIds
       ),
