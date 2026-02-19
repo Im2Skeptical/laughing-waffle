@@ -1,6 +1,6 @@
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
-import { computeAvailableRecipesAndBuildings } from "../skills.js";
+import { computeAvailableRecipesAndBuildings, hasEnvTagUnlock } from "../skills.js";
 import {
   ensureGrowthState,
   ensureHubSystemState,
@@ -15,6 +15,9 @@ export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {
   const tags = Array.isArray(tile.tags) ? tile.tags : [];
   if (!tags.includes("farmable")) {
     return { ok: false, reason: "notFarmable" };
+  }
+  if (!hasEnvTagUnlock(state, "farmable")) {
+    return { ok: false, reason: "tagLocked" };
   }
 
   const nextCropId = cropId == null || cropId === "" ? null : String(cropId);

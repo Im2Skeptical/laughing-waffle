@@ -6,6 +6,7 @@ import { envSystemDefs } from "../../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
+import { hasEnvTagUnlock } from "../../model/skills.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
 
 const TAG_PILL_HEIGHT = 20;
@@ -152,7 +153,20 @@ export function createTagUi(opts) {
     return def?.ui?.name || tagId;
   }
 
+  function isTagUnlocked(tagId) {
+    if (typeof tagId !== "string" || !tagId.length) return false;
+    const state = getGameState?.();
+    if (!state) return true;
+    return hasEnvTagUnlock(state, tagId);
+  }
+
+  function getVisibleTags(tileInst) {
+    const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
+    return tags.filter((tagId) => isTagUnlocked(tagId));
+  }
+
   function isTagDisabled(tileInst, tagId) {
+    if (!isTagUnlocked(tagId)) return true;
     const entry = tileInst?.tagStates?.[tagId];
     return entry?.disabled === true;
   }
@@ -1001,7 +1015,7 @@ export function createTagUi(opts) {
   }
 
   function updateTagEntries(view, tileInst) {
-    const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
+    const tags = getVisibleTags(tileInst);
     const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
     const topTagId = enabledTags[0] ?? null;
     const pawnCount =
@@ -1037,7 +1051,7 @@ export function createTagUi(opts) {
   }
 
   function rebuildTileTags(view, tileInst) {
-    const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
+    const tags = getVisibleTags(tileInst);
     view.tagSignature = tags.join("|");
 
     view.tagContainer.removeChildren();

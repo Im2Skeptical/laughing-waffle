@@ -24,7 +24,11 @@ import {
 } from "./action-costs.js";
 import { placementEquals } from "./action-placement-utils.js";
 import { validateHubConstructionPlacement } from "../../model/build-helpers.js";
-import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
+import {
+  computeAvailableRecipesAndBuildings,
+  hasEnvTagUnlock,
+  hasHubTagUnlock,
+} from "../../model/skills.js";
 
 function clonePlacement(p) {
   return p ? { ...p } : null;
@@ -49,6 +53,20 @@ function cloneTagList(tags) {
 function normalizeTagList(tags) {
   if (!Array.isArray(tags)) return [];
   return tags.filter((tag) => typeof tag === "string");
+}
+
+function hasSameTagSet(leftTags, rightTags) {
+  const left = Array.isArray(leftTags) ? leftTags : [];
+  const right = Array.isArray(rightTags) ? rightTags : [];
+  if (left.length !== right.length) return false;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (leftSet.size !== left.length) return false;
+  if (rightSet.size !== right.length) return false;
+  for (const tagId of right) {
+    if (!leftSet.has(tagId)) return false;
+  }
+  return true;
 }
 
 function getTagDisableState(target, tagId) {
@@ -1318,14 +1336,23 @@ export function createActionPlanner({
     const col = Math.floor(envCol);
     const tile = state?.board?.occ?.tile?.[col];
     if (!tile) return { ok: false, reason: "noTile" };
+    const existingTags = Array.isArray(tile.tags) ? tile.tags : [];
+    const nextTags = normalizeTagList(tagIds);
+    if (!hasSameTagSet(existingTags, nextTags)) {
+      return { ok: false, reason: "tagSetMismatch" };
+    }
+    for (let i = 0; i < existingTags.length; i++) {
+      const tagId = existingTags[i];
+      if (hasEnvTagUnlock(state, tagId)) continue;
+      if (nextTags[i] !== tagId) return { ok: false, reason: "tagLocked" };
+    }
 
     const subjectKey = `tileTags:${col}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
     const baselineTags =
       cloneTagList(existing?.baselineTags) ??
       cloneTagList(existing?.tagIds) ??
-      cloneTagList(tile.tags);
-    const nextTags = normalizeTagList(tagIds);
+      cloneTagList(existingTags);
 
     const intent = makeTileTagOrderIntent({
       id: subjectKey,
@@ -1357,14 +1384,23 @@ export function createActionPlanner({
     const col = Math.floor(hubCol);
     const structure = getHubStructureAtCol(state, col);
     if (!structure) return { ok: false, reason: "noHubStructure" };
+    const existingTags = Array.isArray(structure.tags) ? structure.tags : [];
+    const nextTags = normalizeTagList(tagIds);
+    if (!hasSameTagSet(existingTags, nextTags)) {
+      return { ok: false, reason: "tagSetMismatch" };
+    }
+    for (let i = 0; i < existingTags.length; i++) {
+      const tagId = existingTags[i];
+      if (hasHubTagUnlock(state, tagId)) continue;
+      if (nextTags[i] !== tagId) return { ok: false, reason: "tagLocked" };
+    }
 
     const subjectKey = `hubTags:${col}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
     const baselineTags =
       cloneTagList(existing?.baselineTags) ??
       cloneTagList(existing?.tagIds) ??
-      cloneTagList(structure.tags);
-    const nextTags = normalizeTagList(tagIds);
+      cloneTagList(existingTags);
 
     const intent = makeHubTagOrderIntent({
       id: subjectKey,
@@ -1399,6 +1435,7 @@ export function createActionPlanner({
     if (!tile) return { ok: false, reason: "noTile" };
     const tags = Array.isArray(tile.tags) ? tile.tags : [];
     if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnTile" };
+    if (!hasEnvTagUnlock(state, tagId)) return { ok: false, reason: "tagLocked" };
 
     const subjectKey = `tileTagToggle:${col}:${tagId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
@@ -1445,6 +1482,7 @@ export function createActionPlanner({
     if (!structure) return { ok: false, reason: "noHubStructure" };
     const tags = Array.isArray(structure.tags) ? structure.tags : [];
     if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnHub" };
+    if (!hasHubTagUnlock(state, tagId)) return { ok: false, reason: "tagLocked" };
 
     const subjectKey = `hubTagToggle:${col}:${tagId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
@@ -1490,6 +1528,7 @@ export function createActionPlanner({
     }
     const state = getStateSafe();
     const tile = state?.board?.occ?.tile?.[col];
+    if (!hasEnvTagUnlock(state, tagId)) return true;
     return tile?.tagStates?.[tagId]?.disabled === true;
   }
 
@@ -1505,6 +1544,7 @@ export function createActionPlanner({
     const state = getStateSafe();
     const structure =
       state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure ?? null;
+    if (!hasHubTagUnlock(state, tagId)) return true;
     return structure?.tagStates?.[tagId]?.disabled === true;
   }
 
@@ -1520,6 +1560,9 @@ export function createActionPlanner({
     const tags = Array.isArray(tile.tags) ? tile.tags : [];
     if (!tags.includes("farmable")) {
       return { ok: false, reason: "notFarmable" };
+    }
+    if (!hasEnvTagUnlock(state, "farmable")) {
+      return { ok: false, reason: "tagLocked" };
     }
 
     const nextCropId = normalizeCropId(cropId);

@@ -15,6 +15,7 @@ import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
+import { computeGlobalSkillMods } from "./skills.js";
 
 const EVENT_CADENCE_SEC = 5;
 
@@ -54,7 +55,7 @@ function findSpawnedEventAnchor(state, defId, tSec) {
   return matches[0];
 }
 
-function requirementsPass(requires, seasonKey, tile, hasPawn) {
+function requirementsPass(requires, seasonKey, tile, hasPawn, isTagUnlocked = null) {
   if (!requires || typeof requires !== "object") return true;
 
   if (Array.isArray(requires.season) && requires.season.length > 0) {
@@ -110,14 +111,16 @@ function requirementsPass(requires, seasonKey, tile, hasPawn) {
 
     for (const tag of requiredTags) {
       if (!tileTags.includes(tag)) return false;
+      if (isTagUnlocked && !isTagUnlocked(tag)) return false;
     }
   }
 
   return true;
 }
 
-function isTagDisabled(tile, tagId) {
+function isTagDisabled(tile, tagId, isTagUnlocked = null) {
   if (!tile || !tagId) return false;
+  if (isTagUnlocked && !isTagUnlocked(tagId)) return true;
   const entry = tile.tagStates?.[tagId];
   return entry?.disabled === true;
 }
@@ -198,7 +201,7 @@ function matchesSystemBetween(tile, spec) {
   return value >= min && value <= max;
 }
 
-function matchesTileWhere(tile, whereSpec) {
+function matchesTileWhere(tile, whereSpec, isTagUnlocked = null) {
   if (!whereSpec || typeof whereSpec !== "object") return true;
   if (!tile || typeof tile !== "object") return false;
 
@@ -210,19 +213,21 @@ function matchesTileWhere(tile, whereSpec) {
   }
 
   const tags = Array.isArray(tile.tags) ? tile.tags : [];
+  const hasVisibleTag = (tag) =>
+    tags.includes(tag) && (!isTagUnlocked || isTagUnlocked(tag));
   const hasTag = whereSpec.hasTag;
   if (typeof hasTag === "string") {
-    if (!tags.includes(hasTag)) return false;
+    if (!hasVisibleTag(hasTag)) return false;
   } else if (Array.isArray(hasTag) && hasTag.length > 0) {
     for (const tag of hasTag) {
-      if (!tags.includes(tag)) return false;
+      if (!hasVisibleTag(tag)) return false;
     }
   }
 
   const hasAllTags = normalizeStringArray(whereSpec.hasAllTags);
   if (hasAllTags.length > 0) {
     for (const tag of hasAllTags) {
-      if (!tags.includes(tag)) return false;
+      if (!hasVisibleTag(tag)) return false;
     }
   }
 
@@ -230,7 +235,7 @@ function matchesTileWhere(tile, whereSpec) {
   if (hasAnyTags.length > 0) {
     let any = false;
     for (const tag of hasAnyTags) {
-      if (tags.includes(tag)) {
+      if (hasVisibleTag(tag)) {
         any = true;
         break;
       }
@@ -239,12 +244,12 @@ function matchesTileWhere(tile, whereSpec) {
   }
 
   const notTag = whereSpec.notTag;
-  if (typeof notTag === "string" && tags.includes(notTag)) return false;
+  if (typeof notTag === "string" && hasVisibleTag(notTag)) return false;
 
   const excludeTags = normalizeStringArray(whereSpec.excludeTags);
   if (excludeTags.length > 0) {
     for (const tag of excludeTags) {
-      if (tags.includes(tag)) return false;
+      if (hasVisibleTag(tag)) return false;
     }
   }
 
@@ -266,14 +271,14 @@ function matchesTileWhere(tile, whereSpec) {
   return true;
 }
 
-function collectTileColsWhere(state, whereSpec) {
+function collectTileColsWhere(state, whereSpec, isTagUnlocked = null) {
   const occ = state?.board?.occ?.tile;
   if (!Array.isArray(occ)) return [];
   const cols = [];
   for (let col = 0; col < occ.length; col++) {
     const tile = occ[col];
     if (!tile) continue;
-    if (!matchesTileWhere(tile, whereSpec)) continue;
+    if (!matchesTileWhere(tile, whereSpec, isTagUnlocked)) continue;
     cols.push(col);
   }
   return cols;
@@ -324,7 +329,7 @@ function expandAreaCols(refCols, areaSpec, maxCols) {
   return out;
 }
 
-function filterColsByWhere(state, cols, whereSpec) {
+function filterColsByWhere(state, cols, whereSpec, isTagUnlocked = null) {
   if (!whereSpec || typeof whereSpec !== "object") return cols;
   const occ = state?.board?.occ?.tile;
   if (!Array.isArray(occ)) return [];
@@ -334,7 +339,7 @@ function filterColsByWhere(state, cols, whereSpec) {
     const col = Math.floor(rawCol);
     const tile = occ[col];
     if (!tile) continue;
-    if (!matchesTileWhere(tile, whereSpec)) continue;
+    if (!matchesTileWhere(tile, whereSpec, isTagUnlocked)) continue;
     out.push(col);
   }
   return out;
@@ -572,8 +577,15 @@ function filterValidOriginCols(state, cols, span, placementSpec) {
   return out;
 }
 
-function collectRandomCandidateCols(state, span, placementSpec, whereSpec, collisionMode) {
-  const baseCols = collectTileColsWhere(state, whereSpec);
+function collectRandomCandidateCols(
+  state,
+  span,
+  placementSpec,
+  whereSpec,
+  collisionMode,
+  isTagUnlocked
+) {
+  const baseCols = collectTileColsWhere(state, whereSpec, isTagUnlocked);
   const validCols = filterValidOriginCols(state, baseCols, span, placementSpec);
   if (collisionMode !== "skip") return validCols;
 
@@ -598,7 +610,8 @@ function collectOriginColsByMode(
   span,
   placementSpec,
   collisionMode,
-  rng
+  rng,
+  isTagUnlocked
 ) {
   const boardCols = Number.isFinite(state?.board?.cols)
     ? Math.floor(state.board.cols)
@@ -606,22 +619,22 @@ function collectOriginColsByMode(
   const mode = typeof spawnSpec?.mode === "string" ? spawnSpec.mode : "singleRandomCol";
 
   if (mode === "allColsWhere") {
-    const baseCols = collectTileColsWhere(state, spawnSpec?.where);
+    const baseCols = collectTileColsWhere(state, spawnSpec?.where, isTagUnlocked);
     return filterValidOriginCols(state, baseCols, span, placementSpec);
   }
 
   if (mode === "areaAroundWhere") {
     if (spawnSpec?.refWhere == null) return [];
-    const refCols = collectTileColsWhere(state, spawnSpec?.refWhere);
+    const refCols = collectTileColsWhere(state, spawnSpec?.refWhere, isTagUnlocked);
     const areaCols = expandAreaCols(refCols, spawnSpec?.area, boardCols);
-    const filtered = filterColsByWhere(state, areaCols, spawnSpec?.where);
+    const filtered = filterColsByWhere(state, areaCols, spawnSpec?.where, isTagUnlocked);
     return filterValidOriginCols(state, filtered, span, placementSpec);
   }
 
   if (mode === "colList") {
     const rawList = spawnSpec?.colList ?? spawnSpec?.cols;
     const baseCols = normalizeColList(rawList, boardCols);
-    const filtered = filterColsByWhere(state, baseCols, spawnSpec?.where);
+    const filtered = filterColsByWhere(state, baseCols, spawnSpec?.where, isTagUnlocked);
     return filterValidOriginCols(state, filtered, span, placementSpec);
   }
 
@@ -630,7 +643,8 @@ function collectOriginColsByMode(
     span,
     placementSpec,
     spawnSpec?.where,
-    collisionMode
+    collisionMode,
+    isTagUnlocked
   );
   if (!candidates.length) return [];
   if (rng && typeof rng.nextInt === "function") {
@@ -745,13 +759,17 @@ function spawnEnvEventFromDef(state, defId, def, tSec) {
     spawnSpec.multiSpawn === "planThenApply" ? "planThenApply" : "independent";
 
   const rng = createRng(deriveEnvEventSeed(state, tSec, defId));
+  const unlockedEnvTags = computeGlobalSkillMods(state).unlockedEnvTags;
+  const isTagUnlocked = (tagId) =>
+    typeof tagId === "string" && unlockedEnvTags.has(tagId);
   const originCols = collectOriginColsByMode(
     state,
     spawnSpec,
     span,
     placementSpec,
     collision.mode,
-    rng
+    rng,
+    isTagUnlocked
   );
   if (!originCols.length) return { placedAny: false, needsRebuild: false };
 
@@ -816,6 +834,9 @@ export function stepEnvSecond(state, tSec) {
 
   const board = state.board;
   const seasonKey = getCurrentSeasonKey(state);
+  const unlockedEnvTags = computeGlobalSkillMods(state).unlockedEnvTags;
+  const isTagUnlocked = (tagId) =>
+    typeof tagId === "string" && unlockedEnvTags.has(tagId);
   let needsRebuild = state._boardDirty === true;
 
   const eventAnchors = board.layers?.event?.anchors;
@@ -924,7 +945,7 @@ export function stepEnvSecond(state, tSec) {
     for (const tagId of tags) {
       const tagDef = envTagDefs[tagId];
       if (!tagDef) continue;
-      const tagDisabled = isTagDisabled(tile, tagId);
+      const tagDisabled = isTagDisabled(tile, tagId, isTagUnlocked);
       const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
       for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
         const passive = passives[passiveIndex];
@@ -939,7 +960,7 @@ export function stepEnvSecond(state, tSec) {
         }
         const requirementsOk =
           !passive.requires ||
-          requirementsPass(passive.requires, seasonKey, tile, hasPawn);
+          requirementsPass(passive.requires, seasonKey, tile, hasPawn, isTagUnlocked);
         if (!requirementsOk) {
           passiveTimingPasses(passive.timing, state, tSec, {
             passiveKey,
@@ -980,7 +1001,7 @@ export function stepEnvSecond(state, tSec) {
 
       let executed = false;
       for (const tagId of tags) {
-        if (isTagDisabled(tile, tagId)) continue;
+        if (isTagDisabled(tile, tagId, isTagUnlocked)) continue;
         const tagDef = envTagDefs[tagId];
         if (!tagDef) continue;
         const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
@@ -988,7 +1009,7 @@ export function stepEnvSecond(state, tSec) {
           if (!intent || typeof intent !== "object") continue;
           if (
             intent.requires &&
-            !requirementsPass(intent.requires, seasonKey, tile, true)
+            !requirementsPass(intent.requires, seasonKey, tile, true, isTagUnlocked)
           ) {
             continue;
           }

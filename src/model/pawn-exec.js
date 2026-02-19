@@ -23,6 +23,7 @@ import { ensurePawnSystems, ensurePawnAI } from "./state.js";
 import { applyFollowerHungerDebt } from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
+import { hasEnvTagUnlock, hasHubTagUnlock } from "./skills.js";
 import {
   findEquippedPoolProviderEntry,
   ownerHasEquippedPoolProvider,
@@ -75,8 +76,9 @@ function resolveDistributorRange(anchor, baseRange) {
   return Math.max(base, tierRange);
 }
 
-function isTagDisabled(target, tagId) {
+function isTagDisabled(target, tagId, isTagUnlocked = null) {
   if (!target || !tagId) return false;
+  if (isTagUnlocked && !isTagUnlocked(tagId)) return true;
   const entry = target.tagStates?.[tagId];
   return entry?.disabled === true;
 }
@@ -215,7 +217,7 @@ function listDistributorPoolsForPawn(state, pawn, locationOverride = null) {
     const tags = Array.isArray(anchor.tags) ? anchor.tags : [];
     if (
       !tags.includes(HUB_DISTRIBUTOR_TAG) ||
-      isTagDisabled(anchor, HUB_DISTRIBUTOR_TAG)
+      isTagDisabled(anchor, HUB_DISTRIBUTOR_TAG, (tagId) => hasHubTagUnlock(state, tagId))
     ) {
       continue;
     }
@@ -616,6 +618,7 @@ function isEnvColOccupiable(state, envCol) {
   if (!tile) return false;
   const tags = Array.isArray(tile.tags) ? tile.tags : [];
   for (const tagId of tags) {
+    if (isTagDisabled(tile, tagId, (id) => hasEnvTagUnlock(state, id))) continue;
     if (hasAffordance(envTagDefs?.[tagId], NO_OCCUPY_AFFORDANCE)) {
       return false;
     }
@@ -646,7 +649,7 @@ function isRestSpotAtLocation(state, location) {
     if (!structure) return false;
     const tags = Array.isArray(structure.tags) ? structure.tags : [];
     for (const tagId of tags) {
-      if (isTagDisabled(structure, tagId)) continue;
+      if (isTagDisabled(structure, tagId, (id) => hasHubTagUnlock(state, id))) continue;
       if (hasAffordance(hubTagDefs?.[tagId], REST_SPOT_AFFORDANCE)) {
         return true;
       }
@@ -659,7 +662,7 @@ function isRestSpotAtLocation(state, location) {
     if (!tile) return false;
     const tags = Array.isArray(tile.tags) ? tile.tags : [];
     for (const tagId of tags) {
-      if (isTagDisabled(tile, tagId)) continue;
+      if (isTagDisabled(tile, tagId, (id) => hasEnvTagUnlock(state, id))) continue;
       if (hasAffordance(envTagDefs?.[tagId], REST_SPOT_AFFORDANCE)) {
         return true;
       }

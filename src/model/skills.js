@@ -8,6 +8,9 @@ import {
 } from "../defs/gamepieces/skill-tree-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
+import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import { validateSkillDefs as validateSkillDefsRegistry } from "../defs/validate-skill-defs.js";
 import {
   isObject,
@@ -109,6 +112,9 @@ function normalizeSkillRuntimeShape(runtime, defsInput = null) {
   const knownHubIds = new Set(
     Object.keys(defsInput?.hubStructureDefs ?? hubStructureDefs ?? {})
   );
+  const knownEnvTagIds = new Set(Object.keys(defsInput?.envTagDefs ?? envTagDefs ?? {}));
+  const knownHubTagIds = new Set(Object.keys(defsInput?.hubTagDefs ?? hubTagDefs ?? {}));
+  const knownItemTagIds = new Set(Object.keys(defsInput?.itemTagDefs ?? itemTagDefs ?? {}));
 
   return {
     modifiers: {
@@ -125,6 +131,9 @@ function normalizeSkillRuntimeShape(runtime, defsInput = null) {
         safeUnlocks.hubStructures,
         knownHubIds
       ),
+      envTags: normalizeStringUnlockList(safeUnlocks.envTags, knownEnvTagIds),
+      hubTags: normalizeStringUnlockList(safeUnlocks.hubTags, knownHubTagIds),
+      itemTags: normalizeStringUnlockList(safeUnlocks.itemTags, knownItemTagIds),
     },
   };
 }
@@ -252,6 +261,27 @@ function getDefaultUnlockedHubStructures(defsInput) {
   const defaults = uniqueSortedStrings(progression?.defaultUnlockedHubStructures);
   if (defaults.length > 0) return defaults.filter((id) => !!hubStructureDefs[id]);
   return sortStrings(Object.keys(hubStructureDefs || {}));
+}
+
+function getDefaultUnlockedEnvTags(defsInput) {
+  const progression = getProgressionDefs(defsInput);
+  const defaults = uniqueSortedStrings(progression?.defaultUnlockedEnvTags);
+  if (defaults.length > 0) return defaults.filter((id) => !!envTagDefs[id]);
+  return sortStrings(Object.keys(envTagDefs || {}));
+}
+
+function getDefaultUnlockedHubTags(defsInput) {
+  const progression = getProgressionDefs(defsInput);
+  const defaults = uniqueSortedStrings(progression?.defaultUnlockedHubTags);
+  if (defaults.length > 0) return defaults.filter((id) => !!hubTagDefs[id]);
+  return sortStrings(Object.keys(hubTagDefs || {}));
+}
+
+function getDefaultUnlockedItemTags(defsInput) {
+  const progression = getProgressionDefs(defsInput);
+  const defaults = uniqueSortedStrings(progression?.defaultUnlockedItemTags);
+  if (defaults.length > 0) return defaults.filter((id) => !!itemTagDefs[id]);
+  return sortStrings(Object.keys(itemTagDefs || {}));
 }
 
 function normalizeSkillEffectSpecList(raw) {
@@ -402,6 +432,51 @@ export function revokeSkillHubStructureUnlock(state, hubStructureId) {
   if (next.length === hubs.length) return false;
   runtime.unlocks.hubStructures = next;
   return true;
+}
+
+function grantSkillTagUnlock(state, tagId, unlockKey, defs) {
+  if (typeof tagId !== "string" || !defs[tagId]) return false;
+  const runtime = withRuntimeSkillState(state);
+  const unlocked = Array.isArray(runtime.unlocks?.[unlockKey]) ? runtime.unlocks[unlockKey] : [];
+  if (unlocked.includes(tagId)) return false;
+  unlocked.push(tagId);
+  unlocked.sort((a, b) => a.localeCompare(b));
+  runtime.unlocks[unlockKey] = unlocked;
+  return true;
+}
+
+function revokeSkillTagUnlock(state, tagId, unlockKey) {
+  if (typeof tagId !== "string") return false;
+  const runtime = withRuntimeSkillState(state);
+  const unlocked = Array.isArray(runtime.unlocks?.[unlockKey]) ? runtime.unlocks[unlockKey] : [];
+  const next = unlocked.filter((id) => id !== tagId);
+  if (next.length === unlocked.length) return false;
+  runtime.unlocks[unlockKey] = next;
+  return true;
+}
+
+export function grantSkillEnvTagUnlock(state, tagId) {
+  return grantSkillTagUnlock(state, tagId, "envTags", envTagDefs);
+}
+
+export function revokeSkillEnvTagUnlock(state, tagId) {
+  return revokeSkillTagUnlock(state, tagId, "envTags");
+}
+
+export function grantSkillHubTagUnlock(state, tagId) {
+  return grantSkillTagUnlock(state, tagId, "hubTags", hubTagDefs);
+}
+
+export function revokeSkillHubTagUnlock(state, tagId) {
+  return revokeSkillTagUnlock(state, tagId, "hubTags");
+}
+
+export function grantSkillItemTagUnlock(state, tagId) {
+  return grantSkillTagUnlock(state, tagId, "itemTags", itemTagDefs);
+}
+
+export function revokeSkillItemTagUnlock(state, tagId) {
+  return revokeSkillTagUnlock(state, tagId, "itemTags");
 }
 
 export function getGlobalSkillModifier(state, key, fallback = 0) {
@@ -575,6 +650,9 @@ export function computeGlobalSkillMods(state) {
     populationFoodMult: 1,
     unlockedRecipes: new Set(getDefaultUnlockedRecipes(defsInput)),
     unlockedHubStructures: new Set(getDefaultUnlockedHubStructures(defsInput)),
+    unlockedEnvTags: new Set(getDefaultUnlockedEnvTags(defsInput)),
+    unlockedHubTags: new Set(getDefaultUnlockedHubTags(defsInput)),
+    unlockedItemTags: new Set(getDefaultUnlockedItemTags(defsInput)),
   };
 
   const runtimeGlobal = runtime?.modifiers?.global ?? null;
@@ -598,6 +676,15 @@ export function computeGlobalSkillMods(state) {
     for (const hubId of runtimeUnlocks.hubStructures || []) {
       if (hubStructureDefs[hubId]) out.unlockedHubStructures.add(hubId);
     }
+    for (const tagId of runtimeUnlocks.envTags || []) {
+      if (envTagDefs[tagId]) out.unlockedEnvTags.add(tagId);
+    }
+    for (const tagId of runtimeUnlocks.hubTags || []) {
+      if (hubTagDefs[tagId]) out.unlockedHubTags.add(tagId);
+    }
+    for (const tagId of runtimeUnlocks.itemTags || []) {
+      if (itemTagDefs[tagId]) out.unlockedItemTags.add(tagId);
+    }
   }
 
   out.populationFoodMult = Math.max(0, out.populationFoodMult);
@@ -616,6 +703,24 @@ export function computeAvailableRecipesAndBuildings(state) {
       )
     ),
   };
+}
+
+export function hasEnvTagUnlock(state, tagId) {
+  if (typeof tagId !== "string" || !tagId.length || !envTagDefs[tagId]) return false;
+  const globalMods = computeGlobalSkillMods(state);
+  return globalMods.unlockedEnvTags.has(tagId);
+}
+
+export function hasHubTagUnlock(state, tagId) {
+  if (typeof tagId !== "string" || !tagId.length || !hubTagDefs[tagId]) return false;
+  const globalMods = computeGlobalSkillMods(state);
+  return globalMods.unlockedHubTags.has(tagId);
+}
+
+export function hasItemTagUnlock(state, tagId) {
+  if (typeof tagId !== "string" || !tagId.length || !itemTagDefs[tagId]) return false;
+  const globalMods = computeGlobalSkillMods(state);
+  return globalMods.unlockedItemTags.has(tagId);
 }
 
 export function getSkillTreeLayout(treeId, opts = {}, defsInput = null) {
@@ -642,10 +747,16 @@ export function validateSkillDefs(defsInput = null) {
   const nodes = defsInput?.skillNodes ?? skillNodes;
   const recipes = defsInput?.recipeDefs ?? recipeDefs;
   const hubs = defsInput?.hubStructureDefs ?? hubStructureDefs;
+  const envTags = defsInput?.envTagDefs ?? envTagDefs;
+  const hubTags = defsInput?.hubTagDefs ?? hubTagDefs;
+  const itemTags = defsInput?.itemTagDefs ?? itemTagDefs;
   return validateSkillDefsRegistry({
     skillTrees: trees,
     skillNodes: nodes,
     recipeDefs: recipes,
     hubStructureDefs: hubs,
+    envTagDefs: envTags,
+    hubTagDefs: hubTags,
+    itemTagDefs: itemTags,
   });
 }

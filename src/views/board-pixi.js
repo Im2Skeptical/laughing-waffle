@@ -7,6 +7,7 @@ import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
+import { hasEnvTagUnlock, hasHubTagUnlock } from "../model/skills.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
@@ -145,6 +146,49 @@ export function createBoardView(opts) {
   let tileTagDragController = null;
   let hubTagDragController = null;
 
+  function isEnvTagVisible(tagId) {
+    if (typeof tagId !== "string" || !tagId.length) return false;
+    const state = getGameState?.();
+    if (!state) return true;
+    return hasEnvTagUnlock(state, tagId);
+  }
+
+  function isHubTagVisible(tagId) {
+    if (typeof tagId !== "string" || !tagId.length) return false;
+    const state = getGameState?.();
+    if (!state) return true;
+    return hasHubTagUnlock(state, tagId);
+  }
+
+  function buildTagOrderFromVisible(fullTags, reorderedVisible, isVisibleTag) {
+    const base = Array.isArray(fullTags) ? fullTags : [];
+    const visible = Array.isArray(reorderedVisible) ? reorderedVisible : [];
+    const next = [];
+    let visibleIndex = 0;
+    for (const tagId of base) {
+      if (isVisibleTag(tagId)) {
+        const replacement = visible[visibleIndex];
+        if (replacement == null) return null;
+        next.push(replacement);
+        visibleIndex += 1;
+      } else {
+        next.push(tagId);
+      }
+    }
+    if (visibleIndex !== visible.length) return null;
+    return next;
+  }
+
+  function getVisibleTileTagSignature(tileInst) {
+    const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
+    return tags.filter((tagId) => isEnvTagVisible(tagId)).join("|");
+  }
+
+  function getVisibleHubTagSignature(structureInst) {
+    const tags = Array.isArray(structureInst?.tags) ? structureInst.tags : [];
+    return tags.filter((tagId) => isHubTagVisible(tagId)).join("|");
+  }
+
   function setTextResolution(textNodes, resolution) {
     if (!Array.isArray(textNodes)) return;
     if (!Number.isFinite(resolution)) return;
@@ -205,6 +249,7 @@ export function createBoardView(opts) {
 
   const hubTagUi = createHubTagUi({
     tooltipView,
+    getGameState,
     startTagDrag: startHubTagDrag,
     setTextResolution,
     baseTextResolution: BASE_TEXT_RESOLUTION,
@@ -231,12 +276,21 @@ export function createBoardView(opts) {
     getRowStep: () => TAG_LAYOUT.PILL_HEIGHT + TAG_LAYOUT.PILL_GAP,
     layoutEntries: (view) => tagUi?.layoutTagEntries?.(view),
     onCommit: (view, fromIndex, toIndex) => {
-      const tags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
-      if (tags.length === view.tagEntries.length) {
-        const [moved] = tags.splice(fromIndex, 1);
-        tags.splice(toIndex, 0, moved);
-        dispatchTagOrder(view.col, tags);
-      }
+      const fullTags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
+      const visibleTags = fullTags.filter((tagId) => isEnvTagVisible(tagId));
+      if (visibleTags.length !== view.tagEntries.length) return;
+      if (fromIndex < 0 || fromIndex >= visibleTags.length) return;
+      if (toIndex < 0 || toIndex >= visibleTags.length) return;
+      const reorderedVisible = visibleTags.slice();
+      const [moved] = reorderedVisible.splice(fromIndex, 1);
+      reorderedVisible.splice(toIndex, 0, moved);
+      const nextFull = buildTagOrderFromVisible(
+        fullTags,
+        reorderedVisible,
+        isEnvTagVisible
+      );
+      if (!nextFull) return;
+      dispatchTagOrder(view.col, nextFull);
     },
     onDragStart: (view) => {
       activeTagDrag = view;
@@ -276,14 +330,23 @@ export function createBoardView(opts) {
     getRowStep: () => HUB_TAG_LAYOUT.PILL_HEIGHT + HUB_TAG_LAYOUT.PILL_GAP,
     layoutEntries: (view) => hubTagUi?.layoutTagEntries?.(view),
     onCommit: (view, fromIndex, toIndex) => {
-      const tags = Array.isArray(view.structure?.tags)
+      const fullTags = Array.isArray(view.structure?.tags)
         ? view.structure.tags.slice()
         : [];
-      if (tags.length === view.tagEntries.length) {
-        const [moved] = tags.splice(fromIndex, 1);
-        tags.splice(toIndex, 0, moved);
-        dispatchHubTagOrder(view.col, tags);
-      }
+      const visibleTags = fullTags.filter((tagId) => isHubTagVisible(tagId));
+      if (visibleTags.length !== view.tagEntries.length) return;
+      if (fromIndex < 0 || fromIndex >= visibleTags.length) return;
+      if (toIndex < 0 || toIndex >= visibleTags.length) return;
+      const reorderedVisible = visibleTags.slice();
+      const [moved] = reorderedVisible.splice(fromIndex, 1);
+      reorderedVisible.splice(toIndex, 0, moved);
+      const nextFull = buildTagOrderFromVisible(
+        fullTags,
+        reorderedVisible,
+        isHubTagVisible
+      );
+      if (!nextFull) return;
+      dispatchHubTagOrder(view.col, nextFull);
     },
     onDragStart: (view) => {
       activeHubTagDrag = view;
@@ -832,6 +895,7 @@ export function createBoardView(opts) {
   }
 
   function dispatchTileTagToggle({ envCol, tagId, disabled } = {}) {
+    if (!isEnvTagVisible(tagId)) return { ok: false, reason: "tagLocked" };
     const run = () => {
       const tileName = getTileNameByCol(envCol);
       const tagName = envTagDefs?.[tagId]?.ui?.name || tagId || "Tag";
@@ -917,6 +981,7 @@ export function createBoardView(opts) {
   }
 
   function dispatchHubTagToggle({ hubCol, tagId, disabled } = {}) {
+    if (!isHubTagVisible(tagId)) return { ok: false, reason: "tagLocked" };
     const run = () => {
       let nextDisabled = disabled;
       if (typeof nextDisabled !== "boolean") {
@@ -1396,8 +1461,7 @@ export function createBoardView(opts) {
   function updateTileView(view, tileInst, pawnCount) {
     view.tile = tileInst;
     view.pawnCount = pawnCount;
-    const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
-    const signature = tags.join("|");
+    const signature = getVisibleTileTagSignature(tileInst);
     if (signature !== view.tagSignature) {
       tagUi?.rebuildTileTags?.(view, tileInst);
     }
@@ -2062,10 +2126,7 @@ export function createBoardView(opts) {
       if (view.meterViews.length > 0) {
         updateMeters(view.meterViews, view.structure);
       }
-      const tags = Array.isArray(view.structure?.tags)
-        ? view.structure.tags
-        : [];
-      const signature = tags.join("|");
+      const signature = getVisibleHubTagSignature(view.structure);
       if (signature !== view.tagSignature) {
         hubTagUi?.rebuildStructureTags?.(view, view.structure);
       } else {

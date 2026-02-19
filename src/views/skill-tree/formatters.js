@@ -68,18 +68,36 @@ function formatNodeUnlockEffect(effect) {
 
   if (op === "GrantUnlock" || op === "RevokeUnlock") {
     const unlockType = effect?.unlockType;
+    const tagDomain = effect?.tagDomain ?? effect?.domain ?? effect?.tagKind;
     const unlockId =
       typeof effect?.unlockId === "string" && effect.unlockId.length > 0
         ? effect.unlockId
         : unlockType === "recipe" && typeof effect?.recipeId === "string"
           ? effect.recipeId
+          : unlockType === "tag" && typeof effect?.tagId === "string"
+            ? effect.tagId
           : unlockType === "hubStructure" && typeof effect?.hubStructureId === "string"
             ? effect.hubStructureId
+            : unlockType === "tag" &&
+                tagDomain === "env" &&
+                typeof effect?.envTagId === "string"
+              ? effect.envTagId
+              : unlockType === "tag" &&
+                  tagDomain === "hub" &&
+                  typeof effect?.hubTagId === "string"
+                ? effect.hubTagId
+                : unlockType === "tag" &&
+                    tagDomain === "item" &&
+                    typeof effect?.itemTagId === "string"
+                  ? effect.itemTagId
             : null;
     if (!unlockId) return null;
     const action = op === "GrantUnlock" ? "Unlock" : "Lock";
     if (unlockType === "recipe") return `${action} recipe: ${unlockId}`;
     if (unlockType === "hubStructure") return `${action} building: ${unlockId}`;
+    if (unlockType === "tag" && tagDomain === "env") return `${action} env tag: ${unlockId}`;
+    if (unlockType === "tag" && tagDomain === "hub") return `${action} hub tag: ${unlockId}`;
+    if (unlockType === "tag" && tagDomain === "item") return `${action} item tag: ${unlockId}`;
   }
 
   if (typeof op === "string" && op.length > 0) {

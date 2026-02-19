@@ -40,7 +40,7 @@ import {
   isDropEndpoint,
 } from "./process-framework.js";
 import { canOwnerAcceptItem } from "./commands.js";
-import { getGlobalSkillModifier } from "./skills.js";
+import { computeGlobalSkillMods, getGlobalSkillModifier } from "./skills.js";
 import { passiveTimingPasses } from "./passive-timing.js";
 
 function hasProcess(structure, systemId, type) {
@@ -50,7 +50,7 @@ function hasProcess(structure, systemId, type) {
   return processes.some((p) => p && p.type === type);
 }
 
-function requirementsPass(requires, seasonKey, structure, hasPawn) {
+function requirementsPass(requires, seasonKey, structure, hasPawn, isTagUnlocked = null) {
   if (!requires || typeof requires !== "object") return true;
 
   if (Array.isArray(requires.season) && requires.season.length > 0) {
@@ -134,6 +134,7 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
 
     for (const tag of requiredTags) {
       if (!structureTags.includes(tag)) return false;
+      if (isTagUnlocked && !isTagUnlocked(tag)) return false;
     }
   }
 
@@ -160,8 +161,9 @@ function requirementsPass(requires, seasonKey, structure, hasPawn) {
   return true;
 }
 
-function isTagDisabled(structure, tagId) {
+function isTagDisabled(structure, tagId, isTagUnlocked = null) {
   if (!structure || !tagId) return false;
+  if (isTagUnlocked && !isTagUnlocked(tagId)) return true;
   const entry = structure.tagStates?.[tagId];
   return entry?.disabled === true;
 }
@@ -347,7 +349,7 @@ function buildDepositRequirements(kindTotals) {
   return reqs;
 }
 
-function ensureDepositProcesses(state, structure, pawns, tSec) {
+function ensureDepositProcesses(state, structure, pawns, tSec, isTagUnlocked = null) {
   if (!state || !structure || !Array.isArray(pawns) || pawns.length === 0) {
     return false;
   }
@@ -386,7 +388,7 @@ function ensureDepositProcesses(state, structure, pawns, tSec) {
     const communal =
       Array.isArray(structure.tags) &&
       structure.tags.includes("communal") &&
-      !isTagDisabled(structure, "communal");
+      !isTagDisabled(structure, "communal", isTagUnlocked);
 
     const requirements = buildDepositRequirements(kindTotals);
     if (requirements.length === 0) continue;
@@ -644,13 +646,13 @@ function getStructureLabel(structure) {
   return def?.name || structure.defId || "Housing";
 }
 
-function getResidentsHousingStructure(anchors) {
+function getResidentsHousingStructure(anchors, isTagUnlocked = null) {
   const list = Array.isArray(anchors) ? anchors : [];
   for (const structure of list) {
     if (!structure) continue;
     const tags = Array.isArray(structure.tags) ? structure.tags : [];
     if (!tags.includes("canHouse")) continue;
-    if (isTagDisabled(structure, "canHouse")) continue;
+    if (isTagDisabled(structure, "canHouse", isTagUnlocked)) continue;
     return structure;
   }
   return null;
@@ -969,7 +971,7 @@ function consumeResidentsMealsOnSeasonChange(state, structure) {
   return { attempts, successes, misses };
 }
 
-function maybeApplyYearlyPopulationChange(state, tSec, anchors = []) {
+function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlocked = null) {
   const tracker = ensurePopulationTrackerState(state);
   if (!tracker) return false;
 
@@ -1009,7 +1011,7 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = []) {
   nextPopulation = normalizePopulationCount(nextPopulation, previousPopulation);
   setPopulationCount(state, nextPopulation);
 
-  const housingStructure = getResidentsHousingStructure(anchors);
+  const housingStructure = getResidentsHousingStructure(anchors, isTagUnlocked);
   const hasFaithHousing = !!housingStructure;
   const faithThreshold = getFaithGrowthStreakThreshold();
   let faithGrowthStreak = normalizePopulationCount(tracker.faithGrowthStreak, 0);
@@ -1145,16 +1147,16 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = []) {
   return true;
 }
 
-function runPopulationSeasonTick(state, tSec, anchors) {
+function runPopulationSeasonTick(state, tSec, anchors, isTagUnlocked = null) {
   if (!state || state._seasonChanged !== true) return false;
 
-  maybeApplyYearlyPopulationChange(state, tSec, anchors);
+  maybeApplyYearlyPopulationChange(state, tSec, anchors, isTagUnlocked);
   if (state?.runStatus?.complete === true) return true;
 
   const tracker = ensurePopulationTrackerState(state);
   if (!tracker) return false;
 
-  const structure = getResidentsHousingStructure(anchors);
+  const structure = getResidentsHousingStructure(anchors, isTagUnlocked);
   const result = consumeResidentsMealsOnSeasonChange(state, structure);
   const attempts = normalizePopulationCount(result.attempts, 0);
   const successes = normalizePopulationCount(result.successes, 0);
@@ -1266,8 +1268,11 @@ export function stepHubSecond(state, tSec) {
   if (!state || !state.hub) return;
 
   const anchors = Array.isArray(state.hub.anchors) ? state.hub.anchors : [];
+  const unlockedHubTags = computeGlobalSkillMods(state).unlockedHubTags;
+  const isTagUnlocked = (tagId) =>
+    typeof tagId === "string" && unlockedHubTags.has(tagId);
 
-  runPopulationSeasonTick(state, tSec, anchors);
+  runPopulationSeasonTick(state, tSec, anchors, isTagUnlocked);
   if (!anchors.length) return;
 
   const seasonKey = getCurrentSeasonKey(state);
@@ -1288,9 +1293,9 @@ export function stepHubSecond(state, tSec) {
     if (
       hasPawn &&
       tags.includes("depositable") &&
-      !isTagDisabled(structure, "depositable")
+      !isTagDisabled(structure, "depositable", isTagUnlocked)
     ) {
-      ensureDepositProcesses(state, structure, pawns, tSec);
+      ensureDepositProcesses(state, structure, pawns, tSec, isTagUnlocked);
     }
 
     const baseContext = {
@@ -1306,7 +1311,7 @@ export function stepHubSecond(state, tSec) {
     for (const tagId of tags) {
       const tagDef = hubTagDefs[tagId];
       if (!tagDef) continue;
-      const tagDisabled = isTagDisabled(structure, tagId);
+      const tagDisabled = isTagDisabled(structure, tagId, isTagUnlocked);
       const passives = Array.isArray(tagDef.passives) ? tagDef.passives : [];
       for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
         const passive = passives[passiveIndex];
@@ -1326,7 +1331,7 @@ export function stepHubSecond(state, tSec) {
         }
         const requirementsOk =
           !passive.requires ||
-          requirementsPass(passive.requires, seasonKey, structure, hasPawn);
+          requirementsPass(passive.requires, seasonKey, structure, hasPawn, isTagUnlocked);
         if (!requirementsOk) {
           passiveTimingPasses(passive.timing, state, tSec, {
             passiveKey,
@@ -1365,7 +1370,7 @@ export function stepHubSecond(state, tSec) {
 
       let executed = false;
       for (const tagId of tags) {
-        if (isTagDisabled(structure, tagId)) continue;
+        if (isTagDisabled(structure, tagId, isTagUnlocked)) continue;
         const tagDef = hubTagDefs[tagId];
         if (!tagDef) continue;
         const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
@@ -1373,7 +1378,7 @@ export function stepHubSecond(state, tSec) {
           if (!intent || typeof intent !== "object") continue;
           if (
             intent.requires &&
-            !requirementsPass(intent.requires, seasonKey, structure, true)
+            !requirementsPass(intent.requires, seasonKey, structure, true, isTagUnlocked)
           ) {
             continue;
           }

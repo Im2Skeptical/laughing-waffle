@@ -1,11 +1,17 @@
 import {
   addGlobalSkillModifier,
   addPawnSkillModifier,
+  grantSkillEnvTagUnlock,
   grantSkillHubStructureUnlock,
+  grantSkillHubTagUnlock,
+  grantSkillItemTagUnlock,
   grantSkillRecipeUnlock,
   multiplyGlobalSkillModifier,
   multiplyPawnSkillModifier,
+  revokeSkillEnvTagUnlock,
   revokeSkillHubStructureUnlock,
+  revokeSkillHubTagUnlock,
+  revokeSkillItemTagUnlock,
   revokeSkillRecipeUnlock,
 } from "../../skills.js";
 
@@ -40,7 +46,13 @@ function resolveMultiplierFactor(effect) {
 
 function resolveUnlockType(effect) {
   const type = effect?.unlockType;
-  if (type === "recipe" || type === "hubStructure") return type;
+  if (type === "recipe" || type === "hubStructure" || type === "tag") return type;
+  return null;
+}
+
+function resolveTagDomain(effect) {
+  const domain = effect?.tagDomain ?? effect?.domain ?? effect?.tagKind;
+  if (domain === "env" || domain === "hub" || domain === "item") return domain;
   return null;
 }
 
@@ -56,11 +68,43 @@ function resolveUnlockId(effect, unlockType) {
     return effect.recipeId;
   }
   if (
+    unlockType === "tag" &&
+    typeof effect?.tagId === "string" &&
+    effect.tagId.length > 0
+  ) {
+    return effect.tagId;
+  }
+  if (
     unlockType === "hubStructure" &&
     typeof effect?.hubStructureId === "string" &&
     effect.hubStructureId.length > 0
   ) {
     return effect.hubStructureId;
+  }
+  const tagDomain = unlockType === "tag" ? resolveTagDomain(effect) : null;
+  if (
+    unlockType === "tag" &&
+    tagDomain === "env" &&
+    typeof effect?.envTagId === "string" &&
+    effect.envTagId.length > 0
+  ) {
+    return effect.envTagId;
+  }
+  if (
+    unlockType === "tag" &&
+    tagDomain === "hub" &&
+    typeof effect?.hubTagId === "string" &&
+    effect.hubTagId.length > 0
+  ) {
+    return effect.hubTagId;
+  }
+  if (
+    unlockType === "tag" &&
+    tagDomain === "item" &&
+    typeof effect?.itemTagId === "string" &&
+    effect.itemTagId.length > 0
+  ) {
+    return effect.itemTagId;
   }
   if (typeof effect?.defId === "string" && effect.defId.length > 0) {
     return effect.defId;
@@ -110,7 +154,14 @@ export function handleGrantUnlock(state, effect) {
   if (unlockType === "recipe") {
     return grantSkillRecipeUnlock(state, unlockId);
   }
-  return grantSkillHubStructureUnlock(state, unlockId);
+  if (unlockType === "hubStructure") {
+    return grantSkillHubStructureUnlock(state, unlockId);
+  }
+  const tagDomain = resolveTagDomain(effect);
+  if (!tagDomain) return false;
+  if (tagDomain === "env") return grantSkillEnvTagUnlock(state, unlockId);
+  if (tagDomain === "hub") return grantSkillHubTagUnlock(state, unlockId);
+  return grantSkillItemTagUnlock(state, unlockId);
 }
 
 export function handleRevokeUnlock(state, effect) {
@@ -123,5 +174,12 @@ export function handleRevokeUnlock(state, effect) {
   if (unlockType === "recipe") {
     return revokeSkillRecipeUnlock(state, unlockId);
   }
-  return revokeSkillHubStructureUnlock(state, unlockId);
+  if (unlockType === "hubStructure") {
+    return revokeSkillHubStructureUnlock(state, unlockId);
+  }
+  const tagDomain = resolveTagDomain(effect);
+  if (!tagDomain) return false;
+  if (tagDomain === "env") return revokeSkillEnvTagUnlock(state, unlockId);
+  if (tagDomain === "hub") return revokeSkillHubTagUnlock(state, unlockId);
+  return revokeSkillItemTagUnlock(state, unlockId);
 }

@@ -9,7 +9,6 @@ export const skillProgressionDefs = {
   },
   defaultUnlockedRecipes: [
     "roastBarley",
-    "weaveBasket",
     "craftProphecyPopulationScroll",
     "craftProphecyGrainScroll",
     "craftProphecyFoodScroll",
@@ -154,7 +153,7 @@ export const skillNodes = {
       x: 815,
       y: 628
     },
-    onUnlock: []
+    onUnlock: [{ op: "GrantUnlock", unlockType: "recipe", recipeId: "weaveBasket" }]
   },
   Beer: {
     id: "Beer",

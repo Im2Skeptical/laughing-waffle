@@ -1,3 +1,5 @@
+import { hasEnvTagUnlock, hasHubTagUnlock } from "../skills.js";
+
 export function cmdSetTileTagOrder(state, { envCol, tagIds }) {
   if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
   if (!Array.isArray(tagIds)) return { ok: false, reason: "badTagIds" };
@@ -23,6 +25,11 @@ export function cmdSetTileTagOrder(state, { envCol, tagIds }) {
   }
   for (const tag of unique) {
     if (!existingSet.has(tag)) return { ok: false, reason: "tagSetMismatch" };
+  }
+  for (let i = 0; i < existingTags.length; i++) {
+    const tagId = existingTags[i];
+    if (hasEnvTagUnlock(state, tagId)) continue;
+    if (ordered[i] !== tagId) return { ok: false, reason: "tagLocked" };
   }
 
   tile.tags = ordered;
@@ -54,6 +61,11 @@ export function cmdSetHubTagOrder(state, { hubCol, tagIds }) {
   }
   for (const tag of unique) {
     if (!existingSet.has(tag)) return { ok: false, reason: "tagSetMismatch" };
+  }
+  for (let i = 0; i < existingTags.length; i++) {
+    const tagId = existingTags[i];
+    if (hasHubTagUnlock(state, tagId)) continue;
+    if (ordered[i] !== tagId) return { ok: false, reason: "tagLocked" };
   }
 
   structure.tags = ordered;
@@ -168,6 +180,7 @@ export function cmdToggleTileTag(state, { envCol, tagId, disabled } = {}) {
   if (!tile) return { ok: false, reason: "noTile" };
   const tags = Array.isArray(tile.tags) ? tile.tags : [];
   if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnTile" };
+  if (!hasEnvTagUnlock(state, tagId)) return { ok: false, reason: "tagLocked" };
 
   const currentState = readTagDisableState(tile?.tagStates?.[tagId], "player");
   const currentDisabled = currentState.disabled === true;
@@ -203,6 +216,7 @@ export function cmdToggleHubTag(state, { hubCol, tagId, disabled } = {}) {
   if (!structure) return { ok: false, reason: "noHubStructure" };
   const tags = Array.isArray(structure.tags) ? structure.tags : [];
   if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnHub" };
+  if (!hasHubTagUnlock(state, tagId)) return { ok: false, reason: "tagLocked" };
 
   const currentState = readTagDisableState(structure?.tagStates?.[tagId], "player");
   const currentDisabled = currentState.disabled === true;

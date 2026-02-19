@@ -8,6 +8,7 @@ import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import { TIER_ASC } from "../../model/effects/core/tiers.js";
+import { hasHubTagUnlock } from "../../model/skills.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -91,6 +92,7 @@ export const HUB_TAG_LAYOUT = {
 export function createHubTagUi(opts) {
   const {
     tooltipView,
+    getGameState,
     startTagDrag,
     setTextResolution,
     baseTextResolution,
@@ -134,12 +136,21 @@ export function createHubTagUi(opts) {
   }
 
   function isTagDisabled(structure, tagId) {
+    if (!isTagUnlocked(tagId)) return true;
     const entry = structure?.tagStates?.[tagId];
     return entry?.disabled === true;
   }
 
+  function isTagUnlocked(tagId) {
+    if (typeof tagId !== "string" || !tagId.length) return false;
+    const state = getGameState?.();
+    if (!state) return true;
+    return hasHubTagUnlock(state, tagId);
+  }
+
   function getStructureTags(structure) {
-    return Array.isArray(structure?.tags) ? structure.tags : [];
+    const tags = Array.isArray(structure?.tags) ? structure.tags : [];
+    return tags.filter((tagId) => isTagUnlocked(tagId));
   }
 
   function isTierBucket(pool) {

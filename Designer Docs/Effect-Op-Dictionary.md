@@ -8,37 +8,32 @@ Reference for all currently registered effect ops in `src/model/effects/index.js
 - `kind` is accepted as an alias for `op`.
 - Unknown ops are ignored (return `false`).
 
-## Skill Tree Additions (Not `runEffect` Ops)
-- Skill tree node payloads in `skill-tree-defs.js` are not registered effect ops and are not executed by `runEffect`.
-- Runtime reads them via `src/model/skills.js` and applies them as deterministic derived modifiers.
+## Skill Tree Effects
+- Skill tree node effects are authored as effect specs in `skillNodes[*].onUnlock` and executed via `runEffect`.
+- Unlock execution path: `cmdUnlockSkillNode` in `src/model/commands/pawn-skill-commands.js`.
+- `skillNodes[*].effects` is deprecated and fails validation (`validate-skill-defs.js`).
+- `skillNodes[*].onLock` is validated but not currently used by the unlock command path.
 
-### `skillNodes[*].effects.characterMods`
+### Skill Node Requirement Shape
+- `requirements.requiredNodeIds: string[]`
+
+### Skill Modifier Keys (validated for skill-node effects)
 - `forageTierBonus` (additive integer)
 - `forageStaminaCostDelta` (additive integer)
 - `farmingStaminaCostDelta` (additive integer)
 - `restStaminaBonusFlat` (additive integer)
 - `restStaminaBonusMult` (multiplicative number)
-
-### `skillNodes[*].effects.globalMods`
 - `apCapBonus` (additive integer)
 - `projectionHorizonBonusSec` (additive integer)
 - `populationFoodMult` (multiplicative number)
 
-### `skillNodes[*].effects.unlocks`
-- `recipes: string[]`
-- `hubStructures: string[]`
-
-### Skill Node Requirement Shape
-- `requirements.requiredNodeIds: string[]`
-
 ### Notes
-- Current gameplay wiring uses `forageStaminaCostDelta` and `farmingStaminaCostDelta` in intent stamina costs.
-- AP cap, projection horizon, seasonal population food attempts, and recipe/building availability are fed from aggregated global skill mods.
+- AP cap, projection horizon, seasonal population food attempts, and recipe/building availability are driven by aggregated skill runtime modifiers/unlocks.
 
 ## Shared Conventions
 
 ### Context kinds in use
-- `game`: env events, env tag passives/intents, hub tag passives/intents, pawn passives/intents.
+- `game`: env events, env tag passives/intents, hub tag passives/intents, pawn passives/intents, skill-node unlock effects.
 - `item`: item-tag passives and equipped-item passives.
 - `inventoryMove`, `inventoryStack`, `inventorySplit`: inventory command contexts.
 - Other kinds may exist (for example `build`) but only ops that explicitly check `context.kind` are restricted.
@@ -200,6 +195,32 @@ Reference for all currently registered effect ops in `src/model/effects/index.js
   - `amount` when mode is `work` and `workersFrom` is not used
   - `workerCost` for hub worker spend on progress ticks
 - Optional `poolKey` (default `maturedPool`) for crop-growth completion.
+
+## Skill Ops
+
+### `AddModifier`
+- Required: `key`, and numeric `amount` (or `delta`).
+- Scope: `scope: "global" | "pawn"` (`global` is runtime fallback).
+- Pawn target resolution for `scope: "pawn"`:
+  - `effect.pawnId`, else
+  - `effect.target.ref === "pawn"` using `context.pawn.id`, `context.pawnId`, or `context.ownerId`, else
+  - `context.pawn.id`, else `context.pawnId`.
+- Behavior: delegates to `addGlobalSkillModifier` / `addPawnSkillModifier`.
+
+### `MulModifier`
+- Required: `key`, and numeric multiplier from `factor` (or `multiplier`, or `amount`).
+- Scope and pawn resolution: same as `AddModifier`.
+- Behavior: delegates to `multiplyGlobalSkillModifier` / `multiplyPawnSkillModifier`.
+
+### `GrantUnlock`
+- Required: `unlockType: "recipe" | "hubStructure"`.
+- Unlock id resolution: `unlockId`, else `recipeId` / `hubStructureId` by type, else `defId`.
+- Behavior: grants recipe/building unlock in `state.skillRuntime.unlocks`.
+
+### `RevokeUnlock`
+- Required: `unlockType: "recipe" | "hubStructure"`.
+- Unlock id resolution: same as `GrantUnlock`.
+- Behavior: revokes recipe/building unlock in `state.skillRuntime.unlocks`.
 
 ## Tag / Event / Prop Ops
 
