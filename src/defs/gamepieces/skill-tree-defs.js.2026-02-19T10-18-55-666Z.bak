@@ -42,7 +42,7 @@ export const skillTrees = {
   systemColorMap: {
     id: "systemColorMap",
     name: "System Color Map",
-    startNodeId: "Astronomy",
+    startNodeId: "core_origin",
     ui: {
       accentColor: 16777215,
       layoutMode: "ringByTags",
@@ -124,6 +124,7 @@ export const skillNodes = {
       "BlueEarly_01",
       "BlueEarly_03",
       "Cooking",
+      "core_origin",
       "Crafting"
     ],
     uiPos: {
@@ -146,6 +147,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Cooking",
+      "core_origin",
       "Forage",
       "GreenEarly_01",
       "GreenEarly_03"
@@ -196,6 +198,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackBlueEarly_03",
+      "BlueEarly_Notable",
       "Papyrus"
     ],
     uiPos: {
@@ -266,7 +269,8 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackBlueEarly_Notable",
-      "BlueBlackEarly_05"
+      "BlueBlackEarly_05",
+      "BlueEarly_Notable"
     ],
     uiPos: {
       x: -485,
@@ -1073,7 +1077,8 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
-      "BlueEarly_04"
+      "BlueEarly_04",
+      "BlueEarly_Notable"
     ],
     uiPos: {
       x: 470,
@@ -1094,6 +1099,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_03",
+      "BlueEarly_Notable",
       "Papyrus",
       "Weaving"
     ],
@@ -1116,6 +1122,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_06",
+      "BlueEarly_Notable",
       "Papyrus"
     ],
     uiPos: {
@@ -1137,6 +1144,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_05",
+      "BlueEarlyNotable2",
       "Prophecy"
     ],
     uiPos: {
@@ -1158,6 +1166,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_08",
+      "BlueEarlyNotable2",
       "Prophecy"
     ],
     uiPos: {
@@ -1179,6 +1188,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_07",
+      "BlueEarly_Notable",
       "Papyrus"
     ],
     uiPos: {
@@ -1271,6 +1281,33 @@ export const skillNodes = {
     },
     onUnlock: []
   },
+  BlueEarly_Notable: {
+    id: "BlueEarly_Notable",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "BlueNodeEarlyNotable_01",
+    desc: "Cluster punctuation.",
+    cost: 2,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlackBlueEarly_01",
+      "BlackBlueEarly_04",
+      "BlueEarly_03",
+      "BlueEarly_04",
+      "BlueEarly_05",
+      "BlueEarly_08",
+      "BlueGreenEarly_01"
+    ],
+    uiPos: {
+      x: 467,
+      y: 777
+    },
+    onUnlock: []
+  },
   BlueEarlyNotable_03: {
     id: "BlueEarlyNotable_03",
     ringId: "ring_04",
@@ -1315,6 +1352,28 @@ export const skillNodes = {
     },
     onUnlock: []
   },
+  BlueEarlyNotable2: {
+    id: "BlueEarlyNotable2",
+    treeId: "systemColorMap",
+    name: "BlueEarlyNotable2",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueEarly_06",
+      "BlueEarly_07",
+      "BlueMid_01"
+    ],
+    uiPos: {
+      x: 246,
+      y: 968
+    },
+    onUnlock: []
+  },
   BlueGreenEarly_01: {
     id: "BlueGreenEarly_01",
     ringId: "ring_02",
@@ -1329,6 +1388,7 @@ export const skillNodes = {
       "Hybrid"
     ],
     adjacent: [
+      "BlueEarly_Notable",
       "BlueGreenEarly_03",
       "Papyrus"
     ],
@@ -1353,6 +1413,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueGreenEarly_03",
+      "GreenEarly_Notable",
       "Storehouse"
     ],
     uiPos: {
@@ -1669,6 +1730,7 @@ export const skillNodes = {
       "Mid"
     ],
     adjacent: [
+      "BlueEarlyNotable2",
       "BlueMid_02",
       "Prophecy"
     ],
@@ -1821,12 +1883,39 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
-      "Basket"
+      "Basket",
+      "core_origin"
     ],
     uiPos: {
       x: 727,
       y: 649
     },
+    onUnlock: []
+  },
+  core_origin: {
+    id: "core_origin",
+    treeId: "systemColorMap",
+    name: "Origin",
+    desc: "Undifferentiated system state.",
+    cost: 0,
+    tags: [
+      "Core"
+    ],
+    adjacent: [
+      "Astronomy",
+      "Basket",
+      "Cooking",
+      "Crafting",
+      "Fish",
+      "Forage",
+      "MudHouses",
+      "RitualShrine"
+    ],
+    uiPos: {
+      x: 731,
+      y: 536
+    },
+    uiNodeRadius: 28,
     onUnlock: []
   },
   Crafting: {
@@ -1845,6 +1934,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
+      "core_origin",
       "RitualShrine"
     ],
     uiPos: {
@@ -1890,6 +1980,7 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
+      "core_origin",
       "Forage",
       "MudHouses",
       "RedEarly_01",
@@ -1915,6 +2006,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Basket",
+      "core_origin",
       "Fish"
     ],
     uiPos: {
@@ -1978,7 +2070,8 @@ export const skillNodes = {
     ],
     adjacent: [
       "Basket",
-      "GreenEarly_04"
+      "GreenEarly_04",
+      "GreenEarly_Notable"
     ],
     uiPos: {
       x: 849,
@@ -2000,6 +2093,7 @@ export const skillNodes = {
     adjacent: [
       "Farming",
       "GreenEarly_03",
+      "GreenEarly_Notable",
       "Storehouse"
     ],
     uiPos: {
@@ -2063,6 +2157,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "GreenEarly_08",
+      "GreenEarly_Notable",
       "Storehouse"
     ],
     uiPos: {
@@ -2084,7 +2179,8 @@ export const skillNodes = {
     ],
     adjacent: [
       "Beer",
-      "GreenEarly_07"
+      "GreenEarly_07",
+      "GreenEarly_Notable"
     ],
     uiPos: {
       x: 1183,
@@ -2173,6 +2269,33 @@ export const skillNodes = {
     uiPos: {
       x: 1220,
       y: 1618
+    },
+    onUnlock: []
+  },
+  GreenEarly_Notable: {
+    id: "GreenEarly_Notable",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "GreenNodeEarlyNotable_01",
+    desc: "Cluster punctuation.",
+    cost: 2,
+    tags: [
+      "Early",
+      "Green",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueGreenEarly_02",
+      "GreenEarly_03",
+      "GreenEarly_04",
+      "GreenEarly_07",
+      "GreenEarly_08",
+      "GreenMid_01",
+      "GreenRedEarly_01"
+    ],
+    uiPos: {
+      x: 962,
+      y: 777
     },
     onUnlock: []
   },
@@ -2317,6 +2440,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Beer",
+      "GreenEarly_Notable",
       "GreenMid_02"
     ],
     uiPos: {
@@ -2468,6 +2592,7 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
+      "GreenEarly_Notable",
       "GreenRedEarly_03",
       "RedEarly_Notable"
     ],
@@ -2723,12 +2848,13 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
+      "core_origin",
       "Fish",
       "RitualShrine"
     ],
     uiPos: {
-      x: 736,
-      y: 422
+      x: 740,
+      y: 428
     },
     onUnlock: []
   },
@@ -3633,12 +3759,13 @@ export const skillNodes = {
     adjacent: [
       "BlackEarly_02",
       "BlackEarly_03",
+      "core_origin",
       "Crafting",
       "MudHouses"
     ],
     uiPos: {
-      x: 637,
-      y: 446
+      x: 650,
+      y: 456
     },
     onUnlock: []
   },

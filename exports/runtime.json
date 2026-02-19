@@ -4,7 +4,7 @@
       "systemColorMap": {
         "id": "systemColorMap",
         "name": "System Color Map",
-        "startNodeId": "core_origin",
+        "startNodeId": "Astronomy",
         "ui": {
           "accentColor": 16777215,
           "layoutMode": "ringByTags",
@@ -84,7 +84,6 @@
           "BlueEarly_01",
           "BlueEarly_03",
           "Cooking",
-          "core_origin",
           "Crafting"
         ],
         "onUnlock": [],
@@ -107,7 +106,6 @@
         ],
         "adjacent": [
           "Cooking",
-          "core_origin",
           "Forage",
           "GreenEarly_01",
           "GreenEarly_03"
@@ -1783,8 +1781,7 @@
         ],
         "adjacent": [
           "Astronomy",
-          "Basket",
-          "core_origin"
+          "Basket"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1792,32 +1789,6 @@
           "y": 649
         },
         "ringId": "ring_02"
-      },
-      "core_origin": {
-        "id": "core_origin",
-        "treeId": "systemColorMap",
-        "name": "Origin",
-        "desc": "Undifferentiated system state.",
-        "cost": 0,
-        "tags": [
-          "Core"
-        ],
-        "adjacent": [
-          "Astronomy",
-          "Basket",
-          "Cooking",
-          "Crafting",
-          "Fish",
-          "Forage",
-          "MudHouses",
-          "RitualShrine"
-        ],
-        "onUnlock": [],
-        "uiPos": {
-          "x": 731,
-          "y": 536
-        },
-        "uiNodeRadius": 28
       },
       "Crafting": {
         "id": "Crafting",
@@ -1834,7 +1805,6 @@
         ],
         "adjacent": [
           "Astronomy",
-          "core_origin",
           "RitualShrine"
         ],
         "onUnlock": [],
@@ -1880,7 +1850,6 @@
           "Red"
         ],
         "adjacent": [
-          "core_origin",
           "Forage",
           "MudHouses",
           "RedEarly_01",
@@ -1906,7 +1875,6 @@
         ],
         "adjacent": [
           "Basket",
-          "core_origin",
           "Fish"
         ],
         "onUnlock": [],
@@ -2715,14 +2683,13 @@
           "Red"
         ],
         "adjacent": [
-          "core_origin",
           "Fish",
           "RitualShrine"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 740,
-          "y": 428
+          "x": 736,
+          "y": 422
         },
         "ringId": "ring_04"
       },
@@ -3626,14 +3593,13 @@
         "adjacent": [
           "BlackEarly_02",
           "BlackEarly_03",
-          "core_origin",
           "Crafting",
           "MudHouses"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 650,
-          "y": 456
+          "x": 637,
+          "y": 446
         },
         "ringId": "ring_02"
       },

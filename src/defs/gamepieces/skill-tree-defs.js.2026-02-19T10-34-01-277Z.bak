@@ -42,7 +42,7 @@ export const skillTrees = {
   systemColorMap: {
     id: "systemColorMap",
     name: "System Color Map",
-    startNodeId: "Astronomy",
+    startNodeId: "core_origin",
     ui: {
       accentColor: 16777215,
       layoutMode: "ringByTags",
@@ -124,6 +124,7 @@ export const skillNodes = {
       "BlueEarly_01",
       "BlueEarly_03",
       "Cooking",
+      "core_origin",
       "Crafting"
     ],
     uiPos: {
@@ -146,6 +147,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Cooking",
+      "core_origin",
       "Forage",
       "GreenEarly_01",
       "GreenEarly_03"
@@ -1821,12 +1823,39 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
-      "Basket"
+      "Basket",
+      "core_origin"
     ],
     uiPos: {
       x: 727,
       y: 649
     },
+    onUnlock: []
+  },
+  core_origin: {
+    id: "core_origin",
+    treeId: "systemColorMap",
+    name: "Origin",
+    desc: "Undifferentiated system state.",
+    cost: 0,
+    tags: [
+      "Core"
+    ],
+    adjacent: [
+      "Astronomy",
+      "Basket",
+      "Cooking",
+      "Crafting",
+      "Fish",
+      "Forage",
+      "MudHouses",
+      "RitualShrine"
+    ],
+    uiPos: {
+      x: 731,
+      y: 536
+    },
+    uiNodeRadius: 28,
     onUnlock: []
   },
   Crafting: {
@@ -1845,6 +1874,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
+      "core_origin",
       "RitualShrine"
     ],
     uiPos: {
@@ -1890,6 +1920,7 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
+      "core_origin",
       "Forage",
       "MudHouses",
       "RedEarly_01",
@@ -1915,6 +1946,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "Basket",
+      "core_origin",
       "Fish"
     ],
     uiPos: {
@@ -2723,12 +2755,13 @@ export const skillNodes = {
       "Red"
     ],
     adjacent: [
+      "core_origin",
       "Fish",
       "RitualShrine"
     ],
     uiPos: {
-      x: 736,
-      y: 422
+      x: 740,
+      y: 428
     },
     onUnlock: []
   },
@@ -3633,12 +3666,13 @@ export const skillNodes = {
     adjacent: [
       "BlackEarly_02",
       "BlackEarly_03",
+      "core_origin",
       "Crafting",
       "MudHouses"
     ],
     uiPos: {
-      x: 637,
-      y: 446
+      x: 650,
+      y: 456
     },
     onUnlock: []
   },
