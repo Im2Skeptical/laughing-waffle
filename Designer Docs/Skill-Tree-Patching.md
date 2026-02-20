@@ -58,3 +58,9 @@ Robust apply with create + rename:
 npm run skill:apply-export -- --input .\exports\runtime.json --stage robust --allow-create --rename-map .\exports\rename-map.json --write
 ```
 
+Robust apply with create + rename:
+
+```bash
+npm run skill:apply-export -- --input .\exports\runtime.json --stage robust --allow-create --delete-missing --write
+```
+

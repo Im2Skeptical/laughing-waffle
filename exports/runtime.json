@@ -88,8 +88,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 632,
-          "y": 613
+          "x": 628,
+          "y": 619
         },
         "ringId": "ring_02"
       },
@@ -112,15 +112,15 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 815,
-          "y": 628
+          "x": 833,
+          "y": 647
         },
         "ringId": "ring_02"
       },
       "Beer": {
         "id": "Beer",
         "treeId": "systemColorMap",
-        "name": "GreenEarly_Notable2",
+        "name": "GreenEarly_Notable_04",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -129,16 +129,13 @@
           "Notable"
         ],
         "adjacent": [
-          "GreenEarly_06",
-          "GreenEarly_08",
-          "GreenEarly_09",
-          "GreenEarly_11",
-          "GreenMid_01"
+          "BlueGreenEarly_08",
+          "GreenEarly_12"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 1434,
-          "y": 1223
+          "x": 1057,
+          "y": 1469
         },
         "ringId": "ring_04"
       },
@@ -320,7 +317,7 @@
         ],
         "adjacent": [
           "BlackEarly_01",
-          "RitualShrine"
+          "Worship"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -341,7 +338,7 @@
         ],
         "adjacent": [
           "BlackEarly_04",
-          "RitualShrine"
+          "Worship"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1450,8 +1447,8 @@
           "Hybrid"
         ],
         "adjacent": [
-          "BlueGreenEarly_09",
-          "GreenEarly_Notable_04"
+          "Beer",
+          "BlueGreenEarly_09"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1807,14 +1804,40 @@
         "adjacent": [
           "Astronomy",
           "Hearth",
-          "RitualShrine"
+          "Worship"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 608,
-          "y": 531
+          "x": 573,
+          "y": 541
         },
         "ringId": "ring_04"
+      },
+      "Distribute": {
+        "id": "Distribute",
+        "treeId": "systemColorMap",
+        "name": "RedNodeEarlyNotable_01",
+        "desc": "Cluster punctuation.",
+        "cost": 2,
+        "tags": [
+          "Early",
+          "Notable",
+          "Red"
+        ],
+        "adjacent": [
+          "GreenRedEarly_01",
+          "RedBlackEarly_02",
+          "RedEarly_02",
+          "RedEarly_04",
+          "RedEarly_05",
+          "RedEarly_07"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1118,
+          "y": 232
+        },
+        "ringId": "ring_02"
       },
       "Farming": {
         "id": "Farming",
@@ -1835,7 +1858,7 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 707,
+          "x": 708,
           "y": 875
         },
         "ringId": "ring_04"
@@ -1853,7 +1876,7 @@
         ],
         "adjacent": [
           "Forage",
-          "MudHouses",
+          "Housing",
           "RedEarly_01",
           "RedEarly_03"
         ],
@@ -1882,8 +1905,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 857,
-          "y": 546
+          "x": 864,
+          "y": 535
         },
         "ringId": "ring_02"
       },
@@ -2004,8 +2027,8 @@
           "Green"
         ],
         "adjacent": [
-          "Beer",
-          "GreenEarly_05"
+          "GreenEarly_05",
+          "Preserve"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -2046,8 +2069,8 @@
           "Green"
         ],
         "adjacent": [
-          "Beer",
-          "GreenEarly_07"
+          "GreenEarly_07",
+          "Preserve"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -2067,8 +2090,8 @@
           "Green"
         ],
         "adjacent": [
-          "Beer",
-          "GreenEarly_10"
+          "GreenEarly_10",
+          "Preserve"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -2109,8 +2132,8 @@
           "Green"
         ],
         "adjacent": [
-          "Beer",
-          "GreenEarly_12"
+          "GreenEarly_12",
+          "Preserve"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -2130,8 +2153,8 @@
           "Green"
         ],
         "adjacent": [
-          "GreenEarly_11",
-          "GreenEarly_Notable_04"
+          "Beer",
+          "GreenEarly_11"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -2159,28 +2182,6 @@
         "uiPos": {
           "x": 1654,
           "y": 872
-        },
-        "ringId": "ring_04"
-      },
-      "GreenEarly_Notable_04": {
-        "id": "GreenEarly_Notable_04",
-        "treeId": "systemColorMap",
-        "name": "GreenEarly_Notable_04",
-        "desc": "",
-        "cost": 1,
-        "tags": [
-          "Early",
-          "Green",
-          "Notable"
-        ],
-        "adjacent": [
-          "BlueGreenEarly_08",
-          "GreenEarly_12"
-        ],
-        "onUnlock": [],
-        "uiPos": {
-          "x": 1057,
-          "y": 1469
         },
         "ringId": "ring_04"
       },
@@ -2279,8 +2280,8 @@
           "Mid"
         ],
         "adjacent": [
-          "Beer",
-          "GreenMid_02"
+          "GreenMid_02",
+          "Preserve"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -2431,8 +2432,8 @@
           "Red"
         ],
         "adjacent": [
-          "GreenRedEarly_03",
-          "RedEarly_Notable"
+          "Distribute",
+          "GreenRedEarly_03"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -2685,18 +2686,18 @@
           "Cooking",
           "Crafting",
           "Forage",
-          "MudHouses"
+          "Housing"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 731,
-          "y": 537
+          "x": 721,
+          "y": 533
         }
       },
-      "MudHouses": {
-        "id": "MudHouses",
+      "Housing": {
+        "id": "Housing",
         "treeId": "systemColorMap",
-        "name": "RedBlackEarly_Notable_01",
+        "name": "MudHouses_01",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -2709,12 +2710,12 @@
         "adjacent": [
           "Fish",
           "Hearth",
-          "RitualShrine"
+          "Worship"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 736,
-          "y": 422
+          "x": 727,
+          "y": 403
         },
         "ringId": "ring_04"
       },
@@ -2743,6 +2744,31 @@
           "y": 885
         },
         "ringId": "ring_02"
+      },
+      "Preserve": {
+        "id": "Preserve",
+        "treeId": "systemColorMap",
+        "name": "GreenEarly_Notable2",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Early",
+          "Green",
+          "Notable"
+        ],
+        "adjacent": [
+          "GreenEarly_06",
+          "GreenEarly_08",
+          "GreenEarly_09",
+          "GreenEarly_11",
+          "GreenMid_01"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 1435,
+          "y": 1223
+        },
+        "ringId": "ring_04"
       },
       "Prophecy": {
         "id": "Prophecy",
@@ -2805,8 +2831,8 @@
           "Red"
         ],
         "adjacent": [
-          "RedBlackEarly_03",
-          "RedEarly_Notable"
+          "Distribute",
+          "RedBlackEarly_03"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -3055,8 +3081,8 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_01",
-          "RedEarly_Notable"
+          "Distribute",
+          "RedEarly_01"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -3097,8 +3123,8 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_03",
-          "RedEarly_Notable"
+          "Distribute",
+          "RedEarly_03"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -3118,8 +3144,8 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_06",
-          "RedEarly_Notable"
+          "Distribute",
+          "RedEarly_06"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -3160,8 +3186,8 @@
           "Red"
         ],
         "adjacent": [
-          "RedEarly_08",
-          "RedEarly_Notable"
+          "Distribute",
+          "RedEarly_08"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -3274,32 +3300,6 @@
           "y": 8
         },
         "ringId": "ring_05"
-      },
-      "RedEarly_Notable": {
-        "id": "RedEarly_Notable",
-        "treeId": "systemColorMap",
-        "name": "RedNodeEarlyNotable_01",
-        "desc": "Cluster punctuation.",
-        "cost": 2,
-        "tags": [
-          "Early",
-          "Notable",
-          "Red"
-        ],
-        "adjacent": [
-          "GreenRedEarly_01",
-          "RedBlackEarly_02",
-          "RedEarly_02",
-          "RedEarly_04",
-          "RedEarly_05",
-          "RedEarly_07"
-        ],
-        "onUnlock": [],
-        "uiPos": {
-          "x": 1118,
-          "y": 232
-        },
-        "ringId": "ring_02"
       },
       "RedEarly_Notable_02": {
         "id": "RedEarly_Notable_02",
@@ -3604,30 +3604,6 @@
         },
         "ringId": "ring_07"
       },
-      "RitualShrine": {
-        "id": "RitualShrine",
-        "treeId": "systemColorMap",
-        "name": "BlackEarly_Notable_01",
-        "desc": "",
-        "cost": 1,
-        "tags": [
-          "Black",
-          "Early",
-          "Notable"
-        ],
-        "adjacent": [
-          "BlackEarly_02",
-          "BlackEarly_03",
-          "Crafting",
-          "MudHouses"
-        ],
-        "onUnlock": [],
-        "uiPos": {
-          "x": 637,
-          "y": 446
-        },
-        "ringId": "ring_02"
-      },
       "Storehouse": {
         "id": "Storehouse",
         "treeId": "systemColorMap",
@@ -3649,7 +3625,7 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 997,
+          "x": 998,
           "y": 942
         },
         "ringId": "ring_02"
@@ -3677,6 +3653,30 @@
           "y": 522
         },
         "ringId": "ring_04"
+      },
+      "Worship": {
+        "id": "Worship",
+        "treeId": "systemColorMap",
+        "name": "BlackEarly_Notable_01",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Black",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackEarly_02",
+          "BlackEarly_03",
+          "Crafting",
+          "Housing"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 601,
+          "y": 426
+        },
+        "ringId": "ring_02"
       }
     }
   },

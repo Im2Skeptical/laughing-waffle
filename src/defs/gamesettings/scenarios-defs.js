@@ -11,12 +11,37 @@ export const setupDefs = {
     // - openInventories: owner selectors opened/pinned on boot
     // - openSkillTree: false | true | leader pawn selector ({ type: "leaderPawn", index })
     // - openSkillTreeEditor: false | true | { treeId: "..." }
-    // Optional progression override:
-    // - skillProgressionDefs: partial override of defaults from skill-tree-defs.js
+
     devUi: {
       //openInventories: [{ type: "hubStructure", hubCol: 0 }],
       openSkillTree: true,
     },
+
+    // Optional progression override:
+    // - skillProgressionDefs: partial override of defaults from skill-tree-defs.js
+
+    /*
+
+    skillProgressionDefs: {
+      defaultStartingSkillPoints: 6,
+      startingSkillPointsByPawnDefId: {
+        default: 6
+      },
+      defaultUnlockedRecipes: [
+        "none",
+      ],
+      defaultUnlockedHubStructures: [
+        "none"
+      ],
+      defaultUnlockedEnvTags: [
+        "none"
+      ],
+      defaultUnlockedHubTags: [
+        "rest"
+      ],
+    }, 
+
+    */
 
     board: {
       cols: 12,
@@ -145,7 +170,7 @@ export const setupDefs = {
         "none"
       ],
       defaultUnlockedHubTags: [
-        "rest"
+        "canRest"
       ],
     }, 
 

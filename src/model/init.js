@@ -5,6 +5,7 @@ import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 import { INITIAL_POPULATION_DEFAULT } from "../defs/gamesettings/gamerules-defs.js";
+import { getActionPointCapAtSecond } from "./moon.js";
 
 import {
   createEmptyState,
@@ -14,7 +15,13 @@ import {
   rebuildBoardOccupancy,
   buildPawnSystemDefaults,
 } from "./state.js";
-import { getDefaultSkillPointsForPawnDefId } from "./skills.js";
+import {
+  getDefaultSkillPointsForPawnDefId,
+  getGlobalSkillModifier,
+  getSkillNodeDef,
+  getSkillNodeUnlockEffects,
+} from "./skills.js";
+import { runEffect } from "./effects/index.js";
 
 import { Inventory } from "./inventory-model.js";
 
@@ -43,6 +50,57 @@ function normalizeUnlockedSkillNodeIds(value) {
   }
   out.sort((a, b) => a.localeCompare(b));
   return out;
+}
+
+function applyScenarioUnlockedSkillEffects(state) {
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+
+  for (const pawn of pawns) {
+    if (!pawn || pawn.role !== "leader") continue;
+    const nodeIds = Array.isArray(pawn.unlockedSkillNodeIds)
+      ? pawn.unlockedSkillNodeIds
+      : [];
+    for (const nodeId of nodeIds) {
+      const nodeDef = getSkillNodeDef(null, nodeId);
+      if (!nodeDef) continue;
+      const unlockEffects = getSkillNodeUnlockEffects(nodeDef);
+      if (!unlockEffects.length) continue;
+      runEffect(state, unlockEffects, {
+        kind: "game",
+        state,
+        source: pawn,
+        pawn,
+        pawnId: pawn.id,
+        ownerId: pawn.id,
+        tSec: nowSec,
+      });
+    }
+  }
+}
+
+function recomputeInitialActionPoints(state) {
+  if (!state || typeof state !== "object") return;
+  const tSec = Number.isFinite(state.tSec) ? Math.floor(state.tSec) : 0;
+  if (state.apCapOverride?.enabled === true) {
+    const overrideCap = Number.isFinite(state.apCapOverride.cap)
+      ? Math.max(0, Math.floor(state.apCapOverride.cap))
+      : Math.max(0, Math.floor(state.actionPointCap ?? 0));
+    const overridePoints = Number.isFinite(state.apCapOverride.points)
+      ? Math.floor(state.apCapOverride.points)
+      : Math.floor(state.actionPoints ?? 0);
+    state.actionPointCap = overrideCap;
+    state.actionPoints = Math.min(overrideCap, Math.max(0, overridePoints));
+    return;
+  }
+
+  const baseCap = getActionPointCapAtSecond(tSec);
+  const skillCapBonus = Math.floor(getGlobalSkillModifier(state, "apCapBonus", 0));
+  state.actionPointCap = Math.max(0, baseCap + skillCapBonus);
+  state.actionPoints = Math.min(
+    state.actionPointCap,
+    Math.max(0, Math.floor(state.actionPoints ?? 0))
+  );
 }
 
 // Create a fully-initialized GameState snapshot
@@ -174,6 +232,8 @@ export function createInitialState(scenario = "devGym01", seed = null) {
   }
 
   state.pawns = created;
+  applyScenarioUnlockedSkillEffects(state);
+  recomputeInitialActionPoints(state);
 
   // inventories
   state.ownerInventories = {};
