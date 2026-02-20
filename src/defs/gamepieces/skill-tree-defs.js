@@ -1815,7 +1815,19 @@ export const skillNodes = {
       x: 727,
       y: 649
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "hub",
+        tagId: "canCook"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "recipe",
+        recipeId: "roastBarley"
+      }
+    ]
   },
   Crafting: {
     id: "Crafting",
@@ -1873,7 +1885,14 @@ export const skillNodes = {
       x: 1118,
       y: 232
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "hub",
+        tagId: "distributor"
+      }
+    ]
   },
   Farming: {
     id: "Farming",
@@ -1897,7 +1916,14 @@ export const skillNodes = {
       x: 708,
       y: 875
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "env",
+        tagId: "farmable"
+      }
+    ]
   },
   Fish: {
     id: "Fish",
@@ -1921,7 +1947,14 @@ export const skillNodes = {
       x: 828,
       y: 461
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "env",
+        tagId: "fishable"
+      }
+    ]
   },
   Forage: {
     id: "Forage",
@@ -1944,7 +1977,14 @@ export const skillNodes = {
       x: 864,
       y: 535
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "env",
+        tagId: "forageable"
+      }
+    ]
   },
   GreenEarly_01: {
     id: "GreenEarly_01",
@@ -2728,7 +2768,13 @@ export const skillNodes = {
       x: 721,
       y: 533
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "hubStructure",
+        hubStructureId: "hearth"
+      }
+    ]
   },
   Housing: {
     id: "Housing",
@@ -2753,7 +2799,25 @@ export const skillNodes = {
       x: 727,
       y: 403
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "hubStructure",
+        hubStructureId: "mudHouses"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "hub",
+        tagId: "canHouse"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "hub",
+        tagId: "canRest"
+      }
+    ]
   },
   Papyrus: {
     id: "Papyrus",
@@ -3664,7 +3728,13 @@ export const skillNodes = {
       x: 998,
       y: 942
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "hubStructure",
+        hubStructureId: "storehouse"
+      }
+    ]
   },
   Weaving: {
     id: "Weaving",
@@ -3688,7 +3758,13 @@ export const skillNodes = {
       x: 393,
       y: 522
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "recipe",
+        recipeId: "weaveBasket"
+      }
+    ]
   },
   Worship: {
     id: "Worship",
@@ -3712,6 +3788,18 @@ export const skillNodes = {
       x: 601,
       y: 426
     },
-    onUnlock: []
+    onUnlock: [
+      {
+        op: "GrantUnlock",
+        unlockType: "hubStructure",
+        hubStructureId: "ritualShrine"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "tag",
+        tagDomain: "hub",
+        tagId: "depositable"
+      }
+    ]
   }
 };
