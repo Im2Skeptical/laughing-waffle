@@ -1,5 +1,6 @@
 import { itemDefs } from "../../../defs/gamepieces/item-defs.js";
 import { forageDropTables } from "../../../defs/gamepieces/forage-droptables-defs.js";
+import { fishingDropTables } from "../../../defs/gamepieces/fishing-droptables-defs.js";
 import {
   Inventory,
   canStackItems,
@@ -434,10 +435,7 @@ const DEFAULT_DROP_RARITY_WEIGHTS = Object.freeze({
 });
 
 function resolveDropTableForTile(source, tableKey) {
-  const registry =
-    tableKey && forageDropTables && typeof forageDropTables === "object"
-      ? forageDropTables[tableKey]
-      : null;
+  const registry = resolveDropTableRegistry(tableKey);
   if (!registry || typeof registry !== "object") return [];
 
   const tileDefId = typeof source?.defId === "string" ? source.defId : null;
@@ -451,6 +449,17 @@ function resolveDropTableForTile(source, tableKey) {
 
   const compiled = compileTieredDropTable(tableDef, registry);
   return normalizeDropTable(compiled);
+}
+
+function resolveDropTableRegistry(tableKey) {
+  if (typeof tableKey !== "string" || !tableKey.length) return null;
+  const registries = [forageDropTables, fishingDropTables];
+  for (const root of registries) {
+    if (!root || typeof root !== "object") continue;
+    const table = root[tableKey];
+    if (table && typeof table === "object") return table;
+  }
+  return null;
 }
 
 function compileTieredDropTable(tableDef, registry) {

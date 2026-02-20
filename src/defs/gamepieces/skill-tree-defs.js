@@ -1826,6 +1826,21 @@ export const skillNodes = {
         op: "GrantUnlock",
         unlockType: "recipe",
         recipeId: "roastBarley"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "recipe",
+        recipeId: "roastSmallFish"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "recipe",
+        recipeId: "roastMediumFish"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "recipe",
+        recipeId: "roastLargeFish"
       }
     ]
   },

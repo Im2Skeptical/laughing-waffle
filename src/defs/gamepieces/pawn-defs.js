@@ -44,6 +44,14 @@ export const pawnDefs = {
               tag: "edible",
               amount: { const: 1 },
               allowDistributorPools: true,
+              tierSystemId: "nourishment",
+              tierValueByTier: {
+                bronze: 20,
+                silver: 30,
+                gold: 40,
+                diamond: 50,
+              },
+              outVar: "eatHungerGain",
             },
           ],
         },
@@ -53,7 +61,7 @@ export const pawnDefs = {
             target: { ref: "pawn" },
             system: "hunger",
             key: "cur",
-            amount: 20,
+            amountVar: "eatHungerGain",
           },
           {
             op: "ClampSystemState",

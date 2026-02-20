@@ -706,8 +706,13 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   });
   app?.view?.addEventListener?.("wheel", onWheel, { passive: false });
 
-  function resolveCommitOrder() {
+  function resolveCommitOrder(state, leaderPawn) {
     if (!bufferUnlockIds.size) return [];
+    const unlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
+    let pointsRemaining = Number.isFinite(leaderPawn?.skillPoints)
+      ? Math.max(0, floorInt(leaderPawn.skillPoints))
+      : 0;
+
     const grouped = new Map();
     for (const nodeId of bufferUnlockIds.values()) {
       const node = getSkillNodeDef(activeDefs, nodeId);
@@ -718,9 +723,45 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     const ordered = [];
     const treeIds = sortedStrings(Array.from(grouped.keys()));
     for (const treeId of treeIds) {
-      const nodeIds = grouped.get(treeId) || [];
-      const sorted = getDeterministicSkillCommitOrder(treeId, nodeIds, activeDefs);
-      for (const nodeId of sorted) ordered.push(nodeId);
+      const remaining = new Set(grouped.get(treeId) || []);
+      while (remaining.size > 0) {
+        const pendingIds = sortedStrings(Array.from(remaining.values()));
+        const unlockable = [];
+        for (const nodeId of pendingIds) {
+          const evalRes = evaluateSkillNodeUnlock(state, activeLeaderPawnId, nodeId, {
+            unlockedSet: unlocked,
+            skillPoints: pointsRemaining,
+          });
+          if (!evalRes?.ok) continue;
+          unlockable.push({
+            nodeId,
+            cost: Number.isFinite(evalRes.cost) ? Math.max(0, floorInt(evalRes.cost)) : 0,
+          });
+        }
+
+        if (!unlockable.length) {
+          const fallback = getDeterministicSkillCommitOrder(
+            treeId,
+            pendingIds,
+            activeDefs
+          );
+          for (const nodeId of fallback) ordered.push(nodeId);
+          break;
+        }
+
+        const preferred = getDeterministicSkillCommitOrder(
+          treeId,
+          unlockable.map((entry) => entry.nodeId),
+          activeDefs
+        );
+        const pickedId = preferred[0] || unlockable[0].nodeId;
+        const picked =
+          unlockable.find((entry) => entry.nodeId === pickedId) || unlockable[0];
+        ordered.push(picked.nodeId);
+        unlocked.add(picked.nodeId);
+        remaining.delete(picked.nodeId);
+        pointsRemaining = Math.max(0, pointsRemaining - picked.cost);
+      }
     }
     return ordered;
   }
@@ -731,8 +772,13 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
       errorText.text = "Skill changes can only be saved while paused.";
       return;
     }
+    const leaderPawn = getLeaderPawn(state);
+    if (!leaderPawn) {
+      errorText.text = "No active leader pawn.";
+      return;
+    }
 
-    const order = resolveCommitOrder();
+    const order = resolveCommitOrder(state, leaderPawn);
     for (const nodeId of order) {
       const res = runner?.dispatchAction?.(
         ActionKinds.UNLOCK_SKILL_NODE,

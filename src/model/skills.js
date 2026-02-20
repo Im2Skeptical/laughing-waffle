@@ -20,7 +20,6 @@ import {
 } from "./skills/helpers.js";
 import {
   computeSkillTreeLayout,
-  getDeterministicCommitOrder,
 } from "./skills/layout-engine.js";
 
 const PAWN_SKILL_MOD_KEYS = Object.freeze([
@@ -737,9 +736,53 @@ export function getSkillTreeLayout(treeId, opts = {}, defsInput = null) {
   return computeSkillTreeLayout(treeDef, getSkillNodes(defsInput), opts);
 }
 
+function computeTreeDepthByNodeId(treeId, defsInput = null) {
+  const treeDef = getSkillTreeDef(treeId, defsInput);
+  if (!treeDef) return {};
+
+  const nodes = getTreeNodes(treeId, defsInput);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const depthByNodeId = {};
+  if (!nodeById.has(treeDef.startNodeId)) return depthByNodeId;
+
+  const queue = [treeDef.startNodeId];
+  depthByNodeId[treeDef.startNodeId] = 0;
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    const nodeDef = nodeById.get(nodeId);
+    if (!nodeDef) continue;
+    const depth = toSafeInt(depthByNodeId[nodeId], 0);
+    for (const adjId of getAdjacentNodeIds(nodeDef)) {
+      if (!nodeById.has(adjId)) continue;
+      if (Object.prototype.hasOwnProperty.call(depthByNodeId, adjId)) continue;
+      depthByNodeId[adjId] = depth + 1;
+      queue.push(adjId);
+    }
+  }
+
+  let maxDepth = -1;
+  for (const value of Object.values(depthByNodeId)) {
+    const depth = toSafeInt(value, -1);
+    if (depth > maxDepth) maxDepth = depth;
+  }
+  const disconnectedDepth = maxDepth + 1;
+  for (const nodeId of nodeById.keys()) {
+    if (Object.prototype.hasOwnProperty.call(depthByNodeId, nodeId)) continue;
+    depthByNodeId[nodeId] = disconnectedDepth;
+  }
+
+  return depthByNodeId;
+}
+
 export function getDeterministicSkillCommitOrder(treeId, nodeIds, defsInput = null) {
-  const layout = getSkillTreeLayout(treeId, {}, defsInput);
-  return getDeterministicCommitOrder(layout, nodeIds);
+  const list = uniqueSortedStrings(nodeIds);
+  const depthByNodeId = computeTreeDepthByNodeId(treeId, defsInput);
+  return list.sort((a, b) => {
+    const da = toSafeInt(depthByNodeId?.[a], 9999);
+    const db = toSafeInt(depthByNodeId?.[b], 9999);
+    if (da !== db) return da - db;
+    return a.localeCompare(b);
+  });
 }
 
 export function validateSkillDefs(defsInput = null) {

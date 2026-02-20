@@ -46,10 +46,37 @@ export const recipeDefs = {
     id: "roastBarley",
     name: "Roast Barley",
     kind: "cook",
-    durationSec: 0,
+    durationSec: 1,
     inputs: [{ kind: "barley", qty: 1 }],
     toolRequirements: [{ kind: "stone", qty: 1 }],
     outputs: [{ kind: "roastedBarley", qty: 1 }],
+  },
+
+  roastSmallFish: {
+    id: "roastSmallFish",
+    name: "Roast Small Fish",
+    kind: "cook",
+    durationSec: 1, 
+    inputs: [{ kind: "smallFish", qty: 1 }],
+    outputs: [{ kind: "roastedSmallFish", qty: 2 }],
+  },
+
+  roastMediumFish: {
+    id: "roastMediumFish",
+    name: "Roast Medium Fish",
+    kind: "cook",
+    durationSec: 2, 
+    inputs: [{ kind: "mediumFish", qty: 1 }],
+    outputs: [{ kind: "roastedMediumFish", qty: 2 }],
+  },
+
+  roastLargeFish: {
+    id: "roastLargeFish",
+    name: "Roast Large Fish",
+    kind: "cook",
+    durationSec: 3, 
+    inputs: [{ kind: "largeFish", qty: 1 }],
+    outputs: [{ kind: "roastedLargeFish", qty: 1 }],
   },
 
   weaveBasket: {

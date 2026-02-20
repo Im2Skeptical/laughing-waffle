@@ -161,8 +161,19 @@ export const envTagDefs = {
       {
         id: "fish",
         verb: "fish",
-        requires: { season: ["spring", "summer", "autumn"] },
-        effect: { op: "AddResource", resource: "fish", amount: 1 },
+        cost: {
+          charges: [
+            {
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
+              amount: { const: 3 },
+              clampMin: 0,
+            },
+          ],
+        },
+        effect: { op: "SpawnFromDropTable", tableKey: "fishingDrops" },
       },
     ],
   },
