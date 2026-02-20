@@ -200,6 +200,7 @@ resizeCanvas();
 const uiLayers = {
   tileLayer: new PIXI.Container(),
   eventLayer: new PIXI.Container(),
+  envStructuresLayer: new PIXI.Container(),
   hubStructuresLayer: new PIXI.Container(),
   pawnLayer: new PIXI.Container(),
   stateTintLayer: new PIXI.Container(),
@@ -217,6 +218,7 @@ app.stage.hitArea = app.screen;
 app.stage.addChild(
   uiLayers.tileLayer,
   uiLayers.eventLayer,
+  uiLayers.envStructuresLayer,
   uiLayers.hubStructuresLayer,
   uiLayers.pawnLayer,
   uiLayers.stateTintLayer,
@@ -377,6 +379,7 @@ function clearExternalUiFocus() {
 function setMainUiVisible(visible) {
   uiLayers.tileLayer.visible = visible;
   uiLayers.eventLayer.visible = visible;
+  uiLayers.envStructuresLayer.visible = visible;
   uiLayers.hubStructuresLayer.visible = visible;
   uiLayers.pawnLayer.visible = visible;
   uiLayers.controlsLayer.visible = visible;
@@ -977,6 +980,7 @@ const boardView = createBoardView({
   app,
   tileLayer: uiLayers.tileLayer,
   eventLayer: uiLayers.eventLayer,
+  envStructuresLayer: uiLayers.envStructuresLayer,
   hubStructuresLayer: uiLayers.hubStructuresLayer,
   hoverLayer: uiLayers.hoverLayer,
   inspectorLayer: uiLayers.controlsLayer,

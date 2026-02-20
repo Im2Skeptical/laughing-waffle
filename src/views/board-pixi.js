@@ -5,6 +5,7 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
@@ -24,6 +25,8 @@ import {
   TILE_HEIGHT,
   EVENT_WIDTH,
   EVENT_HEIGHT,
+  ENV_STRUCTURE_WIDTH,
+  ENV_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_WIDTH,
   HUB_STRUCTURE_HEIGHT,
   GAMEPIECE_HOVER_SCALE,
@@ -33,6 +36,7 @@ import {
   GAMEPIECE_SHADOW_OFFSET_Y,
   TILE_ROW_Y,
   EVENT_ROW_Y,
+  ENV_STRUCTURE_ROW_Y,
   HUB_STRUCTURE_ROW_Y,
   getBoardColumnX,
   getHubColumnX,
@@ -45,6 +49,7 @@ import {
  *  - app: PIXI.Application
  *  - tileLayer: PIXI.Container
  *  - eventLayer: PIXI.Container
+ *  - envStructuresLayer: PIXI.Container
  *  - hubStructuresLayer: PIXI.Container
  *  - hoverLayer?: PIXI.Container
  *  - inspectorLayer?: PIXI.Container
@@ -63,6 +68,7 @@ export function createBoardView(opts) {
     app,
     tileLayer,
     eventLayer,
+    envStructuresLayer,
     hubStructuresLayer,
     hoverLayer,
     inspectorLayer,
@@ -86,6 +92,9 @@ export function createBoardView(opts) {
   /** @type {Map<number, BoardEventView>} */
   const eventViews = new Map();
   const eventSlotViews = [];
+  /** @type {Map<number, BoardEnvStructureView>} */
+  const envStructureViews = new Map();
+  const envStructureSlotViews = [];
   /** @type {Map<number, BoardHubStructureView>} */
   const hubStructureViews = new Map();
   const hubSlotViews = [];
@@ -93,6 +102,7 @@ export function createBoardView(opts) {
 
   if (tileLayer) tileLayer.sortableChildren = true;
   if (eventLayer) eventLayer.sortableChildren = true;
+  if (envStructuresLayer) envStructuresLayer.sortableChildren = true;
   if (hubStructuresLayer) hubStructuresLayer.sortableChildren = true;
   if (hoverLayer) hoverLayer.sortableChildren = true;
 
@@ -920,6 +930,14 @@ export function createBoardView(opts) {
     tooltipView?.hide?.();
   }
 
+  function clearEnvStructureHover(view) {
+    if (!view) return;
+    view.setHoverActive?.(false);
+    restoreFromHover(view.container);
+    clearHoverContext();
+    tooltipView?.hide?.();
+  }
+
   function clearHubStructureHover(view) {
     if (!view) return;
     view.setHoverActive?.(false);
@@ -1232,6 +1250,34 @@ export function createBoardView(opts) {
         clear: () => clearHubStructureHover(view),
       });
       applyHubStructureHover(view);
+      return;
+    }
+    if (pendingHover.kind === "envStructure") {
+      const targetCol = Number.isFinite(pendingHover.col)
+        ? Math.floor(pendingHover.col)
+        : null;
+      if (targetCol == null) return;
+      let view = null;
+      for (const candidate of envStructureViews.values()) {
+        const anchorCol = Number.isFinite(candidate?.structure?.col)
+          ? Math.floor(candidate.structure.col)
+          : Number.isFinite(candidate?.col)
+          ? Math.floor(candidate.col)
+          : null;
+        if (anchorCol === targetCol) {
+          view = candidate;
+          break;
+        }
+      }
+      if (!view) return;
+      if (!isPointerInsideView(view, pointerPos, TAG_DRAG_RELEASE_PAD)) return;
+      setActiveHover({
+        view,
+        kind: "envStructure",
+        col: targetCol,
+        clear: () => clearEnvStructureHover(view),
+      });
+      applyEnvStructureHover(view);
     }
   }
 
@@ -1491,6 +1537,65 @@ export function createBoardView(opts) {
     const color = Number.isFinite(uiColor)
       ? uiColor
       : def?.color ?? defaultColor;
+    return { def, title, desc, color };
+  }
+
+  function applyEnvStructureHover(view) {
+    if (!view?.container || !view?.structure) return;
+    const { title, desc } = getEnvStructureUi(view.structure);
+    const def = envStructureDefs[view.structure.defId];
+    const span =
+      Number.isFinite(view.structure?.span) && view.structure.span > 0
+        ? Math.floor(view.structure.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const width = ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * (span - 1);
+    const height = ENV_STRUCTURE_HEIGHT;
+    view.setHoverActive?.(true);
+    elevateForHover(view.container);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      width,
+      height,
+      GAMEPIECE_HOVER_SCALE
+    );
+    const anchorCol = Number.isFinite(view.structure?.col)
+      ? Math.floor(view.structure.col)
+      : Number.isFinite(view.col)
+      ? Math.floor(view.col)
+      : 0;
+    setHoverContext("envStructure", anchorCol, span, anchor);
+    tooltipView?.show?.(
+      {
+        title,
+        lines: desc ? [desc] : [],
+        scale: GAMEPIECE_HOVER_SCALE,
+      },
+      anchor
+    );
+  }
+
+  function getEnvStructureUi(structureInst) {
+    const def = envStructureDefs[structureInst.defId];
+    const ui = def?.ui || {};
+    const title =
+      (typeof ui.title === "function"
+        ? ui.title(structureInst, def)
+        : ui.title) ||
+      def?.name ||
+      structureInst.defId ||
+      "Structure";
+    const desc =
+      (typeof ui.description === "function"
+        ? ui.description(structureInst, def)
+        : ui.description) || "";
+    const uiColor = ui?.color;
+    const color = Number.isFinite(uiColor)
+      ? uiColor
+      : Number.isFinite(def?.color)
+      ? def.color
+      : 0x5f6a73;
     return { def, title, desc, color };
   }
 
@@ -2011,6 +2116,143 @@ export function createBoardView(opts) {
   }
 
   // --------------------------------------------------------
+  // Env Structure view
+  // --------------------------------------------------------
+
+  function buildEnvStructureView(structureInst, col) {
+    const { def, title, desc, color } = getEnvStructureUi(structureInst);
+    const span =
+      Number.isFinite(structureInst.span) && structureInst.span > 0
+        ? Math.floor(structureInst.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const width = ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * (span - 1);
+    const height = ENV_STRUCTURE_HEIGHT;
+
+    const cont = new PIXI.Container();
+    cont.eventMode = "static";
+    cont.cursor = "pointer";
+    cont.zIndex = 4;
+    const hoverTextNodes = [];
+    const { content, setActive: setHoverActive } = attachHoverFx(
+      cont,
+      width,
+      height,
+      8,
+      () => hoverTextNodes
+    );
+
+    const baseBg = new PIXI.Graphics()
+      .beginFill(0x2f2f2f)
+      .drawRoundedRect(0, 0, width, height, 8)
+      .endFill();
+    content.addChild(baseBg);
+
+    const cardFill = new PIXI.Graphics()
+      .beginFill(color)
+      .drawRoundedRect(3, 3, width - 6, height - 6, 6)
+      .endFill();
+    content.addChild(cardFill);
+
+    const titleText = new PIXI.Text(title, {
+      fill: 0xffffff,
+      fontSize: 11,
+      wordWrap: true,
+      wordWrapWidth: width - 12,
+    });
+    titleText.x = 6;
+    titleText.y = 5;
+    content.addChild(titleText);
+
+    const descText = new PIXI.Text(desc, {
+      fill: 0x101010,
+      fontSize: 9,
+      wordWrap: true,
+      wordWrapWidth: width - 12,
+      maxLines: 2,
+    });
+    descText.x = 6;
+    descText.y = titleText.y + titleText.height + 2;
+    content.addChild(descText);
+    hoverTextNodes.push(titleText, descText);
+
+    const view = {
+      container: cont,
+      content,
+      structure: structureInst,
+      col,
+      titleText,
+      descText,
+      cardFill,
+      cardFillColor: color,
+      hoverTextNodes,
+      setHoverActive,
+    };
+
+    cont.on("pointerenter", () => {
+      if (!interaction?.canShowHoverUI?.()) return;
+      if (activeTagDrag) return;
+      setActiveHover({
+        view,
+        kind: "envStructure",
+        col,
+        clear: () => clearEnvStructureHover(view),
+      });
+      applyEnvStructureHover(view);
+    });
+
+    cont.on("pointerleave", () => {
+      if (activeHover?.view && activeHover.view !== view) return;
+      clearActiveHover(view);
+    });
+
+    const startX =
+      span > 1
+        ? getBoardColumnX(app.screen.width, col)
+        : layoutBoardColPos(
+            app.screen.width,
+            col,
+            ENV_STRUCTURE_WIDTH,
+            ENV_STRUCTURE_ROW_Y
+          ).x;
+    cont.x = startX;
+    cont.y = ENV_STRUCTURE_ROW_Y;
+
+    envStructuresLayer.addChild(cont);
+    setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    return view;
+  }
+
+  function updateEnvStructureView(view, structureInst) {
+    if (!view || !structureInst) return;
+    view.structure = structureInst;
+    const { color, title, desc } = getEnvStructureUi(structureInst);
+    if (view.cardFill && view.cardFillColor !== color) {
+      const def = envStructureDefs[structureInst.defId];
+      const span =
+        Number.isFinite(structureInst?.span) && structureInst.span > 0
+          ? Math.floor(structureInst.span)
+          : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+          ? Math.floor(def.defaultSpan)
+          : 1;
+      const width = ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * (span - 1);
+      view.cardFill.clear();
+      view.cardFill
+        .beginFill(color)
+        .drawRoundedRect(3, 3, width - 6, ENV_STRUCTURE_HEIGHT - 6, 6)
+        .endFill();
+      view.cardFillColor = color;
+    }
+    if (view.titleText && view.titleText.text !== title) {
+      view.titleText.text = title;
+    }
+    if (view.descText && view.descText.text !== desc) {
+      view.descText.text = desc;
+    }
+  }
+
+  // --------------------------------------------------------
   // Permanent view
   // --------------------------------------------------------
 
@@ -2362,6 +2604,47 @@ export function createBoardView(opts) {
       }
   }
 
+  function syncEnvStructures(state, cols) {
+    const occ = state?.board?.occ?.envStructure;
+    const seen = new Set();
+
+    syncEnvStructureSlots(cols);
+
+    for (let col = 0; col < cols; col++) {
+      const structureInst = occ?.[col] || null;
+      if (!structureInst) continue;
+
+      const anchorCol = Number.isFinite(structureInst.col)
+        ? Math.floor(structureInst.col)
+        : col;
+      if (anchorCol !== col) continue;
+
+      const id = structureInst.instanceId ?? col;
+      seen.add(id);
+
+      const existing = envStructureViews.get(id);
+      if (
+        !existing ||
+        existing.structure.instanceId !== structureInst.instanceId
+      ) {
+        if (existing) removeFromParent(existing.container);
+        envStructureViews.set(id, buildEnvStructureView(structureInst, col));
+      }
+
+      const view = envStructureViews.get(id);
+      if (view) {
+        updateEnvStructureView(view, structureInst);
+      }
+    }
+
+    for (const [id, view] of envStructureViews.entries()) {
+      if (seen.has(id)) continue;
+      if (activeHover?.view === view) clearActiveHover(view);
+      removeFromParent(view.container);
+      envStructureViews.delete(id);
+    }
+  }
+
   function buildEventSlotView(col) {
     const cont = new PIXI.Container();
     cont.eventMode = "none";
@@ -2408,6 +2691,54 @@ export function createBoardView(opts) {
       removeFromParent(eventSlotViews[i]);
     }
     eventSlotViews.length = cols;
+  }
+
+  function buildEnvStructureSlotView(col) {
+    const cont = new PIXI.Container();
+    cont.eventMode = "none";
+    cont.zIndex = 0;
+    const bg = new PIXI.Graphics()
+      .lineStyle(1, 0x2a2f3d, 0.75)
+      .beginFill(0x1a1f2a, 0.3)
+      .drawRoundedRect(0, 0, ENV_STRUCTURE_WIDTH, ENV_STRUCTURE_HEIGHT, 8)
+      .endFill();
+    cont.addChild(bg);
+
+    const pos = layoutBoardColPos(
+      app.screen.width,
+      col,
+      ENV_STRUCTURE_WIDTH,
+      ENV_STRUCTURE_ROW_Y
+    );
+    cont.x = pos.x;
+    cont.y = pos.y;
+
+    envStructuresLayer.addChild(cont);
+    return cont;
+  }
+
+  function syncEnvStructureSlots(cols) {
+    for (let col = 0; col < cols; col++) {
+      let view = envStructureSlotViews[col];
+      if (!view) {
+        view = buildEnvStructureSlotView(col);
+        envStructureSlotViews[col] = view;
+      } else {
+        const pos = layoutBoardColPos(
+          app.screen.width,
+          col,
+          ENV_STRUCTURE_WIDTH,
+          ENV_STRUCTURE_ROW_Y
+        );
+        view.x = pos.x;
+        view.y = pos.y;
+      }
+    }
+
+    for (let i = cols; i < envStructureSlotViews.length; i++) {
+      removeFromParent(envStructureSlotViews[i]);
+    }
+    envStructureSlotViews.length = cols;
   }
 
   function buildHubSlotView(col) {
@@ -2563,11 +2894,14 @@ export function createBoardView(opts) {
     clearTileFeedbackRuntime();
     tileLayer.removeChildren();
     eventLayer.removeChildren();
+    envStructuresLayer.removeChildren();
     hubStructuresLayer.removeChildren();
     hoverLayer?.removeChildren?.();
     tileViews.length = 0;
     eventViews.clear();
     eventSlotViews.length = 0;
+    envStructureViews.clear();
+    envStructureSlotViews.length = 0;
     hubStructureViews.clear();
     hubSlotViews.length = 0;
 
@@ -2580,8 +2914,9 @@ export function createBoardView(opts) {
       ? s.hub.slots.length
       : HUB_COLS;
     const pawnCounts = getPawnCounts(s, cols, hubCols);
-    syncTiles(s, cols, pawnCounts.env);
     syncEvents(s, cols);
+    syncEnvStructures(s, cols);
+    syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
 
     restoreHoverAfterRebuild(pendingHover, pendingPointer);
@@ -2715,8 +3050,9 @@ export function createBoardView(opts) {
       ? s.hub.slots.length
       : HUB_COLS;
     const pawnCounts = getPawnCounts(s, cols, hubCols);
-    syncTiles(s, cols, pawnCounts.env);
     syncEvents(s, cols);
+    syncEnvStructures(s, cols);
+    syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
     updatePlanFocus();
     processTileRollFeedbackEvents(s);
@@ -2777,6 +3113,10 @@ export function createBoardView(opts) {
  * @property {PIXI.Container} container
  * @property {any} event
  * @property {PIXI.Text} remainingText
+ *
+ * @typedef {Object} BoardEnvStructureView
+ * @property {PIXI.Container} container
+ * @property {any} structure
  *
  * @typedef {Object} BoardHubStructureView
  * @property {PIXI.Container} container

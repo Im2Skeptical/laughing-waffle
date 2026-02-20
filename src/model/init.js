@@ -2,6 +2,7 @@
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 import { INITIAL_POPULATION_DEFAULT } from "../defs/gamesettings/gamerules-defs.js";
@@ -10,6 +11,7 @@ import { getActionPointCapAtSecond } from "./moon.js";
 import {
   createEmptyState,
   makeEnvTileInstance,
+  makeEnvStructureInstance,
   makeHubStructureInstance,
   buildSeasonDeckForCurrentSeason,
   rebuildBoardOccupancy,
@@ -26,6 +28,11 @@ import { runEffect } from "./effects/index.js";
 import { Inventory } from "./inventory-model.js";
 
 const HUB_COLS = 10;
+const DEV =
+  (typeof globalThis !== "undefined" && globalThis.__DEV__ === true) ||
+  (typeof process !== "undefined" &&
+    process.env &&
+    process.env.NODE_ENV !== "production");
 
 function cloneSerializable(value) {
   if (value == null) return null;
@@ -141,6 +148,7 @@ export function createInitialState(scenario = "devGym01", seed = null) {
 
   // reset ids for deterministic scenario creation
   state.nextHubStructureInstanceId = 1;
+  state.nextEnvStructureInstanceId = 1;
   state.nextEnvInstanceId = 1;
   state.nextItemId = 1;
   state.nextPawnId = 101;
@@ -157,6 +165,11 @@ export function createInitialState(scenario = "devGym01", seed = null) {
   // hub structures
   state.hub.slots = buildHubSlots(setup, hubCols, state);
 
+  state.board.layers.envStructure.anchors = buildEnvStructureAnchors(
+    setup,
+    boardCols,
+    state
+  );
   state.board.layers.tile.anchors = buildTileAnchors(setup, boardCols, state);
 
   // pawns
@@ -356,12 +369,16 @@ function ensureBoardCols(state, cols) {
   if (state.board.cols === cols) return;
   state.board.cols = cols;
   if (!state.board.layers) {
-    state.board.layers = { tile: { anchors: [] }, event: { anchors: [] } };
+    state.board.layers = {
+      tile: { anchors: [] },
+      event: { anchors: [] },
+      envStructure: { anchors: [] },
+    };
   }
   if (!state.board.occ) {
-    state.board.occ = { tile: [], event: [] };
+    state.board.occ = { tile: [], event: [], envStructure: [] };
   }
-  for (const layer of ["tile", "event"]) {
+  for (const layer of ["tile", "event", "envStructure"]) {
     state.board.occ[layer] = new Array(cols).fill(null);
     if (!state.board.layers[layer]) state.board.layers[layer] = { anchors: [] };
     if (!Array.isArray(state.board.layers[layer].anchors)) {
@@ -428,6 +445,83 @@ function buildHubSlots(setup, hubCols, state) {
     }
   }
   return slots;
+}
+
+function buildEnvStructureAnchors(setup, boardCols, state) {
+  const setupSpecs = Array.isArray(setup?.board?.envStructures)
+    ? setup.board.envStructures
+    : [];
+  const specs =
+    setupSpecs.length > 0
+      ? setupSpecs
+      : [{ defId: "hubPortal", col: Math.floor((boardCols - 1) / 2) }];
+  const anchors = [];
+  const occupiedBy = new Array(boardCols).fill(null);
+
+  for (let i = 0; i < specs.length; i++) {
+    const spec = specs[i];
+    const rawDefId =
+      typeof spec === "string"
+        ? spec
+        : typeof spec?.defId === "string"
+        ? spec.defId
+        : null;
+    if (!rawDefId || !envStructureDefs[rawDefId]) {
+      if (DEV) {
+        console.warn(
+          `[init] skipping unknown env structure defId "${rawDefId ?? "?"}" at index ${i}`
+        );
+      }
+      continue;
+    }
+
+    const def = envStructureDefs[rawDefId];
+    const defaultSpan =
+      Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const span =
+      Number.isFinite(spec?.span) && spec.span > 0
+        ? Math.floor(spec.span)
+        : defaultSpan;
+    if (span > boardCols) {
+      if (DEV) {
+        console.warn(
+          `[init] skipping env structure "${rawDefId}" span ${span} > board cols ${boardCols}`
+        );
+      }
+      continue;
+    }
+
+    let col = getColIndex(spec, i, boardCols);
+    if (col + span > boardCols) col = boardCols - span;
+
+    let blocked = false;
+    for (let offset = 0; offset < span; offset++) {
+      if (occupiedBy[col + offset] != null) {
+        blocked = true;
+        break;
+      }
+    }
+    if (blocked) {
+      if (DEV) {
+        console.warn(
+          `[init] skipping env structure "${rawDefId}" at col ${col}; occupied`
+        );
+      }
+      continue;
+    }
+
+    const inst = makeEnvStructureInstance(rawDefId, state, col, span, {
+      tier: typeof spec?.tier === "string" ? spec.tier : null,
+    });
+    anchors.push(inst);
+    for (let offset = 0; offset < span; offset++) {
+      occupiedBy[col + offset] = inst.instanceId;
+    }
+  }
+
+  return anchors;
 }
 
 function buildTileAnchors(setup, boardCols, state) {

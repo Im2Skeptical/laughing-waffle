@@ -180,7 +180,7 @@ function validateEffectSpec(effectSpec, contextLabel, tagIds, systemIds, eventId
   }
 }
 
-export function validateEnvDefs({ tags, systems, tiles, events }) {
+export function validateEnvDefs({ tags, systems, tiles, events, structures }) {
   const errors = [];
   const warnings = [];
 
@@ -188,6 +188,12 @@ export function validateEnvDefs({ tags, systems, tiles, events }) {
   const systemIds = validateRegistryIds(systems, "envSystems", errors, warnings);
   const tileIds = validateRegistryIds(tiles, "envTiles", errors, warnings);
   const eventIds = validateRegistryIds(events, "envEvents", errors, warnings);
+  const structureIds = validateRegistryIds(
+    structures,
+    "envStructures",
+    errors,
+    warnings
+  );
 
   if (tags && typeof tags === "object") {
     for (const def of Object.values(tags)) {

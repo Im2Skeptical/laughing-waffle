@@ -11,6 +11,7 @@ import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import {
   LEADER_EQUIPMENT_SLOT_ORDER,
@@ -25,7 +26,7 @@ import {
 } from "./skills.js";
 
 const BOARD_COLS = 12;
-const BOARD_LAYERS = ["tile", "event"];
+const BOARD_LAYERS = ["tile", "event", "envStructure"];
 const HUB_COLS = 10;
 
 // Board contract: layers.*.anchors are authoritative placements.
@@ -38,16 +39,16 @@ const DEV =
     process.env.NODE_ENV !== "production");
 
 function createBoardState(cols = BOARD_COLS) {
+  const layers = {};
+  const occ = {};
+  for (const layer of BOARD_LAYERS) {
+    layers[layer] = { anchors: [] };
+    occ[layer] = new Array(cols).fill(null);
+  }
   return {
     cols,
-    layers: {
-      tile: { anchors: [] },
-      event: { anchors: [] },
-    },
-    occ: {
-      tile: new Array(cols).fill(null),
-      event: new Array(cols).fill(null),
-    },
+    layers,
+    occ,
   };
 }
 
@@ -364,6 +365,7 @@ export function createEmptyState(seed = 123456789) {
     board: createBoardState(),
     hub: createHubState(),
     nextHubStructureInstanceId: 1,
+    nextEnvStructureInstanceId: 1,
 
     currentSeasonDeck: null,
     nextEnvInstanceId: 1,
@@ -451,6 +453,82 @@ export function makeEnvEventInstance(defId, state, col, span, tSec) {
   if (def?.durationSec != null) {
     inst.expiresSec = tSec + def.durationSec;
   }
+  return inst;
+}
+
+function initializeEnvStructureFromDef(instance, def) {
+  if (!instance || !def) return;
+  if (!Array.isArray(instance.tags) || instance.tags.length === 0) {
+    instance.tags = normalizeTagList(def.tags);
+  }
+  if (!instance.systemTiers || typeof instance.systemTiers !== "object") {
+    instance.systemTiers = {};
+  }
+  if (!instance.systemState || typeof instance.systemState !== "object") {
+    instance.systemState = {};
+  }
+
+  const systems = def.systems;
+  if (Array.isArray(systems)) {
+    for (const systemId of systems) {
+      if (typeof systemId !== "string" || !systemId.length) continue;
+      if (instance.systemTiers[systemId] == null) {
+        instance.systemTiers[systemId] =
+          typeof instance.tier === "string" ? instance.tier : "bronze";
+      }
+      if (!instance.systemState[systemId]) {
+        instance.systemState[systemId] = {};
+      }
+    }
+    return;
+  }
+
+  if (!systems || typeof systems !== "object") return;
+  for (const [systemId, spec] of Object.entries(systems)) {
+    if (!systemId || typeof systemId !== "string") continue;
+    if (instance.systemTiers[systemId] == null) {
+      const tier =
+        typeof spec?.defaultTier === "string"
+          ? spec.defaultTier
+          : typeof instance.tier === "string"
+          ? instance.tier
+          : "bronze";
+      instance.systemTiers[systemId] = tier;
+    }
+    if (!instance.systemState[systemId]) {
+      instance.systemState[systemId] = deepCloneSerializable(
+        spec?.stateDefaults ?? {}
+      );
+    }
+  }
+}
+
+export function makeEnvStructureInstance(
+  defId,
+  state,
+  col,
+  span = 1,
+  options = {}
+) {
+  const def = envStructureDefs[defId];
+  const fallbackSpan =
+    Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+      ? Math.floor(def.defaultSpan)
+      : 1;
+  const safeSpan =
+    Number.isFinite(span) && span > 0 ? Math.floor(span) : fallbackSpan;
+  const inst = {
+    instanceId: state.nextEnvStructureInstanceId++,
+    defId,
+    col,
+    span: safeSpan,
+    tier: typeof options?.tier === "string" ? options.tier : null,
+    props: {},
+    tags: [],
+    systemTiers: {},
+    systemState: {},
+  };
+  initializeEnvStructureFromDef(inst, def);
   return inst;
 }
 
@@ -948,6 +1026,19 @@ export function deserializeGameState(data) {
   if (state.actionPointCap == null) state.actionPointCap = 100;
   if (state.nextHubStructureInstanceId == null) {
     state.nextHubStructureInstanceId = 1;
+  }
+  if (!Number.isFinite(state.nextEnvStructureInstanceId)) {
+    let maxEnvStructureId = 0;
+    const anchors = Array.isArray(state?.board?.layers?.envStructure?.anchors)
+      ? state.board.layers.envStructure.anchors
+      : [];
+    for (const anchor of anchors) {
+      const id = Number.isFinite(anchor?.instanceId)
+        ? Math.floor(anchor.instanceId)
+        : 0;
+      if (id > maxEnvStructureId) maxEnvStructureId = id;
+    }
+    state.nextEnvStructureInstanceId = Math.max(1, maxEnvStructureId + 1);
   }
   if (!Number.isFinite(state.nextPawnId)) {
     state.nextPawnId = 101;

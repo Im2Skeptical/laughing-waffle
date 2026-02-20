@@ -5,6 +5,7 @@ import { envTagDefs } from "./gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "./gamesystems/env-systems-defs.js";
 import { envTileDefs } from "./gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "./gamepieces/env-events-defs.js";
+import { envStructureDefs } from "./gamepieces/env-structures-defs.js";
 import { validateEnvDefs } from "./validate-env-defs.js";
 
 const DEV =
@@ -18,6 +19,7 @@ const result = validateEnvDefs({
   systems: envSystemDefs,
   tiles: envTileDefs,
   events: envEventDefs,
+  structures: envStructureDefs,
 });
 
 if (!result.ok) {

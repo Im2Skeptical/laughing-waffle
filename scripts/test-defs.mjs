@@ -5,6 +5,7 @@ import { build } from "esbuild";
 
 import { envEventDefs } from "../src/defs/gamepieces/env-events-defs.js";
 import { envTileDefs } from "../src/defs/gamepieces/env-tiles-defs.js";
+import { envStructureDefs } from "../src/defs/gamepieces/env-structures-defs.js";
 import { envSystemDefs } from "../src/defs/gamesystems/env-systems-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { itemDefs } from "../src/defs/gamepieces/item-defs.js";
@@ -84,6 +85,10 @@ function validateCoreDefinitions() {
     Object.keys(envEventDefs).length > 0,
     "[test] envEventDefs is empty"
   );
+  assert.ok(
+    Object.keys(envStructureDefs).length > 0,
+    "[test] envStructureDefs is empty"
+  );
   assert.ok(Object.keys(itemDefs).length > 0, "[test] itemDefs is empty");
   assert.ok(
     Object.keys(INTENT_AP_COSTS).length > 0,
@@ -102,6 +107,7 @@ function validateEnvironmentDefsSoft() {
     systems: envSystemDefs,
     tiles: envTileDefs,
     events: envEventDefs,
+    structures: envStructureDefs,
   });
 
   const strict = process.env.STRICT_ENV_DEFS === "1";
