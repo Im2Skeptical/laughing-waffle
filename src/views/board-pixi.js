@@ -5,6 +5,7 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { hasEnvTagUnlock, hasHubTagUnlock } from "../model/skills.js";
@@ -104,6 +105,17 @@ export function createBoardView(opts) {
   const AP_OVERLAY_FADE_OUT = 8;
   const AP_OVERLAY_FILL = 0x8a1f2a;
   const AP_OVERLAY_STROKE = 0xff4f5e;
+  const FEEDBACK_MISS_THROTTLE_SEC = 1;
+  const FEEDBACK_MISS_DURATION_SEC = 0.8;
+  const FEEDBACK_HIT_DURATION_SEC = 1.05;
+  const FEEDBACK_FLOAT_RISE_PX = 30;
+  const FEEDBACK_STACK_STEP_PX = 14;
+  const FEEDBACK_MAX_STACK = 4;
+  const ACTIVITY_FADE_SPEED = 8;
+  const ACTIVITY_BASE_ALPHA = 0.2;
+  const ACTIVITY_PULSE_FREQ_HZ = 1.4;
+  const ACTIVITY_FORAGE_COLOR = 0x56b67b;
+  const ACTIVITY_FISH_COLOR = 0x4d9fdb;
   const BASE_TEXT_RESOLUTION = Math.max(
     2,
     Math.floor(globalThis?.devicePixelRatio || 1)
@@ -120,6 +132,9 @@ export function createBoardView(opts) {
   let apDragWarningActive = false;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
+  let lastProcessedGameEventId = 0;
+  const tileRollFxByCol = new Map();
+  const missThrottleByColSec = new Map();
   const tooltipLayer = tooltipView?.getContainer?.()?.parent;
   const cropDropdownLayer =
     tooltipLayer || hoverLayer || tileInspectorLayer || tileLayer;
@@ -187,6 +202,370 @@ export function createBoardView(opts) {
   function getVisibleHubTagSignature(structureInst) {
     const tags = Array.isArray(structureInst?.tags) ? structureInst.tags : [];
     return tags.filter((tagId) => isHubTagVisible(tagId)).join("|");
+  }
+
+  function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    if (value <= 0) return 0;
+    if (value >= 1) return 1;
+    return value;
+  }
+
+  function easeOutCubic(value) {
+    const t = clamp01(value);
+    return 1 - (1 - t) ** 3;
+  }
+
+  function getMaxEventFeedId(feed) {
+    const list = Array.isArray(feed) ? feed : [];
+    let maxId = 0;
+    for (const entry of list) {
+      const id = Number.isFinite(entry?.id) ? Math.floor(entry.id) : 0;
+      if (id > maxId) maxId = id;
+    }
+    return maxId;
+  }
+
+  function clearTileRollFxList(list) {
+    if (!Array.isArray(list)) return;
+    for (const fx of list) {
+      removeFromParent(fx?.container);
+    }
+    list.length = 0;
+  }
+
+  function clearTileRollFxForCol(col) {
+    if (!Number.isFinite(col)) return;
+    const key = Math.floor(col);
+    const list = tileRollFxByCol.get(key);
+    clearTileRollFxList(list);
+    tileRollFxByCol.delete(key);
+    missThrottleByColSec.delete(key);
+  }
+
+  function clearTileFeedbackRuntime() {
+    for (const list of tileRollFxByCol.values()) {
+      clearTileRollFxList(list);
+    }
+    tileRollFxByCol.clear();
+    missThrottleByColSec.clear();
+  }
+
+  function isTileTagDisabled(tileInst, tagId) {
+    return tileInst?.tagStates?.[tagId]?.disabled === true;
+  }
+
+  function getActiveTileTagIds(tileInst, pawnCount) {
+    const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
+    const enabled = [];
+    for (const tagId of tags) {
+      if (!isEnvTagVisible(tagId)) continue;
+      if (isTileTagDisabled(tileInst, tagId)) continue;
+      enabled.push(tagId);
+    }
+    const count =
+      Number.isFinite(pawnCount) && pawnCount > 0 ? Math.floor(pawnCount) : 0;
+    return new Set(count > 0 ? enabled.slice(0, count) : []);
+  }
+
+  function createTileActivityOverlay(color) {
+    const overlay = new PIXI.Graphics();
+    overlay
+      .beginFill(color, 1)
+      .drawRoundedRect(3, 3, TILE_WIDTH - 6, TILE_HEIGHT - 6, 6)
+      .endFill();
+    overlay.alpha = 0;
+    overlay.visible = false;
+    overlay.eventMode = "none";
+    return overlay;
+  }
+
+  function updateTileActivityOverlays(dt) {
+    const frameDt = Number.isFinite(dt) && dt > 0 ? dt : 1 / 60;
+    for (const view of tileViews) {
+      if (!view) continue;
+      view.activityClockSec = (view.activityClockSec ?? 0) + frameDt;
+      const pulse =
+        0.7 +
+        0.3 *
+          Math.sin(
+            (view.activityClockSec + (view.col ?? 0) * 0.21) *
+              ACTIVITY_PULSE_FREQ_HZ *
+              Math.PI *
+              2
+          );
+      const step = Math.min(1, frameDt * ACTIVITY_FADE_SPEED);
+      view.forageActivityAlpha =
+        (view.forageActivityAlpha ?? 0) +
+        ((view.forageActivityTarget ?? 0) - (view.forageActivityAlpha ?? 0)) *
+          step;
+      view.fishActivityAlpha =
+        (view.fishActivityAlpha ?? 0) +
+        ((view.fishActivityTarget ?? 0) - (view.fishActivityAlpha ?? 0)) * step;
+
+      const forageAlpha =
+        clamp01(view.forageActivityAlpha) * ACTIVITY_BASE_ALPHA * pulse;
+      const fishAlpha =
+        clamp01(view.fishActivityAlpha) * ACTIVITY_BASE_ALPHA * pulse;
+
+      if (view.forageActivityOverlay) {
+        view.forageActivityOverlay.alpha = forageAlpha;
+        view.forageActivityOverlay.visible = forageAlpha > 0.01;
+      }
+      if (view.fishActivityOverlay) {
+        view.fishActivityOverlay.alpha = fishAlpha;
+        view.fishActivityOverlay.visible = fishAlpha > 0.01;
+      }
+    }
+  }
+
+  function normalizeRarity(value) {
+    if (typeof value !== "string") return "bronze";
+    const key = value.trim().toLowerCase();
+    if (
+      key === "bronze" ||
+      key === "silver" ||
+      key === "gold" ||
+      key === "diamond"
+    ) {
+      return key;
+    }
+    return "bronze";
+  }
+
+  function formatKindLabel(kind) {
+    if (typeof kind !== "string" || !kind.length) return "Item";
+    const words = kind
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part[0].toUpperCase() + part.slice(1));
+    return words.length ? words.join(" ") : kind;
+  }
+
+  function getRollFeedbackSpec(entry) {
+    const data = entry?.data && typeof entry.data === "object" ? entry.data : null;
+    const outcome = data?.outcome === "miss" ? "miss" : "hit";
+    if (outcome === "miss") {
+      return {
+        headline: "MISS",
+        detail: "",
+        fill: 0x4c5365,
+        stroke: 0x8f9bb3,
+        headlineColor: 0xe4ebf6,
+        detailColor: 0xb9c3d8,
+        durationSec: FEEDBACK_MISS_DURATION_SEC,
+      };
+    }
+
+    const rarity = normalizeRarity(data?.rarity);
+    const qty = Number.isFinite(data?.quantity)
+      ? Math.max(0, Math.floor(data.quantity))
+      : 0;
+    const itemKind =
+      typeof data?.itemKind === "string" && data.itemKind.length > 0
+        ? data.itemKind
+        : null;
+    const itemName =
+      itemKind && itemDefs[itemKind]?.name
+        ? itemDefs[itemKind].name
+        : formatKindLabel(itemKind || "");
+    const detail = qty > 0 ? `+${qty} ${itemName}` : itemName;
+
+    if (rarity === "diamond") {
+      return {
+        headline: "DIAMOND",
+        detail,
+        fill: 0x1f6175,
+        stroke: 0x8de7ff,
+        headlineColor: 0xf1fbff,
+        detailColor: 0xd3f3ff,
+        durationSec: FEEDBACK_HIT_DURATION_SEC,
+      };
+    }
+    if (rarity === "gold") {
+      return {
+        headline: "RARE",
+        detail,
+        fill: 0x6d4f1d,
+        stroke: 0xf9d071,
+        headlineColor: 0xfff1c7,
+        detailColor: 0xffe6a4,
+        durationSec: FEEDBACK_HIT_DURATION_SEC,
+      };
+    }
+    if (rarity === "silver") {
+      return {
+        headline: "UNCOMMON",
+        detail,
+        fill: 0x3e4f62,
+        stroke: 0xbcd3e8,
+        headlineColor: 0xe7f0fb,
+        detailColor: 0xcddbea,
+        durationSec: FEEDBACK_HIT_DURATION_SEC,
+      };
+    }
+
+    return {
+      headline: "COMMON",
+      detail,
+      fill: 0x2f5f40,
+      stroke: 0xa7e3b8,
+      headlineColor: 0xe5f8eb,
+      detailColor: 0xc4e7cf,
+      durationSec: FEEDBACK_HIT_DURATION_SEC,
+    };
+  }
+
+  function spawnTileRollFeedbackFx(view, entry, col) {
+    if (!view?.feedbackLayer || !Number.isFinite(col)) return;
+    const list = tileRollFxByCol.get(col) || [];
+    const stackIndex = Math.min(FEEDBACK_MAX_STACK, list.length);
+    const spec = getRollFeedbackSpec(entry);
+    const boxPadX = 6;
+    const boxPadY = 4;
+
+    const popup = new PIXI.Container();
+    popup.eventMode = "none";
+    popup.zIndex = 2;
+
+    const headlineText = new PIXI.Text(spec.headline, {
+      fill: spec.headlineColor,
+      fontSize: 11,
+      fontWeight: "bold",
+      align: "center",
+    });
+    headlineText.anchor.set(0.5, 0);
+    headlineText.x = 0;
+    headlineText.y = 0;
+    popup.addChild(headlineText);
+
+    let detailText = null;
+    if (spec.detail) {
+      detailText = new PIXI.Text(spec.detail, {
+        fill: spec.detailColor,
+        fontSize: 9,
+        align: "center",
+      });
+      detailText.anchor.set(0.5, 0);
+      detailText.x = 0;
+      detailText.y = headlineText.height + 1;
+      popup.addChild(detailText);
+    }
+
+    const width = Math.max(
+      28,
+      Math.ceil(
+        Math.max(headlineText.width, detailText?.width ?? 0) + boxPadX * 2
+      )
+    );
+    const height = Math.ceil(
+      headlineText.height + (detailText ? detailText.height + 1 : 0) + boxPadY * 2
+    );
+    const bg = new PIXI.Graphics();
+    bg
+      .lineStyle(1, spec.stroke, 1)
+      .beginFill(spec.fill, 0.95)
+      .drawRoundedRect(-width / 2, 0, width, height, 6)
+      .endFill();
+    popup.addChildAt(bg, 0);
+
+    headlineText.y = boxPadY - 1;
+    if (detailText) {
+      detailText.y = headlineText.y + headlineText.height + 1;
+    }
+
+    popup.x = Math.floor(TILE_WIDTH / 2);
+    popup.y = TILE_HEIGHT - 26;
+    popup.alpha = 0;
+    popup.scale.set(0.88);
+    view.feedbackLayer.addChild(popup);
+
+    list.push({
+      container: popup,
+      ageSec: 0,
+      durationSec: Math.max(0.25, spec.durationSec ?? FEEDBACK_HIT_DURATION_SEC),
+      baseY: TILE_HEIGHT - 26,
+      stackOffset: stackIndex * FEEDBACK_STACK_STEP_PX,
+      risePx: FEEDBACK_FLOAT_RISE_PX,
+    });
+    tileRollFxByCol.set(col, list);
+  }
+
+  function updateTileRollFeedbackFx(dt) {
+    const frameDt = Number.isFinite(dt) && dt > 0 ? dt : 1 / 60;
+    for (const [col, list] of tileRollFxByCol.entries()) {
+      if (!Array.isArray(list) || list.length === 0) {
+        tileRollFxByCol.delete(col);
+        continue;
+      }
+      const nextList = [];
+      for (const fx of list) {
+        if (!fx?.container) continue;
+        fx.ageSec = (fx.ageSec ?? 0) + frameDt;
+        const progress = clamp01(fx.ageSec / Math.max(0.01, fx.durationSec ?? 1));
+        if (progress >= 1) {
+          removeFromParent(fx.container);
+          continue;
+        }
+        const rise = (fx.risePx ?? FEEDBACK_FLOAT_RISE_PX) * easeOutCubic(progress);
+        fx.container.y = (fx.baseY ?? TILE_HEIGHT - 26) - (fx.stackOffset ?? 0) - rise;
+        const fade = progress <= 0.35 ? 1 : clamp01(1 - (progress - 0.35) / 0.65);
+        fx.container.alpha = fade;
+        const punch = progress < 0.2 ? progress / 0.2 : 1 - (progress - 0.2) * 0.08;
+        const scale = 0.88 + Math.max(0, punch) * 0.18;
+        fx.container.scale.set(scale);
+        nextList.push(fx);
+      }
+      if (nextList.length > 0) {
+        tileRollFxByCol.set(col, nextList);
+      } else {
+        tileRollFxByCol.delete(col);
+      }
+    }
+  }
+
+  function processTileRollFeedbackEvents(state) {
+    const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
+    if (!feed.length) return;
+    let maxProcessed = lastProcessedGameEventId;
+    for (const entry of feed) {
+      const id = Number.isFinite(entry?.id) ? Math.floor(entry.id) : null;
+      if (id == null) continue;
+      if (id <= lastProcessedGameEventId) {
+        if (id > maxProcessed) maxProcessed = id;
+        continue;
+      }
+      if (id > maxProcessed) maxProcessed = id;
+
+      const type = typeof entry.type === "string" ? entry.type : "";
+      if (type !== "forageRoll" && type !== "fishingRoll") continue;
+      const data = entry?.data && typeof entry.data === "object" ? entry.data : null;
+      const envCol = Number.isFinite(data?.envCol) ? Math.floor(data.envCol) : null;
+      if (envCol == null) continue;
+
+      const outcome = data?.outcome === "miss" ? "miss" : "hit";
+      if (outcome === "miss") {
+        const eventSec = Number.isFinite(entry?.tSec) ? Math.floor(entry.tSec) : null;
+        if (eventSec != null) {
+          const throttleSec = missThrottleByColSec.get(envCol);
+          if (throttleSec != null && eventSec - throttleSec < FEEDBACK_MISS_THROTTLE_SEC) {
+            continue;
+          }
+          missThrottleByColSec.set(envCol, eventSec);
+        }
+      }
+
+      const view = tileViews[envCol];
+      if (!view) continue;
+      spawnTileRollFeedbackFx(view, entry, envCol);
+    }
+
+    if (maxProcessed > lastProcessedGameEventId) {
+      lastProcessedGameEventId = maxProcessed;
+    }
   }
 
   function setTextResolution(textNodes, resolution) {
@@ -1344,6 +1723,11 @@ export function createBoardView(opts) {
         .endFill()
     );
 
+    const forageActivityOverlay = createTileActivityOverlay(ACTIVITY_FORAGE_COLOR);
+    const fishActivityOverlay = createTileActivityOverlay(ACTIVITY_FISH_COLOR);
+    content.addChild(forageActivityOverlay);
+    content.addChild(fishActivityOverlay);
+
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
       fontSize: 12,
@@ -1379,6 +1763,11 @@ export function createBoardView(opts) {
     pawnBadge.y = 0;
     pawnBadge.visible = false;
     content.addChild(pawnBadge);
+
+    const feedbackLayer = new PIXI.Container();
+    feedbackLayer.eventMode = "none";
+    feedbackLayer.zIndex = 1;
+    content.addChild(feedbackLayer);
 
     const apOverlay = createApOverlay(TILE_WIDTH, TILE_HEIGHT, 8);
     content.addChild(apOverlay);
@@ -1446,6 +1835,14 @@ export function createBoardView(opts) {
         holdHoverForOccupant: false,
       pawnBadge,
       pawnText,
+      feedbackLayer,
+      forageActivityOverlay,
+      fishActivityOverlay,
+      forageActivityTarget: 0,
+      fishActivityTarget: 0,
+      forageActivityAlpha: 0,
+      fishActivityAlpha: 0,
+      activityClockSec: (Number.isFinite(col) ? col : 0) * 0.17,
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
@@ -1473,6 +1870,10 @@ export function createBoardView(opts) {
     } else {
       view.pawnBadge.visible = false;
     }
+
+    const activeTagIds = getActiveTileTagIds(tileInst, pawnCount);
+    view.forageActivityTarget = activeTagIds.has("forageable") ? 1 : 0;
+    view.fishActivityTarget = activeTagIds.has("fishable") ? 1 : 0;
   }
 
   // --------------------------------------------------------
@@ -1902,6 +2303,7 @@ export function createBoardView(opts) {
       if (!tileInst) {
         if (view) {
           if (activeHover?.view === view) clearActiveHover(view);
+          clearTileRollFxForCol(col);
           removeFromParent(view.container);
           tileViews[col] = undefined;
         }
@@ -1911,6 +2313,7 @@ export function createBoardView(opts) {
       if (!view || view.tile?.defId !== tileInst.defId) {
         if (view) {
           if (activeHover?.view === view) clearActiveHover(view);
+          clearTileRollFxForCol(col);
           removeFromParent(view.container);
         }
         tileViews[col] = buildTileView(tileInst, col);
@@ -2157,6 +2560,7 @@ export function createBoardView(opts) {
       }
     }
 
+    clearTileFeedbackRuntime();
     tileLayer.removeChildren();
     eventLayer.removeChildren();
     hubStructuresLayer.removeChildren();
@@ -2168,6 +2572,7 @@ export function createBoardView(opts) {
     hubSlotViews.length = 0;
 
     const s = getGameState?.();
+    lastProcessedGameEventId = getMaxEventFeedId(s?.gameEventFeed);
     if (!s?.board) return;
 
     const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
@@ -2314,6 +2719,9 @@ export function createBoardView(opts) {
     syncEvents(s, cols);
     syncHubStructures(s, hubCols, pawnCounts.hub);
     updatePlanFocus();
+    processTileRollFeedbackEvents(s);
+    updateTileActivityOverlays(dt);
+    updateTileRollFeedbackFx(dt);
 
     if (activeHover?.view?.holdHoverForOccupant) {
       const view = activeHover.view;
@@ -2336,6 +2744,11 @@ export function createBoardView(opts) {
       stagePointerMoveHandler = (ev) => trackPointerPos(ev);
       app.stage.on("pointermove", stagePointerMoveHandler);
     }
+    const state = getGameState?.();
+    lastProcessedGameEventId = Math.max(
+      lastProcessedGameEventId,
+      getMaxEventFeedId(state?.gameEventFeed)
+    );
   }
 
   function getInventoryOwnerAtGlobalPos(globalPos) {

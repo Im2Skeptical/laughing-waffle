@@ -59,6 +59,16 @@ export const eventLogTypeDefs = {
     label: "Run Complete",
     color: 0xff4f4f,
   },
+  forageRoll: {
+    id: "forageRoll",
+    label: "Forage",
+    color: 0x6fce7a,
+  },
+  fishingRoll: {
+    id: "fishingRoll",
+    label: "Fishing",
+    color: 0x6fb7ff,
+  },
 };
 
 export function getEventLogTypeDef(typeId) {

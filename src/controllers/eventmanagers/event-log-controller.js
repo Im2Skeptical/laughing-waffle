@@ -48,6 +48,7 @@ export function createEventLogController({ getState } = {}) {
       const ageSec = nowSec - eventSec;
       if (ageSec < 0) continue;
       if (ageSec > maxAgeSec) break;
+      if (entry?.data?.showInEventLog === false) continue;
 
       const alpha = computeDecayAlpha(ageSec, holdSec, fadeSec);
       if (alpha <= 0) continue;

@@ -227,6 +227,7 @@ export const envEventDefs = {
     ],
     onExit: [
       { op: "EnableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
+      { op: "EnableTag", target: { ref: "self", layer: "tile" }, tag: "forageable" },
       {
         op: "SetSystemTier",
         target: { ref: "self", layer: "tile" },

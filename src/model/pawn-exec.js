@@ -603,6 +603,18 @@ function updatePawnAiMode(pawn) {
   return mode;
 }
 
+function shouldFallbackToRestWhenEatFails(pawn) {
+  const staminaMax = getSystemMax(pawn, "stamina", 100);
+  const staminaStartRest = clampInt(
+    PAWN_AI_STAMINA_START_REST,
+    0,
+    staminaMax,
+    0
+  );
+  const staminaCur = getSystemCur(pawn, "stamina", 0);
+  return staminaCur <= staminaStartRest;
+}
+
 function isPawnAiSuppressed(pawn, tSec) {
   const nowSec = Number.isFinite(tSec) ? Math.floor(tSec) : 0;
   const suppressUntil = Number.isFinite(pawn?.ai?.suppressAutoUntilSec)
@@ -882,12 +894,31 @@ export function stepPawnSecond(state, tSec, options = {}) {
       const canEatInPlace = canExecuteIntent(eatIntent, pawn, context, {
         ignoreRequires: true,
       });
+      let movedForEat = false;
       if (!canEatInPlace && !suppressed) {
         const candidates = findEatMoveCandidates(state, pawn, tSec, eatIntent);
         for (const placement of candidates) {
           if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
           context = buildPawnContext(state, pawn, tSec);
           pushPawnSeekMoveEvent(state, pawn, tSec, "eat", placement);
+          movedForEat = true;
+          break;
+        }
+      }
+
+      if (
+        !canEatInPlace &&
+        !movedForEat &&
+        !suppressed &&
+        shouldFallbackToRestWhenEatFails(pawn)
+      ) {
+        const restCandidates = findRestMoveCandidates(state, pawn);
+        for (const placement of restCandidates) {
+          if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
+          pawn.ai.mode = "rest";
+          aiMode = "rest";
+          context = buildPawnContext(state, pawn, tSec);
+          pushPawnSeekMoveEvent(state, pawn, tSec, "rest", placement);
           break;
         }
       }

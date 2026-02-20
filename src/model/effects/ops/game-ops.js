@@ -15,6 +15,7 @@ import { resolveEffectDef } from "../core/registry.js";
 import { ensureSystemState } from "../core/system-state.js";
 import { TIER_ASC, TIER_DESC, getTierRank } from "../core/tiers.js";
 import { resolveOwnerTargets } from "../core/targets-owner.js";
+import { pushGameEvent } from "../../event-feed.js";
 
 export function handleAddResource(state, effect) {
   const key = effect.resource;
@@ -243,6 +244,7 @@ export function handleSpawnFromDropTable(state, effect, context) {
 
   const tableKey =
     typeof effect?.tableKey === "string" ? effect.tableKey : "forageDrops";
+  const eventMeta = getDropRollEventMeta(tableKey);
   const source = context.source;
   const tags = Array.isArray(source?.tags) ? source.tags : [];
   const table = resolveDropTableForTile(source, tableKey);
@@ -251,8 +253,28 @@ export function handleSpawnFromDropTable(state, effect, context) {
   const entry = selectWeightedEntry(state, table, { tags });
   if (!entry) return false;
 
+  const envCol = resolveDropRollEnvCol(context, source);
+
   // IMPORTANT: chance failure is still a RESOLVED roll (treat as miss)
   if (!passesDropChance(state, entry)) {
+    if (eventMeta) {
+      pushGameEvent(state, {
+        type: eventMeta.type,
+        tSec: context?.tSec,
+        text: `${eventMeta.label} miss`,
+        data: {
+          focusKind: "tile",
+          envCol,
+          tableKey,
+          outcome: "miss",
+          rarity: null,
+          itemKind: null,
+          quantity: 0,
+          tier: null,
+          showInEventLog: false,
+        },
+      });
+    }
     if (effect?.debug === true) {
       console.log("[dropTable] resolved miss (chance fail)", {
         tableKey,
@@ -265,6 +287,24 @@ export function handleSpawnFromDropTable(state, effect, context) {
 
   // IMPORTANT: miss/null entry is also a RESOLVED roll (no spawn, but not a failure)
   if (!entry.kind) {
+    if (eventMeta) {
+      pushGameEvent(state, {
+        type: eventMeta.type,
+        tSec: context?.tSec,
+        text: `${eventMeta.label} miss`,
+        data: {
+          focusKind: "tile",
+          envCol,
+          tableKey,
+          outcome: "miss",
+          rarity: null,
+          itemKind: null,
+          quantity: 0,
+          tier: null,
+          showInEventLog: false,
+        },
+      });
+    }
     if (effect?.debug === true) {
       console.log("[dropTable] resolved miss (null entry)", {
         tableKey,
@@ -297,12 +337,36 @@ export function handleSpawnFromDropTable(state, effect, context) {
   if (!targets.length) return false;
 
 
-  let changed = false;
+  let totalAdded = 0;
   for (const target of targets) {
     const ownerId = typeof target === "object" ? target.id : target;
     if (ownerId == null) continue;
     const added = addTieredUnits(state, ownerId, kind, tier, quantity);
-    if (added > 0) changed = true;
+    if (added > 0) totalAdded += added;
+  }
+
+  const changed = totalAdded > 0;
+
+  if (eventMeta && changed) {
+    const rarity = resolveDropRarity(entry, kind, tier);
+    const rarityLabel = formatDropRarityLabel(rarity);
+    const itemName = getDropItemDisplayName(kind);
+    pushGameEvent(state, {
+      type: eventMeta.type,
+      tSec: context?.tSec,
+      text: `${eventMeta.label}: ${rarityLabel} ${itemName} (+${totalAdded})`,
+      data: {
+        focusKind: "tile",
+        envCol,
+        tableKey,
+        outcome: "hit",
+        rarity,
+        itemKind: kind,
+        quantity: totalAdded,
+        tier,
+        showInEventLog: true,
+      },
+    });
   }
 
   if (effect?.debug === true) {
@@ -312,6 +376,7 @@ export function handleSpawnFromDropTable(state, effect, context) {
       kind,
       quantity,
       tier,
+      totalAdded,
       changed,
     });
   }
@@ -434,6 +499,11 @@ const DEFAULT_DROP_RARITY_WEIGHTS = Object.freeze({
   diamond: 1,
 });
 
+const DROP_ROLL_EVENT_META = Object.freeze({
+  forageDrops: { type: "forageRoll", label: "Forage" },
+  fishingDrops: { type: "fishingRoll", label: "Fishing" },
+});
+
 function resolveDropTableForTile(source, tableKey) {
   const registry = resolveDropTableRegistry(tableKey);
   if (!registry || typeof registry !== "object") return [];
@@ -492,7 +562,7 @@ function compileTieredDropTable(tableDef, registry) {
     let weight = Number.isFinite(entry.weight) ? Math.max(0, entry.weight) : null;
 
     if (weight == null) {
-      const rarity = typeof entry.rarity === "string" ? entry.rarity : "bronze";
+      const rarity = normalizeDropRarity(entry.rarity) ?? "bronze";
       const base = Number.isFinite(tierWeights[rarity])
         ? Math.max(0, tierWeights[rarity])
         : 0;
@@ -515,6 +585,11 @@ function compileTieredDropTable(tableDef, registry) {
     if (Number.isFinite(entry.chance)) compiled.chance = entry.chance;
     if (entry.requiresTag != null) compiled.requiresTag = entry.requiresTag;
     if (typeof entry.tier === "string") compiled.tier = entry.tier;
+    const rarity =
+      normalizeDropRarity(entry.rarity) ??
+      normalizeDropRarity(entry.tier) ??
+      null;
+    if (rarity) compiled.rarity = rarity;
 
     out.push(compiled);
   }
@@ -569,11 +644,12 @@ function normalizeDropEntry(entry) {
   const chance = Number.isFinite(entry.chance)
     ? Math.min(1, Math.max(0, entry.chance))
     : null;
+  const rarity = normalizeDropRarity(entry.rarity);
   const tier = typeof entry.tier === "string" ? entry.tier : null;
   const requiresTag = normalizeRequiresTag(entry.requiresTag);
 
   const keyKind = isMiss ? "miss" : kind;
-  const keyParts = [keyKind, tier ?? "", qtyMin, qtyMax, chance ?? ""];
+  const keyParts = [keyKind, rarity ?? "", tier ?? "", qtyMin, qtyMax, chance ?? ""];
   if (requiresTag) {
     keyParts.push(Array.isArray(requiresTag) ? requiresTag.join("&") : requiresTag);
   }
@@ -581,6 +657,7 @@ function normalizeDropEntry(entry) {
 
   const normalized = { kind: isMiss ? null : kind, weight, qtyMin, qtyMax };
   if (chance != null) normalized.chance = chance;
+  if (rarity) normalized.rarity = rarity;
   if (requiresTag) normalized.requiresTag = requiresTag;
   if (tier) normalized.tier = tier;
 
@@ -624,4 +701,61 @@ function resolveDropTarget(effect, context) {
   const ownerId = context?.pawnId ?? context?.ownerId ?? null;
   if (ownerId != null) return { ownerId };
   return { kind: "tileOccupants" };
+}
+
+function getDropRollEventMeta(tableKey) {
+  if (typeof tableKey !== "string" || !tableKey.length) return null;
+  return DROP_ROLL_EVENT_META[tableKey] ?? null;
+}
+
+function resolveDropRollEnvCol(context, source) {
+  if (Number.isFinite(context?.envCol)) return Math.floor(context.envCol);
+  if (Number.isFinite(source?.col)) return Math.floor(source.col);
+  return null;
+}
+
+function normalizeDropRarity(value) {
+  if (typeof value !== "string") return null;
+  const rarity = value.trim().toLowerCase();
+  if (
+    rarity === "bronze" ||
+    rarity === "silver" ||
+    rarity === "gold" ||
+    rarity === "diamond"
+  ) {
+    return rarity;
+  }
+  return null;
+}
+
+function resolveDropRarity(entry, kind, tier) {
+  const entryRarity = normalizeDropRarity(entry?.rarity);
+  if (entryRarity) return entryRarity;
+  const tierRarity =
+    normalizeDropRarity(entry?.tier) ??
+    normalizeDropRarity(tier) ??
+    normalizeDropRarity(itemDefs?.[kind]?.defaultTier);
+  return tierRarity ?? "bronze";
+}
+
+function formatDropRarityLabel(rarity) {
+  const key = normalizeDropRarity(rarity) ?? "bronze";
+  if (key === "silver") return "Uncommon";
+  if (key === "gold") return "Rare";
+  if (key === "diamond") return "Diamond";
+  return "Common";
+}
+
+function getDropItemDisplayName(kind) {
+  if (typeof kind !== "string" || !kind.length) return "Item";
+  const defName = itemDefs?.[kind]?.name;
+  if (typeof defName === "string" && defName.trim().length > 0) return defName;
+  const words = kind
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1));
+  return words.length ? words.join(" ") : kind;
 }
