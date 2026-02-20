@@ -136,12 +136,17 @@ export const setupDefs = {
         default: 6
       },
       defaultUnlockedRecipes: [
-        "roastBarley",
-        "weaveBasket",
+        "none",
       ],
       defaultUnlockedHubStructures: [
-        "hearth"
-      ]
+        "none"
+      ],
+      defaultUnlockedEnvTags: [
+        "none"
+      ],
+      defaultUnlockedHubTags: [
+        "rest"
+      ],
     }, 
 
     rngSeed: 123,

@@ -10,24 +10,9 @@ export const skillProgressionDefs = {
   defaultUnlockedRecipes: [
     "roastBarley",
     "craftProphecyPopulationScroll",
-    "craftProphecyGrainScroll",
-    "craftProphecyFoodScroll",
-    "craftProphecySystemsScroll",
-    "craftAlmanacPopulationScroll",
     "craftAlmanacGrainScroll",
-    "craftAlmanacFoodScroll",
-    "craftAlmanacSystemsScroll",
-    "craftRecordPopulationScroll",
-    "craftRecordGrainScroll",
     "craftRecordFoodScroll",
-    "craftRecordSystemsScroll",
-    "craftHistoryPopulationScroll",
-    "craftHistoryGrainScroll",
-    "craftHistoryFoodScroll",
     "craftHistorySystemsScroll",
-    "craftScripturePopulationScroll",
-    "craftScriptureGrainScroll",
-    "craftScriptureFoodScroll",
     "craftScriptureSystemsScroll"
   ],
   defaultUnlockedHubStructures: [
@@ -1852,7 +1837,7 @@ export const skillNodes = {
       x: 608,
       y: 531
     },
-    onUnlock: []
+    onUnlock: [{ op: "GrantUnlock", unlockType: "tag", tagDomain: "hub", tagId: "canCraft"}]
   },
   Farming: {
     id: "Farming",
