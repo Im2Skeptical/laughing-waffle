@@ -12,6 +12,13 @@ export const hubStructureDefs = {
     tags: ["canCook", "canCraft"],
     systems: {},
     inventory: { cols: 5, rows: 10 },
+    build: {
+      laborSec: 20,
+      requirements: [
+        { kind: "item", itemId: "straw", amount: 8 },
+        { kind: "item", itemId: "stone", amount: 2 },
+      ],
+    },
     ui: {
       title: "Hearth",
       lines: ["Small fireplace to cook and craft"],
@@ -30,7 +37,7 @@ export const hubStructureDefs = {
     inventory: { cols: 5, rows: 10 },
     ui: {
       title: "Mud Houses",
-      lines: ["Enough for everyone to rest."],
+      lines: ["Just enough for everyone to rest."],
       description: "Rest here to regain stamina.",
     },
   },

@@ -2,7 +2,6 @@
 // Build menu + placement helper for hub construction.
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
-import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import {
@@ -24,18 +23,6 @@ const ROW_HEIGHT = 34;
 const ROW_GAP = 6;
 const PANEL_MARGIN = 16;
 const PANEL_OFFSET_X = 48;
-
-function getBuildableIdsFromPawn(pawn) {
-  if (!pawn || typeof pawn !== "object") return [];
-  const defId = typeof pawn.pawnDefId === "string" ? pawn.pawnDefId : "default";
-  const def = pawnDefs[defId] || pawnDefs.default;
-  const list =
-    def?.buildableStructureIds ||
-    def?.buildableStructures ||
-    def?.buildables ||
-    [];
-  return Array.isArray(list) ? list : [];
-}
 
 function countStructuresByDefId(state) {
   const counts = new Map();
@@ -137,21 +124,13 @@ export function createBuildMenuView(opts) {
   }
 
   function computeOptions(state) {
-    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
     const availability = computeAvailableRecipesAndBuildings(state);
-    const leaders = pawns.filter((pawn) => pawn?.role === "leader");
-    const buildable = new Set();
-    for (const leader of leaders) {
-      for (const id of getBuildableIdsFromPawn(leader)) {
-        if (typeof id === "string" && id.length) buildable.add(id);
-      }
-    }
+    const unlocked = availability?.hubStructureIds ?? new Set();
 
     const counts = countStructuresByDefId(state);
     const options = [];
 
-    for (const id of buildable.values()) {
-      if (!availability.hubStructureIds?.has(id)) continue;
+    for (const id of unlocked.values()) {
       const def = hubStructureDefs[id];
       if (!def) continue;
       const maxInstances = Number.isFinite(def.maxInstances)

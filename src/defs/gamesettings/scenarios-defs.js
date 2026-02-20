@@ -170,7 +170,7 @@ export const setupDefs = {
         "none"
       ],
       defaultUnlockedHubTags: [
-        "canRest"
+        "canRest", "build", "canHouse"
       ],
     }, 
 
@@ -199,8 +199,8 @@ export const setupDefs = {
     hub: {
       cols: 10,
       structures: [
-        { defId: "mudHouses", hubCol: 3 },
-        { defId: "hearth", hubCol: 5 },
+        { defId: "mudHouses", hubCol: 4 },
+        //{ defId: "hearth", hubCol: 6 },
 
       ],
     },
@@ -208,17 +208,18 @@ export const setupDefs = {
     pawns: [
       { name: "Pawn 1", 
         color: 0xff9999, 
-        hubCol: 3, 
+        hubCol: 4, 
         role: "leader", 
         skillPoints: 0,
         //unlockedSkillNodeIds: ["Astronomy", "Crafting", "RitualShrine", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
+        unlockedSkillNodeIds: ["Hearth"]
       },
-      { name: "Pawn 2", color: 0x9999ff, hubCol: 3, role: "leader" },
+      //{ name: "Pawn 2", color: 0x9999ff, hubCol: 3, role: "leader" },
     ],
 
     inventories: [
       {
-        owner: { type: "hubStructure", hubCol: 3 },
+        owner: { type: "hubStructure", hubCol: 4 },
         items: [
           { kind: "reeds", quantity: 20, gridX: 1, gridY: 0 },
           { kind: "fibres", quantity: 20, gridX: 2, gridY: 0 },

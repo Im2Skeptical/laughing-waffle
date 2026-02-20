@@ -9,7 +9,6 @@
 
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
-import { pawnDefs } from "../defs/gamepieces/pawn-defs.js";
 import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import {
@@ -448,18 +447,6 @@ export function createInventoryView({
     };
   }
 
-  function getBuildableIdsFromPawn(pawn) {
-    if (!pawn || typeof pawn !== "object") return [];
-    const defId = typeof pawn.pawnDefId === "string" ? pawn.pawnDefId : "default";
-    const def = pawnDefs[defId] || pawnDefs.default;
-    const list =
-      def?.buildableStructureIds ||
-      def?.buildableStructures ||
-      def?.buildables ||
-      [];
-    return Array.isArray(list) ? list : [];
-  }
-
   function countStructuresByDefId(state) {
     const counts = new Map();
     const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
@@ -475,16 +462,12 @@ export function createInventoryView({
   function computeBuildOptions(state, leader) {
     if (!state || !leader) return [];
     const availability = computeAvailableRecipesAndBuildings(state);
-    const buildable = new Set();
-    for (const id of getBuildableIdsFromPawn(leader)) {
-      if (typeof id === "string" && id.length) buildable.add(id);
-    }
+    const unlocked = availability?.hubStructureIds ?? new Set();
 
     const counts = countStructuresByDefId(state);
     const options = [];
 
-    for (const id of buildable.values()) {
-      if (!availability.hubStructureIds?.has(id)) continue;
+    for (const id of unlocked.values()) {
       const def = hubStructureDefs[id];
       if (!def) continue;
       const maxInstances = Number.isFinite(def.maxInstances)
