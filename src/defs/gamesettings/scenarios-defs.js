@@ -1,9 +1,13 @@
 // scenarios-defs.js - human-authored start scenarios (pure data)
 import { INITIAL_POPULATION_DEFAULT } from "./gamerules-defs.js";
+import { DEFAULT_VARIANT_FLAGS } from "./variant-flags-defs.js";
 
 export const setupDefs = {
   devGym01: {
     rngSeed: 123,
+    variantFlags: {
+      ...DEFAULT_VARIANT_FLAGS,
+    },
 
     resources: { gold: 0, grain: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
 
@@ -154,6 +158,14 @@ export const setupDefs = {
   },
 
   devPlaytesting01: {
+    variantFlags: {
+      ...DEFAULT_VARIANT_FLAGS,
+      actionPointCostsEnabled: false,
+      actionLogEnabled: false,
+      inventoryTransferPlannerEnabled: false,
+      inventoryTransferGhostPreviewEnabled: false,
+      showApHud: false,
+    },
 
     skillProgressionDefs: {
       defaultStartingSkillPoints: 6,

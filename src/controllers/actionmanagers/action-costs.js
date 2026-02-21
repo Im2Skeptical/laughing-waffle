@@ -69,6 +69,7 @@ function getHubPlanCost() {
 
 export function estimateIntentApCost(intent, { stateStart } = {}) {
   if (!intent || typeof intent !== "object") return 0;
+  if (stateStart?.variantFlags?.actionPointCostsEnabled === false) return 0;
 
   const isCurrencyTransfer =
     intent.kind === "itemTransfer" && isCurrencyItem(intent.item);

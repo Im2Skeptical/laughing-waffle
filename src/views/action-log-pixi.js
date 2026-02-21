@@ -171,7 +171,7 @@ export function createActionLogView({
   resetText.y = 7;
   resetBtn.addChild(resetText);
 
-  const resetTip = new PIXI.Text("Clear log (Z)", {
+  const resetTip = new PIXI.Text("Clear log", {
     fill: 0x9aa0b5,
     fontSize: 10,
   });

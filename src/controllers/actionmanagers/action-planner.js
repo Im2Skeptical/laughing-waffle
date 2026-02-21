@@ -262,6 +262,11 @@ export function createActionPlanner({
     return typeof getState === "function" ? getState() : null;
   }
 
+  function isInventoryTransferGhostPreviewEnabled() {
+    const state = getStateSafe();
+    return state?.variantFlags?.inventoryTransferGhostPreviewEnabled !== false;
+  }
+
   function getActionsAtSecond(timeline, sec) {
     if (!timeline) return [];
     if (timeline.actionsBySec && typeof timeline.actionsBySec.get === "function") {
@@ -654,6 +659,7 @@ export function createActionPlanner({
 
   function buildInventoryPreviewCaches() {
     cache.previewByOwner.clear();
+    if (!isInventoryTransferGhostPreviewEnabled()) return;
 
     const baselineByKey = baselineIntents;
     const currentByKey = intents;
@@ -1881,6 +1887,7 @@ export function createActionPlanner({
 
   function hasItemTransferIntent(itemId) {
     ensureActive();
+    if (!isInventoryTransferGhostPreviewEnabled()) return false;
     if (itemId == null) return false;
     const key = `item:${itemId}`;
     const intent = intents.get(key);

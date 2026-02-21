@@ -19,6 +19,7 @@ export function createChromeView({
   togglePause,
   isPausePending,
   getApPreview,
+  showApHud,
   getCommitPreviewState,
   onCommitPreview,
 
@@ -190,6 +191,8 @@ export function createChromeView({
     const s = getGameState();
     const preview =
       typeof getApPreview === "function" ? getApPreview() : null;
+    const showApHudEnabled =
+      typeof showApHud === "function" ? !!showApHud() : showApHud !== false;
 
     // Pause button label/state:
     // - paused => "Paused"
@@ -316,7 +319,10 @@ export function createChromeView({
     apHit.eventMode = typeof onApClick === "function" ? "static" : "none";
     apHit.cursor = typeof onApClick === "function" ? "pointer" : "default";
     const yearLabel = Number.isFinite(s.year) ? s.year : 1;
-    deckInfoText.text = `Moon: ${moonPhaseLabel}  AP Income: +${apIncomeLabel}/s  Year: ${yearLabel}  Season: ${seasonName}  Deck: ${
+    const apIncomeSegment = showApHudEnabled
+      ? `  AP Income: +${apIncomeLabel}/s`
+      : "";
+    deckInfoText.text = `Moon: ${moonPhaseLabel}${apIncomeSegment}  Year: ${yearLabel}  Season: ${seasonName}  Deck: ${
       deck?.deck.length ?? 0
     }  Phase: ${phaseLabel}  SeasonLength: ${s.seasonTimeRemaining.toFixed(
       1

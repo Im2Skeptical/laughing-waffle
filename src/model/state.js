@@ -24,6 +24,7 @@ import {
   ensureSkillRuntimeState,
   getGlobalSkillModifier,
 } from "./skills.js";
+import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event", "envStructure"];
@@ -354,6 +355,7 @@ export function createEmptyState(seed = 123456789) {
     actionPoints: 100,
     actionPointCap: 100,
     apCapOverride: null,
+    variantFlags: normalizeVariantFlags(null),
 
     resources: {
       gold: 0,
@@ -1048,6 +1050,7 @@ export function deserializeGameState(data) {
   } else if (state.apCapOverride.enabled === false) {
     state.apCapOverride = null;
   }
+  state.variantFlags = normalizeVariantFlags(state.variantFlags);
 
   // Season clock defaults
   if (state.seasonClockSec == null) state.seasonClockSec = 0;

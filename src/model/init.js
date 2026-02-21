@@ -6,6 +6,7 @@ import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 import { INITIAL_POPULATION_DEFAULT } from "../defs/gamesettings/gamerules-defs.js";
+import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 
 import {
@@ -124,6 +125,7 @@ export function createInitialState(scenario = "devGym01", seed = null) {
   }
 
   const state = createEmptyState(seed ?? setup.rngSeed ?? 123456789);
+  state.variantFlags = normalizeVariantFlags(setup?.variantFlags);
   state.skillProgressionDefs = getSetupSkillProgressionDefs(setup);
   const skillDefsInput = state.skillProgressionDefs
     ? { skillProgressionDefs: state.skillProgressionDefs }

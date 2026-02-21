@@ -2,18 +2,18 @@
 // Shared layout constants/helpers for the env + hub rows.
 
 export const BOARD_COLS = 12;
-export const BOARD_COL_WIDTH = 100;
+export const BOARD_COL_WIDTH = 80;
 export const BOARD_COL_GAP = 6;
 
 export const HUB_COLS = 10;
 export const HUB_COL_WIDTH = 112;
 export const HUB_COL_GAP = 8;
 
-export const TILE_WIDTH = 85;
+export const TILE_WIDTH = 80;
 export const TILE_HEIGHT = 128;
-export const EVENT_WIDTH = 100;
-export const EVENT_HEIGHT = 150;
-export const ENV_STRUCTURE_WIDTH = 92;
+export const EVENT_WIDTH = 80;
+export const EVENT_HEIGHT = 74;
+export const ENV_STRUCTURE_WIDTH = 80;
 export const ENV_STRUCTURE_HEIGHT = 74;
 export const HUB_STRUCTURE_WIDTH = 112;
 export const HUB_STRUCTURE_HEIGHT = 168;
@@ -24,7 +24,7 @@ export const GAMEPIECE_SHADOW_ALPHA = 0.25;
 export const GAMEPIECE_SHADOW_OFFSET_X = 6;
 export const GAMEPIECE_SHADOW_OFFSET_Y = 6;
 
-export const EVENT_ROW_Y = 150;
+export const EVENT_ROW_Y = 300;
 export const ENV_STRUCTURE_ROW_Y = EVENT_ROW_Y + EVENT_HEIGHT + 14;
 export const TILE_ROW_Y = ENV_STRUCTURE_ROW_Y + ENV_STRUCTURE_HEIGHT + 14;
 export const HUB_ROW_Y = TILE_ROW_Y + TILE_HEIGHT + 60;

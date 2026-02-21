@@ -6,7 +6,7 @@ import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 
 const DESIGN_WIDTH = 1920;
 const PANEL_WIDTH = 200;
-const PANEL_HEIGHT = 430;
+const PANEL_HEIGHT = 470;
 const TOP_VIEW_UPDATES_COUNT = 5;
 const PERF_REFRESH_MS = 250;
 const SLOT_META_REFRESH_MS = 1000;
@@ -17,6 +17,7 @@ export function createDebugOverlay({
   runner,
   onOpenSystemGraph,
   onToggleApGraph,
+  onClearTimeline,
   getPerfSnapshot,
   getProjectionParity,
 }) {
@@ -310,13 +311,38 @@ export function createDebugOverlay({
     onToggleApGraph?.();
   });
 
+  const clearTimelineBtn = new PIXI.Container();
+  clearTimelineBtn.x = 10;
+  clearTimelineBtn.y = apGraphBtn.y + 30;
+  clearTimelineBtn.eventMode = "static";
+  clearTimelineBtn.cursor = "pointer";
+  panel.addChild(clearTimelineBtn);
+
+  const clearTimelineBg = new PIXI.Graphics();
+  clearTimelineBg.beginFill(0x555555);
+  clearTimelineBg.drawRoundedRect(0, 0, 180, 24, 4);
+  clearTimelineBg.endFill();
+  clearTimelineBtn.addChild(clearTimelineBg);
+
+  const clearTimelineText = new PIXI.Text("Clear Timeline Future", {
+    fontSize: 11,
+    fill: 0xffffff,
+  });
+  clearTimelineText.x = 22;
+  clearTimelineText.y = 4;
+  clearTimelineBtn.addChild(clearTimelineText);
+
+  clearTimelineBtn.on("pointerdown", () => {
+    onClearTimeline?.();
+  });
+
   const perfHeader = new PIXI.Text("Top View Updates", {
     fontSize: 10,
     fill: 0xffffff,
     fontWeight: "bold",
   });
   perfHeader.x = 10;
-  perfHeader.y = apGraphBtn.y + 42;
+  perfHeader.y = clearTimelineBtn.y + 36;
   panel.addChild(perfHeader);
 
   const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {

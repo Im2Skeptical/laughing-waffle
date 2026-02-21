@@ -10,6 +10,7 @@ import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
+import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
@@ -60,6 +61,13 @@ import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrat
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
+const BOOT_VARIANT_FLAGS = normalizeVariantFlags(
+  setupDefs?.[BOOT_SETUP_ID]?.variantFlags
+);
+
+function isBootVariantFlagEnabled(flagId) {
+  return BOOT_VARIANT_FLAGS?.[flagId] !== false;
+}
 
 
 if (
@@ -96,6 +104,15 @@ const FULL_VIEW_REBUILD_REASONS = new Set([
   "saveLoad",
   "plannerClear",
 ]);
+const NOOP_ACTION_LOG_VIEW = {
+  init() {},
+  update() {},
+  flashInsufficientAp() {},
+  setApDragWarning() {},
+  setDragGhost() {},
+  resolveDragGhost() {},
+  flashGhost() {},
+};
 
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
@@ -898,6 +915,13 @@ inventoryView = createInventoryView({
           { apCost: 0 }
         );
       }
+      if (!isBootVariantFlagEnabled("inventoryTransferPlannerEnabled")) {
+        return runner.dispatchAction(
+          ActionKinds.INVENTORY_MOVE,
+          payload,
+          { apCost: 0 }
+        );
+      }
       return actionPlanner?.setItemTransferIntent?.(payload) || {
         ok: false,
         reason: "noPlanner",
@@ -1214,6 +1238,7 @@ const chromeView = createChromeView({
   getGameState: () => runner.getState(),
   getCurrentSeasonData,
   getApPreview: () => actionPlanner?.getApPreview?.() ?? null,
+  showApHud: () => isBootVariantFlagEnabled("showApHud"),
   togglePause,
   isPausePending: () => runner.isPausePending?.() ?? false,
   getCommitPreviewState: () => {
@@ -1248,6 +1273,7 @@ const debugView = createDebugOverlay({
   runner,
   onOpenSystemGraph: () => openSystemGraphForHover(),
   onToggleApGraph: () => toggleApGraph(),
+  onClearTimeline: () => clearActionLogAndReset(),
   getProjectionParity: createProjectionParityProbe({
     runner,
     controller: apGraphController,
@@ -1265,31 +1291,35 @@ const debugView = createDebugOverlay({
     }),
 });
 
-actionLogView = createActionLogView({
-  app,
-  layer: uiLayers.controlsLayer,
-  getPlanner: () => actionPlanner,
-  getTimeline: () => runner.getTimeline(),
-  getCursorState: () => runner.getCursorState(),
-  isPreviewing: () => runner.isPreviewing?.() ?? false,
-  onJumpToSecond: (tSec) => runner.browseCursorSecond?.(tSec),
-  onClearActions: () => clearActionLogAndReset(),
-  getOwnerLabel(ownerId) {
-    const state = runner.getState();
-    const hubSlot = state.hub.slots.find(
-      (s) => s.structure && s.structure.instanceId === ownerId
-    );
-    if (hubSlot) {
-      const structure = hubSlot.structure;
-      const def = hubStructureDefs[structure.defId];
-      return def?.name || def?.id || `Hub ${ownerId}`;
-    }
-    const pawn = state.pawns.find((candidatePawn) => candidatePawn.id === ownerId);
-    if (pawn) return pawn.name || `Pawn ${ownerId}`;
-    return `Owner ${ownerId}`;
-  },
-  getState: () => runner.getState(),
-});
+if (isBootVariantFlagEnabled("actionLogEnabled")) {
+  actionLogView = createActionLogView({
+    app,
+    layer: uiLayers.controlsLayer,
+    getPlanner: () => actionPlanner,
+    getTimeline: () => runner.getTimeline(),
+    getCursorState: () => runner.getCursorState(),
+    isPreviewing: () => runner.isPreviewing?.() ?? false,
+    onJumpToSecond: (tSec) => runner.browseCursorSecond?.(tSec),
+    onClearActions: () => clearActionLogAndReset(),
+    getOwnerLabel(ownerId) {
+      const state = runner.getState();
+      const hubSlot = state.hub.slots.find(
+        (s) => s.structure && s.structure.instanceId === ownerId
+      );
+      if (hubSlot) {
+        const structure = hubSlot.structure;
+        const def = hubStructureDefs[structure.defId];
+        return def?.name || def?.id || `Hub ${ownerId}`;
+      }
+      const pawn = state.pawns.find((candidatePawn) => candidatePawn.id === ownerId);
+      if (pawn) return pawn.name || `Pawn ${ownerId}`;
+      return `Owner ${ownerId}`;
+    },
+    getState: () => runner.getState(),
+  });
+} else {
+  actionLogView = NOOP_ACTION_LOG_VIEW;
+}
 
 eventLogView = createEventLogView({
   layer: uiLayers.controlsLayer,
@@ -1368,11 +1398,6 @@ function handleGlobalKeyDown(ev) {
   if (code === "Space" || key === " ") {
     ev.preventDefault();
     togglePause();
-    return;
-  }
-  if (code === "KeyZ" || key.toLowerCase() === "z") {
-    ev.preventDefault();
-    clearActionLogAndReset();
   }
 }
 

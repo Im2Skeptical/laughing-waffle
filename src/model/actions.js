@@ -106,6 +106,10 @@ function getActionApCost(action) {
   return 0;
 }
 
+function isActionPointCostEnabled(state) {
+  return state?.variantFlags?.actionPointCostsEnabled !== false;
+}
+
 // UPDATE: Added context parameter to support Replay mode
 export function applyAction(state, action, context = {}) {
   if (!action || typeof action !== "object") {
@@ -142,10 +146,10 @@ export function applyAction(state, action, context = {}) {
   // ---------------------------------------------------------------------------
   // 2. Cost Calculation & Validation
   // ---------------------------------------------------------------------------
-  const cost = getActionApCost(action);
+  const cost = isActionPointCostEnabled(state) ? getActionApCost(action) : 0;
 
   // NOTE: We still enforce AP costs during replay to ensure determinism.
-  if (state.actionPoints < cost) {
+  if (cost > 0 && state.actionPoints < cost) {
     return {
       ok: false,
       reason: "insufficientAP",
