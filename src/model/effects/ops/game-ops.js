@@ -338,14 +338,59 @@ export function handleSpawnFromDropTable(state, effect, context) {
 
 
   let totalAdded = 0;
+  let blockedReason = null;
   for (const target of targets) {
     const ownerId = typeof target === "object" ? target.id : target;
     if (ownerId == null) continue;
-    const added = addTieredUnits(state, ownerId, kind, tier, quantity);
+    const placement = { reason: null };
+    const added = addTieredUnits(
+      state,
+      ownerId,
+      kind,
+      tier,
+      quantity,
+      placement
+    );
     if (added > 0) totalAdded += added;
+    if (
+      added <= 0 &&
+      typeof placement.reason === "string" &&
+      placement.reason.length > 0
+    ) {
+      if (blockedReason !== "tooLarge") {
+        blockedReason = placement.reason;
+      }
+    }
   }
 
   const changed = totalAdded > 0;
+
+  if (eventMeta && !changed && blockedReason) {
+    const rarity = resolveDropRarity(entry, kind, tier);
+    const itemName = getDropItemDisplayName(kind);
+    const blockedText =
+      blockedReason === "tooLarge"
+        ? `${itemName} is too large for inventory`
+        : `${itemName} has no inventory space`;
+    pushGameEvent(state, {
+      type: eventMeta.type,
+      tSec: context?.tSec,
+      text: `${eventMeta.label}: ${blockedText}`,
+      data: {
+        focusKind: "tile",
+        envCol,
+        tableKey,
+        outcome: "blocked",
+        blockReason: blockedReason,
+        rarity,
+        itemKind: kind,
+        quantity: 0,
+        tier,
+        showInEventLog: true,
+      },
+    });
+    return true;
+  }
 
   if (eventMeta && changed) {
     const rarity = resolveDropRarity(entry, kind, tier);
@@ -430,12 +475,20 @@ function consumeFromInventory(state, ownerId, kind, amount, tierOrder) {
   return consumed;
 }
 
-function addTieredUnits(state, ownerId, kind, tier, amount) {
+function addTieredUnits(state, ownerId, kind, tier, amount, placement = null) {
+  const placementOut =
+    placement && typeof placement === "object" ? placement : null;
+  if (placementOut) placementOut.reason = null;
   if (!Number.isFinite(amount) || amount <= 0) return 0;
   const inv = state?.ownerInventories?.[ownerId];
   if (!inv || !Array.isArray(inv.items)) return 0;
 
   const def = itemDefs[kind] || null;
+  const itemWidth = Math.max(1, Math.floor(def?.defaultWidth ?? 1));
+  const itemHeight = Math.max(1, Math.floor(def?.defaultHeight ?? 1));
+  const itemTooLargeForInventory =
+    itemWidth > Math.max(0, Math.floor(inv.cols ?? 0)) ||
+    itemHeight > Math.max(0, Math.floor(inv.rows ?? 0));
   const maxStack = getItemMaxStack({ kind, tier });
   const dummy = {
     kind,
@@ -450,6 +503,7 @@ function addTieredUnits(state, ownerId, kind, tier, amount) {
 
   let remaining = Math.floor(amount);
   let added = 0;
+  let blockedAddingNewStack = false;
 
   for (const stack of inv.items) {
     if (!canStackItems(stack, dummy)) continue;
@@ -469,13 +523,20 @@ function addTieredUnits(state, ownerId, kind, tier, amount) {
     const newItem = Inventory.addNewItem(state, inv, {
       kind,
       quantity: qty,
-      width: def?.defaultWidth ?? 1,
-      height: def?.defaultHeight ?? 1,
+      width: itemWidth,
+      height: itemHeight,
       tier,
     });
-    if (!newItem) break;
+    if (!newItem) {
+      blockedAddingNewStack = true;
+      break;
+    }
     remaining -= qty;
     added += qty;
+  }
+
+  if (placementOut && added <= 0 && blockedAddingNewStack) {
+    placementOut.reason = itemTooLargeForInventory ? "tooLarge" : "noSpace";
   }
 
   if (added > 0) bumpInvVersion(inv);

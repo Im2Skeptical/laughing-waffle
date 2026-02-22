@@ -13,8 +13,8 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
   enabled: true,
 
   moon: {
-    x: 1300,
-    y: 200,
+    x: 1700,
+    y: 400,
     scale: 0.5,
     alpha: 1.0,
     rotationOffsetRad: 0,
@@ -24,8 +24,8 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
   },
 
   season: {
-    x: 1300,
-    y: 200,
+    x: 1700,
+    y: 400,
     scale: 0.75,
     alpha: 1.0,
     rotationOffsetRad: 3,

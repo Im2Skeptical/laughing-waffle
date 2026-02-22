@@ -30,7 +30,7 @@ export const fishingDropTables = {
         drops: [
         { kind: "smallFish", rarity: "bronze", qtyMin: 1, qtyMax: 1 },
         { kind: "mediumFish", rarity: "silver", qtyMin: 1, qtyMax: 1 },
-        { kind: "largeFish", rarity: "gold", qtyMin: 1, qtyMax: 1 },
+        { kind: "largeFish", rarity: "bronze", qtyMin: 1, qtyMax: 1 },
         { kind: "rareFish", rarity: "diamond", qtyMin: 1, qtyMax: 1 },
         ],
       },

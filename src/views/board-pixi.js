@@ -357,7 +357,7 @@ export function createBoardView(opts) {
 
   function getRollFeedbackSpec(entry) {
     const data = entry?.data && typeof entry.data === "object" ? entry.data : null;
-    const outcome = data?.outcome === "miss" ? "miss" : "hit";
+    const outcome = typeof data?.outcome === "string" ? data.outcome : "hit";
     if (outcome === "miss") {
       return {
         headline: "MISS",
@@ -383,6 +383,40 @@ export function createBoardView(opts) {
         ? itemDefs[itemKind].name
         : formatKindLabel(itemKind || "");
     const detail = qty > 0 ? `+${qty} ${itemName}` : itemName;
+
+    if (outcome === "blocked") {
+      if (data?.blockReason === "tooLarge") {
+        return {
+          headline: "TOO LARGE",
+          detail: `${itemName} won't fit`,
+          fill: 0x6a2f2f,
+          stroke: 0xffb2b2,
+          headlineColor: 0xffeaea,
+          detailColor: 0xffcccc,
+          durationSec: FEEDBACK_HIT_DURATION_SEC,
+        };
+      }
+      if (data?.blockReason === "noSpace") {
+        return {
+          headline: "NO SPACE",
+          detail: `${itemName} has no room`,
+          fill: 0x5e3f1c,
+          stroke: 0xf5c27a,
+          headlineColor: 0xffeed4,
+          detailColor: 0xffdeb3,
+          durationSec: FEEDBACK_HIT_DURATION_SEC,
+        };
+      }
+      return {
+        headline: "BLOCKED",
+        detail: itemName,
+        fill: 0x5e3f1c,
+        stroke: 0xf5c27a,
+        headlineColor: 0xffeed4,
+        detailColor: 0xffdeb3,
+        durationSec: FEEDBACK_HIT_DURATION_SEC,
+      };
+    }
 
     if (rarity === "diamond") {
       return {
