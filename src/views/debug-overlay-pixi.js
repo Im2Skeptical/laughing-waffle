@@ -3,18 +3,33 @@
 
 import { ActionKinds } from "../model/actions.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
+import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 
 const DESIGN_WIDTH = 1920;
-const PANEL_WIDTH = 200;
-const PANEL_HEIGHT = 470;
+const PANEL_WIDTH = 280;
+const PANEL_MIN_HEIGHT = 540;
 const TOP_VIEW_UPDATES_COUNT = 5;
 const PERF_REFRESH_MS = 250;
 const SLOT_META_REFRESH_MS = 1000;
 const PARITY_REFRESH_MS = 500;
 
+function clampInt(value, fallback = 0) {
+  const n = Math.floor(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function setButtonEnabled(button, enabled) {
+  if (!button) return;
+  button.container.alpha = enabled ? 1 : 0.45;
+  button.container.eventMode = enabled ? "static" : "none";
+  button.container.cursor = enabled ? "pointer" : "default";
+  button.bg.tint = 0xffffff;
+}
+
 export function createDebugOverlay({
   layer,
   runner,
+  onLoadScenario,
   onOpenSystemGraph,
   onToggleApGraph,
   onClearTimeline,
@@ -22,338 +37,366 @@ export function createDebugOverlay({
   getProjectionParity,
 }) {
   const root = new PIXI.Container();
-  root.x = DESIGN_WIDTH - 220;
+  root.x = DESIGN_WIDTH - PANEL_WIDTH - 24;
   root.y = 10;
   layer.addChild(root);
 
   const apText = new PIXI.Text("AP: -- / --", {
     fontFamily: "Arial",
-    fontSize: 18,
+    fontSize: 14,
     fill: 0xffd700,
     fontWeight: "bold",
   });
-  apText.x = 10;
-  apText.y = 10;
+  apText.x = 4;
+  apText.y = 8;
   root.addChild(apText);
 
   const dbgBtn = new PIXI.Graphics();
   dbgBtn.beginFill(0x444444);
-  dbgBtn.drawRoundedRect(160, 5, 30, 30, 4);
+  dbgBtn.drawRoundedRect(PANEL_WIDTH - 34, 4, 30, 30, 4);
   dbgBtn.endFill();
   dbgBtn.eventMode = "static";
   dbgBtn.cursor = "pointer";
   root.addChild(dbgBtn);
 
   const dbgIcon = new PIXI.Text("D", { fontSize: 20, fill: 0xffffff });
-  dbgIcon.x = 166;
-  dbgIcon.y = 8;
-  dbgBtn.addChild(dbgIcon);
+  dbgIcon.x = PANEL_WIDTH - 28;
+  dbgIcon.y = 7;
+  root.addChild(dbgIcon);
 
   const panel = new PIXI.Container();
-  panel.y = 50;
+  panel.y = 42;
   panel.visible = false;
   root.addChild(panel);
 
   const panelBg = new PIXI.Graphics();
-  panelBg.beginFill(0x222222, 0.9);
-  panelBg.drawRoundedRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 8);
-  panelBg.endFill();
   panel.addChild(panelBg);
 
-  const cheatBtn = new PIXI.Container();
-  cheatBtn.x = 10;
-  cheatBtn.y = 10;
-  panel.addChild(cheatBtn);
+  function drawPanelBg(height) {
+    panelBg.clear();
+    panelBg.beginFill(0x1e1f23, 0.93);
+    panelBg.lineStyle(1, 0x4b4e57, 0.9);
+    panelBg.drawRoundedRect(0, 0, PANEL_WIDTH, Math.max(PANEL_MIN_HEIGHT, height), 10);
+    panelBg.endFill();
+  }
 
-  const cheatBg = new PIXI.Graphics();
-  cheatBg.beginFill(0x555555);
-  cheatBg.drawRect(0, 0, 180, 30);
-  cheatBg.endFill();
-  cheatBtn.addChild(cheatBg);
+  const CONTENT_X = 12;
+  const CONTENT_W = PANEL_WIDTH - CONTENT_X * 2;
+  const BUTTON_H = 24;
+  const SECTION_GAP = 10;
+  let cursorY = 10;
 
-  const cheatText = new PIXI.Text("Toggle Cheat AP", {
-    fontSize: 14,
-    fill: 0xffffff,
-  });
-  cheatText.x = 10;
-  cheatText.y = 6;
-  cheatBtn.addChild(cheatText);
+  function addSectionTitle(text) {
+    const header = new PIXI.Text(text, {
+      fontSize: 11,
+      fill: 0xe4e9f5,
+      fontWeight: "bold",
+    });
+    header.x = CONTENT_X;
+    header.y = cursorY;
+    panel.addChild(header);
+    cursorY += header.height + 6;
+    return header;
+  }
+
+  function createButton({
+    x,
+    y,
+    width,
+    height = BUTTON_H,
+    label,
+    fontSize = 11,
+    align = "center",
+  }) {
+    const container = new PIXI.Container();
+    container.x = x;
+    container.y = y;
+    container.eventMode = "static";
+    container.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x575a63);
+    bg.drawRoundedRect(0, 0, width, height, 4);
+    bg.endFill();
+    container.addChild(bg);
+
+    const text = new PIXI.Text(label, {
+      fontSize,
+      fill: 0xffffff,
+      fontWeight: "bold",
+    });
+    if (align === "left") {
+      text.x = 8;
+    } else {
+      text.x = Math.round((width - text.width) * 0.5);
+    }
+    text.y = Math.round((height - text.height) * 0.5);
+    container.addChild(text);
+
+    panel.addChild(container);
+    return { container, bg, text, width, height };
+  }
 
   let cheatsEnabled = false;
-  const slotRows = [];
-  const slotCount = runner.getSaveSlotCount?.() ?? 3;
-  const slotStartY = 50;
-  const slotRowGap = 40;
   let lastPerfReadMs = 0;
   let lastSlotMetaReadMs = 0;
+  let lastParityReadMs = 0;
   const cachedSlotMetaByIndex = new Map();
 
-  function buildSlotRow(slotIndex) {
+  const cheatBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    height: 28,
+    label: "Toggle Cheat AP",
+    fontSize: 12,
+  });
+  cursorY += 36;
+
+  cheatBtn.container.on("pointerdown", () => {
+    cheatsEnabled = !cheatsEnabled;
+    const payload = cheatsEnabled
+      ? { enabled: true, cap: 9999, points: 9999 }
+      : { enabled: false };
+    runner.dispatchAction(ActionKinds.DEBUG_SET_CAP, payload);
+    cheatBtn.bg.tint = cheatsEnabled ? 0x2f9b4c : 0xffffff;
+  });
+
+  addSectionTitle("Scenario");
+  const scenarioIds = Object.keys(setupDefs || {}).sort();
+  let scenarioIndex = Math.max(
+    0,
+    scenarioIds.indexOf(runner.getSetupId?.() ?? scenarioIds[0] ?? "")
+  );
+
+  const scenarioName = new PIXI.Text("No scenarios", {
+    fontSize: 10,
+    fill: 0xc7d2ee,
+    wordWrap: true,
+    wordWrapWidth: CONTENT_W,
+  });
+  scenarioName.x = CONTENT_X;
+  scenarioName.y = cursorY;
+  panel.addChild(scenarioName);
+  cursorY += 26;
+
+  const scenarioPrevBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: 26,
+    label: "<",
+    fontSize: 13,
+  });
+  const scenarioNextBtn = createButton({
+    x: CONTENT_X + 32,
+    y: cursorY,
+    width: 26,
+    label: ">",
+    fontSize: 13,
+  });
+  const loadScenarioBtn = createButton({
+    x: CONTENT_X + 64,
+    y: cursorY,
+    width: CONTENT_W - 64,
+    label: "Load Selected Scenario",
+    fontSize: 10,
+  });
+  cursorY += 30;
+
+  const scenarioStatus = new PIXI.Text("", {
+    fontSize: 9,
+    fill: 0xb8c2dd,
+    wordWrap: true,
+    wordWrapWidth: CONTENT_W,
+  });
+  scenarioStatus.x = CONTENT_X;
+  scenarioStatus.y = cursorY;
+  panel.addChild(scenarioStatus);
+  cursorY += 18 + SECTION_GAP;
+
+  function setScenarioIndex(nextIndex) {
+    if (!scenarioIds.length) {
+      scenarioIndex = 0;
+      return;
+    }
+    scenarioIndex = Math.max(0, Math.min(scenarioIds.length - 1, nextIndex));
+  }
+
+  scenarioPrevBtn.container.on("pointerdown", () => {
+    setScenarioIndex(scenarioIndex - 1);
+  });
+  scenarioNextBtn.container.on("pointerdown", () => {
+    setScenarioIndex(scenarioIndex + 1);
+  });
+  loadScenarioBtn.container.on("pointerdown", () => {
+    const selectedSetupId = scenarioIds[scenarioIndex] ?? null;
+    if (!selectedSetupId) return;
+    const res =
+      typeof onLoadScenario === "function"
+        ? onLoadScenario(selectedSetupId)
+        : runner.resetToSetup?.(selectedSetupId);
+    if (res?.ok) {
+      scenarioStatus.text = `Loaded: ${selectedSetupId}`;
+      scenarioStatus.style.fill = 0x7ddc93;
+      setScenarioIndex(scenarioIds.indexOf(selectedSetupId));
+      lastSlotMetaReadMs = 0;
+      cachedSlotMetaByIndex.clear();
+    } else {
+      const reason = typeof res?.reason === "string" ? res.reason : "failed";
+      scenarioStatus.text = `Load failed: ${reason}`;
+      scenarioStatus.style.fill = 0xff7c7c;
+    }
+  });
+
+  addSectionTitle("Saves");
+  const slotRows = [];
+  const slotCount = runner.getSaveSlotCount?.() ?? 3;
+
+  function buildSlotRow(slotIndex, y) {
     const row = new PIXI.Container();
-    row.x = 10;
-    row.y = slotStartY + (slotIndex - 1) * slotRowGap;
+    row.x = CONTENT_X;
+    row.y = y;
     panel.addChild(row);
 
     const label = new PIXI.Text(`Slot ${slotIndex}: empty`, {
-      fontSize: 11,
+      fontSize: 10,
       fill: 0xffffff,
     });
     label.x = 0;
     label.y = 4;
     row.addChild(label);
 
-    const saveBtn = new PIXI.Container();
-    saveBtn.x = 0;
-    saveBtn.y = 18;
-    saveBtn.eventMode = "static";
-    saveBtn.cursor = "pointer";
-    row.addChild(saveBtn);
-
-    const saveBg = new PIXI.Graphics();
-    saveBg.beginFill(0x555555);
-    saveBg.drawRoundedRect(0, 0, 52, 20, 4);
-    saveBg.endFill();
-    saveBtn.addChild(saveBg);
-
-    const saveText = new PIXI.Text("Save", {
+    const saveBtn = createButton({
+      x: CONTENT_X + CONTENT_W - 110,
+      y,
+      width: 52,
+      height: 22,
+      label: "Save",
       fontSize: 10,
-      fill: 0xffffff,
     });
-    saveText.x = 12;
-    saveText.y = 3;
-    saveBtn.addChild(saveText);
-
-    const loadBtn = new PIXI.Container();
-    loadBtn.x = 68;
-    loadBtn.y = 18;
-    loadBtn.eventMode = "static";
-    loadBtn.cursor = "pointer";
-    row.addChild(loadBtn);
-
-    const loadBg = new PIXI.Graphics();
-    loadBg.beginFill(0x555555);
-    loadBg.drawRoundedRect(0, 0, 52, 20, 4);
-    loadBg.endFill();
-    loadBtn.addChild(loadBg);
-
-    const loadText = new PIXI.Text("Load", {
+    const loadBtn = createButton({
+      x: CONTENT_X + CONTENT_W - 54,
+      y,
+      width: 52,
+      height: 22,
+      label: "Load",
       fontSize: 10,
-      fill: 0xffffff,
     });
-    loadText.x = 11;
-    loadText.y = 3;
-    loadBtn.addChild(loadText);
 
-    saveBtn.on("pointerdown", () => {
+    saveBtn.container.on("pointerdown", () => {
       runner.saveToSlot?.(slotIndex);
+      cachedSlotMetaByIndex.set(
+        slotIndex,
+        runner.getSaveSlotMeta?.(slotIndex) ?? null
+      );
     });
-
-    loadBtn.on("pointerdown", () => {
+    loadBtn.container.on("pointerdown", () => {
       runner.loadFromSlot?.(slotIndex);
+      setScenarioIndex(
+        Math.max(0, scenarioIds.indexOf(runner.getSetupId?.() ?? scenarioIds[0] ?? ""))
+      );
     });
 
-    return { label, saveBtn, loadBtn, loadBg, slotIndex };
+    return { label, saveBtn, loadBtn, slotIndex };
   }
 
   for (let i = 1; i <= slotCount; i++) {
-    slotRows.push(buildSlotRow(i));
+    const rowY = cursorY + (i - 1) * 26;
+    slotRows.push(buildSlotRow(i, rowY));
   }
+  cursorY += slotCount * 26 + SECTION_GAP;
 
-  const eventIds = Object.keys(envEventDefs || {});
-  eventIds.sort();
+  addSectionTitle("Queue Env Event");
+  const eventIds = Object.keys(envEventDefs || {}).sort();
   let eventIndex = 0;
-
-  const eventHeader = new PIXI.Text("Next Event", {
-    fontSize: 11,
-    fill: 0xffffff,
-  });
-  eventHeader.x = 10;
-  eventHeader.y = slotStartY + slotCount * slotRowGap + 6;
-  panel.addChild(eventHeader);
 
   const eventName = new PIXI.Text("", {
     fontSize: 10,
     fill: 0xc7d2ee,
     wordWrap: true,
-    wordWrapWidth: 180,
+    wordWrapWidth: CONTENT_W,
   });
-  eventName.x = 10;
-  eventName.y = eventHeader.y + 16;
+  eventName.x = CONTENT_X;
+  eventName.y = cursorY;
   panel.addChild(eventName);
+  cursorY += 24;
 
-  const prevEvent = new PIXI.Text("<", { fontSize: 14, fill: 0xffffff });
-  prevEvent.x = 10;
-  prevEvent.y = eventName.y + 22;
-  prevEvent.eventMode = "static";
-  prevEvent.cursor = "pointer";
-  panel.addChild(prevEvent);
-
-  const nextEvent = new PIXI.Text(">", { fontSize: 14, fill: 0xffffff });
-  nextEvent.x = 30;
-  nextEvent.y = eventName.y + 22;
-  nextEvent.eventMode = "static";
-  nextEvent.cursor = "pointer";
-  panel.addChild(nextEvent);
-
-  const spawnBtn = new PIXI.Container();
-  spawnBtn.x = 60;
-  spawnBtn.y = eventName.y + 18;
-  spawnBtn.eventMode = "static";
-  spawnBtn.cursor = "pointer";
-  panel.addChild(spawnBtn);
-
-  const spawnBg = new PIXI.Graphics();
-  spawnBg.beginFill(0x555555);
-  spawnBg.drawRoundedRect(0, 0, 120, 22, 4);
-  spawnBg.endFill();
-  spawnBtn.addChild(spawnBg);
-
-  const spawnText = new PIXI.Text("Queue Event", {
+  const prevEventBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: 26,
+    label: "<",
+    fontSize: 13,
+  });
+  const nextEventBtn = createButton({
+    x: CONTENT_X + 32,
+    y: cursorY,
+    width: 26,
+    label: ">",
+    fontSize: 13,
+  });
+  const queueEventBtn = createButton({
+    x: CONTENT_X + 64,
+    y: cursorY,
+    width: CONTENT_W - 64,
+    label: "Queue Event",
     fontSize: 10,
-    fill: 0xffffff,
   });
-  spawnText.x = 18;
-  spawnText.y = 4;
-  spawnBtn.addChild(spawnText);
-
-  dbgBtn.on("pointerdown", () => {
-    panel.visible = !panel.visible;
-  });
-/*
-  dbgIcon.on("pointerdown", () => {
-    panel.visible = !panel.visible;
-  });
-*/
-  cheatBtn.eventMode = "static";
-  cheatBtn.cursor = "pointer";
-  cheatBtn.on("pointerdown", () => {
-    cheatsEnabled = !cheatsEnabled;
-    const payload = cheatsEnabled
-      ? { enabled: true, cap: 9999, points: 9999 }
-      : { enabled: false };
-    runner.dispatchAction(ActionKinds.DEBUG_SET_CAP, payload);
-    cheatBg.clear();
-    cheatBg.beginFill(cheatsEnabled ? 0x00aa00 : 0x555555);
-    cheatBg.drawRect(0, 0, 180, 30);
-    cheatBg.endFill();
-  });
+  cursorY += 30 + SECTION_GAP;
 
   function setEventIndex(nextIndex) {
     if (!eventIds.length) {
       eventIndex = 0;
       return;
     }
-    const max = eventIds.length - 1;
-    eventIndex = Math.max(0, Math.min(max, nextIndex));
+    eventIndex = Math.max(0, Math.min(eventIds.length - 1, nextIndex));
   }
-
-  prevEvent.on("pointerdown", () => {
-    setEventIndex(eventIndex - 1);
-  });
-
-  nextEvent.on("pointerdown", () => {
-    setEventIndex(eventIndex + 1);
-  });
-
-  spawnBtn.on("pointerdown", () => {
+  prevEventBtn.container.on("pointerdown", () => setEventIndex(eventIndex - 1));
+  nextEventBtn.container.on("pointerdown", () => setEventIndex(eventIndex + 1));
+  queueEventBtn.container.on("pointerdown", () => {
     const defId = eventIds[eventIndex] ?? null;
     if (!defId) return;
     runner.dispatchAction?.(ActionKinds.DEBUG_QUEUE_ENV_EVENT, { defId });
   });
 
-  const graphBtn = new PIXI.Container();
-  graphBtn.x = 10;
-  graphBtn.y = spawnBtn.y + 32;
-  graphBtn.eventMode = "static";
-  graphBtn.cursor = "pointer";
-  panel.addChild(graphBtn);
-
-  const graphBg = new PIXI.Graphics();
-  graphBg.beginFill(0x555555);
-  graphBg.drawRoundedRect(0, 0, 180, 24, 4);
-  graphBg.endFill();
-  graphBtn.addChild(graphBg);
-
-  const graphText = new PIXI.Text("Toggle System Graph", {
-    fontSize: 11,
-    fill: 0xffffff,
+  addSectionTitle("Tools");
+  const graphBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    label: "Toggle System Graph",
   });
-  graphText.x = 24;
-  graphText.y = 4;
-  graphBtn.addChild(graphText);
-
-  graphBtn.on("pointerdown", () => {
-    onOpenSystemGraph?.();
+  cursorY += 28;
+  const apGraphBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    label: "Toggle AP Graph",
   });
-
-  const apGraphBtn = new PIXI.Container();
-  apGraphBtn.x = 10;
-  apGraphBtn.y = graphBtn.y + 30;
-  apGraphBtn.eventMode = "static";
-  apGraphBtn.cursor = "pointer";
-  panel.addChild(apGraphBtn);
-
-  const apGraphBg = new PIXI.Graphics();
-  apGraphBg.beginFill(0x555555);
-  apGraphBg.drawRoundedRect(0, 0, 180, 24, 4);
-  apGraphBg.endFill();
-  apGraphBtn.addChild(apGraphBg);
-
-  const apGraphText = new PIXI.Text("Toggle AP Graph", {
-    fontSize: 11,
-    fill: 0xffffff,
+  cursorY += 28;
+  const clearTimelineBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    label: "Clear Timeline Future",
   });
-  apGraphText.x = 38;
-  apGraphText.y = 4;
-  apGraphBtn.addChild(apGraphText);
+  cursorY += 32;
 
-  apGraphBtn.on("pointerdown", () => {
-    onToggleApGraph?.();
-  });
+  graphBtn.container.on("pointerdown", () => onOpenSystemGraph?.());
+  apGraphBtn.container.on("pointerdown", () => onToggleApGraph?.());
+  clearTimelineBtn.container.on("pointerdown", () => onClearTimeline?.());
 
-  const clearTimelineBtn = new PIXI.Container();
-  clearTimelineBtn.x = 10;
-  clearTimelineBtn.y = apGraphBtn.y + 30;
-  clearTimelineBtn.eventMode = "static";
-  clearTimelineBtn.cursor = "pointer";
-  panel.addChild(clearTimelineBtn);
-
-  const clearTimelineBg = new PIXI.Graphics();
-  clearTimelineBg.beginFill(0x555555);
-  clearTimelineBg.drawRoundedRect(0, 0, 180, 24, 4);
-  clearTimelineBg.endFill();
-  clearTimelineBtn.addChild(clearTimelineBg);
-
-  const clearTimelineText = new PIXI.Text("Clear Timeline Future", {
-    fontSize: 11,
-    fill: 0xffffff,
-  });
-  clearTimelineText.x = 22;
-  clearTimelineText.y = 4;
-  clearTimelineBtn.addChild(clearTimelineText);
-
-  clearTimelineBtn.on("pointerdown", () => {
-    onClearTimeline?.();
-  });
-
-  const perfHeader = new PIXI.Text("Top View Updates", {
-    fontSize: 10,
-    fill: 0xffffff,
-    fontWeight: "bold",
-  });
-  perfHeader.x = 10;
-  perfHeader.y = clearTimelineBtn.y + 36;
-  panel.addChild(perfHeader);
-
+  addSectionTitle("Performance");
   const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {
     fontSize: 9,
     fill: 0xb8c2dd,
     wordWrap: true,
-    wordWrapWidth: PANEL_WIDTH - 20,
+    wordWrapWidth: CONTENT_W,
   });
-  perfMeta.x = 10;
-  perfMeta.y = apGraphBtn.y + 28;
+  perfMeta.x = CONTENT_X;
+  perfMeta.y = cursorY;
   panel.addChild(perfMeta);
+  cursorY += 20;
 
   const perfRows = [];
   for (let i = 0; i < TOP_VIEW_UPDATES_COUNT; i++) {
@@ -361,34 +404,57 @@ export function createDebugOverlay({
       fontSize: 9,
       fill: 0xc7d2ee,
       wordWrap: true,
-      wordWrapWidth: PANEL_WIDTH - 20,
+      wordWrapWidth: CONTENT_W,
     });
-    row.x = 10;
-    row.y = perfHeader.y + 14 + i * 14;
+    row.x = CONTENT_X;
+    row.y = cursorY + i * 14;
     panel.addChild(row);
     perfRows.push(row);
   }
-  let lastParityReadMs = 0;
+  cursorY += TOP_VIEW_UPDATES_COUNT * 14 + 4;
 
   const parityRow = new PIXI.Text("projection parity: --", {
     fontSize: 9,
     fill: 0xb8c2dd,
     wordWrap: true,
-    wordWrapWidth: PANEL_WIDTH - 20,
+    wordWrapWidth: CONTENT_W,
   });
-  parityRow.x = 10;
-  parityRow.y = perfHeader.y + 14 + TOP_VIEW_UPDATES_COUNT * 14 + 4;
+  parityRow.x = CONTENT_X;
+  parityRow.y = cursorY;
   panel.addChild(parityRow);
+  cursorY += 14;
 
   const commitErrorRow = new PIXI.Text("planner commit: ok", {
     fontSize: 9,
     fill: 0xb8c2dd,
     wordWrap: true,
-    wordWrapWidth: PANEL_WIDTH - 20,
+    wordWrapWidth: CONTENT_W,
   });
-  commitErrorRow.x = 10;
-  commitErrorRow.y = parityRow.y + 14;
+  commitErrorRow.x = CONTENT_X;
+  commitErrorRow.y = cursorY;
   panel.addChild(commitErrorRow);
+  cursorY += 18;
+
+  function refreshScenarioUi() {
+    if (!scenarioIds.length) {
+      scenarioName.text = "No setupDefs found";
+      scenarioStatus.text = "";
+      setButtonEnabled(scenarioPrevBtn, false);
+      setButtonEnabled(scenarioNextBtn, false);
+      setButtonEnabled(loadScenarioBtn, false);
+      return;
+    }
+    const selectedSetupId = scenarioIds[scenarioIndex] ?? scenarioIds[0];
+    const activeSetupId = runner.getSetupId?.() ?? null;
+    const isActive = activeSetupId === selectedSetupId;
+    scenarioName.text = isActive
+      ? `${selectedSetupId} (active)`
+      : selectedSetupId;
+    scenarioName.style.fill = isActive ? 0x7ddc93 : 0xc7d2ee;
+    setButtonEnabled(scenarioPrevBtn, scenarioIndex > 0);
+    setButtonEnabled(scenarioNextBtn, scenarioIndex < scenarioIds.length - 1);
+    setButtonEnabled(loadScenarioBtn, !isActive);
+  }
 
   function updatePerfRows() {
     const now = performance.now();
@@ -507,20 +573,33 @@ export function createDebugOverlay({
     commitErrorRow.style.fill = 0xff7777;
   }
 
+  dbgBtn.on("pointerdown", () => {
+    panel.visible = !panel.visible;
+  });
+
+  drawPanelBg(cursorY + 8);
+
   return {
     update: () => {
       const state = runner.getState();
       if (state) {
+        const apCostsEnabled =
+          state?.variantFlags?.actionPointCostsEnabled !== false;
+        apText.visible = apCostsEnabled;
         const preview = runner.getActionPlanner?.()?.getApPreview?.() ?? null;
         const cur =
           preview && Number.isFinite(preview.remaining)
             ? Math.floor(preview.remaining)
-            : state.actionPoints ?? 0;
-        const cap = state.actionPointCap ?? 100;
-        apText.text = ``;
-        apText.style.fill = cur < 20 ? 0xff5555 : 0xffd700;
+            : clampInt(state.actionPoints, 0);
+        const cap = clampInt(state.actionPointCap, 0);
+        if (apCostsEnabled) {
+          apText.text = `AP: ${cur}/${cap}`;
+          apText.style.fill = cur < 20 ? 0xff5555 : 0xffd700;
+        }
       }
       if (!panel.visible) return;
+
+      refreshScenarioUi();
 
       const now = performance.now();
       if (now - lastSlotMetaReadMs >= SLOT_META_REFRESH_MS) {
@@ -538,37 +617,32 @@ export function createDebugOverlay({
         if (meta) {
           const tSec = Number.isFinite(meta.tSec) ? meta.tSec : 0;
           const season = meta.seasonKey || "?";
-          row.label.text = `Slot ${row.slotIndex}: T${tSec} ${season}`;
-          row.loadBtn.alpha = 1;
-          row.loadBtn.eventMode = "static";
-          row.loadBtn.cursor = "pointer";
-          row.loadBg.tint = 0xffffff;
+          const year = Number.isFinite(meta.year) ? Math.floor(meta.year) : 1;
+          row.label.text = `Slot ${row.slotIndex}: Y${year} T${tSec} ${season}`;
+          setButtonEnabled(row.loadBtn, true);
         } else {
           row.label.text = `Slot ${row.slotIndex}: empty`;
-          row.loadBtn.alpha = 0.4;
-          row.loadBtn.eventMode = "none";
-          row.loadBtn.cursor = "default";
-          row.loadBg.tint = 0xffffff;
+          setButtonEnabled(row.loadBtn, false);
         }
       }
 
       if (!eventIds.length) {
         eventName.text = "No events";
-        spawnBtn.alpha = 0.4;
-        spawnBtn.eventMode = "none";
+        setButtonEnabled(prevEventBtn, false);
+        setButtonEnabled(nextEventBtn, false);
+        setButtonEnabled(queueEventBtn, false);
       } else {
         const defId = eventIds[eventIndex];
         const def = envEventDefs[defId];
         const label = def?.name || defId;
         eventName.text = label;
-        spawnBtn.alpha = 1;
-        spawnBtn.eventMode = "static";
+        setButtonEnabled(prevEventBtn, eventIndex > 0);
+        setButtonEnabled(nextEventBtn, eventIndex < eventIds.length - 1);
+        setButtonEnabled(queueEventBtn, true);
       }
 
-      if (panel.visible) {
-        updatePerfRows();
-        updateParityRow();
-      }
+      updatePerfRows();
+      updateParityRow();
     },
   };
 }

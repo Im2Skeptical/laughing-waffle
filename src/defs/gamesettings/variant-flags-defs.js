@@ -2,11 +2,11 @@
 // Scenario-level gameplay/UI variant switches.
 
 export const DEFAULT_VARIANT_FLAGS = Object.freeze({
-  actionPointCostsEnabled: true,
-  actionLogEnabled: true,
-  inventoryTransferPlannerEnabled: true,
-  inventoryTransferGhostPreviewEnabled: true,
-  showApHud: true,
+  actionPointCostsEnabled: false,
+  actionLogEnabled: false,
+  inventoryTransferPlannerEnabled: false,
+  inventoryTransferGhostPreviewEnabled: false,
+  showApHud: false,
 });
 
 export function normalizeVariantFlags(value) {

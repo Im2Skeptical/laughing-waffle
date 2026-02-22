@@ -1,5 +1,5 @@
 // chrome-pixi.js
-// HUD + control buttons (pause).
+// HUD labels and metric click targets.
 
 import {
   SEASON_DISPLAY,
@@ -9,29 +9,18 @@ import {
 } from "../defs/gamesettings/gamerules-defs.js";
 import { isMoonWaxingAtSecond } from "../model/moon.js";
 import { getTotalFoodFromEdibles } from "../model/query.js";
-import { createTimeLeverView } from "./time-lever-pixi.js";
 
 export function createChromeView({
-  app,
   layer,
   getGameState,
   getCurrentSeasonData,
-  togglePause,
-  isPausePending,
-  getApPreview,
   showApHud,
-  getCommitPreviewState,
-  onCommitPreview,
 
   // Stage 3: optional click handlers for opening graphs
   onGoldClick,
   onFoodClick,
   onApClick,
   onPopClick,
-
-  // Time lever (optional)
-  getTimeScale,
-  setTimeScaleTarget,
 }) {
   // ---------- 1. Text HUD ----------
 
@@ -90,95 +79,7 @@ export function createChromeView({
   deckInfoText.position.set(40, 60);
   layer.addChild(deckInfoText);
 
-  // ---------- 2. Buttons ----------
-
-  function makeButton(label, onClick) {
-    const container = new PIXI.Container();
-
-    const bg = new PIXI.Graphics()
-      .beginFill(0x444444)
-      .drawRoundedRect(0, 0, 140, 44, 10)
-      .endFill();
-
-    const text = new PIXI.Text(label, {
-      fill: 0xffffff,
-      fontSize: 18,
-    });
-    text.anchor.set(0.5, 0.5);
-    text.position.set(70, 22);
-
-    container.addChild(bg, text);
-
-    container.eventMode = "static";
-    container.cursor = "pointer";
-
-    container.on("pointerover", () => {
-      bg.tint = 0x888888;
-    });
-    container.on("pointerout", () => {
-      bg.tint = 0xffffff;
-    });
-    container.on("pointertap", () => {
-      onClick();
-    });
-
-    layer.addChild(container);
-    return container;
-  }
-
-  const BUTTON_WIDTH = 140;
-  const BUTTON_HEIGHT = 44;
-
-  const pauseButton = makeButton("Pause", () => {
-    togglePause();
-  });
-  const commitButton = makeButton("Commit", () => {
-    if (typeof onCommitPreview === "function") onCommitPreview();
-  });
-  commitButton.visible = false;
-  commitButton.eventMode = "none";
-  commitButton.cursor = "default";
-
-  const timeLeverView = createTimeLeverView({
-    app,
-    layer,
-    getTimeScale,
-    setTimeScaleTarget,
-  });
-
-  const controls = [
-    { node: pauseButton, width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
-    { node: commitButton, width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
-    {
-      node: timeLeverView.container,
-      width: timeLeverView.width,
-      height: timeLeverView.height,
-    },
-  ];
-
-  function layoutButtons() {
-    const active = controls.filter((c) => c.node.visible !== false);
-    if (!active.length) return;
-
-    const gap = 24;
-    const totalWidth =
-      active.reduce((sum, c) => sum + c.width, 0) +
-      gap * (active.length - 1);
-    const startX = (app.screen.width - totalWidth) / 2;
-    const baseY = app.screen.height - 70;
-    const centerY = baseY + BUTTON_HEIGHT / 2;
-
-    let x = startX;
-    for (const c of active) {
-      c.node.x = x;
-      c.node.y = centerY - c.height / 2;
-      x += c.width + gap;
-    }
-  }
-
-  layoutButtons();
-
-  // ---------- 3. HUD update ----------
+  // ---------- 2. HUD update ----------
 
   function measureTextWidth(text) {
     const metrics = PIXI.TextMetrics?.measureText?.(text, resourceText.style);
@@ -189,48 +90,8 @@ export function createChromeView({
 
   function update() {
     const s = getGameState();
-    const preview =
-      typeof getApPreview === "function" ? getApPreview() : null;
     const showApHudEnabled =
       typeof showApHud === "function" ? !!showApHud() : showApHud !== false;
-
-    // Pause button label/state:
-    // - paused => "Paused"
-    // - pause requested but not yet committed (rides to next integer second) => "Pausing…"
-    // - otherwise => "Pause"
-    const pausePending =
-      typeof isPausePending === "function" ? !!isPausePending() : false;
-    const pauseLabel = pauseButton.children[1];
-    const pauseBg = pauseButton.children[0];
-
-    if (s.paused) {
-      pauseLabel.text = "Paused";
-      pauseBg.tint = 0x55aa55;
-    } else if (pausePending) {
-      pauseLabel.text = "Pausing…";
-      pauseBg.tint = 0xffcc66;
-    } else {
-      pauseLabel.text = "Pause";
-      pauseBg.tint = 0xffffff;
-    }
-
-    const commitState =
-      typeof getCommitPreviewState === "function"
-        ? getCommitPreviewState()
-        : null;
-    const showCommit = !!commitState?.visible;
-    const canCommit =
-      showCommit &&
-      commitState?.enabled !== false &&
-      typeof onCommitPreview === "function";
-    commitButton.visible = showCommit;
-    commitButton.eventMode = canCommit ? "static" : "none";
-    commitButton.cursor = canCommit ? "pointer" : "default";
-    const commitBg = commitButton.children[0];
-    if (commitBg) {
-      commitBg.tint = canCommit ? 0x55aa55 : 0x666666;
-    }
-    layoutButtons();
 
     const seasonKey = s.seasons[s.currentSeasonIndex];
     const seasonName = SEASON_DISPLAY[seasonKey];
@@ -239,12 +100,8 @@ export function createChromeView({
     const tSec = Math.floor(s.tSec ?? 0);
     const moonWaxing = isMoonWaxingAtSecond(tSec);
     const moonPhaseLabel = moonWaxing ? "Waxing" : "Waning";
-    const baseIncome = Number.isFinite(AP_INCOME_PER_SEC)
-      ? AP_INCOME_PER_SEC
-      : 0;
-    const incomeMult = moonWaxing
-      ? AP_INCOME_MULT_WAXING
-      : AP_INCOME_MULT_WANING;
+    const baseIncome = Number.isFinite(AP_INCOME_PER_SEC) ? AP_INCOME_PER_SEC : 0;
+    const incomeMult = moonWaxing ? AP_INCOME_MULT_WAXING : AP_INCOME_MULT_WANING;
     const incomeMultSafe = Number.isFinite(incomeMult) ? incomeMult : 0;
     const apIncomePerSec = s.apCapOverride?.enabled
       ? baseIncome
@@ -258,11 +115,9 @@ export function createChromeView({
     const foodTotal = baseFood + edibleFood;
 
     const grainAmount = Number.isFinite(s.resources?.grain) ? s.resources.grain : 0;
-    resourceText.text = `Gold: ${s.resources.gold.toFixed(
+    resourceText.text = `Gold: ${s.resources.gold.toFixed(1)}  Grain: ${grainAmount.toFixed(
       1
-    )}  Grain: ${grainAmount.toFixed(1)}  Food: ${foodTotal.toFixed(
-      1
-    )}  Pop: ${s.resources.population.toFixed(1)}  `;
+    )}  Food: ${foodTotal.toFixed(1)}  Pop: ${s.resources.population.toFixed(1)}  `;
 
     const goldSegment = `Gold: ${s.resources.gold.toFixed(1)}  `;
     const grainSegment = `Grain: ${grainAmount.toFixed(1)}  `;
@@ -319,16 +174,10 @@ export function createChromeView({
     apHit.eventMode = typeof onApClick === "function" ? "static" : "none";
     apHit.cursor = typeof onApClick === "function" ? "pointer" : "default";
     const yearLabel = Number.isFinite(s.year) ? s.year : 1;
-    const apIncomeSegment = showApHudEnabled
-      ? `  AP Income: +${apIncomeLabel}/s`
-      : "";
+    const apIncomeSegment = showApHudEnabled ? `  AP Income: +${apIncomeLabel}/s` : "";
     deckInfoText.text = `Moon: ${moonPhaseLabel}${apIncomeSegment}  Year: ${yearLabel}  Season: ${seasonName}  Deck: ${
       deck?.deck.length ?? 0
-    }  Phase: ${phaseLabel}  SeasonLength: ${s.seasonTimeRemaining.toFixed(
-      1
-    )}`;
-
-    timeLeverView.update(s);
+    }  Phase: ${phaseLabel}  SeasonLength: ${s.seasonTimeRemaining.toFixed(1)}`;
   }
 
   function init() {}
@@ -336,4 +185,3 @@ export function createChromeView({
 
   return { init, refresh, update };
 }
-

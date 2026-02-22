@@ -219,6 +219,63 @@ export function createSimRunner({
   let timeScaleWantsUnpause = false;
   let rewindAccumulatorSec = 0;
   const saveSlotCount = 3;
+  let activeSetupId =
+    typeof setupId === "string" && setupId.length > 0 ? setupId : "devGym01";
+
+  function initializeFromSetup(nextSetupId, reason = "init") {
+    const targetSetupId =
+      typeof nextSetupId === "string" && nextSetupId.length > 0
+        ? nextSetupId
+        : activeSetupId;
+    try {
+      initGameState(gameState, targetSetupId);
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "badSetupId",
+        setupId: targetSetupId,
+        error,
+      };
+    }
+    activeSetupId = targetSetupId;
+    cursorState = gameState;
+
+    dragPreviewState = null;
+    syncPhaseToPaused(cursorState);
+
+    timeline = createTimelineFromInitialState(cursorState);
+    clearPlannerBoundaryCache();
+
+    timeline.cursorSec = 0;
+    timeline.historyEndSec = 0;
+    timeline.maxReachedHistoryEndSec = 0;
+
+    pauseRequested = false;
+    playbackActive = false;
+    timeScaleTarget = 1;
+    timeScaleCurrent = 1;
+    timeScaleWantsUnpause = false;
+    rewindAccumulatorSec = 0;
+    simAccumulator = 0;
+    lastPlannerCommitError = null;
+
+    timeline.checkpoints = [
+      {
+        checkpointSec: 0,
+        appliedThroughSec: 0,
+        stateData: serializeGameState(cursorState),
+      },
+    ];
+
+    maintainCheckpoints(timeline, cursorState);
+    syncTimelineMaxReachedHistoryEndSec();
+    seekPlaybackIndex(Math.floor(cursorState.tSec ?? 0));
+    actionPlanner.resetToTimeline?.();
+
+    onRebuildViews?.(reason);
+    onInvalidate?.(reason);
+    return { ok: true, setupId: activeSetupId };
+  }
 
   function getSaveSlotKey(slot) {
     const idx = Number.isFinite(slot) ? Math.floor(slot) : 1;
@@ -239,6 +296,7 @@ export function createSimRunner({
     const seasonKey = getCurrentSeasonKey(state);
     return {
       schemaVersion: SAVE_SCHEMA_VERSION,
+      setupId: activeSetupId,
       savedAt: new Date().toISOString(),
       tSec,
       seasonKey,
@@ -334,6 +392,9 @@ export function createSimRunner({
     const meta = data?.meta ?? null;
     if (meta?.schemaVersion !== SAVE_SCHEMA_VERSION) {
       return { ok: false, reason: "versionMismatch", meta };
+    }
+    if (typeof meta?.setupId === "string" && meta.setupId.length > 0) {
+      activeSetupId = meta.setupId;
     }
     if (!data?.state) return { ok: false, reason: "missingState" };
     const nextTimeline = normalizeSavedTimeline(
@@ -938,42 +999,7 @@ export function createSimRunner({
   // API
   return {
     init() {
-      initGameState(gameState, setupId);
-      cursorState = gameState;
-
-      syncPhaseToPaused(cursorState);
-
-      timeline = createTimelineFromInitialState(cursorState);
-      clearPlannerBoundaryCache();
-
-      // Ensure cursors match genesis
-      timeline.cursorSec = 0;
-      timeline.historyEndSec = 0;
-      timeline.maxReachedHistoryEndSec = 0;
-
-      pauseRequested = false;
-      playbackActive = false;
-      timeScaleTarget = 1;
-      timeScaleCurrent = 1;
-      timeScaleWantsUnpause = false;
-      rewindAccumulatorSec = 0;
-      simAccumulator = 0;
-
-      // Initial checkpoint
-      timeline.checkpoints = [
-        {
-          checkpointSec: 0,
-          appliedThroughSec: 0,
-          stateData: serializeGameState(cursorState),
-        },
-      ];
-
-      maintainCheckpoints(timeline, cursorState);
-      syncTimelineMaxReachedHistoryEndSec();
-      seekPlaybackIndex(Math.floor(cursorState.tSec ?? 0));
-
-      onRebuildViews?.("init");
-      onInvalidate?.("init");
+      return initializeFromSetup(activeSetupId, "init");
     },
 
     update(frameDt) {
@@ -1324,8 +1350,9 @@ export function createSimRunner({
     clearPlannerActionsAtCursor,
     saveToSlot,
     loadFromSlot,
+    resetToSetup: (nextSetupId) => initializeFromSetup(nextSetupId, "init"),
     getSaveSlotMeta,
-    getSetupId: () => setupId,
+    getSetupId: () => activeSetupId,
     getSaveSlotCount: () => saveSlotCount,
   };
 }

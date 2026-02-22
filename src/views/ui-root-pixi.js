@@ -3,8 +3,8 @@
 
 // Scenario Selector - Options for boot are in scenario-defs.js
 
-const BOOT_SETUP_ID = "devGym01";
-//const BOOT_SETUP_ID = "devPlaytesting01";
+//const BOOT_SETUP_ID = "devGym01";
+const BOOT_SETUP_ID = "devPlaytesting01";
 
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
@@ -22,6 +22,10 @@ import { createInventoryView } from "./inventory-pixi.js";
 import { createPawnsView } from "./pawns-pixi.js";
 import { createBoardView } from "./board-pixi.js";
 import { createChromeView } from "./chrome-pixi.js";
+import {
+  createTimeControlsView,
+  TIME_CONTROLS_LAYOUT,
+} from "./time-controls-pixi.js";
 import { createMetricGraphView } from "./timegraphs-pixi.js";
 import { createProcessWidgetView } from "./process-widget-pixi.js";
 import { createSkillTreeView } from "./skill-tree-pixi.js";
@@ -145,6 +149,7 @@ const runner = createSimRunner({
       pawnsView.rebuildAll();
     }
     chromeView.refresh?.();
+    timeControlsView.refresh?.();
   },
   onPlannerApReject: () => {
     flashActionLogAp?.();
@@ -1238,12 +1243,28 @@ scrollGraphOrchestrator = createScrollGraphOrchestrator({
 });
 
 const chromeView = createChromeView({
-  app,
   layer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
   getCurrentSeasonData,
-  getApPreview: () => actionPlanner?.getApPreview?.() ?? null,
   showApHud: () => isBootVariantFlagEnabled("showApHud"),
+});
+
+// NEW: Sun/Moon rotating disks HUD view
+const sunMoonDisksView = createSunAndMoonDisksView({
+  app,
+  layer: uiLayers.controlsLayer,
+  getState: () => runner.getState(),
+  getTimeline: () => runner.getTimeline(),
+  getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
+  browseCursorSecond: (tSec) => runner.browseCursorSecond?.(tSec),
+  commitCursorSecond: (tSec) => runner.commitCursorSecond?.(tSec),
+  layout: SUN_AND_MOON_DISKS_LAYOUT,
+});
+
+const timeControlsView = createTimeControlsView({
+  app,
+  layer: uiLayers.controlsLayer,
+  getGameState: () => runner.getState(),
   togglePause,
   isPausePending: () => runner.isPausePending?.() ?? false,
   getCommitPreviewState: () => {
@@ -1259,18 +1280,8 @@ const chromeView = createChromeView({
   onCommitPreview: () => runner.commitPreviewToLive?.(),
   getTimeScale: () => runner.getTimeScale?.(),
   setTimeScaleTarget: (speed, opts) => runner.setTimeScaleTarget?.(speed, opts),
-});
-
-// NEW: Sun/Moon rotating disks HUD view
-const sunMoonDisksView = createSunAndMoonDisksView({
-  app,
-  layer: uiLayers.controlsLayer,
-  getState: () => runner.getState(),
-  getTimeline: () => runner.getTimeline(),
-  getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
-  browseCursorSecond: (tSec) => runner.browseCursorSecond?.(tSec),
-  commitCursorSecond: (tSec) => runner.commitCursorSecond?.(tSec),
-  layout: SUN_AND_MOON_DISKS_LAYOUT,
+  layout: TIME_CONTROLS_LAYOUT,
+  sunMoonLayout: SUN_AND_MOON_DISKS_LAYOUT,
 });
 
 const envEventDeckView = createEnvEventDeckView({
@@ -1291,6 +1302,14 @@ const envEventDeckView = createEnvEventDeckView({
 const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
+  onLoadScenario: (setupId) => {
+    pausedActionQueue.clearQueuedActions();
+    const res = runner.resetToSetup?.(setupId);
+    if (!res?.ok) return res;
+    externalUiFocus = null;
+    applyScenarioDevUiBootstrap();
+    return res;
+  },
   onOpenSystemGraph: () => openSystemGraphForHover(),
   onToggleApGraph: () => toggleApGraph(),
   onClearTimeline: () => clearActionLogAndReset(),
@@ -1386,6 +1405,7 @@ boardView.init();
 pawnsView.init();
 processWidgetView.init();
 chromeView.init();
+timeControlsView.init();
 envEventDeckView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
@@ -1449,6 +1469,7 @@ app.ticker.add((delta) => {
   runTimed("inventory.update", () => inventoryView.update(frameDt));
   runTimed("processWidget.update", () => processWidgetView.update(frameDt));
   runTimed("chrome.update", () => chromeView.update(frameDt));
+  runTimed("timeControls.update", () => timeControlsView.update(frameDt));
   runTimed("sunMoon.update", () => sunMoonDisksView.update(frameDt)); // NEW
   runTimed("actionLog.update", () => actionLogView.update(frameDt));
   runTimed("yearEnd.sync", () => syncYearEndPerformancePopup());
