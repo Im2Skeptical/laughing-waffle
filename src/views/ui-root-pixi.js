@@ -97,6 +97,50 @@ document.body.appendChild(app.view);
 app.view.style.touchAction = "none";
 app.view.style.userSelect = "none";
 app.view.style.webkitUserSelect = "none";
+app.view.style.display = "block";
+
+function getViewportSizePx() {
+  const vv = window.visualViewport;
+  if (
+    vv &&
+    Number.isFinite(vv.width) &&
+    Number.isFinite(vv.height) &&
+    vv.width > 0 &&
+    vv.height > 0
+  ) {
+    return {
+      width: Math.max(1, Math.floor(vv.width)),
+      height: Math.max(1, Math.floor(vv.height)),
+    };
+  }
+  return {
+    width: Math.max(
+      1,
+      Math.floor(window.innerWidth || document.documentElement.clientWidth || DESIGN_WIDTH)
+    ),
+    height: Math.max(
+      1,
+      Math.floor(window.innerHeight || document.documentElement.clientHeight || DESIGN_HEIGHT)
+    ),
+  };
+}
+
+function fitCanvasToViewport(view) {
+  const vp = getViewportSizePx();
+  const scale = Math.min(vp.width / DESIGN_WIDTH, vp.height / DESIGN_HEIGHT);
+  const cssWidth = Math.max(1, Math.floor(DESIGN_WIDTH * scale));
+  const cssHeight = Math.max(1, Math.floor(DESIGN_HEIGHT * scale));
+  const left = Math.floor((vp.width - cssWidth) * 0.5);
+  const top = Math.floor((vp.height - cssHeight) * 0.5);
+  view.style.width = `${cssWidth}px`;
+  view.style.height = `${cssHeight}px`;
+  view.style.position = "fixed";
+  view.style.left = `${left}px`;
+  view.style.top = `${top}px`;
+}
+
+// Apply fit immediately so even early boot/runtime errors do not leave a 1920x1080 corner view.
+fitCanvasToViewport(app.view);
 
 let flashActionLogAp = null;
 let actionLogView = null;
@@ -197,25 +241,13 @@ const popGraphController = createTimeGraphController({
 });
 
 function resizeCanvas() {
-  const scale = Math.min(
-    window.innerWidth / DESIGN_WIDTH,
-    window.innerHeight / DESIGN_HEIGHT
-  );
-  const cssWidth = DESIGN_WIDTH * scale;
-  const cssHeight = DESIGN_HEIGHT * scale;
-  const left = (window.innerWidth - cssWidth) / 2;
-  const top = (window.innerHeight - cssHeight) / 2;
-  const view = app.view;
-  view.style.width = `${cssWidth}px`;
-  view.style.height = `${cssHeight}px`;
-  view.style.position = "absolute";
-  view.style.left = `${left}px`;
-  view.style.top = `${top}px`;
+  fitCanvasToViewport(app.view);
   document.body.style.backgroundColor = "black";
   document.body.style.margin = "0";
   document.body.style.overflow = "hidden";
   document.documentElement.style.backgroundColor = "black";
   document.documentElement.style.height = "100%";
+  document.body.style.height = "100%";
   skillTreeView?.resize?.();
   skillTreeEditorView?.resize?.();
   yearEndPerformanceView?.resize?.();
@@ -225,6 +257,9 @@ function resizeCanvas() {
   }
 }
 window.addEventListener("resize", resizeCanvas);
+window.addEventListener("orientationchange", resizeCanvas);
+window.visualViewport?.addEventListener("resize", resizeCanvas);
+window.visualViewport?.addEventListener("scroll", resizeCanvas);
 resizeCanvas();
 
 const uiLayers = {
