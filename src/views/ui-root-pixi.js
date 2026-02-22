@@ -260,6 +260,8 @@ window.addEventListener("resize", resizeCanvas);
 window.addEventListener("orientationchange", resizeCanvas);
 window.visualViewport?.addEventListener("resize", resizeCanvas);
 window.visualViewport?.addEventListener("scroll", resizeCanvas);
+document?.addEventListener?.("fullscreenchange", resizeCanvas);
+document?.addEventListener?.("webkitfullscreenchange", resizeCanvas);
 resizeCanvas();
 
 const uiLayers = {
@@ -1337,6 +1339,69 @@ const envEventDeckView = createEnvEventDeckView({
   sunMoonLayout: SUN_AND_MOON_DISKS_LAYOUT,
 });
 
+function getFullscreenElement() {
+  return (
+    document?.fullscreenElement ||
+    document?.webkitFullscreenElement ||
+    document?.msFullscreenElement ||
+    null
+  );
+}
+
+function isFullscreenActive() {
+  return !!getFullscreenElement();
+}
+
+function isFullscreenSupported() {
+  const rootEl = document?.documentElement;
+  const canRequest = !!(
+    rootEl?.requestFullscreen ||
+    rootEl?.webkitRequestFullscreen ||
+    rootEl?.msRequestFullscreen
+  );
+  const canExit = !!(
+    document?.exitFullscreen ||
+    document?.webkitExitFullscreen ||
+    document?.msExitFullscreen
+  );
+  return canRequest && canExit;
+}
+
+async function toggleFullscreen() {
+  const rootEl = document?.documentElement;
+  if (!rootEl || !isFullscreenSupported()) return { ok: false, reason: "unsupported" };
+
+  try {
+    if (isFullscreenActive()) {
+      const exitFn =
+        document.exitFullscreen ||
+        document.webkitExitFullscreen ||
+        document.msExitFullscreen;
+      if (!exitFn) return { ok: false, reason: "unsupported" };
+      await exitFn.call(document);
+      return { ok: true, active: false };
+    }
+
+    const requestFn =
+      rootEl.requestFullscreen ||
+      rootEl.webkitRequestFullscreen ||
+      rootEl.msRequestFullscreen;
+    if (!requestFn) return { ok: false, reason: "unsupported" };
+
+    try {
+      await requestFn.call(rootEl, { navigationUI: "hide" });
+    } catch (_) {
+      await requestFn.call(rootEl);
+    }
+    return { ok: true, active: true };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: typeof err?.message === "string" ? err.message : "failed",
+    };
+  }
+}
+
 const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
@@ -1350,6 +1415,11 @@ const debugView = createDebugOverlay({
   },
   onOpenSystemGraph: () => openSystemGraphForHover(),
   onToggleApGraph: () => toggleApGraph(),
+  onToggleFullscreen: () => {
+    void toggleFullscreen();
+  },
+  isFullscreenAvailable: () => isFullscreenSupported(),
+  getIsFullscreen: () => isFullscreenActive(),
   onClearTimeline: () => clearActionLogAndReset(),
   getProjectionParity: createProjectionParityProbe({
     runner,

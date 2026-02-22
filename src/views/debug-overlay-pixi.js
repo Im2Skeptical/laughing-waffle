@@ -32,6 +32,9 @@ export function createDebugOverlay({
   onLoadScenario,
   onOpenSystemGraph,
   onToggleApGraph,
+  onToggleFullscreen,
+  isFullscreenAvailable,
+  getIsFullscreen,
   onClearTimeline,
   getPerfSnapshot,
   getProjectionParity,
@@ -380,11 +383,19 @@ export function createDebugOverlay({
     width: CONTENT_W,
     label: "Clear Timeline Future",
   });
+  cursorY += 28;
+  const fullscreenBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    label: "Enter Fullscreen",
+  });
   cursorY += 32;
 
   graphBtn.container.on("pointerdown", () => onOpenSystemGraph?.());
   apGraphBtn.container.on("pointerdown", () => onToggleApGraph?.());
   clearTimelineBtn.container.on("pointerdown", () => onClearTimeline?.());
+  fullscreenBtn.container.on("pointerdown", () => onToggleFullscreen?.());
 
   addSectionTitle("Performance");
   const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {
@@ -640,6 +651,24 @@ export function createDebugOverlay({
         setButtonEnabled(nextEventBtn, eventIndex < eventIds.length - 1);
         setButtonEnabled(queueEventBtn, true);
       }
+
+      const fullscreenSupported =
+        typeof isFullscreenAvailable === "function"
+          ? isFullscreenAvailable()
+          : typeof onToggleFullscreen === "function";
+      setButtonEnabled(fullscreenBtn, !!fullscreenSupported);
+      if (!fullscreenSupported) {
+        fullscreenBtn.text.text = "Fullscreen N/A";
+      } else {
+        const isFullscreen =
+          typeof getIsFullscreen === "function" ? !!getIsFullscreen() : false;
+        fullscreenBtn.text.text = isFullscreen
+          ? "Exit Fullscreen"
+          : "Enter Fullscreen";
+      }
+      fullscreenBtn.text.x = Math.round(
+        (fullscreenBtn.width - fullscreenBtn.text.width) * 0.5
+      );
 
       updatePerfRows();
       updateParityRow();

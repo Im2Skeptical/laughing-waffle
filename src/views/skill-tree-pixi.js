@@ -167,6 +167,14 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     moved: false,
     lastMoved: false,
   };
+  const pinch = {
+    active: false,
+    startScale: 1,
+    startDistance: 0,
+    anchorWorldX: 0,
+    anchorWorldY: 0,
+    moved: false,
+  };
 
   function getState() {
     return runner?.getCursorState?.() ?? runner?.getState?.() ?? null;
@@ -233,6 +241,118 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     const x = ((clientX - rect.left) * screen.width) / rect.width;
     const y = ((clientY - rect.top) * screen.height) / rect.height;
     return { x, y };
+  }
+
+  function isPointInsideViewport(stageX, stageY) {
+    const local = viewport.toLocal({ x: stageX, y: stageY });
+    return (
+      local.x >= 0 &&
+      local.y >= 0 &&
+      local.x <= VIEWPORT_WIDTH &&
+      local.y <= VIEWPORT_HEIGHT
+    );
+  }
+
+  function resetPinchState() {
+    pinch.active = false;
+    pinch.startScale = camera.scale;
+    pinch.startDistance = 0;
+    pinch.anchorWorldX = 0;
+    pinch.anchorWorldY = 0;
+    if (pinch.moved) {
+      pan.lastMoved = true;
+    }
+    pinch.moved = false;
+  }
+
+  function primePinchFromTouches(touchA, touchB) {
+    const stageA = toStageCoordsFromClient(touchA?.clientX, touchA?.clientY);
+    const stageB = toStageCoordsFromClient(touchB?.clientX, touchB?.clientY);
+    if (!stageA || !stageB) return false;
+
+    const centerX = (stageA.x + stageB.x) * 0.5;
+    const centerY = (stageA.y + stageB.y) * 0.5;
+    if (!isPointInsideViewport(centerX, centerY)) return false;
+
+    const distance = Math.hypot(stageA.x - stageB.x, stageA.y - stageB.y);
+    if (!Number.isFinite(distance) || distance < 8) return false;
+
+    const localCenter = viewport.toLocal({ x: centerX, y: centerY });
+    pinch.active = true;
+    pinch.startScale = camera.scale;
+    pinch.startDistance = distance;
+    pinch.anchorWorldX = (localCenter.x - camera.x) / camera.scale;
+    pinch.anchorWorldY = (localCenter.y - camera.y) / camera.scale;
+    pinch.moved = false;
+    pan.lastMoved = true;
+    return true;
+  }
+
+  function updatePinchFromTouches(touchA, touchB) {
+    if (!pinch.active) return;
+    const stageA = toStageCoordsFromClient(touchA?.clientX, touchA?.clientY);
+    const stageB = toStageCoordsFromClient(touchB?.clientX, touchB?.clientY);
+    if (!stageA || !stageB) return;
+
+    const centerX = (stageA.x + stageB.x) * 0.5;
+    const centerY = (stageA.y + stageB.y) * 0.5;
+    if (!isPointInsideViewport(centerX, centerY)) return;
+
+    const distance = Math.hypot(stageA.x - stageB.x, stageA.y - stageB.y);
+    if (!Number.isFinite(distance) || distance < 4) return;
+
+    const factor = distance / Math.max(1, pinch.startDistance);
+    const nextScale = clamp(pinch.startScale * factor, MIN_ZOOM, MAX_ZOOM);
+    const localCenter = viewport.toLocal({ x: centerX, y: centerY });
+    const nextX = localCenter.x - pinch.anchorWorldX * nextScale;
+    const nextY = localCenter.y - pinch.anchorWorldY * nextScale;
+    if (
+      Math.abs(nextScale - camera.scale) > 0.0001 ||
+      Math.abs(nextX - camera.x) > 0.5 ||
+      Math.abs(nextY - camera.y) > 0.5
+    ) {
+      pinch.moved = true;
+    }
+    setCamera(nextScale, nextX, nextY);
+  }
+
+  function onTouchStart(ev) {
+    if (!root.visible) return;
+    const touches = ev?.touches;
+    if (!touches || touches.length < 2) return;
+    if (pan.active) endPan();
+    if (!pinch.active && primePinchFromTouches(touches[0], touches[1])) {
+      ev.preventDefault();
+    }
+  }
+
+  function onTouchMove(ev) {
+    if (!root.visible) return;
+    const touches = ev?.touches;
+    if (!touches) return;
+    if (touches.length < 2) {
+      if (pinch.active) resetPinchState();
+      return;
+    }
+    if (!pinch.active) {
+      if (pan.active) endPan();
+      if (!primePinchFromTouches(touches[0], touches[1])) return;
+    }
+    updatePinchFromTouches(touches[0], touches[1]);
+    ev.preventDefault();
+  }
+
+  function onTouchEnd(ev) {
+    if (!pinch.active) return;
+    const touches = ev?.touches;
+    if (touches && touches.length >= 2) {
+      if (!primePinchFromTouches(touches[0], touches[1])) {
+        resetPinchState();
+      }
+      if (ev?.cancelable) ev.preventDefault();
+      return;
+    }
+    resetPinchState();
   }
 
   function zoomAtGlobal(globalX, globalY, factor) {
@@ -637,7 +757,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   }
 
   function onPanMove(ev) {
-    if (!pan.active) return;
+    if (!pan.active || pinch.active) return;
     const global = ev?.data?.global;
     if (!global) return;
     const dx = global.x - pan.startGlobalX;
@@ -658,7 +778,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   }
 
   function startPan(ev) {
-    if (!root.visible) return;
+    if (!root.visible || pinch.active) return;
     const global = ev?.data?.global;
     if (!global) return;
     pan.active = true;
@@ -705,6 +825,10 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     renderTree();
   });
   app?.view?.addEventListener?.("wheel", onWheel, { passive: false });
+  app?.view?.addEventListener?.("touchstart", onTouchStart, { passive: false });
+  app?.view?.addEventListener?.("touchmove", onTouchMove, { passive: false });
+  app?.view?.addEventListener?.("touchend", onTouchEnd, { passive: false });
+  app?.view?.addEventListener?.("touchcancel", onTouchEnd, { passive: false });
 
   function resolveCommitOrder(state, leaderPawn) {
     if (!bufferUnlockIds.size) return [];
@@ -887,6 +1011,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   function close() {
     root.visible = false;
     endPan();
+    resetPinchState();
     treeWorld.removeChildren();
     activeLeaderPawnId = null;
     activeTreeId = null;
