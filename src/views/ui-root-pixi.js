@@ -94,6 +94,9 @@ export const app = new PIXI.Application({
 });
 
 document.body.appendChild(app.view);
+app.view.style.touchAction = "none";
+app.view.style.userSelect = "none";
+app.view.style.webkitUserSelect = "none";
 
 let flashActionLogAp = null;
 let actionLogView = null;

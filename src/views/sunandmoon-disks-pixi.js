@@ -20,7 +20,7 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
     rotationOffsetRad: 0,
     playheadOffsetRad: -1.55,
     clockwise: true,
-    texturePath: "/images/MoonDisk_01.png",
+    texturePath: "images/MoonDisk_01.png",
   },
 
   season: {
@@ -31,7 +31,7 @@ export const SUN_AND_MOON_DISKS_LAYOUT = {
     rotationOffsetRad: 3,
     playheadOffsetRad: -0.7,
     clockwise: true,
-    texturePath: "/images/SeasonDisk_01.png",
+    texturePath: "images/SeasonDisk_01.png",
     quadrants: 4,
   },
 
