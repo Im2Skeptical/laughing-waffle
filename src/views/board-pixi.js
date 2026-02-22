@@ -15,6 +15,9 @@ import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
 import { createHubPanels } from "./board/hub-structure-panels.js";
+import {
+  getEventRevealLockRemainingSec,
+} from "./env-event-deck-pixi.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
   BOARD_COLS,
@@ -259,6 +262,14 @@ export function createBoardView(opts) {
     }
     tileRollFxByCol.clear();
     missThrottleByColSec.clear();
+  }
+
+  function getEventRevealRemainingSec(eventInst) {
+    const eventId = Number.isFinite(eventInst?.instanceId)
+      ? Math.floor(eventInst.instanceId)
+      : null;
+    if (eventId == null) return 0;
+    return getEventRevealLockRemainingSec(eventId);
   }
 
   function isTileTagDisabled(tileInst, tagId) {
@@ -2619,6 +2630,16 @@ export function createBoardView(opts) {
 
       const id = eventInst.instanceId ?? col;
       seen.add(id);
+      const revealRemainingSec = getEventRevealRemainingSec(eventInst);
+      if (revealRemainingSec > 0) {
+        const hiddenView = eventViews.get(id);
+        if (hiddenView) {
+          if (activeHover?.view === hiddenView) clearActiveHover(hiddenView);
+          removeFromParent(hiddenView.container);
+          eventViews.delete(id);
+        }
+        continue;
+      }
 
         const existing = eventViews.get(id);
         if (!existing || existing.event.instanceId !== eventInst.instanceId) {
@@ -2636,6 +2657,7 @@ export function createBoardView(opts) {
         removeFromParent(view.container);
         eventViews.delete(id);
       }
+
   }
 
   function syncEnvStructures(state, cols) {

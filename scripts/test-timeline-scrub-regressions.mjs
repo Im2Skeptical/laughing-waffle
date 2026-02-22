@@ -10,12 +10,17 @@ import { createTimeGraphController } from "../src/model/timegraph-controller.js"
 import { GRAPH_METRICS } from "../src/model/graph-metrics.js";
 import { cropDefs } from "../src/defs/gamepieces/crops-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
+import { ENV_EVENT_DRAW_CADENCE_SEC } from "../src/defs/gamesettings/gamerules-defs.js";
 import { deserializeGameState } from "../src/model/state.js";
 import { createInitialState } from "../src/model/game-model.js";
 import { computeAvailableRecipesAndBuildings } from "../src/model/skills.js";
 
 function assertOk(res, label) {
   assert.equal(res?.ok, true, `${label} failed: ${JSON.stringify(res)}`);
+}
+
+function toSafeSec(value) {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
 function firstWalkableEnvCol(state, { exclude = new Set() } = {}) {
@@ -100,6 +105,131 @@ function assertPawnAt(stateData, pawnId, envCol, label) {
   assert.equal(pawn.envCol ?? null, envCol, `${label}: pawn ${pawnId} expected env ${envCol}`);
 }
 
+function getEnvDeckDrawEntriesAtSecond(stateLike, tSec) {
+  const targetSec = toSafeSec(tSec);
+  const feed = Array.isArray(stateLike?.gameEventFeed) ? stateLike.gameEventFeed : [];
+  return feed.filter((entry) => {
+    if (!entry || entry.type !== "envDeckDraw") return false;
+    return toSafeSec(entry.tSec) === targetSec;
+  });
+}
+
+function normalizeDeckDrawEntry(entry) {
+  const data = entry?.data && typeof entry.data === "object" ? entry.data : {};
+  const placementsRaw = Array.isArray(data.placements) ? data.placements : [];
+  const placements = placementsRaw
+    .map((placement) => ({
+      col: Number.isFinite(placement?.col) ? Math.floor(placement.col) : null,
+      span:
+        Number.isFinite(placement?.span) && placement.span > 0
+          ? Math.floor(placement.span)
+          : 1,
+      instanceId: Number.isFinite(placement?.instanceId)
+        ? Math.floor(placement.instanceId)
+        : null,
+    }))
+    .filter((placement) => placement.col != null)
+    .sort(
+      (a, b) =>
+        a.col - b.col ||
+        (a.instanceId ?? Number.MAX_SAFE_INTEGER) -
+          (b.instanceId ?? Number.MAX_SAFE_INTEGER)
+    );
+  return {
+    type: entry?.type ?? null,
+    tSec: toSafeSec(entry?.tSec),
+    defId: typeof data.defId === "string" ? data.defId : null,
+    seasonKey: typeof data.seasonKey === "string" ? data.seasonKey : null,
+    outcome: typeof data.outcome === "string" ? data.outcome : null,
+    consumePolicy:
+      typeof data.consumePolicy === "string" ? data.consumePolicy : null,
+    showInEventLog: data.showInEventLog,
+    placements,
+  };
+}
+
+function assertPlacementsSorted(entry, label) {
+  const data = entry?.data && typeof entry.data === "object" ? entry.data : {};
+  const placements = Array.isArray(data.placements) ? data.placements : [];
+  for (let i = 1; i < placements.length; i += 1) {
+    const prevCol = Number.isFinite(placements[i - 1]?.col)
+      ? Math.floor(placements[i - 1].col)
+      : Number.MAX_SAFE_INTEGER;
+    const nextCol = Number.isFinite(placements[i]?.col)
+      ? Math.floor(placements[i].col)
+      : Number.MAX_SAFE_INTEGER;
+    const prevId = Number.isFinite(placements[i - 1]?.instanceId)
+      ? Math.floor(placements[i - 1].instanceId)
+      : Number.MAX_SAFE_INTEGER;
+    const nextId = Number.isFinite(placements[i]?.instanceId)
+      ? Math.floor(placements[i].instanceId)
+      : Number.MAX_SAFE_INTEGER;
+    const ordered = prevCol < nextCol || (prevCol === nextCol && prevId <= nextId);
+    assert.ok(ordered, `${label}: placements not sorted`);
+  }
+}
+
+function runEnvDeckDrawFeedChecks() {
+  const runner = createSimRunner({ setupId: "devGym01" });
+  runner.init();
+  runner.setPaused(false);
+
+  const targetSec = Math.max(1, Math.floor(ENV_EVENT_DRAW_CADENCE_SEC));
+  const steps = targetSec * 60;
+  for (let i = 0; i < steps; i += 1) {
+    runner.update(1 / 60);
+  }
+
+  const liveState = runner.getState();
+  assert.ok(
+    toSafeSec(liveState?.tSec) >= targetSec,
+    `[envDeckDraw] live state did not reach t=${targetSec}`
+  );
+
+  const liveEntries = getEnvDeckDrawEntriesAtSecond(liveState, targetSec);
+  assert.ok(liveEntries.length > 0, `[envDeckDraw] missing live draw entry at t=${targetSec}`);
+  const liveEntry = liveEntries[liveEntries.length - 1];
+  assert.equal(
+    liveEntry?.data?.showInEventLog,
+    false,
+    "[envDeckDraw] showInEventLog must be false"
+  );
+  assertPlacementsSorted(liveEntry, "live");
+
+  const timeline = runner.getTimeline();
+  const stateDataResA = getStateDataAtSecond(timeline, targetSec);
+  assertOk(stateDataResA, `[envDeckDraw] stateData A @${targetSec}`);
+  const stateDataResB = getStateDataAtSecond(timeline, targetSec);
+  assertOk(stateDataResB, `[envDeckDraw] stateData B @${targetSec}`);
+  const snapshotEntriesA = getEnvDeckDrawEntriesAtSecond(stateDataResA.stateData, targetSec);
+  const snapshotEntriesB = getEnvDeckDrawEntriesAtSecond(stateDataResB.stateData, targetSec);
+  assert.ok(snapshotEntriesA.length > 0, `[envDeckDraw] missing snapshot A entry at t=${targetSec}`);
+  assert.ok(snapshotEntriesB.length > 0, `[envDeckDraw] missing snapshot B entry at t=${targetSec}`);
+  const snapshotEntryA = snapshotEntriesA[snapshotEntriesA.length - 1];
+  const snapshotEntryB = snapshotEntriesB[snapshotEntriesB.length - 1];
+  assertPlacementsSorted(snapshotEntryA, "snapshotA");
+  assertPlacementsSorted(snapshotEntryB, "snapshotB");
+
+  assert.deepEqual(
+    normalizeDeckDrawEntry(snapshotEntryA),
+    normalizeDeckDrawEntry(snapshotEntryB),
+    "[envDeckDraw] repeated stateData reads at same tSec must match"
+  );
+
+  const rebuildRes = rebuildStateAtSecond(timeline, targetSec);
+  assertOk(rebuildRes, `[envDeckDraw] rebuild @${targetSec}`);
+  const rebuildEntries = getEnvDeckDrawEntriesAtSecond(rebuildRes.state, targetSec);
+  assert.ok(rebuildEntries.length > 0, `[envDeckDraw] missing rebuild entry at t=${targetSec}`);
+  const rebuildEntry = rebuildEntries[rebuildEntries.length - 1];
+  assertPlacementsSorted(rebuildEntry, "rebuild");
+
+  assert.deepEqual(
+    normalizeDeckDrawEntry(liveEntry),
+    normalizeDeckDrawEntry(rebuildEntry),
+    "[envDeckDraw] live and rebuild payloads must match"
+  );
+}
+
 function runScenarioSkillProgressionOverrideChecks() {
   const scenario = {
     rngSeed: 123,
@@ -155,8 +285,9 @@ function runScenarioSkillProgressionOverrideChecks() {
 
 function run() {
   runScenarioSkillProgressionOverrideChecks();
+  runEnvDeckDrawFeedChecks();
 
-  const runner = createSimRunner({ setupId: "testing" });
+  const runner = createSimRunner({ setupId: "devGym01" });
   runner.init();
   assertOk(runner.commitCursorSecond(0), "pause at t=0");
 

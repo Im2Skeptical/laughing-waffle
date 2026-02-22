@@ -3,6 +3,7 @@
 
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { ENV_EVENT_DRAW_CADENCE_SEC } from "../defs/gamesettings/gamerules-defs.js";
 import {
   drawSeasonDeckEntry,
   getCurrentSeasonKey,
@@ -16,8 +17,6 @@ import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
 import { computeGlobalSkillMods } from "./skills.js";
-
-const EVENT_CADENCE_SEC = 5;
 
 function chooseArticle(noun) {
   if (!noun || typeof noun !== "string") return "A";
@@ -53,6 +52,38 @@ function findSpawnedEventAnchor(state, defId, tSec) {
     return ai - bi;
   });
   return matches[0];
+}
+
+function collectSpawnedEventPlacements(state, defId, tSec) {
+  const anchors = Array.isArray(state?.board?.layers?.event?.anchors)
+    ? state.board.layers.event.anchors
+    : [];
+  const sec = Number.isFinite(tSec) ? Math.floor(tSec) : 0;
+  const placements = [];
+  for (const anchor of anchors) {
+    if (!anchor || anchor.defId !== defId) continue;
+    if (Math.floor(anchor.createdSec ?? -1) !== sec) continue;
+    const col = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
+    const span =
+      Number.isFinite(anchor.span) && anchor.span > 0
+        ? Math.floor(anchor.span)
+        : 1;
+    const instanceId = Number.isFinite(anchor.instanceId)
+      ? Math.floor(anchor.instanceId)
+      : null;
+    placements.push({
+      col,
+      span,
+      instanceId,
+    });
+  }
+  placements.sort(
+    (a, b) =>
+      a.col - b.col ||
+      (a.instanceId ?? Number.MAX_SAFE_INTEGER) -
+        (b.instanceId ?? Number.MAX_SAFE_INTEGER)
+  );
+  return placements;
 }
 
 function requirementsPass(requires, seasonKey, tile, hasPawn, isTagUnlocked = null) {
@@ -884,13 +915,14 @@ export function stepEnvSecond(state, tSec) {
   if (
     Number.isFinite(tSec) &&
     tSec > 0 &&
-    tSec % EVENT_CADENCE_SEC === 0
+    tSec % ENV_EVENT_DRAW_CADENCE_SEC === 0
   ) {
     const entry = drawSeasonDeckEntry(state);
     if (entry) {
       const def = envEventDefs[entry.defId];
+      let result = null;
       if (def) {
-        const result = spawnEnvEventFromDef(state, entry.defId, def, tSec);
+        result = spawnEnvEventFromDef(state, entry.defId, def, tSec);
         if (result?.needsRebuild) needsRebuild = true;
         if (result?.placedAny) {
           const spawned = findSpawnedEventAnchor(state, entry.defId, tSec);
@@ -909,13 +941,37 @@ export function stepEnvSecond(state, tSec) {
             },
           });
         }
-
-        const consumePolicy = def.spawn?.consumePolicy;
-        if (consumePolicy === "onlyIfAnyPlaced" && !result?.placedAny) {
-          const deck = state.currentSeasonDeck?.deck;
-          if (Array.isArray(deck)) deck.unshift(entry);
-        }
       }
+
+      const consumePolicy = def?.spawn?.consumePolicy;
+      const shouldReturnToDeck =
+        consumePolicy === "onlyIfAnyPlaced" && !result?.placedAny;
+      if (shouldReturnToDeck) {
+        const deck = state.currentSeasonDeck?.deck;
+        if (Array.isArray(deck)) deck.unshift(entry);
+      }
+
+      const outcome = result?.placedAny
+        ? "placed"
+        : shouldReturnToDeck
+          ? "returned"
+          : "consumedNoPlacement";
+      const placements = result?.placedAny
+        ? collectSpawnedEventPlacements(state, entry.defId, tSec)
+        : [];
+      pushGameEvent(state, {
+        type: "envDeckDraw",
+        tSec,
+        text: "",
+        data: {
+          showInEventLog: false,
+          defId: entry.defId,
+          seasonKey,
+          outcome,
+          placements,
+          consumePolicy: typeof consumePolicy === "string" ? consumePolicy : null,
+        },
+      });
     }
   }
 

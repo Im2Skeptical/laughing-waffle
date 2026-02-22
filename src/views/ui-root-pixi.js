@@ -3,8 +3,8 @@
 
 // Scenario Selector - Options for boot are in scenario-defs.js
 
-//const BOOT_SETUP_ID = "devGym01";
-const BOOT_SETUP_ID = "devPlaytesting01";
+const BOOT_SETUP_ID = "devGym01";
+//const BOOT_SETUP_ID = "devPlaytesting01";
 
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
@@ -13,6 +13,7 @@ import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
+import { getStateDataAtSecond } from "../model/timeline/index.js";
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
 import { runDeterminismSuite } from "../model/tests/determinism.js";
 import { createInteractionController } from "./interaction-controler-pixi.js";
@@ -46,6 +47,10 @@ import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
 } from "./sunandmoon-disks-pixi.js";
+import {
+  createEnvEventDeckView,
+  ENV_EVENT_DECK_LAYOUT,
+} from "./env-event-deck-pixi.js";
 import {
   getPerfSnapshot,
   perfEnabled,
@@ -1268,6 +1273,21 @@ const sunMoonDisksView = createSunAndMoonDisksView({
   layout: SUN_AND_MOON_DISKS_LAYOUT,
 });
 
+const envEventDeckView = createEnvEventDeckView({
+  app,
+  layer: uiLayers.controlsLayer,
+  getState: () => runner.getState(),
+  getTimeline: () => runner.getTimeline(),
+  getStateDataAtSecond: (tSec) => {
+    const tl = runner.getTimeline?.();
+    if (!tl) return null;
+    const res = getStateDataAtSecond(tl, tSec);
+    return res?.ok ? res.stateData : null;
+  },
+  layout: ENV_EVENT_DECK_LAYOUT,
+  sunMoonLayout: SUN_AND_MOON_DISKS_LAYOUT,
+});
+
 const debugView = createDebugOverlay({
   layer: uiLayers.debugLayer,
   runner,
@@ -1366,6 +1386,7 @@ boardView.init();
 pawnsView.init();
 processWidgetView.init();
 chromeView.init();
+envEventDeckView.init();
 sunMoonDisksView.init(); // NEW
 actionLogView.init();
 eventLogView.init();
@@ -1421,6 +1442,7 @@ app.ticker.add((delta) => {
   runTimed("stateTint.update", () => updateStateTintOverlay());
   runTimed("queuedActions.flush", () => flushQueuedActions());
   runTimed("interaction.update", () => interactionController.update(frameDt));
+  runTimed("envEventDeck.update", () => envEventDeckView.update(frameDt));
   runTimed("board.update", () => boardView.update(frameDt));
   runTimed("pawns.update", () => pawnsView.update(frameDt));
   runTimed("tooltip.update", () => tooltipView.update(frameDt));
