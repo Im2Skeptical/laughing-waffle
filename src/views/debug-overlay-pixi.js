@@ -12,6 +12,8 @@ const TOP_VIEW_UPDATES_COUNT = 5;
 const PERF_REFRESH_MS = 250;
 const SLOT_META_REFRESH_MS = 1000;
 const PARITY_REFRESH_MS = 500;
+const FULLSCREEN_BUTTON_HEIGHT = 56;
+const FULLSCREEN_BUTTON_FONT_SIZE = 15;
 
 function clampInt(value, fallback = 0) {
   const n = Math.floor(value);
@@ -383,19 +385,11 @@ export function createDebugOverlay({
     width: CONTENT_W,
     label: "Clear Timeline Future",
   });
-  cursorY += 28;
-  const fullscreenBtn = createButton({
-    x: CONTENT_X,
-    y: cursorY,
-    width: CONTENT_W,
-    label: "Enter Fullscreen",
-  });
   cursorY += 32;
 
   graphBtn.container.on("pointerdown", () => onOpenSystemGraph?.());
   apGraphBtn.container.on("pointerdown", () => onToggleApGraph?.());
   clearTimelineBtn.container.on("pointerdown", () => onClearTimeline?.());
-  fullscreenBtn.container.on("pointerdown", () => onToggleFullscreen?.());
 
   addSectionTitle("Performance");
   const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {
@@ -444,7 +438,18 @@ export function createDebugOverlay({
   commitErrorRow.x = CONTENT_X;
   commitErrorRow.y = cursorY;
   panel.addChild(commitErrorRow);
-  cursorY += 18;
+  cursorY += 24;
+
+  const fullscreenBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    height: FULLSCREEN_BUTTON_HEIGHT,
+    label: "Enter Fullscreen",
+    fontSize: FULLSCREEN_BUTTON_FONT_SIZE,
+  });
+  cursorY += FULLSCREEN_BUTTON_HEIGHT + SECTION_GAP;
+  fullscreenBtn.container.on("pointerdown", () => onToggleFullscreen?.());
 
   function refreshScenarioUi() {
     if (!scenarioIds.length) {
