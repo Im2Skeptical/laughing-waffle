@@ -13,6 +13,7 @@ import { hasEnvTagUnlock, hasHubTagUnlock } from "../model/skills.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
+import { bindTouchLongPress } from "./ui-helpers/touch-long-press.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
 import { createHubPanels } from "./board/hub-structure-panels.js";
 import {
@@ -124,6 +125,13 @@ export function createBoardView(opts) {
   const FEEDBACK_FLOAT_RISE_PX = 30;
   const FEEDBACK_STACK_STEP_PX = 14;
   const FEEDBACK_MAX_STACK = 4;
+  const EVENT_EXPIRY_FX_DURATION_SEC = 0.42;
+  const EVENT_EXPIRY_FX_MAX_ACTIVE = 64;
+  const EVENT_EXPIRY_FLASH_FILL = 0xd73846;
+  const EVENT_EXPIRY_GLOW_STROKE = 0xff8791;
+  const EVENT_EXPIRY_TINT_STRENGTH = 0.22;
+  const EVENT_EXPIRY_FLOAT_PX = 12;
+  const EVENT_EXPIRY_SCALE = 0.07;
   const ACTIVITY_FADE_SPEED = 8;
   const ACTIVITY_BASE_ALPHA = 0.2;
   const ACTIVITY_PULSE_FREQ_HZ = 1.4;
@@ -146,8 +154,17 @@ export function createBoardView(opts) {
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
   let lastProcessedGameEventId = 0;
+  let lastSeenEventSec = null;
   const tileRollFxByCol = new Map();
   const missThrottleByColSec = new Map();
+  const activeEventExpiryFx = [];
+  let eventSnapshotsById = new Map();
+  const eventExpiryFxLayer = eventLayer ? new PIXI.Container() : null;
+  if (eventExpiryFxLayer) {
+    eventExpiryFxLayer.sortableChildren = true;
+    eventExpiryFxLayer.zIndex = 25;
+    eventLayer.addChild(eventExpiryFxLayer);
+  }
   const tooltipLayer = tooltipView?.getContainer?.()?.parent;
   const cropDropdownLayer =
     tooltipLayer || hoverLayer || tileInspectorLayer || tileLayer;
@@ -262,6 +279,213 @@ export function createBoardView(opts) {
     }
     tileRollFxByCol.clear();
     missThrottleByColSec.clear();
+  }
+
+  function ensureEventExpiryFxLayerAttached() {
+    if (!eventLayer || !eventExpiryFxLayer) return;
+    if (eventExpiryFxLayer.parent === eventLayer) return;
+    eventLayer.addChild(eventExpiryFxLayer);
+  }
+
+  function clearEventExpiryFxRuntime() {
+    for (const fx of activeEventExpiryFx) {
+      removeFromParent(fx?.container);
+    }
+    activeEventExpiryFx.length = 0;
+  }
+
+  function collectEventSnapshots(state, cols) {
+    const snapshots = new Map();
+    const occ = state?.board?.occ?.event;
+    for (let col = 0; col < cols; col++) {
+      const eventInst = occ?.[col] || null;
+      if (!eventInst) continue;
+      const anchorCol = Number.isFinite(eventInst.col)
+        ? Math.floor(eventInst.col)
+        : col;
+      if (anchorCol !== col) continue;
+
+      const id = eventInst.instanceId ?? col;
+      const span =
+        Number.isFinite(eventInst.span) && eventInst.span > 0
+          ? Math.floor(eventInst.span)
+          : 1;
+      const expiresSec = Number.isFinite(eventInst.expiresSec)
+        ? Math.floor(eventInst.expiresSec)
+        : null;
+      const { color } = getEventUi(eventInst);
+
+      snapshots.set(id, {
+        id,
+        col: anchorCol,
+        span,
+        color,
+        expiresSec,
+      });
+    }
+    return snapshots;
+  }
+
+  function getEventSnapshotMetrics(snapshot) {
+    const col = Number.isFinite(snapshot?.col) ? Math.floor(snapshot.col) : 0;
+    const span =
+      Number.isFinite(snapshot?.span) && snapshot.span > 0
+        ? Math.floor(snapshot.span)
+        : 1;
+    const width = EVENT_WIDTH * span + BOARD_COL_GAP * (span - 1);
+    const x =
+      span > 1
+        ? getBoardColumnX(app.screen.width, col)
+        : layoutBoardColPos(app.screen.width, col, EVENT_WIDTH, EVENT_ROW_Y).x;
+    return {
+      x,
+      y: EVENT_ROW_Y,
+      width,
+      height: EVENT_HEIGHT,
+      centerX: x + width * 0.5,
+      centerY: EVENT_ROW_Y + EVENT_HEIGHT * 0.5,
+    };
+  }
+
+  function pushEventExpiryFx(snapshot, direction) {
+    if (!snapshot || !eventExpiryFxLayer) return;
+    ensureEventExpiryFxLayerAttached();
+    const metrics = getEventSnapshotMetrics(snapshot);
+    const radius = 8;
+    const container = new PIXI.Container();
+    container.eventMode = "none";
+    container.x = metrics.centerX;
+    container.y = metrics.centerY;
+    container.zIndex = 30;
+
+    const flash = new PIXI.Graphics()
+      .beginFill(EVENT_EXPIRY_FLASH_FILL, 1)
+      .drawRoundedRect(
+        -metrics.width * 0.5,
+        -metrics.height * 0.5,
+        metrics.width,
+        metrics.height,
+        radius
+      )
+      .endFill();
+
+    const tint = new PIXI.Graphics()
+      .beginFill(snapshot.color ?? 0xffffff, 1)
+      .drawRoundedRect(
+        -metrics.width * 0.5,
+        -metrics.height * 0.5,
+        metrics.width,
+        metrics.height,
+        radius
+      )
+      .endFill();
+
+    const glow = new PIXI.Graphics()
+      .lineStyle(2, EVENT_EXPIRY_GLOW_STROKE, 1)
+      .drawRoundedRect(
+        -metrics.width * 0.5,
+        -metrics.height * 0.5,
+        metrics.width,
+        metrics.height,
+        radius
+      );
+    container.addChild(flash, tint, glow);
+    eventExpiryFxLayer.addChild(container);
+
+    flash.blendMode = PIXI.BLEND_MODES.ADD;
+    glow.blendMode = PIXI.BLEND_MODES.ADD;
+    flash.alpha = 0;
+    tint.alpha = 0;
+    glow.alpha = 0;
+
+    activeEventExpiryFx.push({
+      container,
+      flash,
+      tint,
+      glow,
+      direction: direction === "reverse" ? "reverse" : "forward",
+      elapsedSec: 0,
+      durationSec: EVENT_EXPIRY_FX_DURATION_SEC,
+      baseY: metrics.centerY,
+    });
+
+    while (activeEventExpiryFx.length > EVENT_EXPIRY_FX_MAX_ACTIVE) {
+      const oldest = activeEventExpiryFx.shift();
+      removeFromParent(oldest?.container);
+    }
+  }
+
+  function updateEventExpiryFx(dt) {
+    if (!eventExpiryFxLayer) return;
+    ensureEventExpiryFxLayerAttached();
+    const frameDt = Number.isFinite(dt) && dt > 0 ? dt : 1 / 60;
+    for (let i = activeEventExpiryFx.length - 1; i >= 0; i--) {
+      const fx = activeEventExpiryFx[i];
+      if (!fx?.container) {
+        activeEventExpiryFx.splice(i, 1);
+        continue;
+      }
+      fx.elapsedSec += frameDt;
+      const progress = clamp01(fx.elapsedSec / (fx.durationSec || 0.0001));
+      const playback =
+        fx.direction === "reverse" ? 1 - progress : progress;
+
+      const flashPeakSec = 0.18;
+      const flashRamp =
+        playback <= flashPeakSec
+          ? playback / flashPeakSec
+          : 1 - (playback - flashPeakSec) / (1 - flashPeakSec);
+      const flashAlpha = Math.max(0, flashRamp) * 0.64;
+      const drift = EVENT_EXPIRY_FLOAT_PX * easeOutCubic(playback);
+      const scale = 1 + EVENT_EXPIRY_SCALE * easeOutCubic(playback);
+      const glowAlpha = (1 - Math.abs(playback - flashPeakSec) / 0.6) * 0.45;
+      const tintAlpha = EVENT_EXPIRY_TINT_STRENGTH * (1 - playback);
+
+      fx.container.y = fx.baseY - drift;
+      fx.container.scale.set(scale);
+      fx.flash.alpha = flashAlpha;
+      fx.tint.alpha = Math.max(0, tintAlpha);
+      fx.glow.alpha = Math.max(0, glowAlpha);
+
+      if (progress >= 1) {
+        removeFromParent(fx.container);
+        activeEventExpiryFx.splice(i, 1);
+      }
+    }
+  }
+
+  function syncEventExpiryFxFromTimelineState(state, cols) {
+    const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : null;
+    const currentSnapshots = collectEventSnapshots(state, cols);
+
+    if (nowSec == null || lastSeenEventSec == null) {
+      lastSeenEventSec = nowSec;
+      eventSnapshotsById = currentSnapshots;
+      return;
+    }
+
+    if (nowSec > lastSeenEventSec) {
+      for (const [id, previousSnapshot] of eventSnapshotsById.entries()) {
+        if (currentSnapshots.has(id)) continue;
+        const expiresSec = previousSnapshot?.expiresSec;
+        if (!Number.isFinite(expiresSec)) continue;
+        if (expiresSec > lastSeenEventSec && expiresSec <= nowSec) {
+          pushEventExpiryFx(previousSnapshot, "forward");
+        }
+      }
+    } else if (nowSec < lastSeenEventSec) {
+      for (const [id, currentSnapshot] of currentSnapshots.entries()) {
+        if (eventSnapshotsById.has(id)) continue;
+        const expiresSec = currentSnapshot?.expiresSec;
+        if (!Number.isFinite(expiresSec)) continue;
+        if (expiresSec > nowSec && expiresSec <= lastSeenEventSec) {
+          pushEventExpiryFx(currentSnapshot, "reverse");
+        }
+      }
+    }
+
+    lastSeenEventSec = nowSec;
+    eventSnapshotsById = currentSnapshots;
   }
 
   function getEventRevealRemainingSec(eventInst) {
@@ -2002,6 +2226,35 @@ export function createBoardView(opts) {
 
     tagUi?.rebuildTileTags?.(view, tileInst);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    bindTouchLongPress({
+      app,
+      target: cont,
+      shouldStart: () => {
+        if (!interaction?.canShowHoverUI?.()) return false;
+        if (activeTagDrag && activeTagDrag !== view) return false;
+        return true;
+      },
+      onLongPress: () => {
+        const anchorCol = Number.isFinite(view.tile?.col)
+          ? Math.floor(view.tile.col)
+          : col;
+        setActiveHover({
+          view,
+          kind: "tile",
+          col: anchorCol,
+          clear: () => clearTileHover(view),
+        });
+        if (view.isHovered) return;
+        applyTileHover(view);
+      },
+      onEnd: () => {
+        if (activeHover?.view === view) {
+          clearActiveHover(view);
+        } else {
+          clearTileHover(view);
+        }
+      },
+    });
     return view;
   }
 
@@ -2147,6 +2400,43 @@ export function createBoardView(opts) {
     eventLayer.addChild(cont);
 
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    bindTouchLongPress({
+      app,
+      target: cont,
+      shouldStart: () => !!interaction?.canShowHoverUI?.() && !activeTagDrag,
+      onLongPress: () => {
+        setActiveHover({
+          view,
+          kind: "event",
+          col,
+          clear: () => clearEventHover(view),
+        });
+        setHoverActive(true);
+        elevateForHover(cont);
+        const anchor = getScaledAnchorRect(
+          cont,
+          width,
+          EVENT_HEIGHT,
+          GAMEPIECE_HOVER_SCALE
+        );
+        setHoverContext("event", col, span, anchor);
+        tooltipView?.show?.(
+          {
+            title,
+            lines: desc ? [desc] : [],
+            scale: GAMEPIECE_HOVER_SCALE,
+          },
+          anchor
+        );
+      },
+      onEnd: () => {
+        if (activeHover?.view === view) {
+          clearActiveHover(view);
+        } else {
+          clearEventHover(view);
+        }
+      },
+    });
     return view;
   }
 
@@ -2266,6 +2556,27 @@ export function createBoardView(opts) {
 
     envStructuresLayer.addChild(cont);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    bindTouchLongPress({
+      app,
+      target: cont,
+      shouldStart: () => !!interaction?.canShowHoverUI?.() && !activeTagDrag,
+      onLongPress: () => {
+        setActiveHover({
+          view,
+          kind: "envStructure",
+          col,
+          clear: () => clearEnvStructureHover(view),
+        });
+        applyEnvStructureHover(view);
+      },
+      onEnd: () => {
+        if (activeHover?.view === view) {
+          clearActiveHover(view);
+        } else {
+          clearEnvStructureHover(view);
+        }
+      },
+    });
     return view;
   }
 
@@ -2506,6 +2817,29 @@ export function createBoardView(opts) {
 
     hubTagUi?.rebuildStructureTags?.(view, structureInst);
 
+    const hubLongPress = bindTouchLongPress({
+      app,
+      target: cont,
+      shouldStart: () => !!interaction?.canShowHoverUI?.() && !activeTagDrag,
+      onLongPress: () => {
+        setActiveHover({
+          view,
+          kind: "hub",
+          col,
+          clear: () => clearHubStructureHover(view),
+        });
+        if (view.isHovered) return;
+        applyHubStructureHover(view);
+      },
+      onEnd: () => {
+        if (activeHover?.view === view) {
+          clearActiveHover(view);
+        } else {
+          clearHubStructureHover(view);
+        }
+      },
+    });
+
     cont.on("pointerenter", () => {
       if (!interaction?.canShowHoverUI?.()) return;
       if (activeTagDrag) return;
@@ -2526,6 +2860,7 @@ export function createBoardView(opts) {
     });
 
     cont.on("pointertap", () => {
+      if (hubLongPress.consumeTap()) return;
       if (inventoryView && structureHasInventory()) {
         inventoryView.togglePinned(structureInst.instanceId);
       }
@@ -2948,6 +3283,9 @@ export function createBoardView(opts) {
     }
 
     clearTileFeedbackRuntime();
+    clearEventExpiryFxRuntime();
+    eventSnapshotsById = new Map();
+    lastSeenEventSec = null;
     tileLayer.removeChildren();
     eventLayer.removeChildren();
     envStructuresLayer.removeChildren();
@@ -2969,11 +3307,14 @@ export function createBoardView(opts) {
     const hubCols = Array.isArray(s?.hub?.slots)
       ? s.hub.slots.length
       : HUB_COLS;
+    ensureEventExpiryFxLayerAttached();
     const pawnCounts = getPawnCounts(s, cols, hubCols);
     syncEvents(s, cols);
     syncEnvStructures(s, cols);
     syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
+    eventSnapshotsById = collectEventSnapshots(s, cols);
+    lastSeenEventSec = Number.isFinite(s?.tSec) ? Math.floor(s.tSec) : null;
 
     restoreHoverAfterRebuild(pendingHover, pendingPointer);
   }
@@ -3105,6 +3446,7 @@ export function createBoardView(opts) {
     const hubCols = Array.isArray(s?.hub?.slots)
       ? s.hub.slots.length
       : HUB_COLS;
+    syncEventExpiryFxFromTimelineState(s, cols);
     const pawnCounts = getPawnCounts(s, cols, hubCols);
     syncEvents(s, cols);
     syncEnvStructures(s, cols);
@@ -3128,6 +3470,7 @@ export function createBoardView(opts) {
       }
     }
 
+    updateEventExpiryFx(dt);
     updateApDragOverlays(dt);
   }
 
@@ -3136,6 +3479,7 @@ export function createBoardView(opts) {
       stagePointerMoveHandler = (ev) => trackPointerPos(ev);
       app.stage.on("pointermove", stagePointerMoveHandler);
     }
+    ensureEventExpiryFxLayerAttached();
     const state = getGameState?.();
     lastProcessedGameEventId = Math.max(
       lastProcessedGameEventId,

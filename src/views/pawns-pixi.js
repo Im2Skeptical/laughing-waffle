@@ -29,6 +29,7 @@ import {
   GAMEPIECE_SHADOW_OFFSET_X,
   GAMEPIECE_SHADOW_OFFSET_Y,
 } from "./layout-pixi.js";
+import { bindTouchLongPress } from "./ui-helpers/touch-long-press.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
@@ -825,6 +826,25 @@ export function createPawnsView(opts) {
       hideHover();
     });
 
+    const pawnLongPress = bindTouchLongPress({
+      app,
+      target: container,
+      shouldStart: () => {
+        if (interactionSafe.isDragging && interactionSafe.isDragging()) {
+          return false;
+        }
+        return !!interactionSafe.canShowHoverUI?.();
+      },
+      onLongPress: () => {
+        if (interactionSafe.isDragging && interactionSafe.isDragging()) return;
+        showHover();
+      },
+      onEnd: () => {
+        if (interactionSafe.isDragging && interactionSafe.isDragging()) return;
+        hideHover();
+      },
+    });
+
     // -----------------------------------------------------------------------
     // Dragging logic
     // -----------------------------------------------------------------------
@@ -901,6 +921,14 @@ export function createPawnsView(opts) {
       interactionSafe.endDrag?.();
 
       const g = ev.data.global;
+
+      if (pawnLongPress.consumeTap()) {
+        hideHover();
+        if (typeof setDragGhost === "function") {
+          setDragGhost(null);
+        }
+        return;
+      }
 
       if (!wasDragging) {
         const pawnData = view.pawn || pawn;
