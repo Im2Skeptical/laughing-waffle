@@ -206,6 +206,7 @@ export const setupDefs = {
         "tile_levee",
         "tile_hinterland",
       ],
+      envStructures: [{ defId: "hubPortal", col: 2 }],
     },
 
     hub: {
@@ -246,8 +247,8 @@ export const setupDefs = {
       {
         owner: { type: "pawn", index: 0 },
         items: [
-          { kind: "reeds", quantity: 20, gridX: 0, gridY: 0 },
-          { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
+          { kind: "moteOfEternity", quantity: 1, gridX: 0, gridY: 0 },
+          { kind: "reeds", quantity: 20, gridX: 1, gridY: 0 },
           { kind: "straw", quantity: 20, gridX: 2, gridY: 0 },
           { kind: "stone", quantity: 5, gridX: 3, gridY: 0 },
         ],

@@ -27,6 +27,20 @@ function getScrollGraphState(item) {
   const manufacturedSec = Number.isFinite(graphState.manufacturedSec)
     ? toSafeSec(graphState.manufacturedSec, 0)
     : null;
+  const editableRangeMode =
+    typeof graphState.editableRangeMode === "string"
+      ? graphState.editableRangeMode
+      : null;
+  const editableRangeStartSec = Number.isFinite(graphState.editableRangeStartSec)
+    ? toSafeSec(graphState.editableRangeStartSec, 0)
+    : Number.isFinite(graphState.editableMinSec)
+      ? toSafeSec(graphState.editableMinSec, 0)
+      : null;
+  const editableRangeEndSec = Number.isFinite(graphState.editableRangeEndSec)
+    ? toSafeSec(graphState.editableRangeEndSec, 0)
+    : Number.isFinite(graphState.editableMaxSec)
+      ? toSafeSec(graphState.editableMaxSec, 0)
+      : null;
 
   return {
     typeId,
@@ -49,6 +63,9 @@ function getScrollGraphState(item) {
     horizonSec,
     historyWindowSec,
     manufacturedSec,
+    editableRangeMode,
+    editableRangeStartSec,
+    editableRangeEndSec,
   };
 }
 
@@ -63,6 +80,24 @@ function resolveWindowSpecForScroll(runner, scrollState) {
   const anchorSec = Number.isFinite(scrollState.manufacturedSec)
     ? toSafeSec(scrollState.manufacturedSec, historyEndSec)
     : historyEndSec;
+
+  if (
+    scrollState.editableRangeMode === "absolute" &&
+    Number.isFinite(scrollState.editableRangeEndSec)
+  ) {
+    const rangeStartSec = toSafeSec(scrollState.editableRangeStartSec, 0);
+    const rangeEndSec = Math.max(
+      rangeStartSec,
+      toSafeSec(scrollState.editableRangeEndSec, rangeStartSec)
+    );
+    const minSec = rangeStartSec;
+    const maxSec = rangeEndSec;
+    return {
+      minSec,
+      maxSec: Math.max(minSec + 1, maxSec),
+      scrubSec: Math.max(minSec, Math.min(cursorSec, maxSec)),
+    };
+  }
 
   if (scrollState.windowMode === "future") {
     const minSec = anchorSec;
@@ -109,6 +144,20 @@ function resolveCommitPolicy(runner, scrollState, commitSpec) {
   if (scrubSec > historyEndSec) {
     return { allow: false, reason: "Forecast is preview-only" };
   }
+  if (
+    scrollState.editableRangeMode === "absolute" &&
+    Number.isFinite(scrollState.editableRangeEndSec)
+  ) {
+    const rangeStartSec = toSafeSec(scrollState.editableRangeStartSec, 0);
+    const rangeEndSec = Math.max(
+      rangeStartSec,
+      toSafeSec(scrollState.editableRangeEndSec, rangeStartSec)
+    );
+    if (scrubSec < rangeStartSec || scrubSec > rangeEndSec) {
+      return { allow: false, reason: "Outside scroll editable range" };
+    }
+    return { allow: true };
+  }
   if (scrubSec < minEditableSec) {
     return { allow: false, reason: "Outside editable history window" };
   }
@@ -117,6 +166,12 @@ function resolveCommitPolicy(runner, scrollState, commitSpec) {
 
 function resolveControllerHorizonOverride(scrollState) {
   if (!scrollState || typeof scrollState !== "object") return null;
+  if (
+    scrollState.editableRangeMode === "absolute" &&
+    Number.isFinite(scrollState.editableRangeEndSec)
+  ) {
+    return toSafeSec(scrollState.horizonSec, 0);
+  }
   if (scrollState.windowMode === "future") {
     return toSafeSec(scrollState.horizonSec, 0);
   }
