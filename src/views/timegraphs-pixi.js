@@ -37,6 +37,7 @@ export function createMetricGraphView({
   getMetricDef,
   getTimeline,
   getCursorState,
+  getPreviewStatus,
   getSeriesValueOverride,
   getEditableHistoryBounds,
   setPreviewState,
@@ -196,6 +197,7 @@ export function createMetricGraphView({
   let lastMarkerCap = 0;
   const ACTION_SNAP_THRESHOLD_SEC = 0.75;
   const MAX_ACTION_MARKERS_DENSITY = 2;
+  const FORECAST_PREVIEW_MARKER_COLOR = 0x8ed8ff;
 
   function clampInt(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v | 0));
@@ -383,12 +385,18 @@ export function createMetricGraphView({
   function updateTimeBounds() {
     const tl = getTimeline?.();
     const cs = getCursorState?.();
+    const preview =
+      typeof getPreviewStatus === "function" ? getPreviewStatus() : null;
     const d = controller.getData?.() ?? {};
 
     const horizonSec = Math.max(0, Math.floor(d.horizonSec ?? 1200));
 
     const historyEnd = tl?.historyEndSec ?? 0;
     const currentT = Math.floor(cs?.tSec ?? 0);
+    const forecastPreviewSec =
+      preview?.isForecastPreview && Number.isFinite(preview?.previewSec)
+        ? Math.max(0, Math.floor(preview.previewSec))
+        : null;
     const rollingWindow =
       Number.isFinite(historyWindowSec) && historyWindowSec > 0
         ? Math.floor(historyWindowSec)
@@ -413,7 +421,9 @@ export function createMetricGraphView({
       maxSec = Math.max(minSec + 1, Math.floor(customWindowSpec.maxSec));
       const preferredScrub = Number.isFinite(customWindowSpec.scrubSec)
         ? Math.floor(customWindowSpec.scrubSec)
-        : currentT;
+        : Number.isFinite(forecastPreviewSec)
+          ? forecastPreviewSec
+          : currentT;
       if (!isScrubbing || customWindowSpec.forceScrubToCursor === true) {
         scrubSec = clampInt(preferredScrub, minSec, maxSec);
       } else {
@@ -443,7 +453,10 @@ export function createMetricGraphView({
     }
 
     if (!isScrubbing) {
-      scrubSec = clampInt(currentT, minSec, maxSec);
+      const defaultScrubSec = Number.isFinite(forecastPreviewSec)
+        ? forecastPreviewSec
+        : currentT;
+      scrubSec = clampInt(defaultScrubSec, minSec, maxSec);
     }
   }
 
@@ -629,15 +642,22 @@ export function createMetricGraphView({
     resolveMetric();
     const cs = getCursorState?.();
     const tl = getTimeline?.();
+    const preview =
+      typeof getPreviewStatus === "function" ? getPreviewStatus() : null;
 
     if (!cs) return;
 
     const curT = Math.floor(cs.tSec ?? 0);
     const historyEnd = tl?.historyEndSec ?? 0;
+    const forecastPreviewSec =
+      preview?.isForecastPreview && Number.isFinite(preview?.previewSec)
+        ? Math.max(0, Math.floor(preview.previewSec))
+        : null;
+    const hasForecastPreview = Number.isFinite(forecastPreviewSec);
     const metricLabel = getMetricLabel();
     const signature =
       `${isScrubbing ? 1 : 0}|${scrubSec}|${curT}|${historyEnd}|` +
-      `${minSec}:${maxSec}|${statusNote}|${metricLabel}`;
+      `${minSec}:${maxSec}|${statusNote}|${metricLabel}|${hasForecastPreview ? forecastPreviewSec : -1}`;
     if (signature === lastScrubSignature) return;
     lastScrubSignature = signature;
 
@@ -645,7 +665,11 @@ export function createMetricGraphView({
 
     const x = timeToX(scrubSec);
 
-    const color = isScrubbing ? 0xffffff : 0xaaaaaa;
+    const color = isScrubbing
+      ? 0xffffff
+      : hasForecastPreview
+        ? FORECAST_PREVIEW_MARKER_COLOR
+        : 0xaaaaaa;
     scrubG.lineStyle(1, color, 0.8);
     scrubG.moveTo(x, plot.y);
     scrubG.lineTo(x, plot.y + plot.h);

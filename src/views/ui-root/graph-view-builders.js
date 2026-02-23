@@ -19,6 +19,7 @@ export function createRunnerMetricGraph({
     controller,
     getTimeline: () => runner.getTimeline(),
     getCursorState: () => runner.getCursorState(),
+    getPreviewStatus: () => runner.getPreviewStatus?.(),
     getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
     setPreviewState: (s) => runner.setPreviewState(s),
     clearPreviewState: () => runner.clearPreviewState(),

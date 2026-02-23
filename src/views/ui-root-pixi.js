@@ -68,7 +68,7 @@ import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
 import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
 import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrator.js";
 
-const DESIGN_WIDTH = 1920;
+const DESIGN_WIDTH = 2424;
 const DESIGN_HEIGHT = 1080;
 const BOOT_VARIANT_FLAGS = normalizeVariantFlags(
   setupDefs?.[BOOT_SETUP_ID]?.variantFlags
@@ -1318,6 +1318,44 @@ const timeControlsView = createTimeControlsView({
     };
   },
   onCommitPreview: () => runner.commitPreviewToLive?.(),
+  getReturnToPresentState: () => {
+    const preview = runner.getPreviewStatus?.();
+    if (preview?.isForecastPreview) {
+      return { visible: false, enabled: false, targetSec: null };
+    }
+
+    const timeline = runner.getTimeline?.();
+    const cursorState = runner.getCursorState?.();
+    const bounds = runner.getEditableHistoryBounds?.();
+    const historyEndSec = Math.max(
+      0,
+      Math.floor(timeline?.historyEndSec ?? 0)
+    );
+    const minEditableSec = Number.isFinite(bounds?.minEditableSec)
+      ? Math.max(0, Math.floor(bounds.minEditableSec))
+      : 0;
+    const viewSec =
+      preview?.active && Number.isFinite(preview?.previewSec)
+        ? Math.max(0, Math.floor(preview.previewSec))
+        : Math.max(0, Math.floor(cursorState?.tSec ?? 0));
+    const visible = viewSec < minEditableSec && historyEndSec > viewSec;
+    return {
+      visible,
+      enabled: visible,
+      targetSec: historyEndSec,
+    };
+  },
+  onReturnToPresent: (targetSec) => {
+    const timeline = runner.getTimeline?.();
+    const fallbackSec = Math.max(
+      0,
+      Math.floor(timeline?.historyEndSec ?? 0)
+    );
+    const resolvedSec = Number.isFinite(targetSec)
+      ? Math.max(0, Math.floor(targetSec))
+      : fallbackSec;
+    return runner.commitCursorSecond?.(resolvedSec);
+  },
   getTimeScale: () => runner.getTimeScale?.(),
   setTimeScaleTarget: (speed, opts) => runner.setTimeScaleTarget?.(speed, opts),
   layout: TIME_CONTROLS_LAYOUT,

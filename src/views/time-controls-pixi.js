@@ -81,6 +81,8 @@ export function createTimeControlsView({
   isPausePending,
   getCommitPreviewState,
   onCommitPreview,
+  getReturnToPresentState,
+  onReturnToPresent,
   getTimeScale,
   setTimeScaleTarget,
   layout = TIME_CONTROLS_LAYOUT,
@@ -94,7 +96,17 @@ export function createTimeControlsView({
   const pauseButton = makeButton(root, "Pause", () => {
     togglePause?.();
   });
+  let actionButtonMode = "commit";
+  let actionButtonTargetSec = null;
   const commitButton = makeButton(root, "Commit", () => {
+    if (actionButtonMode === "present") {
+      if (Number.isFinite(actionButtonTargetSec)) {
+        onReturnToPresent?.(actionButtonTargetSec);
+        return;
+      }
+      onReturnToPresent?.();
+      return;
+    }
     onCommitPreview?.();
   });
   const timeLeverView = createTimeLeverView({
@@ -167,17 +179,38 @@ export function createTimeControlsView({
       typeof getCommitPreviewState === "function"
         ? getCommitPreviewState()
         : null;
+    const returnState =
+      typeof getReturnToPresentState === "function"
+        ? getReturnToPresentState()
+        : null;
     const showCommit = !!commitState?.visible;
+    const showReturn = !showCommit && !!returnState?.visible;
+    const showActionButton = showCommit || showReturn;
     const canCommit =
       showCommit &&
       commitState?.enabled !== false &&
       typeof onCommitPreview === "function";
-    commitButton.visible = showCommit;
-    commitButton.eventMode = canCommit ? "static" : "none";
-    commitButton.cursor = canCommit ? "pointer" : "default";
+    const canReturn =
+      showReturn &&
+      returnState?.enabled !== false &&
+      typeof onReturnToPresent === "function";
+    const canAction = showCommit ? canCommit : canReturn;
+    actionButtonMode = showReturn ? "present" : "commit";
+    actionButtonTargetSec =
+      showReturn && Number.isFinite(returnState?.targetSec)
+        ? Math.floor(returnState.targetSec)
+        : null;
+
+    commitButton.visible = showActionButton;
+    commitButton.eventMode = canAction ? "static" : "none";
+    commitButton.cursor = canAction ? "pointer" : "default";
     const commitBg = commitButton.children[0];
+    const commitLabel = commitButton.children[1];
+    if (commitLabel) {
+      commitLabel.text = showReturn ? "Present" : "Commit";
+    }
     if (commitBg) {
-      commitBg.tint = canCommit ? 0x55aa55 : 0x666666;
+      commitBg.tint = canAction ? 0x55aa55 : 0x666666;
     }
 
     timeLeverView.update(state, frameDt);

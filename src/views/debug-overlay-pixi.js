@@ -5,7 +5,7 @@ import { ActionKinds } from "../model/actions.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 
-const DESIGN_WIDTH = 1920;
+const DESIGN_WIDTH = 2424;
 const PANEL_WIDTH = 280;
 const PANEL_MIN_HEIGHT = 540;
 const TOP_VIEW_UPDATES_COUNT = 5;
@@ -14,6 +14,7 @@ const SLOT_META_REFRESH_MS = 1000;
 const PARITY_REFRESH_MS = 500;
 const FULLSCREEN_BUTTON_HEIGHT = 56;
 const FULLSCREEN_BUTTON_FONT_SIZE = 15;
+const DEBUG_TOGGLE_SIZE = 38;
 
 function clampInt(value, fallback = 0) {
   const n = Math.floor(value);
@@ -54,20 +55,27 @@ export function createDebugOverlay({
   });
   apText.x = 4;
   apText.y = 8;
+  apText.eventMode = "none";
   root.addChild(apText);
 
-  const dbgBtn = new PIXI.Graphics();
-  dbgBtn.beginFill(0x444444);
-  dbgBtn.drawRoundedRect(PANEL_WIDTH - 34, 4, 30, 30, 4);
-  dbgBtn.endFill();
+  const dbgBtn = new PIXI.Container();
+  dbgBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE - 4;
+  dbgBtn.y = 2;
   dbgBtn.eventMode = "static";
   dbgBtn.cursor = "pointer";
+  const dbgBtnBg = new PIXI.Graphics();
+  dbgBtnBg.beginFill(0x444444);
+  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE * 5, DEBUG_TOGGLE_SIZE, 6);
+  dbgBtnBg.endFill();
+  dbgBtn.addChild(dbgBtnBg);
   root.addChild(dbgBtn);
 
   const dbgIcon = new PIXI.Text("D", { fontSize: 20, fill: 0xffffff });
-  dbgIcon.x = PANEL_WIDTH - 28;
-  dbgIcon.y = 7;
-  root.addChild(dbgIcon);
+  dbgIcon.anchor.set(0.5, 0.5);
+  dbgIcon.x = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+  dbgIcon.y = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+  dbgIcon.eventMode = "none";
+  dbgBtn.addChild(dbgIcon);
 
   const panel = new PIXI.Container();
   panel.y = 42;
