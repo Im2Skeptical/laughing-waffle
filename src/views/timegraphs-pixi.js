@@ -33,6 +33,8 @@ export function createMetricGraphView({
   app,
   layer,
   controller,
+  interaction = null,
+  tooltipView = null,
   metric = GRAPH_METRICS.gold,
   getMetricDef,
   getTimeline,
@@ -99,18 +101,25 @@ export function createMetricGraphView({
   const body = new PIXI.Graphics();
   const plotG = new PIXI.Graphics();
   const scrubG = new PIXI.Graphics();
+  const legendContainer = new PIXI.Container();
   const text = new PIXI.Text("", {
     fontFamily: "Arial",
     fontSize: 14,
     fill: 0xffffff,
   });
 
-  root.addChild(header, body, plotG, scrubG, text);
+  root.addChild(header, body, legendContainer, plotG, scrubG, text);
+
+  const LEGEND_GUTTER_W = 34;
+  const LEGEND_GUTTER_GAP = 4;
+  const LEGEND_ICON_SIZE = 14;
+  const LEGEND_ICON_GAP = 6;
+  const LEGEND_ICON_TEXT_SIZE = 8;
 
   const plot = {
-    x: 16,
+    x: 16 + LEGEND_GUTTER_W + LEGEND_GUTTER_GAP,
     y: HEADER_H + 12,
-    w: WIN_W - 32,
+    w: WIN_W - (16 + LEGEND_GUTTER_W + LEGEND_GUTTER_GAP) - 16,
     h: WIN_H - HEADER_H - 26,
   };
 
@@ -198,6 +207,16 @@ export function createMetricGraphView({
   const ACTION_SNAP_THRESHOLD_SEC = 0.75;
   const MAX_ACTION_MARKERS_DENSITY = 2;
   const FORECAST_PREVIEW_MARKER_COLOR = 0x8ed8ff;
+  const SERIES_LINE_WIDTH_DEFAULT = 2;
+  const SERIES_LINE_WIDTH_HOVERED = 3;
+  const SERIES_LINE_WIDTH_DIMMED = 1.5;
+  const SERIES_LINE_ALPHA_DEFAULT = 1;
+  const SERIES_LINE_ALPHA_HOVERED = 1;
+  const SERIES_LINE_ALPHA_DIMMED = 0.22;
+
+  let legendSignature = "";
+  let hoveredLegendSeriesId = null;
+  const legendEntriesBySeriesId = new Map();
 
   function clampInt(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v | 0));
@@ -326,6 +345,185 @@ export function createMetricGraphView({
       sampled.push(last);
     }
     return sampled;
+  }
+
+  function makeLegendSignature(seriesList) {
+    if (!Array.isArray(seriesList) || !seriesList.length) return "";
+    return seriesList
+      .map((s) => {
+        const id = String(s?.id ?? "");
+        const color = Number.isFinite(s?.color) ? s.color : "";
+        const icon = String(s?.legendIcon ?? "");
+        const label = String(s?.legendLabel ?? s?.label ?? "");
+        return `${id}:${color}:${icon}:${label}`;
+      })
+      .join("|");
+  }
+
+  function toLegendIconText(rawText) {
+    const text = String(rawText ?? "").trim();
+    if (!text) return "?";
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase().slice(0, 2);
+    }
+    return text.slice(0, 2).toUpperCase();
+  }
+
+  function getSeriesLegendTitle(seriesDef) {
+    const label = String(seriesDef?.legendLabel ?? "").trim();
+    if (label) return label;
+    const fallback = String(seriesDef?.label ?? seriesDef?.id ?? "").trim();
+    return fallback || "Series";
+  }
+
+  function buildLegendTooltipSpec(seriesDef) {
+    const cursorState = getCursorState?.() ?? null;
+    const baseTitle = getSeriesLegendTitle(seriesDef);
+    if (typeof seriesDef?.getLegendTooltipSpec === "function") {
+      const spec = seriesDef.getLegendTooltipSpec(cursorState);
+      if (spec && typeof spec === "object") {
+        return {
+          title:
+            typeof spec.title === "string" && spec.title.trim()
+              ? spec.title
+              : baseTitle,
+          lines: Array.isArray(spec.lines)
+            ? spec.lines.filter((line) => typeof line === "string" && line)
+            : [],
+          maxWidth: spec.maxWidth,
+        };
+      }
+    }
+    return { title: baseTitle, lines: [] };
+  }
+
+  function refreshLegendStyles() {
+    const hasHovered =
+      typeof hoveredLegendSeriesId === "string" && hoveredLegendSeriesId.length > 0;
+    for (const [seriesId, entry] of legendEntriesBySeriesId.entries()) {
+      const isHovered = hasHovered && seriesId === hoveredLegendSeriesId;
+      const lineColor = Number.isFinite(entry?.lineColor) ? entry.lineColor : 0xffffff;
+      const baseAlpha = hasHovered && !isHovered ? 0.35 : 0.95;
+      entry.bg.clear();
+      entry.bg
+        .lineStyle(isHovered ? 2 : 1, isHovered ? 0xffffff : 0x111a2a, isHovered ? 0.95 : 0.85)
+        .beginFill(lineColor, baseAlpha)
+        .drawCircle(LEGEND_ICON_SIZE / 2, LEGEND_ICON_SIZE / 2, LEGEND_ICON_SIZE / 2)
+        .endFill();
+      entry.container.alpha = hasHovered && !isHovered ? 0.65 : 1;
+    }
+  }
+
+  function setLegendHoverSeries(seriesId) {
+    const next =
+      typeof seriesId === "string" && seriesId.length ? seriesId : null;
+    if (next === hoveredLegendSeriesId) return;
+    hoveredLegendSeriesId = next;
+    refreshLegendStyles();
+    if (!root.visible) return;
+    drawPlot();
+    drawScrub();
+  }
+
+  function clearLegendHoverSeries() {
+    if (!hoveredLegendSeriesId) return;
+    hoveredLegendSeriesId = null;
+    refreshLegendStyles();
+    if (!root.visible) return;
+    drawPlot();
+    drawScrub();
+  }
+
+  function clearLegendEntries() {
+    legendContainer.removeChildren();
+    legendEntriesBySeriesId.clear();
+    legendSignature = "";
+    clearLegendHoverSeries();
+  }
+
+  function drawLegend(seriesList) {
+    const list = Array.isArray(seriesList) ? seriesList : [];
+    const nextSignature = makeLegendSignature(list);
+    if (nextSignature !== legendSignature) {
+      legendContainer.removeChildren();
+      legendEntriesBySeriesId.clear();
+      legendSignature = nextSignature;
+      if (
+        hoveredLegendSeriesId &&
+        !list.some((s) => String(s?.id ?? "") === hoveredLegendSeriesId)
+      ) {
+        hoveredLegendSeriesId = null;
+      }
+
+      for (const s of list) {
+        const seriesId = String(s?.id ?? "");
+        if (!seriesId) continue;
+        const lineColor = Number.isFinite(s?.color) ? s.color : 0xffffff;
+        const iconTextValue = toLegendIconText(
+          String(s?.legendIcon ?? s?.legendLabel ?? s?.label ?? seriesId)
+        );
+
+        const entryContainer = new PIXI.Container();
+        entryContainer.eventMode = "static";
+        entryContainer.cursor = "pointer";
+        entryContainer.hitArea = new PIXI.Rectangle(
+          0,
+          0,
+          LEGEND_ICON_SIZE,
+          LEGEND_ICON_SIZE
+        );
+        entryContainer.on("pointerdown", (event) => {
+          event?.stopPropagation?.();
+        });
+        entryContainer.on("pointertap", (event) => {
+          event?.stopPropagation?.();
+        });
+        entryContainer.on("pointerover", () => {
+          setLegendHoverSeries(seriesId);
+          if (!tooltipView) return;
+          if (interaction && interaction?.canShowHoverUI?.() === false) return;
+          const spec = buildLegendTooltipSpec(s);
+          tooltipView.show(spec, entryContainer.getBounds());
+        });
+        entryContainer.on("pointerout", () => {
+          setLegendHoverSeries(null);
+          tooltipView?.hide?.();
+        });
+
+        const bg = new PIXI.Graphics();
+        const iconText = new PIXI.Text(iconTextValue, {
+          fill: 0xffffff,
+          fontSize: LEGEND_ICON_TEXT_SIZE,
+          fontWeight: "bold",
+        });
+        iconText.anchor.set(0.5);
+        iconText.x = LEGEND_ICON_SIZE / 2;
+        iconText.y = LEGEND_ICON_SIZE / 2;
+        entryContainer.addChild(bg, iconText);
+        legendContainer.addChild(entryContainer);
+
+        legendEntriesBySeriesId.set(seriesId, {
+          container: entryContainer,
+          bg,
+          lineColor,
+        });
+      }
+    }
+
+    const entries = Array.from(legendEntriesBySeriesId.values());
+    const totalHeight = entries.length
+      ? entries.length * LEGEND_ICON_SIZE + (entries.length - 1) * LEGEND_ICON_GAP
+      : 0;
+    const startY = plot.y + Math.max(0, Math.floor((plot.h - totalHeight) / 2));
+    let y = startY;
+    const x = 16 + Math.floor((LEGEND_GUTTER_W - LEGEND_ICON_SIZE) / 2);
+    for (const entry of entries) {
+      entry.container.x = x;
+      entry.container.y = y;
+      y += LEGEND_ICON_SIZE + LEGEND_ICON_GAP;
+    }
+    refreshLegendStyles();
   }
 
   function updateHeaderButtons() {
@@ -466,6 +664,7 @@ export function createMetricGraphView({
     plotG.clear();
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
+    drawLegend(seriesList);
     const cs = getCursorState?.();
     const cursorSec = Math.floor(cs?.tSec ?? 0);
     const sampleRes = controller.getSamplesForWindow?.({
@@ -587,9 +786,23 @@ export function createMetricGraphView({
     }
 
     // Data Line
+    const hasHoveredSeries =
+      typeof hoveredLegendSeriesId === "string" &&
+      hoveredLegendSeriesId.length > 0;
     for (const s of seriesList) {
       const lineColor = Number.isFinite(s.color) ? s.color : 0xffffff;
-      plotG.lineStyle(2, lineColor, 1);
+      const isHovered = hasHoveredSeries && s.id === hoveredLegendSeriesId;
+      const lineWidth = hasHoveredSeries
+        ? isHovered
+          ? SERIES_LINE_WIDTH_HOVERED
+          : SERIES_LINE_WIDTH_DIMMED
+        : SERIES_LINE_WIDTH_DEFAULT;
+      const lineAlpha = hasHoveredSeries
+        ? isHovered
+          ? SERIES_LINE_ALPHA_HOVERED
+          : SERIES_LINE_ALPHA_DIMMED
+        : SERIES_LINE_ALPHA_DEFAULT;
+      plotG.lineStyle(lineWidth, lineColor, lineAlpha);
       let first = true;
       const values = seriesValues.get(s.id) ?? [];
 
@@ -800,6 +1013,8 @@ export function createMetricGraphView({
     if (!root.visible) return;
     root.visible = false;
     isScrubbing = false;
+    clearLegendEntries();
+    tooltipView?.hide?.();
     clearPreviewState?.();
     controller?.setActive?.(false);
   }
@@ -813,6 +1028,7 @@ export function createMetricGraphView({
     resolveMetric();
     updateTimeBounds();
     updateHeaderButtons();
+    drawLegend(getActiveSeries());
     const now = performance.now();
     const data = controller.getData?.() ?? {};
     const boundsKey = `${minSec}:${maxSec}`;

@@ -1204,6 +1204,8 @@ let goldGraphView = createRunnerMetricGraph({
   layer: uiLayers.controlsLayer,
   controller: goldGraphController,
   runner,
+  interaction: interactionController,
+  tooltipView,
   metric: GRAPH_METRICS.gold,
   openPosition: VIEW_LAYOUT.graphs.gold,
 });
@@ -1214,6 +1216,8 @@ let grainGraphView = createRunnerMetricGraph({
   layer: uiLayers.controlsLayer,
   controller: grainGraphController,
   runner,
+  interaction: interactionController,
+  tooltipView,
   metric: GRAPH_METRICS.grain,
   openPosition: VIEW_LAYOUT.graphs.grain,
 });
@@ -1224,6 +1228,8 @@ let foodGraphView = createRunnerMetricGraph({
   layer: uiLayers.controlsLayer,
   controller: foodGraphController,
   runner,
+  interaction: interactionController,
+  tooltipView,
   metric: GRAPH_METRICS.food,
   openPosition: VIEW_LAYOUT.graphs.food,
 });
@@ -1234,6 +1240,8 @@ let systemGraphView = createRunnerMetricGraph({
   layer: uiLayers.controlsLayer,
   controller: systemGraphController,
   runner,
+  interaction: interactionController,
+  tooltipView,
   getMetricDef: () => systemGraphController.getData().metric,
   openPosition: VIEW_LAYOUT.graphs.system,
   historyWindowSec: 600,
@@ -1245,6 +1253,8 @@ let apGraphView = createRunnerMetricGraph({
   layer: uiLayers.controlsLayer,
   controller: apGraphController,
   runner,
+  interaction: interactionController,
+  tooltipView,
   metric: GRAPH_METRICS.ap,
   getSeriesValueOverride: (tSec, seriesId, _point, cursorSecRaw) => {
     if (seriesId !== "ap") return null;
@@ -1264,6 +1274,8 @@ let popGraphView = createRunnerMetricGraph({
   layer: uiLayers.controlsLayer,
   controller: popGraphController,
   runner,
+  interaction: interactionController,
+  tooltipView,
   metric: GRAPH_METRICS.population,
   openPosition: VIEW_LAYOUT.graphs.population,
 });
