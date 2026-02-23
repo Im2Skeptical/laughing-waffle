@@ -28,6 +28,7 @@ import {
   HUB_STRUCTURE_WIDTH,
   HUB_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_ROW_Y,
+  VIEW_LAYOUT,
   VIEWPORT_DESIGN_HEIGHT,
   VIEWPORT_DESIGN_WIDTH,
   getHubColumnCenterX,
@@ -144,8 +145,11 @@ export function createInventoryView({
   discardItemFromOwner,
   flashActionGhost,
   onUseItem,
+  layout = null,
 }) {
   const stage = layer.parent;
+  const inventoryLayout =
+    layout && typeof layout === "object" ? layout : VIEW_LAYOUT.inventory;
 
   const windows = new Map();
   let uiBlocked = false;
@@ -221,6 +225,42 @@ export function createInventoryView({
     return {
       width: Math.max(1, Math.floor(width)),
       height: Math.max(1, Math.floor(height)),
+    };
+  }
+
+  function getViewportWidthPx() {
+    const vvWidth = Number(window?.visualViewport?.width);
+    if (Number.isFinite(vvWidth) && vvWidth > 0) return vvWidth;
+    const innerWidth = Number(window?.innerWidth);
+    if (Number.isFinite(innerWidth) && innerWidth > 0) return innerWidth;
+    return VIEWPORT_DESIGN_WIDTH;
+  }
+
+  function getInventoryWindowScale() {
+    const breakpoint = Number.isFinite(inventoryLayout?.mobileBreakpointPx)
+      ? Math.max(320, Math.floor(inventoryLayout.mobileBreakpointPx))
+      : 900;
+    const mobileScale = Number.isFinite(inventoryLayout?.mobileScale)
+      ? Math.max(1, Number(inventoryLayout.mobileScale))
+      : 2;
+    return getViewportWidthPx() <= breakpoint ? mobileScale : 1;
+  }
+
+  function applyWindowScale(win) {
+    if (!win?.container) return false;
+    const nextScale = getInventoryWindowScale();
+    const prevScale = Number.isFinite(win.uiScale) ? win.uiScale : 1;
+    if (Math.abs(nextScale - prevScale) < 1e-6) return false;
+    win.uiScale = nextScale;
+    win.container.scale.set(nextScale);
+    return true;
+  }
+
+  function getWindowDisplaySize(win) {
+    const scale = Number.isFinite(win?.uiScale) ? win.uiScale : 1;
+    return {
+      width: Math.max(1, Math.floor((win?.panelWidth ?? 0) * scale)),
+      height: Math.max(1, Math.floor((win?.panelHeight ?? 0) * scale)),
     };
   }
 
@@ -1394,12 +1434,14 @@ export function createInventoryView({
       equipmentPanel: null,
       leaderPanel: null,
       sectionState: { equipment: false, prestige: false, build: false },
+      uiScale: 1,
       bin: {
         container: bin,
         bg: binBg,
       },
     };
 
+    applyWindowScale(win);
     windows.set(ownerId, win);
 
     // Header drag is handled by the shared header helper.
@@ -1707,22 +1749,37 @@ export function createInventoryView({
     if (uiBlocked || !canShowHoverUI()) return;
 
     const win = ensureWindow(ownerId);
+    const scaleChanged = applyWindowScale(win);
     win.hovered = true;
 
     if (!win.pinned && anchor) {
+      const displaySize = getWindowDisplaySize(win);
       let x = anchor.x + anchor.width + 10;
       let y = anchor.y;
 
       const { width: screenWidth, height: screenHeight } = getScreenSize();
-      if (x + win.panelWidth > screenWidth) {
-        x = anchor.x - win.panelWidth - 10;
+      if (x + displaySize.width > screenWidth) {
+        x = anchor.x - displaySize.width - 10;
       }
-      if (y + win.panelHeight > screenHeight) {
-        y = screenHeight - win.panelHeight - 10;
+      if (y + displaySize.height > screenHeight) {
+        y = screenHeight - displaySize.height - 10;
       }
+      if (x < 10) x = 10;
+      if (y < 10) y = 10;
 
       win.container.x = x;
       win.container.y = y;
+    } else if (scaleChanged && win.container.visible) {
+      const displaySize = getWindowDisplaySize(win);
+      const { width: screenWidth, height: screenHeight } = getScreenSize();
+      win.container.x = Math.max(
+        10,
+        Math.min(screenWidth - displaySize.width - 10, win.container.x)
+      );
+      win.container.y = Math.max(
+        10,
+        Math.min(screenHeight - displaySize.height - 10, win.container.y)
+      );
     }
 
     win.container.visible = true;
@@ -3075,14 +3132,15 @@ export function createInventoryView({
   function findWindowAt(globalPos) {
     for (const win of windows.values()) {
       const c = win.container;
+      const displaySize = getWindowDisplaySize(win);
 
       if (!c.visible) continue;
 
       if (
         globalPos.x >= c.x &&
-        globalPos.x <= c.x + win.panelWidth &&
+        globalPos.x <= c.x + displaySize.width &&
         globalPos.y >= c.y &&
-        globalPos.y <= c.y + win.panelHeight
+        globalPos.y <= c.y + displaySize.height
       ) {
         return win;
       }
@@ -3594,6 +3652,19 @@ export function createInventoryView({
     if (previewChanged) lastPreviewVersion = previewVersion;
 
     for (const [ownerId, win] of windows.entries()) {
+      const scaleChanged = applyWindowScale(win);
+      if (scaleChanged) {
+        const displaySize = getWindowDisplaySize(win);
+        const { width: screenWidth, height: screenHeight } = getScreenSize();
+        win.container.x = Math.max(
+          10,
+          Math.min(screenWidth - displaySize.width - 10, win.container.x)
+        );
+        win.container.y = Math.max(
+          10,
+          Math.min(screenHeight - displaySize.height - 10, win.container.y)
+        );
+      }
       if (!win.container.visible) continue;
 
       const inv = getInventoryForOwner(ownerId);

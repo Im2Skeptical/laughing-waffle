@@ -851,6 +851,7 @@ const setApDragWarning = (active) => {
 inventoryView = createInventoryView({
   layer: uiLayers.inventoryLayer,
   dragLayer: uiLayers.dragLayer,
+  layout: VIEW_LAYOUT.inventory,
   tooltipView,
   getOwnerLabel(ownerId) {
     if (typeof ownerId === "string" && ownerId.startsWith("inv:process:")) {
@@ -1184,6 +1185,7 @@ const pawnsView = createPawnsView({
 processWidgetView = createProcessWidgetView({
   app,
   layer: uiLayers.controlsLayer,
+  layout: VIEW_LAYOUT.processWidget,
   getGameState: () => runner.getState(),
   interaction: interactionController,
   actionPlanner,

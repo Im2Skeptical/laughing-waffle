@@ -114,7 +114,10 @@ export function createProcessWidgetView({
   inventoryView,
   flashActionGhost,
   position = VIEW_LAYOUT.processWidget.position,
+  layout = null,
 }) {
+  const processLayout =
+    layout && typeof layout === "object" ? layout : VIEW_LAYOUT.processWidget;
   const windows = new Map();
   const withdrawUiStateByTarget = new Map();
   const drawerExpanded = {
@@ -198,6 +201,35 @@ export function createProcessWidgetView({
       ? app.renderer.height
       : VIEWPORT_DESIGN_HEIGHT;
     return { width, height };
+  }
+
+  function getViewportWidthPx() {
+    const vvWidth = Number(window?.visualViewport?.width);
+    if (Number.isFinite(vvWidth) && vvWidth > 0) return vvWidth;
+    const innerWidth = Number(window?.innerWidth);
+    if (Number.isFinite(innerWidth) && innerWidth > 0) return innerWidth;
+    return VIEWPORT_DESIGN_WIDTH;
+  }
+
+  function getWindowScale() {
+    const breakpoint = Number.isFinite(processLayout?.mobileBreakpointPx)
+      ? Math.max(320, Math.floor(processLayout.mobileBreakpointPx))
+      : 900;
+    const mobileScale = Number.isFinite(processLayout?.mobileScale)
+      ? Math.max(1, Number(processLayout.mobileScale))
+      : 2;
+    return getViewportWidthPx() <= breakpoint ? mobileScale : 1;
+  }
+
+  function applyWindowScale(win) {
+    if (!win?.container) return false;
+    const nextScale = getWindowScale();
+    const prevScale = Number.isFinite(win.uiScale) ? win.uiScale : 1;
+    if (Math.abs(nextScale - prevScale) < 1e-6) return false;
+    win.uiScale = nextScale;
+    win.container.scale.set(nextScale);
+    win.hasPosition = false;
+    return true;
   }
 
   function getTargetAnchorRect(target) {
@@ -3548,8 +3580,9 @@ export function createProcessWidgetView({
   function positionWindowAtAnchor(win) {
     if (!win || !win.anchorRect || win.hasPosition) return;
     const bounds = win.container?.getLocalBounds?.() ?? null;
-    const width = Math.max(1, Math.floor(bounds?.width ?? CORE_WIDTH));
-    const height = Math.max(1, Math.floor(bounds?.height ?? 140));
+    const scale = Number.isFinite(win?.uiScale) ? win.uiScale : 1;
+    const width = Math.max(1, Math.floor((bounds?.width ?? CORE_WIDTH) * scale));
+    const height = Math.max(1, Math.floor((bounds?.height ?? 140) * scale));
     const idx = Number.isFinite(win.offsetIndex)
       ? Math.max(0, Math.floor(win.offsetIndex))
       : 0;
@@ -3579,6 +3612,7 @@ export function createProcessWidgetView({
       if (targetRef) win.targetRef = targetRef;
       if (systemId != null) win.systemId = systemId;
       if (opts.groupKind) win.groupKind = opts.groupKind;
+      applyWindowScale(win);
       return win;
     }
 
@@ -3605,10 +3639,12 @@ export function createProcessWidgetView({
       externalFocused: false,
       hasPosition: false,
       anchorRect: getTargetAnchorRect(target),
-      offsetIndex: Number.isFinite(offsetIndex) ? Math.floor(offsetIndex) : 0,
-      idleFrames: 0,
-    };
-    windows.set(windowId, win);
+        offsetIndex: Number.isFinite(offsetIndex) ? Math.floor(offsetIndex) : 0,
+        idleFrames: 0,
+        uiScale: 1,
+      };
+      applyWindowScale(win);
+      windows.set(windowId, win);
     if (!win.anchorRect) {
       positionWindow(win, origin, offsetIndex, true);
     } else {
@@ -3743,6 +3779,18 @@ export function createProcessWidgetView({
       if (!target) {
         destroyWindow(windowId);
         continue;
+      }
+      const scaleChanged = applyWindowScale(win);
+      if (scaleChanged) {
+        const localBounds = win.container.getLocalBounds?.() ?? null;
+        const scale = Number.isFinite(win?.uiScale) ? win.uiScale : 1;
+        const width = Math.max(1, Math.floor((localBounds?.width ?? CORE_WIDTH) * scale));
+        const height = Math.max(1, Math.floor((localBounds?.height ?? 140) * scale));
+        const screen = getScreenSize();
+        const maxX = Math.max(8, screen.width - width - 8);
+        const maxY = Math.max(8, screen.height - height - 8);
+        win.container.x = Math.max(8, Math.min(maxX, win.container.x));
+        win.container.y = Math.max(8, Math.min(maxY, win.container.y));
       }
       if (win.group) {
         const entries = collectProcessEntries(state, target, win.systemId);
@@ -4090,8 +4138,9 @@ export function createProcessWidgetView({
     if (!invBounds) return false;
 
     const localBounds = win.container.getLocalBounds?.() ?? null;
-    const width = Math.max(1, Math.floor(localBounds?.width ?? CORE_WIDTH));
-    const height = Math.max(1, Math.floor(localBounds?.height ?? 140));
+    const scale = Number.isFinite(win?.uiScale) ? win.uiScale : 1;
+    const width = Math.max(1, Math.floor((localBounds?.width ?? CORE_WIDTH) * scale));
+    const height = Math.max(1, Math.floor((localBounds?.height ?? 140) * scale));
     const gap = 12;
 
     let x = invBounds.x + invBounds.width + gap;

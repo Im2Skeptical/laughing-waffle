@@ -86,6 +86,12 @@ export const VIEW_LAYOUT = {
   },
   processWidget: {
     position: { x: 1180, y: 640 },
+    mobileBreakpointPx: 900,
+    mobileScale: 2,
+  },
+  inventory: {
+    mobileBreakpointPx: 900,
+    mobileScale: 2,
   },
   graphs: {
     gold: { x: 350, y: 280 },
