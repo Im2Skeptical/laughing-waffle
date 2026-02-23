@@ -21,6 +21,7 @@ import {
 } from "./env-event-deck-pixi.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
+  VIEW_LAYOUT,
   BOARD_COLS,
   BOARD_COL_GAP,
   HUB_COLS,
@@ -145,6 +146,103 @@ export function createBoardView(opts) {
     BASE_TEXT_RESOLUTION,
     Math.ceil(BASE_TEXT_RESOLUTION * GAMEPIECE_HOVER_SCALE)
   );
+  const PLAYFIELD_CHROME_LAYOUT = VIEW_LAYOUT.playfield?.chrome || {};
+  const REGION_BOARD_LAYOUT = PLAYFIELD_CHROME_LAYOUT.regionBoard || {};
+  const HUB_BOARD_LAYOUT = PLAYFIELD_CHROME_LAYOUT.hubBoard || {};
+  const REGION_HEADER_LAYOUT = PLAYFIELD_CHROME_LAYOUT.regionHeader || {};
+  const HUB_HEADER_LAYOUT = PLAYFIELD_CHROME_LAYOUT.hubHeader || {};
+
+  const REGION_BOARD_PAD_X = Math.max(
+    0,
+    Number.isFinite(REGION_BOARD_LAYOUT.padX) ? REGION_BOARD_LAYOUT.padX : 34
+  );
+  const REGION_BOARD_PAD_TOP = Math.max(
+    0,
+    Number.isFinite(REGION_BOARD_LAYOUT.padTop) ? REGION_BOARD_LAYOUT.padTop : 12
+  );
+  const REGION_BOARD_PAD_BOTTOM = Math.max(
+    0,
+    Number.isFinite(REGION_BOARD_LAYOUT.padBottom)
+      ? REGION_BOARD_LAYOUT.padBottom
+      : 14
+  );
+  const REGION_BOARD_OFFSET_X = Number.isFinite(REGION_BOARD_LAYOUT.offsetX)
+    ? REGION_BOARD_LAYOUT.offsetX
+    : 0;
+  const REGION_BOARD_OFFSET_Y = Number.isFinite(REGION_BOARD_LAYOUT.offsetY)
+    ? REGION_BOARD_LAYOUT.offsetY
+    : 0;
+
+  const HUB_BOARD_PAD_X = Math.max(
+    0,
+    Number.isFinite(HUB_BOARD_LAYOUT.padX) ? HUB_BOARD_LAYOUT.padX : 26
+  );
+  const HUB_BOARD_PAD_TOP = Math.max(
+    0,
+    Number.isFinite(HUB_BOARD_LAYOUT.padTop) ? HUB_BOARD_LAYOUT.padTop : 24
+  );
+  const HUB_BOARD_PAD_BOTTOM = Math.max(
+    0,
+    Number.isFinite(HUB_BOARD_LAYOUT.padBottom) ? HUB_BOARD_LAYOUT.padBottom : 24
+  );
+  const HUB_BOARD_OFFSET_X = Number.isFinite(HUB_BOARD_LAYOUT.offsetX)
+    ? HUB_BOARD_LAYOUT.offsetX
+    : 0;
+  const HUB_BOARD_OFFSET_Y = Number.isFinite(HUB_BOARD_LAYOUT.offsetY)
+    ? HUB_BOARD_LAYOUT.offsetY
+    : 0;
+
+  const REGION_HEADER_HEIGHT = Math.max(
+    36,
+    Number.isFinite(REGION_HEADER_LAYOUT.height) ? REGION_HEADER_LAYOUT.height : 54
+  );
+  const REGION_HEADER_WIDTH_RATIO = Number.isFinite(REGION_HEADER_LAYOUT.widthRatio)
+    ? REGION_HEADER_LAYOUT.widthRatio
+    : 0.38;
+  const REGION_HEADER_MIN_WIDTH = Math.max(
+    120,
+    Number.isFinite(REGION_HEADER_LAYOUT.minWidth)
+      ? REGION_HEADER_LAYOUT.minWidth
+      : 260
+  );
+  const REGION_HEADER_MAX_WIDTH = Math.max(
+    REGION_HEADER_MIN_WIDTH,
+    Number.isFinite(REGION_HEADER_LAYOUT.maxWidth)
+      ? REGION_HEADER_LAYOUT.maxWidth
+      : 460
+  );
+  const REGION_HEADER_OFFSET_X = Number.isFinite(REGION_HEADER_LAYOUT.offsetX)
+    ? REGION_HEADER_LAYOUT.offsetX
+    : 0;
+  const REGION_HEADER_OFFSET_Y = Number.isFinite(REGION_HEADER_LAYOUT.offsetY)
+    ? REGION_HEADER_LAYOUT.offsetY
+    : 0;
+
+  const HUB_HEADER_HEIGHT = Math.max(
+    36,
+    Number.isFinite(HUB_HEADER_LAYOUT.height) ? HUB_HEADER_LAYOUT.height : 54
+  );
+  const HUB_HEADER_WIDTH_RATIO = Number.isFinite(HUB_HEADER_LAYOUT.widthRatio)
+    ? HUB_HEADER_LAYOUT.widthRatio
+    : 0.34;
+  const HUB_HEADER_MIN_WIDTH = Math.max(
+    120,
+    Number.isFinite(HUB_HEADER_LAYOUT.minWidth) ? HUB_HEADER_LAYOUT.minWidth : 260
+  );
+  const HUB_HEADER_MAX_WIDTH = Math.max(
+    HUB_HEADER_MIN_WIDTH,
+    Number.isFinite(HUB_HEADER_LAYOUT.maxWidth) ? HUB_HEADER_LAYOUT.maxWidth : 460
+  );
+  const HUB_HEADER_OFFSET_X = Number.isFinite(HUB_HEADER_LAYOUT.offsetX)
+    ? HUB_HEADER_LAYOUT.offsetX
+    : 0;
+  const HUB_HEADER_OFFSET_Y = Number.isFinite(HUB_HEADER_LAYOUT.offsetY)
+    ? HUB_HEADER_LAYOUT.offsetY
+    : 0;
+  const AREA_NAME_FALLBACKS = Object.freeze({
+    region: "Region",
+    hub: "Hub",
+  });
   let activeTagDrag = null;
   let activeHubTagDrag = null;
   let activeHover = null;
@@ -159,6 +257,7 @@ export function createBoardView(opts) {
   const missThrottleByColSec = new Map();
   const activeEventExpiryFx = [];
   let eventSnapshotsById = new Map();
+  let areaChrome = null;
   const eventExpiryFxLayer = eventLayer ? new PIXI.Container() : null;
   if (eventExpiryFxLayer) {
     eventExpiryFxLayer.sortableChildren = true;
@@ -238,6 +337,13 @@ export function createBoardView(opts) {
     if (!Number.isFinite(value)) return 0;
     if (value <= 0) return 0;
     if (value >= 1) return 1;
+    return value;
+  }
+
+  function clamp(value, min, max) {
+    if (!Number.isFinite(value)) return min;
+    if (value < min) return min;
+    if (value > max) return max;
     return value;
   }
 
@@ -1552,6 +1658,300 @@ export function createBoardView(opts) {
 
   function removeFromParent(container) {
     if (container?.parent) container.parent.removeChild(container);
+  }
+
+  function getAreaDisplayName(state, areaKind) {
+    const key = areaKind === "hub" ? "hub" : "region";
+    const fallback = AREA_NAME_FALLBACKS[key];
+    const raw = state?.locationNames?.[key];
+    if (typeof raw !== "string") return fallback;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+
+  function sanitizeAreaNameCandidate(value) {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim().replace(/\s+/g, " ");
+    if (!trimmed.length) return null;
+    return trimmed.slice(0, 32);
+  }
+
+  function dispatchAreaRename(areaKind, nextName) {
+    const kind =
+      areaKind === "hub" ? ActionKinds.SET_HUB_NAME : ActionKinds.SET_REGION_NAME;
+    const run = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      return (
+        dispatchAction(
+          kind,
+          { name: nextName },
+          { apCost: 0 }
+        ) ?? { ok: true }
+      );
+    };
+    if (typeof queueActionWhenPaused === "function") {
+      return queueActionWhenPaused(run);
+    }
+    if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
+      return { ok: false, reason: "mustBePaused" };
+    }
+    return run();
+  }
+
+  function promptForAreaRename(areaKind) {
+    const promptFn = globalThis?.prompt;
+    if (typeof promptFn !== "function") return { ok: false, reason: "noPrompt" };
+    const state = getGameState?.();
+    const currentName = getAreaDisplayName(state, areaKind);
+    const promptLabel =
+      areaKind === "hub" ? "Name this Hub..." : "Name this region ...";
+    const proposed = promptFn(promptLabel, currentName);
+    if (proposed == null) return { ok: false, reason: "cancelled" };
+    const nextName = sanitizeAreaNameCandidate(proposed);
+    if (!nextName) return { ok: false, reason: "emptyName" };
+    if (nextName === currentName) return { ok: true, result: "nameUnchanged" };
+    return dispatchAreaRename(areaKind, nextName);
+  }
+
+  function createAreaHeaderChrome(onRename) {
+    const container = new PIXI.Container();
+    container.eventMode = "static";
+    container.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    const accents = new PIXI.Graphics();
+    accents.eventMode = "none";
+    const text = new PIXI.Text("", {
+      fill: 0xf3efe4,
+      fontFamily: "Trebuchet MS",
+      fontSize: 20,
+      fontWeight: "700",
+    });
+    text.anchor.set(0.5, 0.5);
+
+    container.addChild(bg, accents, text);
+
+    container.on("pointerover", () => {
+      bg.alpha = 1;
+      accents.alpha = 1;
+    });
+    container.on("pointerout", () => {
+      bg.alpha = 0.94;
+      accents.alpha = 0.86;
+    });
+    container.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onRename?.();
+    });
+    bg.alpha = 0.94;
+    accents.alpha = 0.86;
+    return { container, bg, accents, text };
+  }
+
+  function drawAreaHeaderChrome(header, width, height) {
+    if (!header) return;
+    const w = Math.max(180, Math.floor(width));
+    const h = Math.max(36, Math.floor(height));
+    const r = Math.max(8, Math.floor(h * 0.25));
+    header.bg.clear();
+    header.bg.lineStyle(2, 0x73695f, 0.92);
+    header.bg.beginFill(0x565252, 0.98);
+    header.bg.drawRoundedRect(0, 0, w, h, r);
+    header.bg.endFill();
+
+    header.accents.clear();
+    header.accents.lineStyle(3, 0xb69e45, 0.86);
+    const midY = Math.round(h * 0.5);
+    const leftStart = 30;
+    const rightStart = w - 30;
+    const accentLen = 40;
+    header.accents.moveTo(leftStart, midY);
+    header.accents.bezierCurveTo(
+      leftStart - 9,
+      midY - 11,
+      leftStart - 22,
+      midY + 10,
+      leftStart - accentLen,
+      midY
+    );
+    header.accents.moveTo(rightStart, midY);
+    header.accents.bezierCurveTo(
+      rightStart + 9,
+      midY - 11,
+      rightStart + 22,
+      midY + 10,
+      rightStart + accentLen,
+      midY
+    );
+
+    header.text.position.set(Math.round(w * 0.5), Math.round(h * 0.5));
+  }
+
+  function ensureAreaChrome() {
+    if (areaChrome) return areaChrome;
+    const regionBoardBg = new PIXI.Graphics();
+    regionBoardBg.eventMode = "none";
+    regionBoardBg.zIndex = -200;
+    tileLayer?.addChild(regionBoardBg);
+
+    const hubBoardBg = new PIXI.Graphics();
+    hubBoardBg.eventMode = "none";
+    hubBoardBg.zIndex = -200;
+    hubStructuresLayer?.addChild(hubBoardBg);
+
+    const regionHeader = createAreaHeaderChrome(() => promptForAreaRename("region"));
+    regionHeader.container.zIndex = 80;
+    hubStructuresLayer?.addChild(regionHeader.container);
+
+    const hubHeader = createAreaHeaderChrome(() => promptForAreaRename("hub"));
+    hubHeader.container.zIndex = 80;
+    hubStructuresLayer?.addChild(hubHeader.container);
+
+    areaChrome = {
+      regionBoardBg,
+      hubBoardBg,
+      regionHeader,
+      hubHeader,
+      layoutKey: "",
+      regionName: "",
+      hubName: "",
+    };
+    return areaChrome;
+  }
+
+  function syncAreaChrome(state, envCols, hubCols) {
+    const chrome = ensureAreaChrome();
+    if (!chrome || !app?.screen) return;
+    const screenWidth = Math.max(1, Math.floor(app.screen.width));
+    const safeEnvCols = Math.max(1, Number.isFinite(envCols) ? Math.floor(envCols) : BOARD_COLS);
+    const safeHubCols = Math.max(1, Number.isFinite(hubCols) ? Math.floor(hubCols) : HUB_COLS);
+
+    const regionStartX = getBoardColumnX(screenWidth, 0);
+    const regionEndX =
+      getBoardColumnX(screenWidth, safeEnvCols - 1) + TILE_WIDTH;
+    const regionPanelX = Math.round(
+      regionStartX - REGION_BOARD_PAD_X + REGION_BOARD_OFFSET_X
+    );
+    const regionPanelY = Math.round(
+      EVENT_ROW_Y - REGION_BOARD_PAD_TOP + REGION_BOARD_OFFSET_Y
+    );
+    const regionPanelW = Math.round(
+      Math.max(1, regionEndX - regionStartX) + REGION_BOARD_PAD_X * 2
+    );
+    const regionPanelH = Math.round(
+      TILE_ROW_Y +
+        TILE_HEIGHT -
+        EVENT_ROW_Y +
+        REGION_BOARD_PAD_TOP +
+        REGION_BOARD_PAD_BOTTOM
+    );
+
+    const hubStartX = getHubColumnX(screenWidth, 0);
+    const hubEndX = getHubColumnX(screenWidth, safeHubCols - 1) + HUB_STRUCTURE_WIDTH;
+    const hubPanelX = Math.round(
+      hubStartX - HUB_BOARD_PAD_X + HUB_BOARD_OFFSET_X
+    );
+    const hubPanelY = Math.round(
+      HUB_STRUCTURE_ROW_Y - HUB_BOARD_PAD_TOP + HUB_BOARD_OFFSET_Y
+    );
+    const hubPanelW = Math.round(
+      Math.max(1, hubEndX - hubStartX) + HUB_BOARD_PAD_X * 2
+    );
+    const hubPanelH = Math.round(
+      HUB_STRUCTURE_HEIGHT + HUB_BOARD_PAD_TOP + HUB_BOARD_PAD_BOTTOM
+    );
+
+    const layoutKey = [
+      regionPanelX,
+      regionPanelY,
+      regionPanelW,
+      regionPanelH,
+      hubPanelX,
+      hubPanelY,
+      hubPanelW,
+      hubPanelH,
+    ].join("|");
+
+    if (layoutKey !== chrome.layoutKey) {
+      chrome.regionBoardBg.clear();
+      chrome.regionBoardBg.lineStyle(4, 0x777168, 0.9);
+      chrome.regionBoardBg.beginFill(0x5f5b56, 0.72);
+      chrome.regionBoardBg.drawRoundedRect(
+        regionPanelX,
+        regionPanelY,
+        regionPanelW,
+        regionPanelH,
+        20
+      );
+      chrome.regionBoardBg.endFill();
+      chrome.regionBoardBg.lineStyle(2, 0x8f867a, 0.24);
+      chrome.regionBoardBg.drawRoundedRect(
+        regionPanelX + 8,
+        regionPanelY + 8,
+        Math.max(1, regionPanelW - 16),
+        Math.max(1, regionPanelH - 16),
+        14
+      );
+
+      chrome.hubBoardBg.clear();
+      chrome.hubBoardBg.lineStyle(4, 0x777168, 0.9);
+      chrome.hubBoardBg.beginFill(0x5f5b56, 0.72);
+      chrome.hubBoardBg.drawRoundedRect(hubPanelX, hubPanelY, hubPanelW, hubPanelH, 20);
+      chrome.hubBoardBg.endFill();
+      chrome.hubBoardBg.lineStyle(2, 0x8f867a, 0.24);
+      chrome.hubBoardBg.drawRoundedRect(
+        hubPanelX + 8,
+        hubPanelY + 8,
+        Math.max(1, hubPanelW - 16),
+        Math.max(1, hubPanelH - 16),
+        14
+      );
+
+      const regionHeaderWidth = clamp(
+        Math.round(regionPanelW * REGION_HEADER_WIDTH_RATIO),
+        REGION_HEADER_MIN_WIDTH,
+        REGION_HEADER_MAX_WIDTH
+      );
+      const hubHeaderWidth = clamp(
+        Math.round(hubPanelW * HUB_HEADER_WIDTH_RATIO),
+        HUB_HEADER_MIN_WIDTH,
+        HUB_HEADER_MAX_WIDTH
+      );
+      drawAreaHeaderChrome(
+        chrome.regionHeader,
+        regionHeaderWidth,
+        REGION_HEADER_HEIGHT
+      );
+      drawAreaHeaderChrome(chrome.hubHeader, hubHeaderWidth, HUB_HEADER_HEIGHT);
+
+      chrome.regionHeader.container.x = Math.round(
+        regionPanelX +
+          regionPanelW * 0.5 -
+          regionHeaderWidth * 0.5 +
+          REGION_HEADER_OFFSET_X
+      );
+      chrome.regionHeader.container.y = Math.round(
+        regionPanelY - REGION_HEADER_HEIGHT * 0.62 + REGION_HEADER_OFFSET_Y
+      );
+      chrome.hubHeader.container.x = Math.round(
+        hubPanelX + hubPanelW * 0.5 - hubHeaderWidth * 0.5 + HUB_HEADER_OFFSET_X
+      );
+      chrome.hubHeader.container.y = Math.round(
+        hubPanelY - HUB_HEADER_HEIGHT * 0.62 + HUB_HEADER_OFFSET_Y
+      );
+      chrome.layoutKey = layoutKey;
+    }
+
+    const regionName = getAreaDisplayName(state, "region");
+    if (regionName !== chrome.regionName) {
+      chrome.regionHeader.text.text = regionName;
+      chrome.regionName = regionName;
+    }
+    const hubName = getAreaDisplayName(state, "hub");
+    if (hubName !== chrome.hubName) {
+      chrome.hubHeader.text.text = hubName;
+      chrome.hubName = hubName;
+    }
   }
 
   function dispatchTagOrder(envCol, tagIds) {
@@ -3290,6 +3690,7 @@ export function createBoardView(opts) {
     eventLayer.removeChildren();
     envStructuresLayer.removeChildren();
     hubStructuresLayer.removeChildren();
+    areaChrome = null;
     hoverLayer?.removeChildren?.();
     tileViews.length = 0;
     eventViews.clear();
@@ -3313,6 +3714,7 @@ export function createBoardView(opts) {
     syncEnvStructures(s, cols);
     syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
+    syncAreaChrome(s, cols, hubCols);
     eventSnapshotsById = collectEventSnapshots(s, cols);
     lastSeenEventSec = Number.isFinite(s?.tSec) ? Math.floor(s.tSec) : null;
 
@@ -3452,6 +3854,7 @@ export function createBoardView(opts) {
     syncEnvStructures(s, cols);
     syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
+    syncAreaChrome(s, cols, hubCols);
     updatePlanFocus();
     processTileRollFeedbackEvents(s);
     updateTileActivityOverlays(dt);
@@ -3481,6 +3884,15 @@ export function createBoardView(opts) {
     }
     ensureEventExpiryFxLayerAttached();
     const state = getGameState?.();
+    if (state?.board) {
+      const cols = Number.isFinite(state.board.cols)
+        ? Math.floor(state.board.cols)
+        : BOARD_COLS;
+      const hubCols = Array.isArray(state?.hub?.slots)
+        ? state.hub.slots.length
+        : HUB_COLS;
+      syncAreaChrome(state, cols, hubCols);
+    }
     lastProcessedGameEventId = Math.max(
       lastProcessedGameEventId,
       getMaxEventFeedId(state?.gameEventFeed)

@@ -29,6 +29,10 @@ import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.j
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event", "envStructure"];
 const HUB_COLS = 10;
+const DEFAULT_LOCATION_NAMES = Object.freeze({
+  region: "Region",
+  hub: "Hub",
+});
 
 // Board contract: layers.*.anchors are authoritative placements.
 // board.occ.* is derived in rebuildBoardOccupancy and stripped on serialize.
@@ -109,6 +113,27 @@ function ensurePawnCollectionState(state) {
 
 export function getPawns(state) {
   return ensurePawnCollectionState(state);
+}
+
+export function ensureLocationNamesState(state) {
+  if (!state || typeof state !== "object") {
+    return { ...DEFAULT_LOCATION_NAMES };
+  }
+  const raw = state.locationNames;
+  const locationNames = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const region =
+    typeof locationNames.region === "string" && locationNames.region.trim().length > 0
+      ? locationNames.region.trim()
+      : DEFAULT_LOCATION_NAMES.region;
+  const hub =
+    typeof locationNames.hub === "string" && locationNames.hub.trim().length > 0
+      ? locationNames.hub.trim()
+      : DEFAULT_LOCATION_NAMES.hub;
+  state.locationNames = {
+    region,
+    hub,
+  };
+  return state.locationNames;
 }
 
 export function ensureHubState(state) {
@@ -366,6 +391,7 @@ export function createEmptyState(seed = 123456789) {
 
     board: createBoardState(),
     hub: createHubState(),
+    locationNames: { ...DEFAULT_LOCATION_NAMES },
     nextHubStructureInstanceId: 1,
     nextEnvStructureInstanceId: 1,
 
@@ -952,6 +978,7 @@ export function deserializeGameState(data) {
   if (state.envSlots) delete state.envSlots;
   if (state.envSlotsEnabled != null) delete state.envSlotsEnabled;
   if (!state.hub || typeof state.hub !== "object") state.hub = createHubState();
+  ensureLocationNamesState(state);
   const pawns = ensurePawnCollectionState(state);
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};

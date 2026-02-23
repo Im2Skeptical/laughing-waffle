@@ -96,13 +96,13 @@ export function createDebugOverlay({
   root.addChild(apText);
 
   const dbgBtn = new PIXI.Container();
-  dbgBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE - 4;
+  dbgBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE - 50;
   dbgBtn.y = 2;
   dbgBtn.eventMode = "static";
   dbgBtn.cursor = "pointer";
   const dbgBtnBg = new PIXI.Graphics();
   dbgBtnBg.beginFill(0x444444);
-  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE, DEBUG_TOGGLE_SIZE, 6);
+  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE * 3.0, DEBUG_TOGGLE_SIZE, 6);
   dbgBtnBg.endFill();
   dbgBtn.addChild(dbgBtnBg);
   root.addChild(dbgBtn);

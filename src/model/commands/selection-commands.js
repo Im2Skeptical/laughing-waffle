@@ -1,11 +1,21 @@
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { computeAvailableRecipesAndBuildings, hasEnvTagUnlock } from "../skills.js";
+import { ensureLocationNamesState } from "../state.js";
 import {
   ensureGrowthState,
   ensureHubSystemState,
   ensureHydrationState,
 } from "./system-state-helpers.js";
+
+const MAX_AREA_NAME_LENGTH = 32;
+
+function sanitizeAreaNameInput(name) {
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim();
+  if (!trimmed.length) return null;
+  return trimmed.slice(0, MAX_AREA_NAME_LENGTH);
+}
 
 export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {
   if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
@@ -100,4 +110,26 @@ export function cmdSetHubRecipeSelection(state, { hubCol, systemId, recipeId } =
     systemId,
     recipeId: nextRecipeId,
   };
+}
+
+export function cmdSetRegionName(state, { name } = {}) {
+  const nextName = sanitizeAreaNameInput(name);
+  if (!nextName) return { ok: false, reason: "badRegionName" };
+  const locationNames = ensureLocationNamesState(state);
+  if (locationNames.region === nextName) {
+    return { ok: true, result: "regionNameUnchanged", name: nextName };
+  }
+  locationNames.region = nextName;
+  return { ok: true, result: "regionNameSet", name: nextName };
+}
+
+export function cmdSetHubName(state, { name } = {}) {
+  const nextName = sanitizeAreaNameInput(name);
+  if (!nextName) return { ok: false, reason: "badHubName" };
+  const locationNames = ensureLocationNamesState(state);
+  if (locationNames.hub === nextName) {
+    return { ok: true, result: "hubNameUnchanged", name: nextName };
+  }
+  locationNames.hub = nextName;
+  return { ok: true, result: "hubNameSet", name: nextName };
 }

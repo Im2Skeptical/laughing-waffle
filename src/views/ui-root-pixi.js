@@ -3,10 +3,9 @@
 
 // Scenario Selector - Options for boot are in scenario-defs.js
 
-const BOOT_SETUP_ID = "devGym01";
-//const BOOT_SETUP_ID = "devPlaytesting01";
+//const BOOT_SETUP_ID = "devGym01";
+const BOOT_SETUP_ID = "devPlaytesting01";
 
-import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
@@ -1300,10 +1299,9 @@ scrollGraphOrchestrator = createScrollGraphOrchestrator({
 });
 
 const chromeView = createChromeView({
+  app,
   layer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
-  getCurrentSeasonData,
-  showApHud: () => isBootVariantFlagEnabled("showApHud"),
 });
 
 // NEW: Sun/Moon rotating disks HUD view

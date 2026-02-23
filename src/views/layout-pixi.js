@@ -78,7 +78,7 @@ export const VIEW_LAYOUT = {
     anchorX: "right",
     anchorY: "top",
     offsetX: -24,
-    offsetY: 10,
+    offsetY: 4,
   },
   logs: {
     action: { x: 1620, y: 180 },
@@ -175,24 +175,116 @@ export const VIEW_LAYOUT = {
     consumedDurationSec: 0.58,
     overflowBadgeHoldSec: 1.25,
   },
+  // Centralized playfield layout controls.
+  // Region/hub anchors move the gameplay lanes (slots, pieces, pawns, deck pathing).
+  // Chrome offsets move the decorative backplates + name headers independently.
+  playfield: {
+    region: {
+      anchorX: "center",
+      offsetX: 0,
+      anchorY: "top",
+      offsetY: 300,
+      cols: 12,
+      colWidth: 90,
+      colGap: 6,
+      eventWidth: 90,
+      eventHeight: 74,
+      envStructureWidth: 90,
+      envStructureHeight: 74,
+      tileWidth: 90,
+      tileHeight: 128,
+      eventToEnvGap: 14,
+      envToTileGap: 14,
+    },
+    hub: {
+      anchorX: "center",
+      offsetX: 0,
+      anchorY: "top",
+      offsetY: 664,
+      cols: 10,
+      colWidth: 112,
+      colGap: 8,
+      structureWidth: 112,
+      structureHeight: 140,
+      structureOffsetY: 0,
+      characterRowOffsetY: 15,
+    },
+    chrome: {
+      regionBoard: {
+        offsetX: 0,
+        offsetY: 0,
+        padX: 26,
+        padTop: 24,
+        padBottom: 24,
+      },
+      hubBoard: {
+        offsetX: 0,
+        offsetY: 0,
+        padX: 26,
+        padTop: 24,
+        padBottom: 24,
+      },
+      regionHeader: {
+        offsetX: 0,
+        offsetY: 0,
+        height: 54,
+        widthRatio: 0.38,
+        minWidth: 160,
+        maxWidth: 260,
+      },
+      hubHeader: {
+        offsetX: -400,
+        offsetY: 0,
+        height: 54,
+        widthRatio: 0.34,
+        minWidth: 160,
+        maxWidth: 260,
+      },
+    },
+  },
 };
 
-export const BOARD_COLS = 12;
-export const BOARD_COL_WIDTH = 80;
-export const BOARD_COL_GAP = 6;
+const PLAYFIELD_LAYOUT = VIEW_LAYOUT.playfield || {};
+const REGION_LAYOUT = PLAYFIELD_LAYOUT.region || {};
+const HUB_LAYOUT = PLAYFIELD_LAYOUT.hub || {};
 
-export const HUB_COLS = 10;
-export const HUB_COL_WIDTH = 112;
-export const HUB_COL_GAP = 8;
+function toPositiveInt(value, fallback) {
+  const n = Number.isFinite(value) ? Math.floor(value) : fallback;
+  return Math.max(1, n);
+}
 
-export const TILE_WIDTH = 80;
-export const TILE_HEIGHT = 128;
-export const EVENT_WIDTH = 80;
-export const EVENT_HEIGHT = 74;
-export const ENV_STRUCTURE_WIDTH = 80;
-export const ENV_STRUCTURE_HEIGHT = 74;
-export const HUB_STRUCTURE_WIDTH = 112;
-export const HUB_STRUCTURE_HEIGHT = 168;
+function toNumber(value, fallback) {
+  return Number.isFinite(value) ? Number(value) : fallback;
+}
+
+function resolveDesignY(anchorY, offsetY) {
+  const pt = resolveAnchoredPoint({
+    screenWidth: VIEWPORT_DESIGN_WIDTH,
+    screenHeight: VIEWPORT_DESIGN_HEIGHT,
+    anchorX: "left",
+    anchorY,
+    offsetX: 0,
+    offsetY,
+  });
+  return Math.round(pt.y);
+}
+
+export const BOARD_COLS = toPositiveInt(REGION_LAYOUT.cols, 12);
+export const BOARD_COL_WIDTH = toPositiveInt(REGION_LAYOUT.colWidth, 80);
+export const BOARD_COL_GAP = Math.max(0, Math.floor(toNumber(REGION_LAYOUT.colGap, 6)));
+
+export const HUB_COLS = toPositiveInt(HUB_LAYOUT.cols, 10);
+export const HUB_COL_WIDTH = toPositiveInt(HUB_LAYOUT.colWidth, 112);
+export const HUB_COL_GAP = Math.max(0, Math.floor(toNumber(HUB_LAYOUT.colGap, 8)));
+
+export const TILE_WIDTH = toPositiveInt(REGION_LAYOUT.tileWidth, 80);
+export const TILE_HEIGHT = toPositiveInt(REGION_LAYOUT.tileHeight, 128);
+export const EVENT_WIDTH = toPositiveInt(REGION_LAYOUT.eventWidth, 80);
+export const EVENT_HEIGHT = toPositiveInt(REGION_LAYOUT.eventHeight, 74);
+export const ENV_STRUCTURE_WIDTH = toPositiveInt(REGION_LAYOUT.envStructureWidth, 80);
+export const ENV_STRUCTURE_HEIGHT = toPositiveInt(REGION_LAYOUT.envStructureHeight, 74);
+export const HUB_STRUCTURE_WIDTH = toPositiveInt(HUB_LAYOUT.structureWidth, 112);
+export const HUB_STRUCTURE_HEIGHT = toPositiveInt(HUB_LAYOUT.structureHeight, 168);
 
 export const GAMEPIECE_HOVER_SCALE = 2.0;
 export const GAMEPIECE_SHADOW_COLOR = 0x000000;
@@ -200,12 +292,31 @@ export const GAMEPIECE_SHADOW_ALPHA = 0.25;
 export const GAMEPIECE_SHADOW_OFFSET_X = 6;
 export const GAMEPIECE_SHADOW_OFFSET_Y = 6;
 
-export const EVENT_ROW_Y = 300;
-export const ENV_STRUCTURE_ROW_Y = EVENT_ROW_Y + EVENT_HEIGHT + 14;
-export const TILE_ROW_Y = ENV_STRUCTURE_ROW_Y + ENV_STRUCTURE_HEIGHT + 14;
-export const HUB_ROW_Y = TILE_ROW_Y + TILE_HEIGHT + 60;
-export const HUB_STRUCTURE_ROW_Y = HUB_ROW_Y;
-export const CHARACTER_ROW_OFFSET_Y = 15;
+const REGION_EVENT_TO_ENV_GAP = Math.max(
+  0,
+  Math.floor(toNumber(REGION_LAYOUT.eventToEnvGap, 14))
+);
+const REGION_ENV_TO_TILE_GAP = Math.max(
+  0,
+  Math.floor(toNumber(REGION_LAYOUT.envToTileGap, 14))
+);
+
+export const EVENT_ROW_Y = resolveDesignY(
+  REGION_LAYOUT.anchorY || "top",
+  toNumber(REGION_LAYOUT.offsetY, 300)
+);
+export const ENV_STRUCTURE_ROW_Y =
+  EVENT_ROW_Y + EVENT_HEIGHT + REGION_EVENT_TO_ENV_GAP;
+export const TILE_ROW_Y = ENV_STRUCTURE_ROW_Y + ENV_STRUCTURE_HEIGHT + REGION_ENV_TO_TILE_GAP;
+export const HUB_ROW_Y = resolveDesignY(
+  HUB_LAYOUT.anchorY || "top",
+  toNumber(HUB_LAYOUT.offsetY, 664)
+);
+export const HUB_STRUCTURE_ROW_Y =
+  HUB_ROW_Y + Math.floor(toNumber(HUB_LAYOUT.structureOffsetY, 0));
+export const CHARACTER_ROW_OFFSET_Y = Math.floor(
+  toNumber(HUB_LAYOUT.characterRowOffsetY, 15)
+);
 
 // Shared UI colors for communicating time-state zones.
 export const TIME_STATE_COLORS = Object.freeze({
@@ -226,13 +337,33 @@ function getHubTotalWidth() {
 
 export function getBoardColumnX(screenWidth, col) {
   const totalWidth = getBoardTotalWidth();
-  const startX = (screenWidth - totalWidth) / 2;
+  const rect = resolveAnchoredRect({
+    screenWidth,
+    screenHeight: VIEWPORT_DESIGN_HEIGHT,
+    width: totalWidth,
+    height: 0,
+    anchorX: REGION_LAYOUT.anchorX || "center",
+    anchorY: "top",
+    offsetX: toNumber(REGION_LAYOUT.offsetX, 0),
+    offsetY: 0,
+  });
+  const startX = rect.x;
   return startX + col * (BOARD_COL_WIDTH + BOARD_COL_GAP);
 }
 
 export function getHubColumnX(screenWidth, col) {
   const totalWidth = getHubTotalWidth();
-  const startX = (screenWidth - totalWidth) / 2;
+  const rect = resolveAnchoredRect({
+    screenWidth,
+    screenHeight: VIEWPORT_DESIGN_HEIGHT,
+    width: totalWidth,
+    height: 0,
+    anchorX: HUB_LAYOUT.anchorX || "center",
+    anchorY: "top",
+    offsetX: toNumber(HUB_LAYOUT.offsetX, 0),
+    offsetY: 0,
+  });
+  const startX = rect.x;
   return startX + col * (HUB_COL_WIDTH + HUB_COL_GAP);
 }
 

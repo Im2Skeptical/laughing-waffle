@@ -20,6 +20,8 @@ import {
   cmdToggleHubTag,
   cmdSetTileCropSelection,
   cmdSetHubRecipeSelection,
+  cmdSetRegionName,
+  cmdSetHubName,
   cmdWithdrawHubPoolItem,
   cmdWithdrawPawnBasketPoolItem,
   cmdSetProcessRouting,
@@ -54,6 +56,8 @@ export const ActionKinds = {
   TOGGLE_HUB_TAG: "toggleHubTag",
   SET_TILE_CROP_SELECTION: "setTileCropSelection",
   SET_HUB_RECIPE_SELECTION: "setHubRecipeSelection",
+  SET_REGION_NAME: "setRegionName",
+  SET_HUB_NAME: "setHubName",
   WITHDRAW_HUB_POOL_ITEM: "withdrawHubPoolItem",
   WITHDRAW_PAWN_BASKET_POOL_ITEM: "withdrawPawnBasketPoolItem",
   SET_PROCESS_ROUTING: "setProcessRouting",
@@ -241,6 +245,14 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.SET_HUB_RECIPE_SELECTION:
       result = cmdSetHubRecipeSelection(state, payload);
+      break;
+
+    case ActionKinds.SET_REGION_NAME:
+      result = cmdSetRegionName(state, payload);
+      break;
+
+    case ActionKinds.SET_HUB_NAME:
+      result = cmdSetHubName(state, payload);
       break;
 
     case ActionKinds.WITHDRAW_HUB_POOL_ITEM:
