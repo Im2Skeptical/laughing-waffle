@@ -8,34 +8,12 @@ import {
   MOON_CYCLE_SEC,
   MOON_PHASE_OFFSET_SEC,
 } from "../defs/gamesettings/gamerules-defs.js";
+import { VIEW_LAYOUT } from "./layout-pixi.js";
 
 export const SUN_AND_MOON_DISKS_LAYOUT = {
-  enabled: true,
-
-  moon: {
-    x: 2000,
-    y: 400,
-    scale: 0.5,
-    alpha: 1.0,
-    rotationOffsetRad: 0,
-    playheadOffsetRad: -1.55,
-    clockwise: true,
-    texturePath: "images/MoonDisk_01.png",
-  },
-
-  season: {
-    x: 2000,
-    y: 400,
-    scale: 0.75,
-    alpha: 1.0,
-    rotationOffsetRad: 3,
-    playheadOffsetRad: -0.7,
-    clockwise: true,
-    texturePath: "images/SeasonDisk_01.png",
-    quadrants: 4,
-  },
-
-  zIndex: 0,
+  ...VIEW_LAYOUT.sunMoonDisks,
+  moon: { ...VIEW_LAYOUT.sunMoonDisks.moon },
+  season: { ...VIEW_LAYOUT.sunMoonDisks.season },
 };
 
 const TWO_PI = Math.PI * 2;

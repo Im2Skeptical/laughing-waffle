@@ -2,6 +2,7 @@
 // Pause/commit/time-lever controls, positioned under the sun/moon disks.
 
 import { createTimeLeverView } from "./time-lever-pixi.js";
+import { VIEWPORT_DESIGN_WIDTH } from "./layout-pixi.js";
 
 const BUTTON_WIDTH = 70;
 const BUTTON_HEIGHT = 44;
@@ -58,7 +59,7 @@ function makeButton(layer, label, onClick) {
 function getControlsAnchor(layout, sunMoonLayout, app) {
   const seasonX = Number.isFinite(sunMoonLayout?.season?.x)
     ? sunMoonLayout.season.x
-    : Math.floor(app?.screen?.width ?? 1920) - 220;
+    : Math.floor(app?.screen?.width ?? VIEWPORT_DESIGN_WIDTH) - 220;
   const seasonY = Number.isFinite(sunMoonLayout?.season?.y)
     ? sunMoonLayout.season.y
     : 400;

@@ -14,12 +14,6 @@ export const EDGE_LANE_STEP_DENSE = 14;
 export const EDGE_ENDPOINT_LANE_SCALE = 0.38;
 export const EDGE_CURVE_MAX_OFFSET = 64;
 
-export const VIEWPORT_X = 36;
-export const VIEWPORT_Y = 24;
-export const VIEWPORT_WIDTH = 1460;
-export const VIEWPORT_HEIGHT = 1020;
-export const RIGHT_PANEL_X = 1510;
-
 export const MIN_ZOOM = 0.35;
 export const MAX_ZOOM = 2.4;
 

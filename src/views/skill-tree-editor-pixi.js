@@ -15,18 +15,23 @@ import {
 import { makeButton } from "./skill-tree/button.js";
 import { clamp, sortedStrings } from "./skill-tree/formatters.js";
 import { MAX_ZOOM, MIN_ZOOM } from "./skill-tree/constants.js";
+import {
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
+  VIEW_LAYOUT,
+} from "./layout-pixi.js";
 
-const VIEWPORT_X = 20;
-const VIEWPORT_Y = 20;
-const VIEWPORT_WIDTH = 1410;
-const VIEWPORT_HEIGHT = 1040;
-const PANEL_X = 1450;
-const PANEL_WIDTH = 430;
-const PANEL_ROW_GAP = 40;
-const PANEL_SECTION_GAP = 10;
-const PANEL_TEXT_GAP = 8;
-const PANEL_HEADER_WIDTH = 408;
-const PANEL_COL_B_X = PANEL_X + 212;
+const DEFAULT_VIEWPORT_X = 20;
+const DEFAULT_VIEWPORT_Y = 20;
+const DEFAULT_VIEWPORT_WIDTH = 1410;
+const DEFAULT_VIEWPORT_HEIGHT = 1040;
+const DEFAULT_PANEL_X = 1450;
+const DEFAULT_PANEL_WIDTH = 430;
+const DEFAULT_PANEL_ROW_GAP = 40;
+const DEFAULT_PANEL_SECTION_GAP = 10;
+const DEFAULT_PANEL_TEXT_GAP = 8;
+const DEFAULT_PANEL_HEADER_WIDTH = 408;
+const DEFAULT_PANEL_COL_B_OFFSET = 212;
 const VIEWPORT_BORDER_DEFAULT = 0x2b3b5f;
 const VIEWPORT_BORDER_ADD = 0x3ca46d;
 const VIEWPORT_BORDER_REMOVE = 0xb04b5f;
@@ -395,7 +400,46 @@ function makeToggleChip(label, width, height, onTap) {
   return { root, setActive };
 }
 
-export function createSkillTreeEditorView({ app, layer } = {}) {
+export function createSkillTreeEditorView({ app, layer, layout = null } = {}) {
+  const editorLayout =
+    layout && typeof layout === "object" ? layout : VIEW_LAYOUT.skillTreeEditor;
+  const viewportLayout = editorLayout?.viewport ?? {};
+  const panelLayout = editorLayout?.panel ?? {};
+
+  const VIEWPORT_X = Number.isFinite(viewportLayout?.x)
+    ? Math.floor(viewportLayout.x)
+    : DEFAULT_VIEWPORT_X;
+  const VIEWPORT_Y = Number.isFinite(viewportLayout?.y)
+    ? Math.floor(viewportLayout.y)
+    : DEFAULT_VIEWPORT_Y;
+  const VIEWPORT_WIDTH = Number.isFinite(viewportLayout?.width)
+    ? Math.floor(viewportLayout.width)
+    : DEFAULT_VIEWPORT_WIDTH;
+  const VIEWPORT_HEIGHT = Number.isFinite(viewportLayout?.height)
+    ? Math.floor(viewportLayout.height)
+    : DEFAULT_VIEWPORT_HEIGHT;
+  const PANEL_X = Number.isFinite(panelLayout?.x)
+    ? Math.floor(panelLayout.x)
+    : DEFAULT_PANEL_X;
+  const PANEL_WIDTH = Number.isFinite(panelLayout?.width)
+    ? Math.floor(panelLayout.width)
+    : DEFAULT_PANEL_WIDTH;
+  const PANEL_ROW_GAP = Number.isFinite(panelLayout?.rowGap)
+    ? Math.floor(panelLayout.rowGap)
+    : DEFAULT_PANEL_ROW_GAP;
+  const PANEL_SECTION_GAP = Number.isFinite(panelLayout?.sectionGap)
+    ? Math.floor(panelLayout.sectionGap)
+    : DEFAULT_PANEL_SECTION_GAP;
+  const PANEL_TEXT_GAP = Number.isFinite(panelLayout?.textGap)
+    ? Math.floor(panelLayout.textGap)
+    : DEFAULT_PANEL_TEXT_GAP;
+  const PANEL_HEADER_WIDTH = Number.isFinite(panelLayout?.headerWidth)
+    ? Math.floor(panelLayout.headerWidth)
+    : DEFAULT_PANEL_HEADER_WIDTH;
+  const PANEL_COL_B_X = Number.isFinite(panelLayout?.colBX)
+    ? Math.floor(panelLayout.colBX)
+    : PANEL_X + DEFAULT_PANEL_COL_B_OFFSET;
+
   const root = new PIXI.Container();
   root.visible = false;
   root.eventMode = "static";
@@ -2673,8 +2717,12 @@ export function createSkillTreeEditorView({ app, layer } = {}) {
   app?.view?.addEventListener?.("touchcancel", onTouchEnd, { passive: false });
 
   function resize() {
-    const width = Number.isFinite(app?.screen?.width) ? app.screen.width : 1920;
-    const height = Number.isFinite(app?.screen?.height) ? app.screen.height : 1080;
+    const width = Number.isFinite(app?.screen?.width)
+      ? app.screen.width
+      : VIEWPORT_DESIGN_WIDTH;
+    const height = Number.isFinite(app?.screen?.height)
+      ? app.screen.height
+      : VIEWPORT_DESIGN_HEIGHT;
     bg.clear();
     bg.beginFill(0x081224, 0.98);
     bg.drawRect(0, 0, width, height);

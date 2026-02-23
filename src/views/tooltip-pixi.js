@@ -1,4 +1,10 @@
-export function createTooltipView({ layer, interaction }) {
+import {
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
+  VIEW_LAYOUT,
+} from "./layout-pixi.js";
+
+export function createTooltipView({ layer, interaction, app, layout = null }) {
   const container = new PIXI.Container();
   container.visible = false;
 
@@ -11,8 +17,22 @@ export function createTooltipView({ layer, interaction }) {
   const bg = new PIXI.Graphics();
   container.addChild(bg);
 
-  const DESIGN_WIDTH = 1920;
-  const DESIGN_HEIGHT = 1080;
+  const tooltipLayout =
+    layout && typeof layout === "object" ? layout : VIEW_LAYOUT.tooltip;
+  const clampMargin = Number.isFinite(tooltipLayout?.margin)
+    ? Math.max(0, Math.floor(tooltipLayout.margin))
+    : 10;
+
+  function getScreenSize() {
+    return {
+      width: Number.isFinite(app?.screen?.width)
+        ? Math.max(1, Math.floor(app.screen.width))
+        : VIEWPORT_DESIGN_WIDTH,
+      height: Number.isFinite(app?.screen?.height)
+        ? Math.max(1, Math.floor(app.screen.height))
+        : VIEWPORT_DESIGN_HEIGHT,
+    };
+  }
 
   let hideTimeoutId = null;
 
@@ -89,12 +109,14 @@ export function createTooltipView({ layer, interaction }) {
     }
 
     // Clamp inside the design rect
-    if (posX + scaledWidth > DESIGN_WIDTH - 10) {
-      posX = DESIGN_WIDTH - scaledWidth - 10;
+    const screen = getScreenSize();
+    if (posX + scaledWidth > screen.width - clampMargin) {
+      posX = screen.width - scaledWidth - clampMargin;
     }
-    if (posY < 10) posY = 10;
-    if (posY + scaledHeight > DESIGN_HEIGHT - 10) {
-      posY = DESIGN_HEIGHT - scaledHeight - 10;
+    if (posX < clampMargin) posX = clampMargin;
+    if (posY < clampMargin) posY = clampMargin;
+    if (posY + scaledHeight > screen.height - clampMargin) {
+      posY = screen.height - scaledHeight - clampMargin;
     }
 
     container.x = posX;

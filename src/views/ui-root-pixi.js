@@ -3,8 +3,8 @@
 
 // Scenario Selector - Options for boot are in scenario-defs.js
 
-//const BOOT_SETUP_ID = "devGym01";
-const BOOT_SETUP_ID = "devPlaytesting01";
+const BOOT_SETUP_ID = "devGym01";
+//const BOOT_SETUP_ID = "devPlaytesting01";
 
 import { getCurrentSeasonData } from "../model/game-model.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
@@ -31,6 +31,9 @@ import { createProcessWidgetView } from "./process-widget-pixi.js";
 import { createSkillTreeView } from "./skill-tree-pixi.js";
 import { createSkillTreeEditorView } from "./skill-tree-editor-pixi.js";
 import {
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
+  VIEW_LAYOUT,
   BOARD_COLS,
   HUB_COLS,
   HUB_STRUCTURE_HEIGHT,
@@ -68,8 +71,6 @@ import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
 import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
 import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrator.js";
 
-const DESIGN_WIDTH = 2424;
-const DESIGN_HEIGHT = 1080;
 const BOOT_VARIANT_FLAGS = normalizeVariantFlags(
   setupDefs?.[BOOT_SETUP_ID]?.variantFlags
 );
@@ -87,8 +88,8 @@ if (
 }
 
 export const app = new PIXI.Application({
-  width: DESIGN_WIDTH,
-  height: DESIGN_HEIGHT,
+  width: VIEWPORT_DESIGN_WIDTH,
+  height: VIEWPORT_DESIGN_HEIGHT,
   backgroundColor: 0x57514b,
   antialias: true,
 });
@@ -114,22 +115,33 @@ function getViewportSizePx() {
     };
   }
   return {
-    width: Math.max(
+      width: Math.max(
       1,
-      Math.floor(window.innerWidth || document.documentElement.clientWidth || DESIGN_WIDTH)
+      Math.floor(
+        window.innerWidth ||
+          document.documentElement.clientWidth ||
+          VIEWPORT_DESIGN_WIDTH
+      )
     ),
     height: Math.max(
       1,
-      Math.floor(window.innerHeight || document.documentElement.clientHeight || DESIGN_HEIGHT)
+      Math.floor(
+        window.innerHeight ||
+          document.documentElement.clientHeight ||
+          VIEWPORT_DESIGN_HEIGHT
+      )
     ),
   };
 }
 
 function fitCanvasToViewport(view) {
   const vp = getViewportSizePx();
-  const scale = Math.min(vp.width / DESIGN_WIDTH, vp.height / DESIGN_HEIGHT);
-  const cssWidth = Math.max(1, Math.floor(DESIGN_WIDTH * scale));
-  const cssHeight = Math.max(1, Math.floor(DESIGN_HEIGHT * scale));
+  const scale = Math.min(
+    vp.width / VIEWPORT_DESIGN_WIDTH,
+    vp.height / VIEWPORT_DESIGN_HEIGHT
+  );
+  const cssWidth = Math.max(1, Math.floor(VIEWPORT_DESIGN_WIDTH * scale));
+  const cssHeight = Math.max(1, Math.floor(VIEWPORT_DESIGN_HEIGHT * scale));
   const left = Math.floor((vp.width - cssWidth) * 0.5);
   const top = Math.floor((vp.height - cssHeight) * 0.5);
   view.style.width = `${cssWidth}px`;
@@ -824,8 +836,10 @@ const systemGraphModel = createSystemGraphModel({
 const systemGraphController = systemGraphModel.controller;
 
 const tooltipView = createTooltipView({
+  app,
   layer: uiLayers.tooltipLayer,
   interaction: interactionController,
+  layout: VIEW_LAYOUT.tooltip,
 });
 
 let inventoryView = null;
@@ -1180,6 +1194,7 @@ processWidgetView = createProcessWidgetView({
   inventoryView,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
+  position: VIEW_LAYOUT.processWidget.position,
 });
 
 let goldGraphView = createRunnerMetricGraph({
@@ -1189,7 +1204,7 @@ let goldGraphView = createRunnerMetricGraph({
   controller: goldGraphController,
   runner,
   metric: GRAPH_METRICS.gold,
-  openPosition: { x: 350, y: 280 },
+  openPosition: VIEW_LAYOUT.graphs.gold,
 });
 
 let grainGraphView = createRunnerMetricGraph({
@@ -1199,7 +1214,7 @@ let grainGraphView = createRunnerMetricGraph({
   controller: grainGraphController,
   runner,
   metric: GRAPH_METRICS.grain,
-  openPosition: { x: 350, y: 370 },
+  openPosition: VIEW_LAYOUT.graphs.grain,
 });
 
 let foodGraphView = createRunnerMetricGraph({
@@ -1209,7 +1224,7 @@ let foodGraphView = createRunnerMetricGraph({
   controller: foodGraphController,
   runner,
   metric: GRAPH_METRICS.food,
-  openPosition: { x: 350, y: 460 },
+  openPosition: VIEW_LAYOUT.graphs.food,
 });
 
 let systemGraphView = createRunnerMetricGraph({
@@ -1219,7 +1234,7 @@ let systemGraphView = createRunnerMetricGraph({
   controller: systemGraphController,
   runner,
   getMetricDef: () => systemGraphController.getData().metric,
-  openPosition: { x: 350, y: 220 },
+  openPosition: VIEW_LAYOUT.graphs.system,
   historyWindowSec: 600,
 });
 
@@ -1239,7 +1254,7 @@ let apGraphView = createRunnerMetricGraph({
     const preview = actionPlanner?.getApPreview?.();
     return preview ? preview.remaining : null;
   },
-  openPosition: { x: 350, y: 80 },
+  openPosition: VIEW_LAYOUT.graphs.ap,
 });
 
 let popGraphView = createRunnerMetricGraph({
@@ -1249,7 +1264,7 @@ let popGraphView = createRunnerMetricGraph({
   controller: popGraphController,
   runner,
   metric: GRAPH_METRICS.population,
-  openPosition: { x: 350, y: 640 },
+  openPosition: VIEW_LAYOUT.graphs.population,
 });
 
 function openSystemGraphForHover() {
@@ -1441,7 +1456,9 @@ async function toggleFullscreen() {
 }
 
 const debugView = createDebugOverlay({
+  app,
   layer: uiLayers.debugLayer,
+  layout: VIEW_LAYOUT.debugOverlay,
   runner,
   onLoadScenario: (setupId) => {
     pausedActionQueue.clearQueuedActions();
@@ -1486,6 +1503,7 @@ if (isBootVariantFlagEnabled("actionLogEnabled")) {
     isPreviewing: () => runner.isPreviewing?.() ?? false,
     onJumpToSecond: (tSec) => runner.browseCursorSecond?.(tSec),
     onClearActions: () => clearActionLogAndReset(),
+    position: VIEW_LAYOUT.logs.action,
     getOwnerLabel(ownerId) {
       const state = runner.getState();
       const hubSlot = state.hub.slots.find(
@@ -1514,7 +1532,7 @@ eventLogView = createEventLogView({
     toggleYearEndPerformanceFromEventLog(entry),
   isYearEndPerformanceOpen: (entryId) =>
     isYearEndPerformanceOpenForEntry(entryId),
-  position: { x: 20, y: 180 },
+  position: VIEW_LAYOUT.logs.event,
 });
 
 yearEndPerformanceView = createYearEndPerformanceView({
@@ -1533,12 +1551,14 @@ skillTreeView = createSkillTreeView({
   app,
   layer: uiLayers.skillTreeLayer,
   runner,
+  layout: VIEW_LAYOUT.skillTree,
   onOpenEditor: ({ treeId, defsInput }) => openSkillTreeEditorForTree({ treeId, defsInput }),
 });
 
 skillTreeEditorView = createSkillTreeEditorView({
   app,
   layer: uiLayers.skillTreeLayer,
+  layout: VIEW_LAYOUT.skillTreeEditor,
 });
 
 flashActionLogAp = () => actionLogView.flashInsufficientAp?.();

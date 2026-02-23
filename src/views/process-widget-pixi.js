@@ -22,6 +22,9 @@ import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import {
+  VIEW_LAYOUT,
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
   TILE_WIDTH,
   TILE_HEIGHT,
   HUB_STRUCTURE_WIDTH,
@@ -110,7 +113,7 @@ export function createProcessWidgetView({
   queueActionWhenPaused,
   inventoryView,
   flashActionGhost,
-  position = { x: 1180, y: 640 },
+  position = VIEW_LAYOUT.processWidget.position,
 }) {
   const windows = new Map();
   const withdrawUiStateByTarget = new Map();
@@ -190,10 +193,10 @@ export function createProcessWidgetView({
   function getScreenSize() {
     const width = Number.isFinite(app?.renderer?.width)
       ? app.renderer.width
-      : 1920;
+      : VIEWPORT_DESIGN_WIDTH;
     const height = Number.isFinite(app?.renderer?.height)
       ? app.renderer.height
-      : 1080;
+      : VIEWPORT_DESIGN_HEIGHT;
     return { width, height };
   }
 

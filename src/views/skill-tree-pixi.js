@@ -25,11 +25,6 @@ import {
   MAX_ZOOM,
   MIN_NODE_RADIUS,
   MIN_ZOOM,
-  RIGHT_PANEL_X,
-  VIEWPORT_HEIGHT,
-  VIEWPORT_WIDTH,
-  VIEWPORT_X,
-  VIEWPORT_Y,
 } from "./skill-tree/constants.js";
 import { makeButton } from "./skill-tree/button.js";
 import { clamp, floorInt, formatNodeEffects, sortedStrings } from "./skill-tree/formatters.js";
@@ -39,8 +34,90 @@ import {
   makeDirectedEdgeKey,
   makeEdgeKey,
 } from "./skill-tree/edge-routing.js";
+import {
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
+  VIEW_LAYOUT,
+} from "./layout-pixi.js";
 
-export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
+export function createSkillTreeView({
+  app,
+  layer,
+  runner,
+  onOpenEditor,
+  layout = null,
+} = {}) {
+  const skillTreeLayout =
+    layout && typeof layout === "object" ? layout : VIEW_LAYOUT.skillTree;
+  const viewportLayout = skillTreeLayout?.viewport ?? {};
+  const panelLayout = skillTreeLayout?.panel ?? {};
+  const buttonsLayout = skillTreeLayout?.buttons ?? {};
+  const sideTextLayout = skillTreeLayout?.sideText ?? {};
+  const graphBoundsLayout = skillTreeLayout?.layoutBounds ?? {};
+
+  const VIEWPORT_X = Number.isFinite(viewportLayout?.x)
+    ? Math.floor(viewportLayout.x)
+    : 36;
+  const VIEWPORT_Y = Number.isFinite(viewportLayout?.y)
+    ? Math.floor(viewportLayout.y)
+    : 24;
+  const VIEWPORT_WIDTH = Number.isFinite(viewportLayout?.width)
+    ? Math.floor(viewportLayout.width)
+    : 1460;
+  const VIEWPORT_HEIGHT = Number.isFinite(viewportLayout?.height)
+    ? Math.floor(viewportLayout.height)
+    : 1020;
+  const RIGHT_PANEL_X = Number.isFinite(panelLayout?.x)
+    ? Math.floor(panelLayout.x)
+    : 1510;
+  const SIDE_TEXT_WIDTH = Number.isFinite(sideTextLayout?.width)
+    ? Math.floor(sideTextLayout.width)
+    : 390;
+  const SAVE_BUTTON_X = Number.isFinite(buttonsLayout?.saveExitX)
+    ? Math.floor(buttonsLayout.saveExitX)
+    : RIGHT_PANEL_X;
+  const CANCEL_BUTTON_X = Number.isFinite(buttonsLayout?.cancelX)
+    ? Math.floor(buttonsLayout.cancelX)
+    : 1690;
+  const EDITOR_BUTTON_X = Number.isFinite(buttonsLayout?.editorX)
+    ? Math.floor(buttonsLayout.editorX)
+    : 1800;
+  const ZOOM_IN_BUTTON_X = Number.isFinite(buttonsLayout?.zoomInX)
+    ? Math.floor(buttonsLayout.zoomInX)
+    : RIGHT_PANEL_X;
+  const ZOOM_OUT_BUTTON_X = Number.isFinite(buttonsLayout?.zoomOutX)
+    ? Math.floor(buttonsLayout.zoomOutX)
+    : 1610;
+  const ZOOM_TEXT_X = Number.isFinite(buttonsLayout?.zoomTextX)
+    ? Math.floor(buttonsLayout.zoomTextX)
+    : 1710;
+  const EDGE_MODE_BUTTON_X = Number.isFinite(buttonsLayout?.edgeModeX)
+    ? Math.floor(buttonsLayout.edgeModeX)
+    : RIGHT_PANEL_X;
+  const TREE_LAYOUT_BOUNDS = {
+    x: Number.isFinite(graphBoundsLayout?.x)
+      ? Math.floor(graphBoundsLayout.x)
+      : 90,
+    y: Number.isFinite(graphBoundsLayout?.y)
+      ? Math.floor(graphBoundsLayout.y)
+      : 70,
+    width: Number.isFinite(graphBoundsLayout?.width)
+      ? Math.floor(graphBoundsLayout.width)
+      : 1280,
+    height: Number.isFinite(graphBoundsLayout?.height)
+      ? Math.floor(graphBoundsLayout.height)
+      : 900,
+    columnSpacing: Number.isFinite(graphBoundsLayout?.columnSpacing)
+      ? Math.floor(graphBoundsLayout.columnSpacing)
+      : 220,
+    rowSpacing: Number.isFinite(graphBoundsLayout?.rowSpacing)
+      ? Math.floor(graphBoundsLayout.rowSpacing)
+      : 110,
+    leftPad: Number.isFinite(graphBoundsLayout?.leftPad)
+      ? Math.floor(graphBoundsLayout.leftPad)
+      : 120,
+  };
+
   const root = new PIXI.Container();
   root.visible = false;
   root.eventMode = "static";
@@ -72,7 +149,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     fontSize: 16,
     lineHeight: 24,
     wordWrap: true,
-    wordWrapWidth: 390,
+    wordWrapWidth: SIDE_TEXT_WIDTH,
   });
   infoText.x = RIGHT_PANEL_X;
   infoText.y = 260;
@@ -82,7 +159,7 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     fill: 0xff9b9b,
     fontSize: 13,
     wordWrap: true,
-    wordWrapWidth: 390,
+    wordWrapWidth: SIDE_TEXT_WIDTH,
   });
   errorText.x = RIGHT_PANEL_X;
   errorText.y = 232;
@@ -106,27 +183,27 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   viewport.mask = viewportMask;
 
   const saveBtn = makeButton("Save/Exit", 160, () => saveAndExit());
-  saveBtn.root.x = RIGHT_PANEL_X;
+  saveBtn.root.x = SAVE_BUTTON_X;
   saveBtn.root.y = 104;
   root.addChild(saveBtn.root);
 
   const cancelBtn = makeButton("Cancel/Back", 160, () => cancelAndExit());
-  cancelBtn.root.x = 1690;
+  cancelBtn.root.x = CANCEL_BUTTON_X;
   cancelBtn.root.y = 104;
   root.addChild(cancelBtn.root);
 
   const editorBtn = makeButton("Editor", 90, () => openEditor());
-  editorBtn.root.x = 1800;
+  editorBtn.root.x = EDITOR_BUTTON_X;
   editorBtn.root.y = 148;
   root.addChild(editorBtn.root);
 
   const zoomInBtn = makeButton("Zoom +", 90, () => zoomBy(1.12));
-  zoomInBtn.root.x = RIGHT_PANEL_X;
+  zoomInBtn.root.x = ZOOM_IN_BUTTON_X;
   zoomInBtn.root.y = 148;
   root.addChild(zoomInBtn.root);
 
   const zoomOutBtn = makeButton("Zoom -", 90, () => zoomBy(1 / 1.12));
-  zoomOutBtn.root.x = 1610;
+  zoomOutBtn.root.x = ZOOM_OUT_BUTTON_X;
   zoomOutBtn.root.y = 148;
   root.addChild(zoomOutBtn.root);
 
@@ -135,12 +212,12 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     fontSize: 13,
     fontWeight: "bold",
   });
-  zoomText.x = 1710;
+  zoomText.x = ZOOM_TEXT_X;
   zoomText.y = 156;
   root.addChild(zoomText);
 
   const edgeModeBtn = makeButton("Edges: Focus", 160, () => cycleEdgeMode());
-  edgeModeBtn.root.x = RIGHT_PANEL_X;
+  edgeModeBtn.root.x = EDGE_MODE_BUTTON_X;
   edgeModeBtn.root.y = 192;
   root.addChild(edgeModeBtn.root);
 
@@ -540,13 +617,13 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
     const layout = getSkillTreeLayout(
       activeTreeId,
       {
-        x: 90,
-        y: 70,
-        width: 1280,
-        height: 900,
-        columnSpacing: 220,
-        rowSpacing: 110,
-        leftPad: 120,
+        x: TREE_LAYOUT_BOUNDS.x,
+        y: TREE_LAYOUT_BOUNDS.y,
+        width: TREE_LAYOUT_BOUNDS.width,
+        height: TREE_LAYOUT_BOUNDS.height,
+        columnSpacing: TREE_LAYOUT_BOUNDS.columnSpacing,
+        rowSpacing: TREE_LAYOUT_BOUNDS.rowSpacing,
+        leftPad: TREE_LAYOUT_BOUNDS.leftPad,
       },
       activeDefs
     );
@@ -1029,8 +1106,12 @@ export function createSkillTreeView({ app, layer, runner, onOpenEditor } = {}) {
   }
 
   function resize() {
-    const width = Number.isFinite(app?.screen?.width) ? app.screen.width : 1920;
-    const height = Number.isFinite(app?.screen?.height) ? app.screen.height : 1080;
+    const width = Number.isFinite(app?.screen?.width)
+      ? app.screen.width
+      : VIEWPORT_DESIGN_WIDTH;
+    const height = Number.isFinite(app?.screen?.height)
+      ? app.screen.height
+      : VIEWPORT_DESIGN_HEIGHT;
     bg.clear();
     bg.beginFill(0x0a1020, 0.98);
     bg.drawRect(0, 0, width, height);

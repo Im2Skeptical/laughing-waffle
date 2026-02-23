@@ -17,6 +17,7 @@ import {
   LOG_ROW_HEIGHT,
 } from "./ui-helpers/log-panel-theme.js";
 import { drawLogRoundedRect } from "./ui-helpers/log-row-pixi.js";
+import { VIEW_LAYOUT } from "./layout-pixi.js";
 
 const HOLD_SEC = 5;
 const FADE_SEC = 10;
@@ -115,7 +116,7 @@ export function createEventLogView({
   onSelectEntry,
   onToggleYearEndPerformance,
   isYearEndPerformanceOpen,
-  position = { x: 20, y: 180 },
+  position = VIEW_LAYOUT.logs.event,
 }) {
   const container = new PIXI.Container();
   container.x = position.x;

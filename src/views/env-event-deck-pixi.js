@@ -5,6 +5,7 @@
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { ENV_EVENT_DRAW_CADENCE_SEC } from "../defs/gamesettings/gamerules-defs.js";
 import {
+  VIEW_LAYOUT,
   BOARD_COL_GAP,
   BOARD_COL_WIDTH,
   BOARD_COLS,
@@ -55,18 +56,10 @@ const SEASON_THEME = {
 };
 
 export const ENV_EVENT_DECK_LAYOUT = {
-  enabled: true,
-  zIndex: 1,
-  width: 72,
-  height: 98,
-  maxCatchupFlights: 16,
-  cacheSeconds: 512,
-  interFlightDelaySec: 0.045,
-  placementStaggerSec: ENV_EVENT_DECK_SPLIT_STAGGER_SEC,
-  placedDurationSec: 0.72,
-  returnedDurationSec: 0.5,
-  consumedDurationSec: 0.58,
-  overflowBadgeHoldSec: 1.25,
+  ...VIEW_LAYOUT.envEventDeck,
+  placementStaggerSec:
+    Number(VIEW_LAYOUT.envEventDeck?.placementStaggerSec) ||
+    ENV_EVENT_DECK_SPLIT_STAGGER_SEC,
 };
 
 export function getEventRevealLockRemainingSec(eventInstanceId) {

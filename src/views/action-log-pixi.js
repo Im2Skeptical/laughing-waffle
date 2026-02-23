@@ -19,6 +19,7 @@ import {
   drawLogRoundedRect,
   drawLogStatusOverlay,
 } from "./ui-helpers/log-row-pixi.js";
+import { VIEW_LAYOUT } from "./layout-pixi.js";
 
 const AP_HOVER_OVERLAY_ALPHA = 0.45;
 const AP_HOVER_FADE_IN = 14;
@@ -37,7 +38,7 @@ export function createActionLogView({
   onClearActions,
   getOwnerLabel,
   getState,
-  position = { x: 1620, y: 180 },
+  position = VIEW_LAYOUT.logs.action,
 }) {
   const container = new PIXI.Container();
   container.x = position.x;

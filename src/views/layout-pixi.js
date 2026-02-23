@@ -1,6 +1,176 @@
 // layout-pixi.js (VIEW-ONLY)
 // Shared layout constants/helpers for the env + hub rows.
 
+// Canonical design-space dimensions for the Pixi stage.
+export const VIEWPORT_DESIGN_WIDTH = 2424;
+export const VIEWPORT_DESIGN_HEIGHT = 1080;
+
+function resolveAnchorFactor(axis, rawAnchor) {
+  const anchor = String(rawAnchor || "").toLowerCase();
+  if (axis === "x") {
+    if (anchor === "center" || anchor === "middle") return 0.5;
+    if (anchor === "right" || anchor === "end") return 1;
+    return 0;
+  }
+  if (anchor === "center" || anchor === "middle") return 0.5;
+  if (anchor === "bottom" || anchor === "end") return 1;
+  return 0;
+}
+
+export function resolveAnchoredPoint({
+  screenWidth,
+  screenHeight,
+  anchorX = "left",
+  anchorY = "top",
+  offsetX = 0,
+  offsetY = 0,
+} = {}) {
+  const width = Number.isFinite(screenWidth)
+    ? Math.max(1, Math.floor(screenWidth))
+    : VIEWPORT_DESIGN_WIDTH;
+  const height = Number.isFinite(screenHeight)
+    ? Math.max(1, Math.floor(screenHeight))
+    : VIEWPORT_DESIGN_HEIGHT;
+  const xFactor = resolveAnchorFactor("x", anchorX);
+  const yFactor = resolveAnchorFactor("y", anchorY);
+  return {
+    x: width * xFactor + Number(offsetX || 0),
+    y: height * yFactor + Number(offsetY || 0),
+  };
+}
+
+export function resolveAnchoredRect({
+  screenWidth,
+  screenHeight,
+  width = 0,
+  height = 0,
+  anchorX = "left",
+  anchorY = "top",
+  offsetX = 0,
+  offsetY = 0,
+} = {}) {
+  const w = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+  const h = Number.isFinite(height) ? Math.max(0, Math.floor(height)) : 0;
+  const xFactor = resolveAnchorFactor("x", anchorX);
+  const yFactor = resolveAnchorFactor("y", anchorY);
+  const anchor = resolveAnchoredPoint({
+    screenWidth,
+    screenHeight,
+    anchorX,
+    anchorY,
+    offsetX,
+    offsetY,
+  });
+  return {
+    x: anchor.x - w * xFactor,
+    y: anchor.y - h * yFactor,
+    width: w,
+    height: h,
+  };
+}
+
+// Centralized top-level module placement/layout contract.
+export const VIEW_LAYOUT = {
+  tooltip: {
+    margin: 10,
+  },
+  debugOverlay: {
+    anchorX: "right",
+    anchorY: "top",
+    offsetX: -24,
+    offsetY: 10,
+  },
+  logs: {
+    action: { x: 1620, y: 180 },
+    event: { x: 20, y: 180 },
+  },
+  processWidget: {
+    position: { x: 1180, y: 640 },
+  },
+  graphs: {
+    gold: { x: 350, y: 280 },
+    grain: { x: 350, y: 370 },
+    food: { x: 350, y: 460 },
+    system: { x: 350, y: 220 },
+    ap: { x: 350, y: 80 },
+    population: { x: 350, y: 640 },
+  },
+  skillTree: {
+    viewport: { x: 0, y: 0, width: 2424, height: 1080 },
+    panel: { x: 1910 },
+    sideText: { width: 390 },
+    buttons: {
+      saveExitX: 1910,
+      cancelX: 2090,
+      editorX: 2200,
+      zoomInX: 1910,
+      zoomOutX: 2010,
+      zoomTextX: 2110,
+      edgeModeX: 1910,
+    },
+    layoutBounds: {
+      x: 90,
+      y: 70,
+      width: 1280,
+      height: 900,
+      columnSpacing: 220,
+      rowSpacing: 110,
+      leftPad: 120,
+    },
+  },
+  skillTreeEditor: {
+    viewport: { x: 20, y: 20, width: 1900, height: 1040 },
+    panel: {
+      x: 1960,
+      width: 430,
+      rowGap: 40,
+      sectionGap: 10,
+      textGap: 8,
+      headerWidth: 408,
+      colBX: 2170,
+    },
+  },
+  sunMoonDisks: {
+    enabled: true,
+    zIndex: 0,
+    moon: {
+      x: 2000,
+      y: 400,
+      scale: 0.5,
+      alpha: 1.0,
+      rotationOffsetRad: 0,
+      playheadOffsetRad: -1.55,
+      clockwise: true,
+      texturePath: "images/MoonDisk_01.png",
+    },
+    season: {
+      x: 2000,
+      y: 400,
+      scale: 0.75,
+      alpha: 1.0,
+      rotationOffsetRad: 3,
+      playheadOffsetRad: -0.7,
+      clockwise: true,
+      texturePath: "images/SeasonDisk_01.png",
+      quadrants: 4,
+    },
+  },
+  envEventDeck: {
+    enabled: true,
+    zIndex: 1,
+    width: 72,
+    height: 98,
+    maxCatchupFlights: 16,
+    cacheSeconds: 512,
+    interFlightDelaySec: 0.045,
+    placementStaggerSec: 0.04,
+    placedDurationSec: 0.72,
+    returnedDurationSec: 0.5,
+    consumedDurationSec: 0.58,
+    overflowBadgeHoldSec: 1.25,
+  },
+};
+
 export const BOARD_COLS = 12;
 export const BOARD_COL_WIDTH = 80;
 export const BOARD_COL_GAP = 6;

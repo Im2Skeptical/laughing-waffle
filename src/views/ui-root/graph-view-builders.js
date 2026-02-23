@@ -1,4 +1,5 @@
 // src/views/ui-root/graph-view-builders.js
+import { VIEW_LAYOUT } from "../layout-pixi.js";
 
 export function createRunnerMetricGraph({
   createMetricGraphView,
@@ -13,6 +14,11 @@ export function createRunnerMetricGraph({
   getEditableHistoryBounds = null,
   historyWindowSec = undefined,
 }) {
+  const metricId =
+    typeof metric === "string" ? metric : typeof metric?.id === "string" ? metric.id : null;
+  const fallbackOpenPosition =
+    (metricId && VIEW_LAYOUT.graphs?.[metricId]) || VIEW_LAYOUT.graphs.gold;
+
   const options = {
     app,
     layer,
@@ -24,7 +30,7 @@ export function createRunnerMetricGraph({
     setPreviewState: (s) => runner.setPreviewState(s),
     clearPreviewState: () => runner.clearPreviewState(),
     commitSecond: (t, stateData) => runner.commitCursorSecond(t, stateData),
-    openPosition,
+    openPosition: openPosition || fallbackOpenPosition,
   };
 
   if (metric) options.metric = metric;

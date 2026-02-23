@@ -28,14 +28,13 @@ import {
   HUB_STRUCTURE_WIDTH,
   HUB_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_ROW_Y,
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
   getHubColumnCenterX,
 } from "./layout-pixi.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 
 
-
-const DESIGN_WIDTH = 1920;
-const DESIGN_HEIGHT = 1080;
 
 const HEADER_HEIGHT = 24;
 const INNER_PADDING = 8;
@@ -200,6 +199,29 @@ export function createInventoryView({
 
   function getStateSafe() {
     return typeof getState === "function" ? getState() : null;
+  }
+
+  function getScreenSize() {
+    const hitAreaWidth = Number(stage?.hitArea?.width);
+    const hitAreaHeight = Number(stage?.hitArea?.height);
+    const stageWidth = Number(stage?.width);
+    const stageHeight = Number(stage?.height);
+
+    const width = Number.isFinite(hitAreaWidth) && hitAreaWidth > 0
+      ? hitAreaWidth
+      : Number.isFinite(stageWidth) && stageWidth > 0
+        ? stageWidth
+        : VIEWPORT_DESIGN_WIDTH;
+    const height = Number.isFinite(hitAreaHeight) && hitAreaHeight > 0
+      ? hitAreaHeight
+      : Number.isFinite(stageHeight) && stageHeight > 0
+        ? stageHeight
+        : VIEWPORT_DESIGN_HEIGHT;
+
+    return {
+      width: Math.max(1, Math.floor(width)),
+      height: Math.max(1, Math.floor(height)),
+    };
   }
 
   function getLeaderForOwner(ownerId) {
@@ -1021,7 +1043,11 @@ export function createInventoryView({
     const ghostHeight = ghost.cardHeight || 80;
 
     let panelX = ghostWidth + BUILD_GHOST_PANEL_GAP;
-    if (globalPos.x + (ghostWidth + panelWidth + BUILD_GHOST_PANEL_GAP) * scale > DESIGN_WIDTH - 10) {
+    const { width: screenWidth } = getScreenSize();
+    if (
+      globalPos.x + (ghostWidth + panelWidth + BUILD_GHOST_PANEL_GAP) * scale >
+      screenWidth - 10
+    ) {
       panelX = -panelWidth - BUILD_GHOST_PANEL_GAP;
     }
 
@@ -1687,11 +1713,12 @@ export function createInventoryView({
       let x = anchor.x + anchor.width + 10;
       let y = anchor.y;
 
-      if (x + win.panelWidth > DESIGN_WIDTH) {
+      const { width: screenWidth, height: screenHeight } = getScreenSize();
+      if (x + win.panelWidth > screenWidth) {
         x = anchor.x - win.panelWidth - 10;
       }
-      if (y + win.panelHeight > DESIGN_HEIGHT) {
-        y = DESIGN_HEIGHT - win.panelHeight - 10;
+      if (y + win.panelHeight > screenHeight) {
+        y = screenHeight - win.panelHeight - 10;
       }
 
       win.container.x = x;
@@ -3515,7 +3542,8 @@ export function createInventoryView({
       if (findWindowAt(p)) return;
 
       const state = getStateSafe();
-      const col = resolveHubColFromPos(state, p, DESIGN_WIDTH);
+      const { width: screenWidth } = getScreenSize();
+      const col = resolveHubColFromPos(state, p, screenWidth);
       if (col == null) return;
 
       ev?.stopPropagation?.();
@@ -3550,7 +3578,8 @@ export function createInventoryView({
     if (activeBuildSpec) {
       updateBuildGhostContent(activeBuildSpec.defId);
       if (buildGhost) {
-        const pos = lastPointerPos || { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
+        const { width: screenWidth, height: screenHeight } = getScreenSize();
+        const pos = lastPointerPos || { x: screenWidth / 2, y: screenHeight / 2 };
         buildGhost.container.visible = true;
         updateBuildGhostPosition(pos);
       }

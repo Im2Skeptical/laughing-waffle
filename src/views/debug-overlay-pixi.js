@@ -4,8 +4,13 @@
 import { ActionKinds } from "../model/actions.js";
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
+import {
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
+  VIEW_LAYOUT,
+  resolveAnchoredRect,
+} from "./layout-pixi.js";
 
-const DESIGN_WIDTH = 2424;
 const PANEL_WIDTH = 280;
 const PANEL_MIN_HEIGHT = 540;
 const TOP_VIEW_UPDATES_COUNT = 5;
@@ -30,6 +35,8 @@ function setButtonEnabled(button, enabled) {
 }
 
 export function createDebugOverlay({
+  app,
+  layout = null,
   layer,
   runner,
   onLoadScenario,
@@ -42,9 +49,39 @@ export function createDebugOverlay({
   getPerfSnapshot,
   getProjectionParity,
 }) {
+  const rootLayout =
+    layout && typeof layout === "object" ? layout : VIEW_LAYOUT.debugOverlay;
+
+  function getScreenSize() {
+    return {
+      width: Number.isFinite(app?.screen?.width)
+        ? Math.max(1, Math.floor(app.screen.width))
+        : VIEWPORT_DESIGN_WIDTH,
+      height: Number.isFinite(app?.screen?.height)
+        ? Math.max(1, Math.floor(app.screen.height))
+        : VIEWPORT_DESIGN_HEIGHT,
+    };
+  }
+
+  function applyRootLayout(root) {
+    if (!root) return;
+    const { width, height } = getScreenSize();
+    const rect = resolveAnchoredRect({
+      screenWidth: width,
+      screenHeight: height,
+      width: PANEL_WIDTH,
+      height: 0,
+      anchorX: rootLayout?.anchorX ?? "right",
+      anchorY: rootLayout?.anchorY ?? "top",
+      offsetX: Number(rootLayout?.offsetX ?? -24),
+      offsetY: Number(rootLayout?.offsetY ?? 10),
+    });
+    root.x = Math.floor(rect.x);
+    root.y = Math.floor(rect.y);
+  }
+
   const root = new PIXI.Container();
-  root.x = DESIGN_WIDTH - PANEL_WIDTH - 24;
-  root.y = 10;
+  applyRootLayout(root);
   layer.addChild(root);
 
   const apText = new PIXI.Text("AP: -- / --", {
@@ -65,7 +102,7 @@ export function createDebugOverlay({
   dbgBtn.cursor = "pointer";
   const dbgBtnBg = new PIXI.Graphics();
   dbgBtnBg.beginFill(0x444444);
-  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE * 5, DEBUG_TOGGLE_SIZE, 6);
+  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE, DEBUG_TOGGLE_SIZE, 6);
   dbgBtnBg.endFill();
   dbgBtn.addChild(dbgBtnBg);
   root.addChild(dbgBtn);
@@ -605,6 +642,7 @@ export function createDebugOverlay({
 
   return {
     update: () => {
+      applyRootLayout(root);
       const state = runner.getState();
       if (state) {
         const apCostsEnabled =
