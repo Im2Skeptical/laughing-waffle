@@ -64,6 +64,7 @@ import {
   recordViewFrame,
   recordViewUpdate,
 } from "../model/perf.js";
+import { hasAnyLeaderUnlockedSkillNode } from "../model/skills.js";
 import { createProjectionParityProbe } from "./ui-root/projection-parity.js";
 import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
 import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
@@ -1570,6 +1571,8 @@ if (isBootVariantFlagEnabled("actionLogEnabled")) {
 eventLogView = createEventLogView({
   layer: uiLayers.controlsLayer,
   getState: () => runner.getState(),
+  isVisible: () =>
+    hasAnyLeaderUnlockedSkillNode(runner.getState?.(), "Memory"),
   onSelectEntry: (entry) => handleEventLogSelection(entry),
   onToggleYearEndPerformance: (entry) =>
     toggleYearEndPerformanceFromEventLog(entry),

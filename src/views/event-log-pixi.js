@@ -113,6 +113,7 @@ function getRowsCapacity() {
 export function createEventLogView({
   layer,
   getState,
+  isVisible = null,
   onSelectEntry,
   onToggleYearEndPerformance,
   isYearEndPerformanceOpen,
@@ -294,6 +295,14 @@ export function createEventLogView({
   function init() {}
 
   function update() {
+    const visible =
+      typeof isVisible === "function" ? isVisible() !== false : true;
+    container.visible = visible;
+    if (!visible) {
+      clearSelection();
+      return;
+    }
+
     const state = typeof getState === "function" ? getState() : null;
     const rowSpecs = controller.getVisibleRows({
       holdSec: HOLD_SEC,
