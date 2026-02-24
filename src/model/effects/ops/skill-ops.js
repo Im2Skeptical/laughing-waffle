@@ -1,6 +1,9 @@
 import {
   addGlobalSkillModifier,
   addPawnSkillModifier,
+  getSkillNodeDef,
+  getSkillTreeDef,
+  getUnlockedSkillSet,
   grantSkillEnvTagUnlock,
   grantSkillHubStructureUnlock,
   grantSkillHubTagUnlock,
@@ -42,6 +45,68 @@ function resolveMultiplierFactor(effect) {
   if (Number.isFinite(effect?.multiplier)) return effect.multiplier;
   if (Number.isFinite(effect?.amount)) return effect.amount;
   return null;
+}
+
+function resolveSkillNodeId(effect) {
+  if (typeof effect?.nodeId === "string" && effect.nodeId.length > 0) {
+    return effect.nodeId;
+  }
+  if (typeof effect?.skillNodeId === "string" && effect.skillNodeId.length > 0) {
+    return effect.skillNodeId;
+  }
+  return null;
+}
+
+function getLeaderPawnById(state, pawnId) {
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  const rawNum = Number(pawnId);
+  const idNum = Number.isFinite(rawNum) ? Math.floor(rawNum) : null;
+  for (const pawn of pawns) {
+    if (!pawn || pawn.role !== "leader") continue;
+    if (idNum != null && Number.isFinite(pawn.id) && Math.floor(pawn.id) === idNum) {
+      return pawn;
+    }
+    if (String(pawn.id) === String(pawnId)) return pawn;
+  }
+  return null;
+}
+
+function getNodeCost(nodeDef) {
+  if (!Number.isFinite(nodeDef?.cost)) return 1;
+  return Math.max(0, Math.floor(nodeDef.cost));
+}
+
+function requirementsPass(nodeDef, unlockedSet) {
+  const reqIds = Array.isArray(nodeDef?.requirements?.requiredNodeIds)
+    ? nodeDef.requirements.requiredNodeIds
+    : [];
+  for (const reqId of reqIds) {
+    if (typeof reqId !== "string" || reqId.length <= 0) continue;
+    if (!unlockedSet.has(reqId)) return false;
+  }
+  return true;
+}
+
+function hasUnlockedAdjacent(nodeDef, unlockedSet) {
+  const adjacent = Array.isArray(nodeDef?.adjacent) ? nodeDef.adjacent : [];
+  for (const adjacentId of adjacent) {
+    if (typeof adjacentId !== "string" || adjacentId.length <= 0) continue;
+    if (unlockedSet.has(adjacentId)) return true;
+  }
+  return false;
+}
+
+function applyUnlockToLeader(leaderPawn, nodeId) {
+  const nextUnlocked = Array.isArray(leaderPawn?.unlockedSkillNodeIds)
+    ? leaderPawn.unlockedSkillNodeIds.slice()
+    : [];
+  if (!nextUnlocked.includes(nodeId)) {
+    nextUnlocked.push(nodeId);
+    nextUnlocked.sort((left, right) => String(left).localeCompare(String(right)));
+    leaderPawn.unlockedSkillNodeIds = nextUnlocked;
+    return true;
+  }
+  return false;
 }
 
 function resolveUnlockType(effect) {
@@ -142,6 +207,66 @@ export function handleMulModifier(state, effect, context) {
     return multiplyPawnSkillModifier(state, pawnId, key, factor);
   }
   return multiplyGlobalSkillModifier(state, key, factor);
+}
+
+export function handleAddSkillPoints(state, effect, context) {
+  if (!state || !effect || typeof effect !== "object") return false;
+  const pawnId = resolvePawnId(effect, context);
+  if (pawnId == null) return false;
+  const leaderPawn = getLeaderPawnById(state, pawnId);
+  if (!leaderPawn) return false;
+
+  const amountRaw = resolveModifierAmount(effect);
+  if (!Number.isFinite(amountRaw)) return false;
+  const amount = Math.floor(amountRaw);
+  if (amount === 0) return false;
+
+  const current = Number.isFinite(leaderPawn.skillPoints)
+    ? Math.max(0, Math.floor(leaderPawn.skillPoints))
+    : 0;
+  const next = Math.max(0, current + amount);
+  if (next === current) return false;
+  leaderPawn.skillPoints = next;
+  return true;
+}
+
+export function handleGrantSkillNode(state, effect, context) {
+  if (!state || !effect || typeof effect !== "object") return false;
+  const pawnId = resolvePawnId(effect, context);
+  if (pawnId == null) return false;
+  const leaderPawn = getLeaderPawnById(state, pawnId);
+  if (!leaderPawn) return false;
+
+  const nodeId = resolveSkillNodeId(effect);
+  if (!nodeId) return false;
+  const nodeDef = getSkillNodeDef(null, nodeId);
+  if (!nodeDef) return false;
+  const treeDef = getSkillTreeDef(nodeDef.treeId);
+  if (!treeDef) return false;
+
+  const unlockedSet = getUnlockedSkillSet(state, leaderPawn.id);
+  if (unlockedSet.has(nodeDef.id)) return false;
+
+  const ignoreCost = effect.ignoreCost === true;
+  const ignoreAdjacency = effect.ignoreAdjacency === true;
+  const ignoreRequirements = effect.ignoreRequirements === true;
+
+  const cost = getNodeCost(nodeDef);
+  const currentPoints = Number.isFinite(leaderPawn.skillPoints)
+    ? Math.max(0, Math.floor(leaderPawn.skillPoints))
+    : 0;
+
+  if (!ignoreCost && currentPoints < cost) return false;
+
+  const isStart = treeDef.startNodeId === nodeDef.id;
+  if (!ignoreAdjacency && !isStart && !hasUnlockedAdjacent(nodeDef, unlockedSet)) {
+    return false;
+  }
+  if (!ignoreRequirements && !requirementsPass(nodeDef, unlockedSet)) return false;
+
+  const nextPoints = ignoreCost ? currentPoints : Math.max(0, currentPoints - cost);
+  leaderPawn.skillPoints = nextPoints;
+  return applyUnlockToLeader(leaderPawn, nodeDef.id);
 }
 
 export function handleGrantUnlock(state, effect) {

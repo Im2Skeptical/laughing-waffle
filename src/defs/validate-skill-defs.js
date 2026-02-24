@@ -50,6 +50,8 @@ const EFFECT_OPS = new Set([
   "AdvanceWorkProcess",
   "SetProp",
   "AddProp",
+  "AddSkillPoints",
+  "GrantSkillNode",
   "AddModifier",
   "MulModifier",
   "GrantUnlock",
@@ -105,6 +107,23 @@ function validateSkillModifierEffect(effect, contextLabel, errors) {
     if (!Number.isFinite(factor)) {
       addIssue(errors, `${contextLabel}: MulModifier requires numeric factor.`);
     }
+  }
+}
+
+function validateSkillPointEffect(effect, contextLabel, errors) {
+  const amount = Number.isFinite(effect?.amount)
+    ? effect.amount
+    : Number.isFinite(effect?.delta)
+      ? effect.delta
+      : null;
+  if (!Number.isFinite(amount)) {
+    addIssue(errors, `${contextLabel}: AddSkillPoints requires numeric amount or delta.`);
+  }
+}
+
+function validateSkillNodeGrantEffect(effect, contextLabel, errors) {
+  if (typeof effect?.nodeId !== "string" || !effect.nodeId.length) {
+    addIssue(errors, `${contextLabel}: GrantSkillNode requires non-empty nodeId.`);
   }
 }
 
@@ -232,6 +251,10 @@ function validateNodeEffectList(
     }
     if (op === "AddModifier" || op === "MulModifier") {
       validateSkillModifierEffect(effect, contextLabel, errors);
+    } else if (op === "AddSkillPoints") {
+      validateSkillPointEffect(effect, contextLabel, errors);
+    } else if (op === "GrantSkillNode") {
+      validateSkillNodeGrantEffect(effect, contextLabel, errors);
     } else if (op === "GrantUnlock" || op === "RevokeUnlock") {
       validateSkillUnlockEffect(
         effect,

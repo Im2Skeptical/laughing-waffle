@@ -1035,11 +1035,38 @@ inventoryView = createInventoryView({
   setApDragWarning,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
-  onUseItem: (spec) =>
-    scrollGraphOrchestrator?.handleUseItem?.(spec) ?? {
+  onUseItem: (spec) => {
+    const scrollUseResult = scrollGraphOrchestrator?.handleUseItem?.(spec);
+    if (scrollUseResult?.handled === true) {
+      return scrollUseResult;
+    }
+
+    const useResult = queueActionWhenPaused(() =>
+      runner.dispatchAction(
+        ActionKinds.INVENTORY_USE_ITEM,
+        {
+          ownerId: spec?.ownerId,
+          itemId: spec?.itemId,
+          sourceEquipmentSlotId: spec?.sourceEquipmentSlotId ?? null,
+        },
+        { apCost: 0 }
+      )
+    );
+
+    if (
+      useResult?.ok === true &&
+      (useResult?.queued === true || useResult?.result === "itemUsed")
+    ) {
+      return { handled: true, result: useResult.result ?? "queued" };
+    }
+    if (useResult?.ok === false && useResult.reason === "noUsableEffect") {
+      return { handled: false, reason: "noUsableEffect" };
+    }
+    return {
       handled: false,
-      reason: "noScrollGraphOrchestrator",
-    },
+      reason: useResult?.reason || scrollUseResult?.reason || "itemUseFailed",
+    };
+  },
 });
 
 function togglePause() {

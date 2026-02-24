@@ -7,6 +7,7 @@ import {
   cmdMoveItemBetweenOwners,
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
+  cmdUseItem,
   cmdDiscardItemFromOwner,
   cmdMoveProcessBufferItem,
   cmdDepositItemToEquippedBasket,
@@ -43,6 +44,7 @@ export const ActionKinds = {
   INVENTORY_SPLIT: "inventorySplit",
   INVENTORY_STACK: "inventoryStack",
   INVENTORY_DISCARD: "inventoryDiscard",
+  INVENTORY_USE_ITEM: "inventoryUseItem",
   PROCESS_BUFFER_MOVE: "processBufferMove",
   DEPOSIT_ITEM_TO_BASKET: "depositItemToBasket",
   EQUIP_ITEM: "equipItem",
@@ -213,6 +215,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.INVENTORY_DISCARD:
       result = cmdDiscardItemFromOwner(state, payload);
+      break;
+
+    case ActionKinds.INVENTORY_USE_ITEM:
+      result = cmdUseItem(state, payload);
       break;
 
     case ActionKinds.BUILD_DESIGNATE:

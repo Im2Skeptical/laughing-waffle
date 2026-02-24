@@ -33,6 +33,8 @@ const EFFECT_OPS = new Set([
   "AdvanceWorkProcess",
   "SetProp",
   "AddProp",
+  "AddSkillPoints",
+  "GrantSkillNode",
   "AddModifier",
   "MulModifier",
   "GrantUnlock",

@@ -576,6 +576,24 @@ export const itemDefs = {
     baseTags: ["unique"],
     defaultWidth: 2,
     defaultHeight: 2,
+    onUse: [
+      {
+        op: "GrantSkillNode",
+        target: { ref: "pawn" },
+        nodeId: "Memory",
+        ignoreCost: true,
+        ignoreAdjacency: true,
+        ignoreRequirements: true,
+      },
+      {
+        op: "AddSkillPoints",
+        target: { ref: "pawn" },
+        amount: 2,
+      },
+      {
+        op: "RemoveItem",
+      },
+    ],
     ui: {
       title: "Mysterious Ancient Tome",
       lines: [
@@ -583,6 +601,8 @@ export const itemDefs = {
         "Owner: {ownerLabel}",
         "Quantity: {quantity}",
         "Size: {width}x{height}",
+        "Tap to read while paused.",
+        "Grants Memory +2 skill points, then vanishes.",
       ],
     },
   },

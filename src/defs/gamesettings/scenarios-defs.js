@@ -225,7 +225,7 @@ export const setupDefs = {
         role: "leader", 
         skillPoints: 3,
         //unlockedSkillNodeIds: ["Astronomy", "Crafting", "RitualShrine", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
-        unlockedSkillNodeIds: ["Hearth"]
+        unlockedSkillNodeIds: [""]
       },
       //{ name: "Pawn 2", color: 0x9999ff, hubCol: 3, role: "leader" },
     ],
@@ -248,9 +248,10 @@ export const setupDefs = {
         owner: { type: "pawn", index: 0 },
         items: [
           { kind: "moteOfEternity", quantity: 1, gridX: 0, gridY: 0 },
-          { kind: "reeds", quantity: 20, gridX: 1, gridY: 0 },
-          { kind: "straw", quantity: 20, gridX: 2, gridY: 0 },
-          { kind: "stone", quantity: 5, gridX: 3, gridY: 0 },
+          { kind: "mysteriousAncientTome", quantity: 1, gridX: 1, gridY: 0 },
+          //{ kind: "reeds", quantity: 20, gridX: 1, gridY: 0 },
+          //{ kind: "straw", quantity: 20, gridX: 2, gridY: 0 },
+          //{ kind: "stone", quantity: 5, gridX: 3, gridY: 0 },
         ],
       },
       {

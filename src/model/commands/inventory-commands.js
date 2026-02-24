@@ -850,6 +850,60 @@ export function cmdStackItemsInOwner(state, { ownerId, sourceItemId, targetItemI
   return ctx.out || { ok: false, reason: "effectFailed" };
 }
 
+export function cmdUseItem(
+  state,
+  { ownerId, itemId, sourceEquipmentSlotId = null } = {}
+) {
+  if (ownerId == null) return { ok: false, reason: "badOwner" };
+  if (itemId == null) return { ok: false, reason: "badItem" };
+  if (sourceEquipmentSlotId != null) {
+    return { ok: false, reason: "equipmentUseUnsupported" };
+  }
+
+  const inv = state?.ownerInventories?.[ownerId];
+  if (!inv) return { ok: false, reason: "noInventory" };
+
+  Inventory.rebuildDerived(inv);
+  const item = inv.itemsById[itemId] || inv.items.find((it) => it.id === itemId);
+  if (!item) return { ok: false, reason: "noItem" };
+
+  const leaderPawn = getLeaderByOwnerId(state, ownerId);
+  if (!leaderPawn) return { ok: false, reason: "notLeaderOwner" };
+
+  const itemDef = itemDefs?.[item.kind] ?? null;
+  if (!itemDef) return { ok: false, reason: "noItemDef" };
+  const onUseRaw = itemDef.onUse;
+  const onUseEffects = Array.isArray(onUseRaw)
+    ? onUseRaw
+    : onUseRaw && typeof onUseRaw === "object"
+      ? [onUseRaw]
+      : [];
+  if (!onUseEffects.length) return { ok: false, reason: "noUsableEffect" };
+
+  const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+  const changed = runEffect(state, onUseEffects, {
+    kind: "item",
+    state,
+    source: item,
+    item,
+    inv,
+    ownerId,
+    pawn: leaderPawn,
+    pawnId: leaderPawn.id,
+    tSec: nowSec,
+  });
+  if (!changed) return { ok: false, reason: "itemUseNoChange" };
+
+  return {
+    ok: true,
+    result: "itemUsed",
+    ownerId,
+    itemId: item.id,
+    itemKind: item.kind,
+    leaderPawnId: leaderPawn.id,
+  };
+}
+
 export function cmdDiscardItemFromOwner(state, { ownerId, itemId } = {}) {
   if (ownerId == null) return { ok: false, reason: "badOwner" };
   if (itemId == null) return { ok: false, reason: "badItem" };

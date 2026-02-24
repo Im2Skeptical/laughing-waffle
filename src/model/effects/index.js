@@ -39,7 +39,9 @@ import {
 import { handleRemoveEvent, handleTransformEvent } from "./ops/event-ops.js";
 import { handleSetProp, handleAddProp } from "./ops/prop-ops.js";
 import {
+  handleAddSkillPoints,
   handleAddModifier,
+  handleGrantSkillNode,
   handleGrantUnlock,
   handleMulModifier,
   handleRevokeUnlock,
@@ -79,6 +81,8 @@ const handlers = {
   TransformEvent: handleTransformEvent,
   SetProp: handleSetProp,
   AddProp: handleAddProp,
+  AddSkillPoints: handleAddSkillPoints,
+  GrantSkillNode: handleGrantSkillNode,
   AddModifier: handleAddModifier,
   MulModifier: handleMulModifier,
   GrantUnlock: handleGrantUnlock,

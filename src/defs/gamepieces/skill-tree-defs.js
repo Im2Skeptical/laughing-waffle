@@ -26,7 +26,7 @@ export const skillTrees = {
   systemColorMap: {
     id: "systemColorMap",
     name: "System Color Map",
-    startNodeId: "Astronomy",
+    startNodeId: "Memory",
     ui: {
       accentColor: 16777215,
       layoutMode: "ringByTags",

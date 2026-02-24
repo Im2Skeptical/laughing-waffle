@@ -21,7 +21,11 @@ import {
   SECONDS_BELOW_HUNGER_THRESHOLD,
 } from "../defs/gamesettings/gamerules-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
-import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
+import {
+  computeAvailableRecipesAndBuildings,
+  getSkillNodes,
+  getUnlockedSkillSet,
+} from "../model/skills.js";
 import {
   HUB_COLS,
   HUB_COL_GAP,
@@ -74,6 +78,9 @@ const EQUIP_SLOT_STROKE = 0x44506e;
 const EQUIP_SLOT_STROKE_ACTIVE = 0x6f8dc6;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
+const SKILLS_PANEL_HEIGHT = 102;
+const SKILLS_UNLOCKED_LIST_MAX = 5;
+const SKILLS_LIST_LINE_HEIGHT = 14;
 const BUILD_PANEL_ROW_HEIGHT = 24;
 const BUILD_PANEL_ROW_GAP = 4;
 const BUILD_PANEL_PADDING = 6;
@@ -561,12 +568,13 @@ export function createInventoryView({
   }
 
   function ensureSectionState(win) {
-    if (!win) return { equipment: false, prestige: false, build: false };
+    if (!win) return { equipment: false, prestige: false, skills: false, build: false };
     if (!win.sectionState || typeof win.sectionState !== "object") {
-      win.sectionState = { equipment: false, prestige: false, build: false };
+      win.sectionState = { equipment: false, prestige: false, skills: false, build: false };
     }
     if (typeof win.sectionState.equipment !== "boolean") win.sectionState.equipment = false;
     if (typeof win.sectionState.prestige !== "boolean") win.sectionState.prestige = false;
+    if (typeof win.sectionState.skills !== "boolean") win.sectionState.skills = false;
     if (typeof win.sectionState.build !== "boolean") win.sectionState.build = false;
     return win.sectionState;
   }
@@ -620,7 +628,21 @@ export function createInventoryView({
     return { container, bg, arrow, label, setExpanded };
   }
 
-  function createSkillsButton(ownerId, panelWidth) {
+  function openSkillTreeForOwner(ownerId) {
+    if (uiBlocked) return false;
+    if (typeof openSkillTree !== "function") return false;
+    const pawn = getPawnForOwner(ownerId);
+    if (!pawn || !Number.isFinite(pawn.id)) return false;
+    const pawnId = Math.floor(pawn.id);
+    openSkillTree({
+      leaderPawnId: pawnId,
+      pawnId,
+      ownerId,
+    });
+    return true;
+  }
+
+  function createOpenSkillTreeButton(ownerId, contentWidth) {
     const root = new PIXI.Container();
     root.eventMode = "static";
     root.cursor = "pointer";
@@ -628,7 +650,7 @@ export function createInventoryView({
     const bg = new PIXI.Graphics();
     root.addChild(bg);
 
-    const text = new PIXI.Text("Skills", {
+    const text = new PIXI.Text("Open Skill Tree", {
       fill: 0xeaf3ff,
       fontSize: 11,
       fontWeight: "bold",
@@ -637,29 +659,33 @@ export function createInventoryView({
     text.y = 4;
     root.addChild(text);
 
-    const buttonWidth = 58;
-    bg.beginFill(0x39456b, 0.98);
-    bg.drawRoundedRect(0, 0, buttonWidth, 18, 5);
-    bg.endFill();
+    const buttonHeight = 18;
+    const buttonWidth = Math.max(96, Math.ceil(text.width) + 20);
+    let enabled = false;
 
-    root.x = panelWidth - 108;
-    root.y = 3;
+    const setEnabled = (nextEnabled) => {
+      enabled = !!nextEnabled;
+      bg.clear();
+      bg.beginFill(enabled ? 0x39456b : 0x2a2d38, 0.98);
+      bg.drawRoundedRect(0, 0, buttonWidth, buttonHeight, 5);
+      bg.endFill();
+      root.alpha = enabled ? 1 : 0.55;
+      root.eventMode = enabled ? "static" : "none";
+      root.cursor = enabled ? "pointer" : "default";
+    };
+
+    root.x = Math.max(0, Math.floor(contentWidth - buttonWidth));
+    root.y = 1;
+    setEnabled(typeof openSkillTree === "function");
 
     root.on("pointerdown", (ev) => ev?.stopPropagation?.());
     root.on("pointertap", (ev) => {
       ev?.stopPropagation?.();
-      if (uiBlocked) return;
-      if (typeof openSkillTree !== "function") return;
-      const pawn = getPawnForOwner(ownerId);
-      if (!pawn || !Number.isFinite(pawn.id)) return;
-      openSkillTree({
-        leaderPawnId: Math.floor(pawn.id),
-        pawnId: Math.floor(pawn.id),
-        ownerId,
-      });
+      if (!enabled) return;
+      openSkillTreeForOwner(ownerId);
     });
 
-    return { root, bg, text };
+    return { root, bg, text, setEnabled };
   }
 
   function resizeWindowFrame(win, height) {
@@ -707,6 +733,7 @@ export function createInventoryView({
 
     const equipExpanded = state.equipment !== false;
     const prestigeExpanded = state.prestige !== false;
+    const skillsExpanded = state.skills !== false;
     const buildExpanded = state.build !== false;
 
     const equipHeight = equipExpanded ? EQUIP_PANEL_HEIGHT : SECTION_HEADER_HEIGHT;
@@ -733,6 +760,7 @@ export function createInventoryView({
     panel.buildPanelHeight = buildContentHeight;
 
     const prestigeContentHeight = prestigeExpanded ? LEADER_PANEL_HEIGHT : 0;
+    const skillsContentHeight = skillsExpanded ? SKILLS_PANEL_HEIGHT : 0;
     const buildContentShownHeight = buildExpanded ? buildContentHeight : 0;
 
     panel.prestigeHeader?.setExpanded?.(prestigeExpanded, false, "Prestige");
@@ -746,10 +774,26 @@ export function createInventoryView({
       panel.prestigeContent.y = LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT;
     }
 
-    const buildHeaderY =
+    const skillsHeaderY =
       LEADER_PANEL_PADDING +
       SECTION_HEADER_HEIGHT +
       prestigeContentHeight +
+      BUILD_PANEL_GAP;
+    panel.skillsHeader?.setExpanded?.(skillsExpanded, false, "Skills");
+    if (panel.skillsHeader?.container) {
+      panel.skillsHeader.container.x = LEADER_PANEL_PADDING;
+      panel.skillsHeader.container.y = skillsHeaderY;
+    }
+    if (panel.skillsContent) {
+      panel.skillsContent.visible = skillsExpanded;
+      panel.skillsContent.x = LEADER_PANEL_PADDING;
+      panel.skillsContent.y = skillsHeaderY + SECTION_HEADER_HEIGHT;
+    }
+
+    const buildHeaderY =
+      skillsHeaderY +
+      SECTION_HEADER_HEIGHT +
+      skillsContentHeight +
       BUILD_PANEL_GAP;
     panel.buildHeader?.setExpanded?.(buildExpanded, false, "Build");
     if (panel.buildHeader?.container) {
@@ -766,6 +810,9 @@ export function createInventoryView({
       LEADER_PANEL_PADDING +
       SECTION_HEADER_HEIGHT +
       prestigeContentHeight +
+      BUILD_PANEL_GAP +
+      SECTION_HEADER_HEIGHT +
+      skillsContentHeight +
       BUILD_PANEL_GAP +
       SECTION_HEADER_HEIGHT +
       buildContentShownHeight +
@@ -1292,6 +1339,9 @@ export function createInventoryView({
         LEADER_PANEL_HEIGHT +
         BUILD_PANEL_GAP +
         SECTION_HEADER_HEIGHT +
+        SKILLS_PANEL_HEIGHT +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
         buildPanelHeight +
         LEADER_PANEL_PADDING +
         INNER_PADDING
@@ -1363,13 +1413,6 @@ export function createInventoryView({
     if (pawnBadge?.root) {
       header.addChild(pawnBadge.root);
     }
-    const skillsButton =
-      ownerPawn && typeof openSkillTree === "function"
-        ? createSkillsButton(ownerId, w)
-        : null;
-    if (skillsButton?.root) {
-      c.addChild(skillsButton.root);
-    }
 
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
@@ -1419,7 +1462,6 @@ export function createInventoryView({
       pinText,
       body,
       pawnBadge,
-      skillsButton,
       cols,
       rows,
       cellSize,
@@ -1433,7 +1475,7 @@ export function createInventoryView({
       apOverlayTarget: 0,
       equipmentPanel: null,
       leaderPanel: null,
-      sectionState: { equipment: false, prestige: false, build: false },
+      sectionState: { equipment: false, prestige: false, skills: false, build: false },
       uiScale: 1,
       bin: {
         container: bin,
@@ -1531,6 +1573,9 @@ export function createInventoryView({
         LEADER_PANEL_PADDING +
         SECTION_HEADER_HEIGHT +
         LEADER_PANEL_HEIGHT +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        SKILLS_PANEL_HEIGHT +
         BUILD_PANEL_GAP +
         SECTION_HEADER_HEIGHT +
         buildPanelHeight +
@@ -1657,6 +1702,55 @@ export function createInventoryView({
         }
       });
 
+      const skillsHeader = createSectionLozenge("Skills", () => {
+        const sectionState = ensureSectionState(win);
+        sectionState.skills = !sectionState.skills;
+        updateLeaderPanel(win);
+      });
+      skillsHeader.container.x = LEADER_PANEL_PADDING;
+      skillsHeader.container.y =
+        LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT + LEADER_PANEL_HEIGHT + BUILD_PANEL_GAP;
+      panel.addChild(skillsHeader.container);
+
+      const skillsContent = new PIXI.Container();
+      skillsContent.x = LEADER_PANEL_PADDING;
+      skillsContent.y = skillsHeader.container.y + SECTION_HEADER_HEIGHT;
+      panel.addChild(skillsContent);
+
+      const skillsContentWidth =
+        w - INNER_PADDING * 2 - LEADER_PANEL_PADDING * 2;
+
+      const skillPointsText = new PIXI.Text("", {
+        fill: 0xffffff,
+        fontSize: 12,
+      });
+      skillPointsText.x = 0;
+      skillPointsText.y = 0;
+      skillsContent.addChild(skillPointsText);
+
+      const openSkillTreeButton = createOpenSkillTreeButton(ownerId, skillsContentWidth);
+      skillsContent.addChild(openSkillTreeButton.root);
+
+      const unlockedHeaderText = new PIXI.Text("Unlocked Nodes:", {
+        fill: 0xb4bfd6,
+        fontSize: 10,
+        fontWeight: "bold",
+      });
+      unlockedHeaderText.x = 0;
+      unlockedHeaderText.y = 22;
+      skillsContent.addChild(unlockedHeaderText);
+
+      const unlockedNodesText = new PIXI.Text("", {
+        fill: 0xe8efff,
+        fontSize: 10,
+        lineHeight: SKILLS_LIST_LINE_HEIGHT,
+        wordWrap: true,
+        wordWrapWidth: Math.max(80, skillsContentWidth - 2),
+      });
+      unlockedNodesText.x = 0;
+      unlockedNodesText.y = 38;
+      skillsContent.addChild(unlockedNodesText);
+
       const buildHeader = createSectionLozenge("Build", () => {
         const sectionState = ensureSectionState(win);
         sectionState.build = !sectionState.build;
@@ -1664,7 +1758,13 @@ export function createInventoryView({
       });
       buildHeader.container.x = LEADER_PANEL_PADDING;
       buildHeader.container.y =
-        LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT + LEADER_PANEL_HEIGHT + BUILD_PANEL_GAP;
+        LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        LEADER_PANEL_HEIGHT +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        SKILLS_PANEL_HEIGHT +
+        BUILD_PANEL_GAP;
       panel.addChild(buildHeader.container);
 
       const buildPanel = new PIXI.Container();
@@ -1714,6 +1814,8 @@ export function createInventoryView({
         bg: panelBg,
         prestigeHeader,
         prestigeContent,
+        skillsHeader,
+        skillsContent,
         buildHeader,
         prestigeText,
         reservedText,
@@ -1721,6 +1823,9 @@ export function createInventoryView({
         followerCountText,
         minusBtn,
         plusBtn,
+        skillPointsText,
+        unlockedNodesText,
+        openSkillTreeButton,
         buildPanel,
         buildPanelBg,
         buildHintText,
@@ -2381,6 +2486,37 @@ export function createInventoryView({
     win.leaderPanel.minusBtn.cursor = canMinus ? "pointer" : "default";
 
     const panel = win.leaderPanel;
+    if (panel.skillPointsText) {
+      const skillPoints = Number.isFinite(leader?.skillPoints)
+        ? Math.max(0, Math.floor(leader.skillPoints))
+        : 0;
+      panel.skillPointsText.text = `Skill Points: ${skillPoints}`;
+    }
+
+    if (panel.unlockedNodesText) {
+      const state = getStateSafe();
+      const unlockedIds = Array.from(getUnlockedSkillSet(state, leader.id));
+      const skillNodeDefs = getSkillNodes();
+      const visibleIds = unlockedIds.slice(0, SKILLS_UNLOCKED_LIST_MAX);
+      const lines = visibleIds.map((nodeId) => {
+        const nodeName = skillNodeDefs?.[nodeId]?.name;
+        if (typeof nodeName === "string" && nodeName.length > 0 && nodeName !== nodeId) {
+          return `- ${nodeId} (${nodeName})`;
+        }
+        return `- ${nodeId}`;
+      });
+      if (!lines.length) {
+        lines.push("(none)");
+      }
+      const remaining = unlockedIds.length - visibleIds.length;
+      if (remaining > 0) {
+        lines.push(`+${remaining} more`);
+      }
+      panel.unlockedNodesText.text = lines.join("\n");
+    }
+
+    panel.openSkillTreeButton?.setEnabled?.(typeof openSkillTree === "function");
+
     if (panel.buildListContainer) {
       let activeDefId =
         activeBuildSpec && activeBuildSpec.ownerId === win.ownerId
