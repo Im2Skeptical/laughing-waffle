@@ -9,6 +9,9 @@ import {
   PRESTIGE_DEBT_CADENCE_SEC,
   PRESTIGE_DEBT_PER_HUNGRY_FOLLOWER,
   PRESTIGE_CURVE_A_BY_TIER,
+  LEADER_FAITH_STARTING_TIER,
+  LEADER_FAITH_GROWTH_STREAK_FOR_UPGRADE,
+  LEADER_FAITH_DECAY_CADENCE_SEC,
 } from "../defs/gamesettings/gamerules-defs.js";
 import {
   Inventory,
@@ -18,6 +21,7 @@ import {
 } from "./inventory-model.js";
 import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { buildPawnSystemDefaults } from "./state.js";
+import { TIER_ASC } from "./effects/core/tiers.js";
 
 export const PAWN_ROLE_LEADER = "leader";
 export const PAWN_ROLE_FOLLOWER = "follower";
@@ -38,6 +42,272 @@ function itemHasTag(item, tag) {
 function ensureObject(value, fallback) {
   if (!value || typeof value !== "object") return fallback;
   return value;
+}
+
+export function getLeaderFaithStartingTier() {
+  return normalizeTierId(LEADER_FAITH_STARTING_TIER, "gold");
+}
+
+export function ensureLeaderFaithFields(leader) {
+  if (!leader || typeof leader !== "object") return;
+  if (leader.role !== PAWN_ROLE_LEADER) return;
+  const existing =
+    leader.leaderFaith && typeof leader.leaderFaith === "object"
+      ? leader.leaderFaith
+      : {};
+  const tier = normalizeTierId(existing.tier, getLeaderFaithStartingTier());
+  const eatStreak = Number.isFinite(existing.eatStreak)
+    ? Math.max(0, Math.floor(existing.eatStreak))
+    : 0;
+  const decayElapsedSec = Number.isFinite(existing.decayElapsedSec)
+    ? Math.max(0, Math.floor(existing.decayElapsedSec))
+    : 0;
+  const failedEatWarnActive = existing.failedEatWarnActive === true;
+  leader.leaderFaith = {
+    tier,
+    eatStreak,
+    decayElapsedSec,
+    failedEatWarnActive,
+  };
+}
+
+export function resetLeaderFaithEatStreak(leader) {
+  ensureLeaderFaithFields(leader);
+  if (!leader?.leaderFaith) return;
+  leader.leaderFaith.eatStreak = 0;
+}
+
+export function resetLeaderFaithDecayTimer(leader) {
+  ensureLeaderFaithFields(leader);
+  if (!leader?.leaderFaith) return;
+  leader.leaderFaith.decayElapsedSec = 0;
+}
+
+export function applyLeaderFaithEatSuccess(leader) {
+  ensureLeaderFaithFields(leader);
+  if (!leader?.leaderFaith) {
+    return {
+      ok: false,
+      upgraded: false,
+      previousTier: null,
+      nextTier: null,
+      eatStreak: 0,
+    };
+  }
+  const faith = leader.leaderFaith;
+  faith.eatStreak = Math.max(0, Math.floor(faith.eatStreak ?? 0)) + 1;
+  const threshold = normalizeLeaderFaithGrowthThreshold();
+  const previousTier = normalizeTierId(faith.tier, getLeaderFaithStartingTier());
+  if (faith.eatStreak < threshold) {
+    faith.tier = previousTier;
+    return {
+      ok: true,
+      upgraded: false,
+      previousTier,
+      nextTier: previousTier,
+      eatStreak: faith.eatStreak,
+    };
+  }
+
+  const nextTier = shiftTier(previousTier, 1);
+  faith.tier = nextTier;
+  faith.eatStreak = 0;
+  return {
+    ok: true,
+    upgraded: nextTier !== previousTier,
+    previousTier,
+    nextTier,
+    eatStreak: 0,
+  };
+}
+
+export function accumulateLeaderFaithDecaySecond(leader, seconds = 1) {
+  ensureLeaderFaithFields(leader);
+  if (!leader?.leaderFaith) return 0;
+  const faith = leader.leaderFaith;
+  const delta = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  if (delta <= 0) return 0;
+  const cadence = normalizeLeaderFaithDecayCadence();
+  faith.decayElapsedSec = Math.max(0, Math.floor(faith.decayElapsedSec ?? 0)) + delta;
+  const ticks = Math.floor(faith.decayElapsedSec / cadence);
+  faith.decayElapsedSec -= ticks * cadence;
+  return ticks;
+}
+
+export function applyLeaderFaithDecayTick(leader) {
+  ensureLeaderFaithFields(leader);
+  if (!leader?.leaderFaith) {
+    return {
+      ok: false,
+      eliminateLeader: false,
+      degraded: false,
+      previousTier: null,
+      nextTier: null,
+    };
+  }
+  const faith = leader.leaderFaith;
+  const previousTier = normalizeTierId(faith.tier, getLeaderFaithStartingTier());
+  if (previousTier === "bronze") {
+    return {
+      ok: true,
+      eliminateLeader: true,
+      degraded: false,
+      previousTier,
+      nextTier: previousTier,
+    };
+  }
+
+  const nextTier = shiftTier(previousTier, -1);
+  faith.tier = nextTier;
+  faith.eatStreak = 0;
+  return {
+    ok: true,
+    eliminateLeader: false,
+    degraded: nextTier !== previousTier,
+    previousTier,
+    nextTier,
+  };
+}
+
+function normalizeTierId(value, fallback = "bronze") {
+  const safeFallback = TIER_ASC.includes(fallback)
+    ? fallback
+    : TIER_ASC[0] || "bronze";
+  if (typeof value !== "string") return safeFallback;
+  return TIER_ASC.includes(value) ? value : safeFallback;
+}
+
+function shiftTier(tier, delta = 0) {
+  const normalized = normalizeTierId(tier, TIER_ASC[0] || "bronze");
+  const idx = TIER_ASC.indexOf(normalized);
+  const nextIdx = Math.max(
+    0,
+    Math.min(TIER_ASC.length - 1, idx + Math.floor(delta))
+  );
+  return TIER_ASC[nextIdx] || normalized;
+}
+
+function normalizeLeaderFaithGrowthThreshold() {
+  const raw = Number.isFinite(LEADER_FAITH_GROWTH_STREAK_FOR_UPGRADE)
+    ? Math.floor(LEADER_FAITH_GROWTH_STREAK_FOR_UPGRADE)
+    : 3;
+  return Math.max(1, raw);
+}
+
+function normalizeLeaderFaithDecayCadence() {
+  const raw = Number.isFinite(LEADER_FAITH_DECAY_CADENCE_SEC)
+    ? Math.floor(LEADER_FAITH_DECAY_CADENCE_SEC)
+    : 30;
+  return Math.max(1, raw);
+}
+
+function endpointReferencesRemovedPawn(endpointId, removedPawnIdSet) {
+  if (!endpointId || typeof endpointId !== "string") return false;
+  if (!removedPawnIdSet || removedPawnIdSet.size === 0) return false;
+
+  for (const removedId of removedPawnIdSet) {
+    if (
+      endpointId === `inv:pawn:${removedId}` ||
+      endpointId === `sys:pawn:${removedId}` ||
+      endpointId === `inv:${removedId}`
+    ) {
+      return true;
+    }
+  }
+
+  if (endpointId.startsWith("sys:pool:pawn:")) {
+    const parts = endpointId.split(":");
+    if (parts.length >= 4 && removedPawnIdSet.has(String(parts[3]))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function scrubRoutingSlots(slots, removedPawnIdSet) {
+  if (!slots || typeof slots !== "object") return;
+  for (const slotState of Object.values(slots)) {
+    if (!slotState || typeof slotState !== "object") continue;
+    if (Array.isArray(slotState.ordered)) {
+      slotState.ordered = slotState.ordered.filter(
+        (endpointId) =>
+          !endpointReferencesRemovedPawn(endpointId, removedPawnIdSet)
+      );
+    } else {
+      slotState.ordered = [];
+    }
+    if (!slotState.enabled || typeof slotState.enabled !== "object") {
+      slotState.enabled = {};
+      continue;
+    }
+    for (const endpointId of Object.keys(slotState.enabled)) {
+      if (!endpointReferencesRemovedPawn(endpointId, removedPawnIdSet)) continue;
+      delete slotState.enabled[endpointId];
+    }
+  }
+}
+
+function scrubRoutingState(routingState, removedPawnIdSet) {
+  if (!routingState || typeof routingState !== "object") return;
+  scrubRoutingSlots(routingState.inputs, removedPawnIdSet);
+  scrubRoutingSlots(routingState.outputs, removedPawnIdSet);
+}
+
+function listProcessOwnersForScrub(state) {
+  const owners = [];
+  const hubAnchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
+  owners.push(...hubAnchors);
+  const layers = state?.board?.layers;
+  if (layers && typeof layers === "object") {
+    for (const layer of Object.values(layers)) {
+      if (!layer || typeof layer !== "object") continue;
+      const anchors = Array.isArray(layer.anchors) ? layer.anchors : [];
+      owners.push(...anchors);
+    }
+  }
+  return owners;
+}
+
+function scrubProcessReferencesToRemovedPawns(state, removedPawnIds) {
+  if (!state || !Array.isArray(removedPawnIds) || removedPawnIds.length === 0) {
+    return;
+  }
+  const removedPawnIdSet = new Set(removedPawnIds.map((id) => String(id)));
+  const processOwners = listProcessOwnersForScrub(state);
+
+  for (const owner of processOwners) {
+    if (!owner || typeof owner !== "object") continue;
+    const systems = owner.systemState;
+    if (!systems || typeof systems !== "object") continue;
+
+    for (const systemState of Object.values(systems)) {
+      if (!systemState || typeof systemState !== "object") continue;
+      if (Array.isArray(systemState.processes)) {
+        const nextProcesses = [];
+        for (const process of systemState.processes) {
+          if (!process || typeof process !== "object") continue;
+          const processOwnerId =
+            process.ownerId == null ? null : String(process.ownerId);
+          const processLeaderId =
+            process.leaderId == null ? null : String(process.leaderId);
+          const removeProcess =
+            (processOwnerId != null && removedPawnIdSet.has(processOwnerId)) ||
+            (processLeaderId != null && removedPawnIdSet.has(processLeaderId));
+          if (removeProcess) {
+            if (process.id != null && state.ownerInventories) {
+              delete state.ownerInventories[`inv:process:${process.id}`];
+            }
+            continue;
+          }
+          scrubRoutingState(process.routing, removedPawnIdSet);
+          nextProcesses.push(process);
+        }
+        systemState.processes = nextProcesses;
+      }
+      scrubRoutingState(systemState.routingTemplate, removedPawnIdSet);
+    }
+  }
 }
 
 export function ensureLeaderPrestigeFields(leader) {
@@ -73,6 +343,7 @@ export function ensureLeaderPrestigeFields(leader) {
   leader.prestigeCapBase =
     leader.prestigeCapBaseFromDeposits + leader.prestigeCapBonus;
   updateLeaderPrestigeEffective(leader);
+  ensureLeaderFaithFields(leader);
 }
 
 export function ensureFollowerFields(follower, fallbackOrderIndex = null) {
@@ -667,4 +938,67 @@ export function adjustFollowerCount(state, leaderId, delta) {
 
   enforcePrestigeFollowerCap(state);
   return { ok: true, result: "followersRemoved", leaderId, removed };
+}
+
+export function eliminateLeaderByFaithCollapse(state, leaderId) {
+  if (!state || leaderId == null) {
+    return { ok: false, reason: "badLeaderId" };
+  }
+
+  const leader = getLeaderById(state, leaderId);
+  if (!leader || leader.role !== PAWN_ROLE_LEADER) {
+    return { ok: false, reason: "noLeader" };
+  }
+
+  const followers = getFollowersForLeader(state, leader.id);
+  const followerIds = followers
+    .map((follower) => (follower?.id == null ? null : follower.id))
+    .filter((id) => id != null);
+  const removedPawnIds = [leader.id, ...followerIds];
+  const removedPawnIdSet = new Set(removedPawnIds.map((id) => String(id)));
+
+  const existingPawns = Array.isArray(state.pawns) ? state.pawns : [];
+  state.pawns = existingPawns.filter((pawn) => {
+    if (!pawn || pawn.id == null) return true;
+    return !removedPawnIdSet.has(String(pawn.id));
+  });
+
+  if (!state.ownerInventories || typeof state.ownerInventories !== "object") {
+    state.ownerInventories = {};
+  }
+  for (const removedPawnId of removedPawnIds) {
+    delete state.ownerInventories[removedPawnId];
+  }
+
+  for (const pawn of state.pawns) {
+    if (!pawn || pawn.role !== PAWN_ROLE_LEADER) continue;
+    const debtByFollowerId =
+      pawn.prestigeDebtByFollowerId &&
+      typeof pawn.prestigeDebtByFollowerId === "object"
+        ? pawn.prestigeDebtByFollowerId
+        : null;
+    if (!debtByFollowerId) continue;
+    for (const followerId of followerIds) {
+      delete debtByFollowerId[String(followerId)];
+    }
+  }
+
+  scrubProcessReferencesToRemovedPawns(state, removedPawnIds);
+
+  return {
+    ok: true,
+    leaderId: leader.id,
+    followerIds,
+    removedPawnIds,
+  };
+}
+
+export function getLeaderCount(state) {
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  let count = 0;
+  for (const pawn of pawns) {
+    if (!pawn || pawn.role !== PAWN_ROLE_LEADER) continue;
+    count += 1;
+  }
+  return count;
 }

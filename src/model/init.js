@@ -5,7 +5,10 @@ import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createEmptyLeaderEquipment } from "./equipment-rules.js";
-import { INITIAL_POPULATION_DEFAULT } from "../defs/gamesettings/gamerules-defs.js";
+import {
+  INITIAL_POPULATION_DEFAULT,
+  LEADER_FAITH_STARTING_TIER,
+} from "../defs/gamesettings/gamerules-defs.js";
 import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 import { getActionPointCapAtSecond } from "./moon.js";
 
@@ -229,6 +232,12 @@ export function createInitialState(scenario = "devGym01", seed = null) {
       pawn.prestigeCapEffective = 0;
       pawn.prestigeDebtByFollowerId = {};
       pawn.equipment = createEmptyLeaderEquipment();
+      pawn.leaderFaith = {
+        tier: LEADER_FAITH_STARTING_TIER,
+        eatStreak: 0,
+        decayElapsedSec: 0,
+        failedEatWarnActive: false,
+      };
     }
     created.push(pawn);
   }

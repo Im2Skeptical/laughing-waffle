@@ -5,6 +5,7 @@ import {
   SEASONS,
   SEASON_DURATION_SEC,
   INITIAL_POPULATION_DEFAULT,
+  LEADER_FAITH_STARTING_TIER,
 } from "../defs/gamesettings/gamerules-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
@@ -300,6 +301,46 @@ function ensureLeaderPrestigeFields(pawn) {
       pawn.equipment[slotId] = null;
     }
   }
+
+  ensureLeaderFaithFields(pawn);
+}
+
+const LEADER_FAITH_TIER_ORDER = Object.freeze([
+  "bronze",
+  "silver",
+  "gold",
+  "diamond",
+]);
+
+function normalizeLeaderFaithTier(value, fallback = "gold") {
+  const fallbackTier = LEADER_FAITH_TIER_ORDER.includes(fallback)
+    ? fallback
+    : "gold";
+  if (typeof value !== "string") return fallbackTier;
+  return LEADER_FAITH_TIER_ORDER.includes(value) ? value : fallbackTier;
+}
+
+function ensureLeaderFaithFields(pawn) {
+  if (!pawn || pawn.role !== "leader") return;
+  const existing =
+    pawn.leaderFaith && typeof pawn.leaderFaith === "object"
+      ? pawn.leaderFaith
+      : {};
+  const fallbackTier = normalizeLeaderFaithTier(LEADER_FAITH_STARTING_TIER, "gold");
+  const tier = normalizeLeaderFaithTier(existing.tier, fallbackTier);
+  const eatStreak = Number.isFinite(existing.eatStreak)
+    ? Math.max(0, Math.floor(existing.eatStreak))
+    : 0;
+  const decayElapsedSec = Number.isFinite(existing.decayElapsedSec)
+    ? Math.max(0, Math.floor(existing.decayElapsedSec))
+    : 0;
+  const failedEatWarnActive = existing.failedEatWarnActive === true;
+  pawn.leaderFaith = {
+    tier,
+    eatStreak,
+    decayElapsedSec,
+    failedEatWarnActive,
+  };
 }
 
 function ensureFollowerFields(pawn, fallbackOrderIndex = null) {

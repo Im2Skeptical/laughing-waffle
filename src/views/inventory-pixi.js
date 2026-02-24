@@ -27,6 +27,7 @@ import {
   getSkillNodes,
   getUnlockedSkillSet,
 } from "../model/skills.js";
+import { getScrollTimegraphStateFromItem } from "../model/timegraph/edit-policy.js";
 import {
   HUB_COLS,
   HUB_COL_GAP,
@@ -109,6 +110,7 @@ const AP_OVERLAY_FADE_OUT = 8;
 const AP_OVERLAY_FILL = 0x8a1f2a;
 const AP_OVERLAY_STROKE = 0xff4f5e;
 const ITEM_TAP_MAX_DRAG_PX = 8;
+const ITEM_TAP_MAX_DRAG_TOUCH_PX = 20;
 const CONSUME_PROMPT_HOLD_SEC = 0.9;
 const CONSUME_PROMPT_FADE_SEC = 0.45;
 const CONSUME_PROMPT_TEXT = "Consume?";
@@ -204,6 +206,7 @@ export function createInventoryView({
     pressStartX: 0,
     pressStartY: 0,
     movedDistanceSq: 0,
+    pointerType: null,
   };
 
   // Active split modal
@@ -2757,6 +2760,11 @@ export function createInventoryView({
     return !!(def.onUse && typeof def.onUse === "object");
   }
 
+  function hasScrollGraphTapUse(item) {
+    if (!item || typeof onUseItem !== "function") return false;
+    return !!getScrollTimegraphStateFromItem(item);
+  }
+
   function ensureConsumePrompt() {
     if (consumePrompt?.container) return consumePrompt;
     const container = new PIXI.Container();
@@ -2902,7 +2910,10 @@ export function createInventoryView({
     sourceEquipmentSlotId,
     view,
   }) {
-    if (!hasConsumeEffect(item)) {
+    const consumeEffect = hasConsumeEffect(item);
+    const tapUseAvailable = consumeEffect || hasScrollGraphTapUse(item);
+
+    if (!tapUseAvailable) {
       if (
         consumePrompt?.container?.visible &&
         consumePrompt.ownerId === ownerId &&
@@ -2911,6 +2922,20 @@ export function createInventoryView({
         hideConsumePrompt();
       }
       return "none";
+    }
+
+    if (!consumeEffect) {
+      if (consumePrompt?.container?.visible) {
+        hideConsumePrompt();
+      }
+      return tryUseItemFromTap({
+        ownerId,
+        item,
+        sourceEquipmentSlotId,
+        view,
+      })
+        ? "used"
+        : "none";
     }
 
     const itemId = item?.id ?? null;
@@ -2954,7 +2979,12 @@ export function createInventoryView({
   }
 
   function wasTapInteraction() {
-    const maxSq = ITEM_TAP_MAX_DRAG_PX * ITEM_TAP_MAX_DRAG_PX;
+    const touchLikePointer =
+      dragItem.pointerType === "touch" || dragItem.pointerType === "pen";
+    const maxDragPx = touchLikePointer
+      ? ITEM_TAP_MAX_DRAG_TOUCH_PX
+      : ITEM_TAP_MAX_DRAG_PX;
+    const maxSq = maxDragPx * maxDragPx;
     return (dragItem.movedDistanceSq ?? 0) <= maxSq;
   }
 
@@ -2997,10 +3027,16 @@ export function createInventoryView({
     requestPauseForAction?.();
     const g = ev?.data?.global;
     if (!g) return;
-    beginItemDragAtGlobal(win, item, view, g);
+    const pointerTypeRaw =
+      ev?.data?.pointerType ?? ev?.data?.originalEvent?.pointerType ?? null;
+    const pointerType =
+      pointerTypeRaw === "touch" || pointerTypeRaw === "pen" || pointerTypeRaw === "mouse"
+        ? pointerTypeRaw
+        : null;
+    beginItemDragAtGlobal(win, item, view, g, { pointerType });
   }
 
-  function beginItemDragAtGlobal(win, item, view, globalPos) {
+  function beginItemDragAtGlobal(win, item, view, globalPos, opts = null) {
     requestPauseForAction?.();
     const g = globalPos;
     if (!g) return;
@@ -3011,6 +3047,12 @@ export function createInventoryView({
     dragItem.pressStartX = g.x;
     dragItem.pressStartY = g.y;
     dragItem.movedDistanceSq = 0;
+    dragItem.pointerType =
+      opts?.pointerType === "touch" ||
+      opts?.pointerType === "pen" ||
+      opts?.pointerType === "mouse"
+        ? opts.pointerType
+        : null;
     let cellOffsetGX = 0;
     let cellOffsetGY = 0;
     if (!sourceSlotId) {
@@ -3157,6 +3199,7 @@ export function createInventoryView({
     dragItem.pressStartX = 0;
     dragItem.pressStartY = 0;
     dragItem.movedDistanceSq = 0;
+    dragItem.pointerType = null;
 
     const finish = (status = null) => {
       restoreItemView(view);

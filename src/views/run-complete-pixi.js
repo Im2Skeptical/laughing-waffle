@@ -24,6 +24,9 @@ function formatReason(reason) {
   if (reason === "faithCollapsedAtBronze") {
     return "Faith collapsed while already at bronze.";
   }
+  if (reason === "leaderFaithCollapsedAtBronze") {
+    return "All leaders were lost after faith collapse from starvation.";
+  }
   return "Run complete.";
 }
 

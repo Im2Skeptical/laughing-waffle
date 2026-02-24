@@ -29,6 +29,21 @@ export const eventLogTypeDefs = {
     label: "Ate",
     color: 0x7bd88f,
   },
+  leaderFaithEatFailureWarning: {
+    id: "leaderFaithEatFailureWarning",
+    label: "Leader Warn",
+    color: 0xffa640,
+  },
+  leaderFaithDecayed: {
+    id: "leaderFaithDecayed",
+    label: "Leader Faith",
+    color: 0xff7b7b,
+  },
+  leaderFaithCollapsed: {
+    id: "leaderFaithCollapsed",
+    label: "Leader Lost",
+    color: 0xff4f4f,
+  },
   pawnMovedToFood: {
     id: "pawnMovedToFood",
     label: "Seek Food",

@@ -16,11 +16,22 @@ import {
   PAWN_AI_STAMINA_WARNING,
   PAWN_AI_STAMINA_FULL,
   PAWN_AI_STAMINA_START_REST,
+  LEADER_FAITH_HUNGER_DECAY_THRESHOLD,
 } from "../defs/gamesettings/gamerules-defs.js";
 import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
-import { ensurePawnSystems, ensurePawnAI } from "./state.js";
-import { applyFollowerHungerDebt } from "./prestige-system.js";
+import { ensurePawnSystems, ensurePawnAI, syncPhaseToPaused } from "./state.js";
+import {
+  applyFollowerHungerDebt,
+  ensureLeaderFaithFields,
+  applyLeaderFaithEatSuccess,
+  resetLeaderFaithEatStreak,
+  resetLeaderFaithDecayTimer,
+  accumulateLeaderFaithDecaySecond,
+  applyLeaderFaithDecayTick,
+  eliminateLeaderByFaithCollapse,
+  getLeaderCount,
+} from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
 import { hasEnvTagUnlock, hasHubTagUnlock } from "./skills.js";
@@ -792,13 +803,15 @@ function pushPawnSeekMoveEvent(state, pawn, tSec, mode, placement) {
 }
 
 export function stepPawnSecond(state, tSec, options = {}) {
-  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawns = Array.isArray(state?.pawns) ? state.pawns.slice() : [];
   if (!pawns.length) return;
 
   const placePawn =
     typeof options?.placePawn === "function"
       ? options.placePawn
       : null;
+  const pendingLeaderEliminations = new Map();
+  let latestLeaderCollapseEventId = null;
 
   for (const pawn of pawns) {
     if (!pawn) continue;
@@ -1004,6 +1017,148 @@ export function stepPawnSecond(state, tSec, options = {}) {
       });
     }
 
+    if (pawn.role === "leader") {
+      ensureLeaderFaithFields(pawn);
+
+      if (executedIntentId === "eat") {
+        applyLeaderFaithEatSuccess(pawn);
+      } else {
+        resetLeaderFaithEatStreak(pawn);
+      }
+
+      const hungerMax = getSystemMax(pawn, "hunger", 100);
+      const hungerStartEat = clampInt(PAWN_AI_HUNGER_START_EAT, 0, hungerMax, 0);
+      const faithDecayThreshold = clampInt(
+        LEADER_FAITH_HUNGER_DECAY_THRESHOLD,
+        0,
+        hungerMax,
+        0
+      );
+      const failedEatAtRisk =
+        hungerAfter <= hungerStartEat && executedIntentId !== "eat";
+
+      if (failedEatAtRisk) {
+        if (pawn.leaderFaith?.failedEatWarnActive !== true) {
+          pushGameEvent(state, {
+            type: "leaderFaithEatFailureWarning",
+            tSec,
+            text: `${getPawnLabel(pawn)} failed to eat while starving; leader faith is at risk`,
+            data: {
+              focusKind: "pawn",
+              pawnId: pawn.id ?? null,
+              ownerIds: pawn.id != null ? [pawn.id] : [],
+              hunger: hungerAfter,
+              warningThreshold: hungerStartEat,
+            },
+          });
+        }
+        if (pawn.leaderFaith) {
+          pawn.leaderFaith.failedEatWarnActive = true;
+        }
+      } else if (pawn.leaderFaith) {
+        pawn.leaderFaith.failedEatWarnActive = false;
+      }
+
+      if (hungerAfter <= faithDecayThreshold) {
+        const decayTicks = accumulateLeaderFaithDecaySecond(pawn, 1);
+        for (let tick = 0; tick < decayTicks; tick++) {
+          const decay = applyLeaderFaithDecayTick(pawn);
+          if (decay?.eliminateLeader) {
+            if (pawn.id != null && !pendingLeaderEliminations.has(pawn.id)) {
+              pendingLeaderEliminations.set(pawn.id, {
+                pawnLabel: getPawnLabel(pawn),
+              });
+            }
+            break;
+          }
+          if (decay?.degraded) {
+            pushGameEvent(state, {
+              type: "leaderFaithDecayed",
+              tSec,
+              text: `${getPawnLabel(pawn)}'s faith fell from ${decay.previousTier} to ${decay.nextTier} due to starvation`,
+              data: {
+                focusKind: "pawn",
+                pawnId: pawn.id ?? null,
+                ownerIds: pawn.id != null ? [pawn.id] : [],
+                previousTier: decay.previousTier,
+                nextTier: decay.nextTier,
+                hunger: hungerAfter,
+                decayThreshold: faithDecayThreshold,
+              },
+            });
+          }
+        }
+      } else {
+        resetLeaderFaithDecayTimer(pawn);
+      }
+    }
+
     if (executed) continue;
   }
+
+  if (pendingLeaderEliminations.size === 0) return;
+
+  const eliminationEntries = Array.from(pendingLeaderEliminations.entries());
+  eliminationEntries.sort((a, b) => {
+    const aNum = Number(a[0]);
+    const bNum = Number(b[0]);
+    if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+    const aText = String(a[0]);
+    const bText = String(b[0]);
+    if (aText < bText) return -1;
+    if (aText > bText) return 1;
+    return 0;
+  });
+
+  for (const [leaderId, info] of eliminationEntries) {
+    const collapse = eliminateLeaderByFaithCollapse(state, leaderId);
+    if (!collapse?.ok) continue;
+    const followerCount = Array.isArray(collapse.followerIds)
+      ? collapse.followerIds.length
+      : 0;
+    const entry = pushGameEvent(state, {
+      type: "leaderFaithCollapsed",
+      tSec,
+      text: `${info?.pawnLabel || "Leader"} was lost to starvation; ${followerCount} followers were lost with them`,
+      data: {
+        focusKind: "pawn",
+        pawnId: collapse.leaderId ?? null,
+        ownerIds: Array.isArray(collapse.removedPawnIds)
+          ? collapse.removedPawnIds.slice()
+          : [],
+        followerIds: Array.isArray(collapse.followerIds)
+          ? collapse.followerIds.slice()
+          : [],
+      },
+    });
+    latestLeaderCollapseEventId = Number.isFinite(entry?.id)
+      ? Math.floor(entry.id)
+      : latestLeaderCollapseEventId;
+  }
+
+  if (getLeaderCount(state) !== 0 || state?.runStatus?.complete === true) return;
+
+  const runYear = Number.isFinite(state?.year)
+    ? Math.max(1, Math.floor(state.year))
+    : 1;
+  state.runStatus = {
+    complete: true,
+    reason: "leaderFaithCollapsedAtBronze",
+    year: runYear,
+    tSec: Math.max(0, Math.floor(tSec ?? state?.tSec ?? 0)),
+    triggerEventId: latestLeaderCollapseEventId,
+  };
+  state.paused = true;
+  syncPhaseToPaused(state);
+  pushGameEvent(state, {
+    type: "runComplete",
+    tSec,
+    text: `Run complete: all leaders were lost to starvation in Year ${runYear}.`,
+    data: {
+      runComplete: true,
+      year: runYear,
+      reason: "leaderFaithCollapsedAtBronze",
+      triggerEventId: latestLeaderCollapseEventId,
+    },
+  });
 }

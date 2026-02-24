@@ -25,11 +25,18 @@ import { cropDefs } from "../src/defs/gamepieces/crops-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { forageDropTables } from "../src/defs/gamepieces/forage-droptables-defs.js";
 import { itemDefs } from "../src/defs/gamepieces/item-defs.js";
-import { ENV_EVENT_DRAW_CADENCE_SEC } from "../src/defs/gamesettings/gamerules-defs.js";
+import {
+  ENV_EVENT_DRAW_CADENCE_SEC,
+  PAWN_AI_HUNGER_START_EAT,
+  LEADER_FAITH_HUNGER_DECAY_THRESHOLD,
+  LEADER_FAITH_DECAY_CADENCE_SEC,
+  LEADER_FAITH_GROWTH_STREAK_FOR_UPGRADE,
+} from "../src/defs/gamesettings/gamerules-defs.js";
 import { deserializeGameState, serializeGameState } from "../src/model/state.js";
-import { createInitialState } from "../src/model/game-model.js";
+import { createInitialState, updateGame } from "../src/model/game-model.js";
 import { handleSpawnFromDropTable } from "../src/model/effects/ops/game-ops.js";
 import { Inventory } from "../src/model/inventory-model.js";
+import { stepPawnSecond } from "../src/model/pawn-exec.js";
 import {
   getDroppedItemKindsForPool,
   rememberDroppedItemKind,
@@ -981,7 +988,379 @@ function runTimegraphEditPolicyChecks() {
   );
 }
 
+function createLeaderFaithTestState({
+  leaderCount = 1,
+  followerCountForFirstLeader = 0,
+} = {}) {
+  const pawns = [];
+  for (let i = 0; i < leaderCount; i += 1) {
+    pawns.push({
+      name: `Leader ${i + 1}`,
+      role: "leader",
+      hubCol: i % 2,
+    });
+  }
+  for (let i = 0; i < followerCountForFirstLeader; i += 1) {
+    pawns.push({
+      name: `Follower ${i + 1}`,
+      role: "follower",
+      hubCol: 0,
+      leaderIndex: 0,
+    });
+  }
+  return createInitialState({
+    rngSeed: 321,
+    board: {
+      cols: 2,
+      tiles: ["tile_hinterland", "tile_hinterland"],
+    },
+    hub: {
+      cols: 2,
+      structures: [],
+    },
+    pawns,
+  });
+}
+
+function getLeaderByIndex(state, index = 0) {
+  const leaders = (state?.pawns ?? []).filter((pawn) => pawn?.role === "leader");
+  return leaders[index] ?? null;
+}
+
+function getFollowerByIndex(state, index = 0) {
+  const followers = (state?.pawns ?? []).filter((pawn) => pawn?.role === "follower");
+  return followers[index] ?? null;
+}
+
+function countEventsByType(state, type) {
+  const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
+  let count = 0;
+  for (const entry of feed) {
+    if (entry?.type === type) count += 1;
+  }
+  return count;
+}
+
+function getLastEventByType(state, type) {
+  const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
+  for (let i = feed.length - 1; i >= 0; i -= 1) {
+    if (feed[i]?.type === type) return feed[i];
+  }
+  return null;
+}
+
+function tickPawnSecond(state, tSec) {
+  const sec = Number.isFinite(tSec) ? Math.max(0, Math.floor(tSec)) : 0;
+  state.tSec = sec;
+  state.simStepIndex = sec * 60;
+  stepPawnSecond(state, sec);
+}
+
+function summarizeLeaderFaithReplayState(state) {
+  const leaders = (state?.pawns ?? [])
+    .filter((pawn) => pawn?.role === "leader")
+    .map((pawn) => ({
+      id: pawn.id,
+      hunger: Number.isFinite(pawn?.systemState?.hunger?.cur)
+        ? Math.floor(pawn.systemState.hunger.cur)
+        : null,
+      tier: pawn?.leaderFaith?.tier ?? null,
+      eatStreak: Number.isFinite(pawn?.leaderFaith?.eatStreak)
+        ? Math.floor(pawn.leaderFaith.eatStreak)
+        : null,
+      decayElapsedSec: Number.isFinite(pawn?.leaderFaith?.decayElapsedSec)
+        ? Math.floor(pawn.leaderFaith.decayElapsedSec)
+        : null,
+      warned: pawn?.leaderFaith?.failedEatWarnActive === true,
+    }))
+    .sort((a, b) => a.id - b.id);
+  const pawnIds = (state?.pawns ?? [])
+    .map((pawn) => pawn?.id)
+    .filter((id) => id != null)
+    .sort((a, b) => a - b);
+  const inventoryOwnerIds = Object.keys(state?.ownerInventories ?? {}).sort();
+  const runStatus = state?.runStatus
+    ? {
+        complete: state.runStatus.complete === true,
+        reason: state.runStatus.reason ?? null,
+      }
+    : null;
+  return {
+    tSec: toSafeSec(state?.tSec),
+    leaders,
+    pawnIds,
+    inventoryOwnerIds,
+    runStatus,
+  };
+}
+
+function runLeaderFaithWarningAndDecayChecks() {
+  const warningState = createLeaderFaithTestState();
+  const warningLeader = getLeaderByIndex(warningState, 0);
+  assert.ok(warningLeader, "warning check missing leader");
+
+  warningLeader.systemState.hunger.cur = PAWN_AI_HUNGER_START_EAT;
+  tickPawnSecond(warningState, 1);
+  assert.equal(
+    countEventsByType(warningState, "leaderFaithEatFailureWarning"),
+    1,
+    "leader eat-failure warning should emit once on entry"
+  );
+
+  warningLeader.systemState.hunger.cur = PAWN_AI_HUNGER_START_EAT;
+  tickPawnSecond(warningState, 2);
+  assert.equal(
+    countEventsByType(warningState, "leaderFaithEatFailureWarning"),
+    1,
+    "leader eat-failure warning should not duplicate while failure persists"
+  );
+
+  warningLeader.systemState.hunger.cur = PAWN_AI_HUNGER_START_EAT + 1;
+  tickPawnSecond(warningState, 3);
+  warningLeader.systemState.hunger.cur = PAWN_AI_HUNGER_START_EAT;
+  tickPawnSecond(warningState, 4);
+  assert.equal(
+    countEventsByType(warningState, "leaderFaithEatFailureWarning"),
+    2,
+    "leader eat-failure warning should emit again after exit and re-entry"
+  );
+
+  const decayState = createLeaderFaithTestState();
+  const decayLeader = getLeaderByIndex(decayState, 0);
+  assert.ok(decayLeader, "decay check missing leader");
+  decayLeader.leaderFaith.tier = "gold";
+  decayLeader.leaderFaith.eatStreak = 0;
+  decayLeader.leaderFaith.decayElapsedSec = 0;
+  decayLeader.leaderFaith.failedEatWarnActive = false;
+
+  for (let sec = 1; sec <= 45; sec += 1) {
+    decayLeader.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD + 1;
+    tickPawnSecond(decayState, sec);
+  }
+  assert.equal(
+    decayLeader.leaderFaith.tier,
+    "gold",
+    "leader faith should not decay in grace band above decay threshold"
+  );
+  assert.equal(
+    countEventsByType(decayState, "leaderFaithDecayed"),
+    0,
+    "leader faith decay should not emit in grace band"
+  );
+
+  for (let sec = 46; sec < 46 + LEADER_FAITH_DECAY_CADENCE_SEC; sec += 1) {
+    decayLeader.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD;
+    tickPawnSecond(decayState, sec);
+  }
+  assert.equal(
+    decayLeader.leaderFaith.tier,
+    "silver",
+    "leader faith should decay after one full cadence under threshold"
+  );
+  assert.equal(
+    countEventsByType(decayState, "leaderFaithDecayed"),
+    1,
+    "leader faith decay should emit once per cadence tick"
+  );
+
+  decayLeader.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD + 1;
+  tickPawnSecond(decayState, 46 + LEADER_FAITH_DECAY_CADENCE_SEC);
+
+  for (
+    let sec = 47 + LEADER_FAITH_DECAY_CADENCE_SEC;
+    sec < 46 + (LEADER_FAITH_DECAY_CADENCE_SEC * 2);
+    sec += 1
+  ) {
+    decayLeader.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD;
+    tickPawnSecond(decayState, sec);
+  }
+  assert.equal(
+    decayLeader.leaderFaith.tier,
+    "silver",
+    "leader faith decay timer should reset after recovering above threshold"
+  );
+
+  decayLeader.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD;
+  tickPawnSecond(decayState, 46 + (LEADER_FAITH_DECAY_CADENCE_SEC * 2));
+  assert.equal(
+    decayLeader.leaderFaith.tier,
+    "bronze",
+    "leader faith should decay on the next full cadence after reset"
+  );
+  assert.equal(
+    countEventsByType(decayState, "leaderFaithCollapsed"),
+    0,
+    "leader should not collapse before a bronze decay attempt"
+  );
+}
+
+function runLeaderFaithEatStreakUpgradeChecks() {
+  const state = createLeaderFaithTestState();
+  const leader = getLeaderByIndex(state, 0);
+  assert.ok(leader, "eat streak check missing leader");
+  leader.leaderFaith.tier = "bronze";
+  leader.leaderFaith.eatStreak = 0;
+  leader.leaderFaith.decayElapsedSec = 0;
+  leader.systemState.hunger.cur = 10;
+
+  const leaderInv = state?.ownerInventories?.[leader.id];
+  assert.ok(leaderInv, "eat streak check missing leader inventory");
+
+  const streakThreshold = Math.max(1, Math.floor(LEADER_FAITH_GROWTH_STREAK_FOR_UPGRADE));
+  for (let sec = 1; sec <= streakThreshold; sec += 1) {
+    leader.systemState.hunger.cur = 10;
+    const added = Inventory.addNewItem(state, leaderInv, {
+      kind: "roastedBarley",
+      quantity: 1,
+      width: 1,
+      height: 1,
+    });
+    assert.ok(added, `eat streak setup failed to add food at sec ${sec}`);
+    tickPawnSecond(state, sec);
+  }
+
+  assert.equal(
+    leader.leaderFaith.tier,
+    "silver",
+    "leader faith should upgrade after configured eat streak"
+  );
+  assert.equal(
+    leader.leaderFaith.eatStreak,
+    0,
+    "leader faith eat streak should reset after upgrade"
+  );
+}
+
+function runLeaderFaithEliminationChecks() {
+  const state = createLeaderFaithTestState({
+    leaderCount: 1,
+    followerCountForFirstLeader: 1,
+  });
+  const leader = getLeaderByIndex(state, 0);
+  const follower = getFollowerByIndex(state, 0);
+  assert.ok(leader, "elimination check missing leader");
+  assert.ok(follower, "elimination check missing follower");
+
+  const followerInv = state?.ownerInventories?.[follower.id];
+  assert.ok(followerInv, "elimination check missing follower inventory");
+  const marker = Inventory.addNewItem(state, followerInv, {
+    kind: "stone",
+    quantity: 1,
+    width: 1,
+    height: 1,
+  });
+  assert.ok(marker, "elimination check failed to seed follower inventory");
+
+  leader.leaderFaith.tier = "bronze";
+  leader.leaderFaith.eatStreak = 0;
+  leader.leaderFaith.decayElapsedSec = Math.max(
+    0,
+    Math.floor(LEADER_FAITH_DECAY_CADENCE_SEC) - 1
+  );
+  leader.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD;
+
+  tickPawnSecond(state, 1);
+  assert.equal(
+    (state?.pawns ?? []).some((pawn) => pawn?.id === leader.id),
+    false,
+    "bronze faith decay should eliminate leader"
+  );
+  assert.equal(
+    (state?.pawns ?? []).some((pawn) => pawn?.id === follower.id),
+    false,
+    "bronze faith leader elimination should remove followers"
+  );
+  assert.equal(
+    state?.ownerInventories?.[leader.id] != null,
+    false,
+    "eliminated leader inventory should be deleted"
+  );
+  assert.equal(
+    state?.ownerInventories?.[follower.id] != null,
+    false,
+    "eliminated follower inventory should be deleted"
+  );
+  assert.equal(
+    state?.runStatus?.complete === true,
+    true,
+    "run should complete when all leaders are eliminated"
+  );
+  assert.equal(
+    state?.runStatus?.reason,
+    "leaderFaithCollapsedAtBronze",
+    "run-complete reason should use leader starvation faith collapse id"
+  );
+  const runCompleteEntry = getLastEventByType(state, "runComplete");
+  assert.ok(runCompleteEntry, "run-complete event should be emitted");
+  assert.equal(
+    runCompleteEntry?.data?.reason,
+    "leaderFaithCollapsedAtBronze",
+    "run-complete event reason should match leader starvation collapse"
+  );
+
+  const multiLeaderState = createLeaderFaithTestState({ leaderCount: 2 });
+  const leaderA = getLeaderByIndex(multiLeaderState, 0);
+  const leaderB = getLeaderByIndex(multiLeaderState, 1);
+  assert.ok(leaderA && leaderB, "multi-leader elimination setup failed");
+  leaderA.leaderFaith.tier = "bronze";
+  leaderA.leaderFaith.decayElapsedSec = Math.max(
+    0,
+    Math.floor(LEADER_FAITH_DECAY_CADENCE_SEC) - 1
+  );
+  leaderA.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD;
+  leaderB.systemState.hunger.cur = 80;
+
+  tickPawnSecond(multiLeaderState, 1);
+  assert.equal(
+    (multiLeaderState?.pawns ?? []).some((pawn) => pawn?.id === leaderA.id),
+    false,
+    "targeted leader should be eliminated at bronze collapse"
+  );
+  assert.equal(
+    (multiLeaderState?.pawns ?? []).some((pawn) => pawn?.id === leaderB.id),
+    true,
+    "other leaders should remain after one leader collapses"
+  );
+  assert.equal(
+    multiLeaderState?.runStatus?.complete === true,
+    false,
+    "run should not complete while at least one leader remains"
+  );
+}
+
+function runLeaderFaithReplayParityChecks() {
+  const initialState = createLeaderFaithTestState({ leaderCount: 1 });
+  const leader = getLeaderByIndex(initialState, 0);
+  assert.ok(leader, "replay parity setup missing leader");
+  leader.systemState.hunger.cur = LEADER_FAITH_HUNGER_DECAY_THRESHOLD;
+  leader.leaderFaith.tier = "gold";
+  leader.leaderFaith.eatStreak = 0;
+  leader.leaderFaith.decayElapsedSec = 0;
+  leader.leaderFaith.failedEatWarnActive = false;
+
+  const timeline = createTimelineFromInitialState(initialState);
+  const liveState = deserializeGameState(serializeGameState(initialState));
+
+  const targetSec = 65;
+  for (let i = 0; i < targetSec * 60; i += 1) {
+    updateGame(1 / 60, liveState);
+  }
+  assert.equal(toSafeSec(liveState?.tSec), targetSec, "live parity state failed to reach target second");
+
+  const rebuilt = rebuildStateAtSecond(timeline, targetSec);
+  assertOk(rebuilt, "leader faith replay parity rebuild");
+  assert.deepEqual(
+    summarizeLeaderFaithReplayState(liveState),
+    summarizeLeaderFaithReplayState(rebuilt.state),
+    "leader faith state should match between live simulation and replay rebuild"
+  );
+}
+
 function run() {
+  runLeaderFaithWarningAndDecayChecks();
+  runLeaderFaithEatStreakUpgradeChecks();
+  runLeaderFaithEliminationChecks();
+  runLeaderFaithReplayParityChecks();
   runScenarioSkillProgressionOverrideChecks();
   runLeaderInventorySectionCapabilityChecks();
   runEnvDeckDrawFeedChecks();
