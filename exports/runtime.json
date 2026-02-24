@@ -112,8 +112,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 833,
-          "y": 647
+          "x": 825,
+          "y": 619
         },
         "ringId": "ring_02"
       },
@@ -300,8 +300,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 414,
-          "y": 391
+          "x": 443,
+          "y": 405
         },
         "ringId": "ring_01"
       },
@@ -992,8 +992,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 573,
-          "y": 792
+          "x": 611,
+          "y": 795
         },
         "ringId": "ring_01"
       },
@@ -1034,8 +1034,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 470,
-          "y": 676
+          "x": 480,
+          "y": 684
         },
         "ringId": "ring_01"
       },
@@ -1057,7 +1057,7 @@
         "onUnlock": [],
         "uiPos": {
           "x": 437,
-          "y": 645
+          "y": 634
         },
         "ringId": "ring_01"
       },
@@ -1783,8 +1783,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 727,
-          "y": 649
+          "x": 732,
+          "y": 724
         },
         "ringId": "ring_02"
       },
@@ -1803,13 +1803,12 @@
         ],
         "adjacent": [
           "Astronomy",
-          "Hearth",
           "Worship"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 573,
-          "y": 541
+          "x": 483,
+          "y": 528
         },
         "ringId": "ring_04"
       },
@@ -1858,8 +1857,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 708,
-          "y": 875
+          "x": 718,
+          "y": 902
         },
         "ringId": "ring_04"
       },
@@ -1882,8 +1881,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 828,
-          "y": 461
+          "x": 823,
+          "y": 452
         },
         "ringId": "ring_02"
       },
@@ -1905,8 +1904,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 864,
-          "y": 535
+          "x": 961,
+          "y": 543
         },
         "ringId": "ring_02"
       },
@@ -1926,8 +1925,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 977,
-          "y": 675
+          "x": 988,
+          "y": 649
         },
         "ringId": "ring_01"
       },
@@ -1968,8 +1967,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 849,
-          "y": 773
+          "x": 905,
+          "y": 806
         },
         "ringId": "ring_01"
       },
@@ -1990,8 +1989,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 817,
-          "y": 812
+          "x": 815,
+          "y": 803
         },
         "ringId": "ring_01"
       },
@@ -2684,14 +2683,14 @@
         ],
         "adjacent": [
           "Cooking",
-          "Crafting",
           "Forage",
-          "Housing"
+          "Housing",
+          "Memory"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 721,
-          "y": 533
+          "x": 784,
+          "y": 535
         }
       },
       "Housing": {
@@ -2714,10 +2713,28 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 727,
-          "y": 403
+          "x": 724,
+          "y": 369
         },
         "ringId": "ring_04"
+      },
+      "Memory": {
+        "id": "Memory",
+        "treeId": "systemColorMap",
+        "name": "Memory",
+        "desc": "",
+        "cost": 1,
+        "tags": [
+          "Notable"
+        ],
+        "adjacent": [
+          "Hearth"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": 680,
+          "y": 536
+        }
       },
       "Papyrus": {
         "id": "Papyrus",
@@ -3107,8 +3124,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 978,
-          "y": 385
+          "x": 975,
+          "y": 391
         },
         "ringId": "ring_01"
       },
@@ -3128,8 +3145,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 995,
-          "y": 421
+          "x": 1003,
+          "y": 429
         },
         "ringId": "ring_01"
       },
@@ -3649,8 +3666,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 393,
-          "y": 522
+          "x": 288,
+          "y": 519
         },
         "ringId": "ring_04"
       },
@@ -3673,8 +3690,8 @@
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 601,
-          "y": 426
+          "x": 637,
+          "y": 447
         },
         "ringId": "ring_02"
       }

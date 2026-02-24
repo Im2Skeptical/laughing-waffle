@@ -568,6 +568,24 @@ export const itemDefs = {
       ],
     },
   },
+  mysteriousAncientTome: {
+    id: "mysteriousAncientTome",
+    name: "Mysterious Ancient Tome",
+    color: 0x8c78d0,  //#8c78d0
+    maxStack: 1,
+    baseTags: ["unique"],
+    defaultWidth: 2,
+    defaultHeight: 2,
+    ui: {
+      title: "Mysterious Ancient Tome",
+      lines: [
+        "Item id: {id}",
+        "Owner: {ownerLabel}",
+        "Quantity: {quantity}",
+        "Size: {width}x{height}",
+      ],
+    },
+  },
   moteOfEternity: {
     id: "moteOfEternity",
     name: "Mote of Eternity",

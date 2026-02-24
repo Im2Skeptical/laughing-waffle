@@ -135,8 +135,8 @@ export const skillNodes = {
       "GreenEarly_03"
     ],
     uiPos: {
-      x: 825,
-      y: 619
+      x: 833,
+      y: 647
     },
     onUnlock: [
       {
@@ -329,8 +329,8 @@ export const skillNodes = {
       "Weaving"
     ],
     uiPos: {
-      x: 443,
-      y: 405
+      x: 414,
+      y: 391
     },
     onUnlock: []
   },
@@ -1021,8 +1021,8 @@ export const skillNodes = {
       "Farming"
     ],
     uiPos: {
-      x: 611,
-      y: 795
+      x: 573,
+      y: 792
     },
     onUnlock: []
   },
@@ -1063,8 +1063,8 @@ export const skillNodes = {
       "BlueEarly_04"
     ],
     uiPos: {
-      x: 480,
-      y: 684
+      x: 470,
+      y: 676
     },
     onUnlock: []
   },
@@ -1086,7 +1086,7 @@ export const skillNodes = {
     ],
     uiPos: {
       x: 437,
-      y: 634
+      y: 645
     },
     onUnlock: []
   },
@@ -1812,8 +1812,8 @@ export const skillNodes = {
       "Hearth"
     ],
     uiPos: {
-      x: 732,
-      y: 724
+      x: 727,
+      y: 649
     },
     onUnlock: [
       {
@@ -1860,11 +1860,12 @@ export const skillNodes = {
     ],
     adjacent: [
       "Astronomy",
+      "Hearth",
       "Worship"
     ],
     uiPos: {
-      x: 483,
-      y: 528
+      x: 573,
+      y: 541
     },
     onUnlock: [
       {
@@ -1927,8 +1928,8 @@ export const skillNodes = {
       "GreenEarly_04"
     ],
     uiPos: {
-      x: 718,
-      y: 902
+      x: 708,
+      y: 875
     },
     onUnlock: [
       {
@@ -1958,8 +1959,8 @@ export const skillNodes = {
       "RedEarly_03"
     ],
     uiPos: {
-      x: 823,
-      y: 452
+      x: 828,
+      y: 461
     },
     onUnlock: [
       {
@@ -1988,8 +1989,8 @@ export const skillNodes = {
       "Hearth"
     ],
     uiPos: {
-      x: 961,
-      y: 543
+      x: 864,
+      y: 535
     },
     onUnlock: [
       {
@@ -2016,8 +2017,8 @@ export const skillNodes = {
       "GreenEarly_02"
     ],
     uiPos: {
-      x: 988,
-      y: 649
+      x: 977,
+      y: 675
     },
     onUnlock: []
   },
@@ -2058,8 +2059,8 @@ export const skillNodes = {
       "GreenEarly_04"
     ],
     uiPos: {
-      x: 905,
-      y: 806
+      x: 849,
+      y: 773
     },
     onUnlock: []
   },
@@ -2080,8 +2081,8 @@ export const skillNodes = {
       "Storehouse"
     ],
     uiPos: {
-      x: 815,
-      y: 803
+      x: 817,
+      y: 812
     },
     onUnlock: []
   },
@@ -2774,13 +2775,13 @@ export const skillNodes = {
     ],
     adjacent: [
       "Cooking",
+      "Crafting",
       "Forage",
-      "Housing",
-      "Memory"
+      "Housing"
     ],
     uiPos: {
-      x: 784,
-      y: 535
+      x: 721,
+      y: 533
     },
     onUnlock: [
       {
@@ -2810,8 +2811,8 @@ export const skillNodes = {
       "Worship"
     ],
     uiPos: {
-      x: 724,
-      y: 369
+      x: 727,
+      y: 403
     },
     onUnlock: [
       {
@@ -2832,24 +2833,6 @@ export const skillNodes = {
         tagId: "canRest"
       }
     ]
-  },
-  Memory: {
-    id: "Memory",
-    treeId: "systemColorMap",
-    name: "Memory",
-    desc: "",
-    cost: 1,
-    tags: [
-      "Notable"
-    ],
-    adjacent: [
-      "Hearth"
-    ],
-    uiPos: {
-      x: 680,
-      y: 536
-    },
-    onUnlock: []
   },
   Papyrus: {
     id: "Papyrus",
@@ -3239,8 +3222,8 @@ export const skillNodes = {
       "RedEarly_04"
     ],
     uiPos: {
-      x: 975,
-      y: 391
+      x: 978,
+      y: 385
     },
     onUnlock: []
   },
@@ -3260,8 +3243,8 @@ export const skillNodes = {
       "RedEarly_03"
     ],
     uiPos: {
-      x: 1003,
-      y: 429
+      x: 995,
+      y: 421
     },
     onUnlock: []
   },
@@ -3787,8 +3770,8 @@ export const skillNodes = {
       "BlueEarly_04"
     ],
     uiPos: {
-      x: 288,
-      y: 519
+      x: 393,
+      y: 522
     },
     onUnlock: [
       {
@@ -3817,8 +3800,8 @@ export const skillNodes = {
       "Housing"
     ],
     uiPos: {
-      x: 637,
-      y: 447
+      x: 601,
+      y: 426
     },
     onUnlock: [
       {

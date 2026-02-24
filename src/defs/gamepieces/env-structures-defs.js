@@ -9,7 +9,7 @@ export const envStructureDefs = {
     defaultSpan: 1,
     ui: {
       title: "Hub",
-      description: "Reference portal to the settlement hub.",
+      description: "Old ruins make for a convenient hub",
       color: 0x5e5c58,
     },
     // Schema-ready; systems can be attached here later.

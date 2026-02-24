@@ -460,11 +460,24 @@ export function createSkillTreeView({
     zoomAtGlobal(centerGX, centerGY, factor);
   }
 
-  function fitCameraToLayout(positionsByNodeId) {
-    const ids = sortedStrings(Object.keys(positionsByNodeId || {}));
-    if (!ids.length) {
+  function fitCameraToNodeIds(positionsByNodeId, nodeIds) {
+    const positions = positionsByNodeId || {};
+    const allIds = sortedStrings(Object.keys(positions));
+    if (!allIds.length) {
       setCamera(1, 0, 0);
       return;
+    }
+    let ids = allIds;
+    if (Array.isArray(nodeIds)) {
+      const filtered = sortedStrings(
+        nodeIds.filter(
+          (nodeId) =>
+            typeof nodeId === "string" &&
+            nodeId.length > 0 &&
+            Object.prototype.hasOwnProperty.call(positions, nodeId)
+        )
+      );
+      if (filtered.length > 0) ids = filtered;
     }
 
     let minX = Infinity;
@@ -473,7 +486,7 @@ export function createSkillTreeView({
     let maxY = -Infinity;
     const treeDef = getActiveTreeDef();
     for (const nodeId of ids) {
-      const pos = positionsByNodeId[nodeId];
+      const pos = positions[nodeId];
       const nodeDef = getSkillNodeDef(activeDefs, nodeId);
       const radius = getNodeRadius(nodeDef, treeDef);
       minX = Math.min(minX, pos.x - radius);
@@ -495,6 +508,50 @@ export function createSkillTreeView({
     const x = (VIEWPORT_WIDTH - spanX * targetScale) / 2 - minX * targetScale;
     const y = (VIEWPORT_HEIGHT - spanY * targetScale) / 2 - minY * targetScale;
     setCamera(targetScale, x, y);
+  }
+
+  function resolveInitialCameraNodeIds({ state, layout, treeDef }) {
+    const positions = layout?.positionsByNodeId || {};
+    const allNodeIds = sortedStrings(Object.keys(positions));
+    if (!allNodeIds.length) return [];
+
+    const unlockedInTree = [];
+    const unlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
+    for (const nodeId of unlocked.values()) {
+      if (Object.prototype.hasOwnProperty.call(positions, nodeId)) {
+        unlockedInTree.push(nodeId);
+      }
+    }
+    const unlockedIds = sortedStrings(unlockedInTree);
+    if (unlockedIds.length > 0) {
+      const unlockedSet = new Set(unlockedIds);
+      const targetNodeIds = new Set(unlockedIds);
+      for (const edge of layout?.edges || []) {
+        const a = edge?.a;
+        const b = edge?.b;
+        if (
+          typeof a !== "string" ||
+          typeof b !== "string" ||
+          !Object.prototype.hasOwnProperty.call(positions, a) ||
+          !Object.prototype.hasOwnProperty.call(positions, b)
+        ) {
+          continue;
+        }
+        if (unlockedSet.has(a)) targetNodeIds.add(b);
+        if (unlockedSet.has(b)) targetNodeIds.add(a);
+      }
+      return sortedStrings(Array.from(targetNodeIds.values()));
+    }
+
+    const startNodeId = treeDef?.startNodeId;
+    if (
+      typeof startNodeId === "string" &&
+      Object.prototype.hasOwnProperty.call(positions, startNodeId)
+    ) {
+      return [startNodeId];
+    }
+
+    return allNodeIds;
   }
 
   function getInfoNodeId() {
@@ -818,7 +875,12 @@ export function createSkillTreeView({
     }
 
     if (!cameraInitialized) {
-      fitCameraToLayout(positions);
+      const initialNodeIds = resolveInitialCameraNodeIds({
+        state,
+        layout,
+        treeDef,
+      });
+      fitCameraToNodeIds(positions, initialNodeIds);
       cameraInitialized = true;
     } else {
       applyCamera();

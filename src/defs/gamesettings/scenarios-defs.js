@@ -188,7 +188,7 @@ export const setupDefs = {
 
     rngSeed: 123,
 
-    resources: { gold: 0, grain: 0, food: 0, population: INITIAL_POPULATION_DEFAULT },
+    resources: { gold: 0, grain: 0, food: 0, population: 0 },
 
     board: {
       cols: 12,
@@ -206,13 +206,13 @@ export const setupDefs = {
         "tile_levee",
         "tile_hinterland",
       ],
-      envStructures: [{ defId: "hubPortal", col: 2 }],
+      envStructures: [{ defId: "hubPortal", col: 1 }],
     },
 
     hub: {
       cols: 10,
       structures: [
-        { defId: "mudHouses", hubCol: 4 },
+        { defId: "makeshiftShelter", hubCol: 4 },
         //{ defId: "hearth", hubCol: 6 },
 
       ],

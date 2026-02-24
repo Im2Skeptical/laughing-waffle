@@ -25,6 +25,22 @@ export const hubStructureDefs = {
       description: "Rest here to regain stamina.",
     },
   },
+  makeshiftShelter: {
+    id: "makeshiftShelter",
+    kind: "hubStructure",
+    name: "Makeshift Shelter",
+    color: 0x808080,
+    defaultSpan: 2,
+    maxInstances: 1,
+    tags: ["canRest"],
+    systems: {},
+    inventory: { cols: 5, rows: 10 },
+    ui: {
+      title: "Makeshift Shelter",
+      lines: ["Shelter appropriated from the remnants of the old world."],
+      description: "Rest here to regain stamina.",
+    },
+  },
   mudHouses: {
     id: "mudHouses",
     kind: "hubStructure",
