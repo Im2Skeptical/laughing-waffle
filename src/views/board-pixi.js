@@ -352,6 +352,20 @@ export function createBoardView(opts) {
     return 1 - (1 - t) ** 3;
   }
 
+  function mixHexColor(a, b, t) {
+    const blend = clamp01(t);
+    const ar = (a >> 16) & 0xff;
+    const ag = (a >> 8) & 0xff;
+    const ab = a & 0xff;
+    const br = (b >> 16) & 0xff;
+    const bg = (b >> 8) & 0xff;
+    const bb = b & 0xff;
+    const rr = Math.round(ar + (br - ar) * blend);
+    const rg = Math.round(ag + (bg - ag) * blend);
+    const rb = Math.round(ab + (bb - ab) * blend);
+    return ((rr & 0xff) << 16) | ((rg & 0xff) << 8) | (rb & 0xff);
+  }
+
   function getMaxEventFeedId(feed) {
     const list = Array.isArray(feed) ? feed : [];
     let maxId = 0;
@@ -2719,6 +2733,24 @@ export function createBoardView(opts) {
         .endFill()
     );
 
+    const timerBorderBase = new PIXI.Graphics();
+    timerBorderBase
+      .lineStyle(1, 0x111827, 0.85)
+      .drawRoundedRect(1, 1, width - 2, EVENT_HEIGHT - 2, 8);
+    content.addChild(timerBorderBase);
+
+    const drainBorderColor = mixHexColor(color, 0xffffff, 0.42);
+    const timerDrainBorder = new PIXI.Graphics();
+    timerDrainBorder
+      .lineStyle(3, drainBorderColor, 0.95)
+      .drawRoundedRect(1.5, 1.5, width - 3, EVENT_HEIGHT - 3, 7);
+    content.addChild(timerDrainBorder);
+
+    const timerDrainMask = new PIXI.Graphics();
+    timerDrainMask.eventMode = "none";
+    content.addChild(timerDrainMask);
+    timerDrainBorder.mask = timerDrainMask;
+
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
       fontSize: 11,
@@ -2752,7 +2784,10 @@ export function createBoardView(opts) {
     const view = {
       container: cont,
       event: eventInst,
+      width,
       remainingText,
+      timerDrainBorder,
+      timerDrainMask,
       hoverTextNodes,
       setHoverActive,
     };
@@ -2841,13 +2876,43 @@ export function createBoardView(opts) {
   }
 
   function updateEventRemaining(view, state) {
-    const expires = view.event?.expiresSec;
+    const expires = Number.isFinite(view.event?.expiresSec)
+      ? Math.floor(view.event.expiresSec)
+      : null;
     if (expires == null) {
       view.remainingText.text = "";
+      view.timerDrainBorder.visible = false;
+      view.timerDrainMask.clear();
       return;
     }
-    const remaining = Math.max(0, (expires ?? 0) - (state?.tSec ?? 0));
+    const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    const createdSec = Number.isFinite(view.event?.createdSec)
+      ? Math.floor(view.event.createdSec)
+      : null;
+    const totalLifetimeSec =
+      createdSec != null ? Math.max(0, expires - createdSec) : 0;
+    const remaining = Math.max(0, expires - nowSec);
     view.remainingText.text = `T-${remaining}s`;
+
+    if (totalLifetimeSec <= 0) {
+      view.timerDrainBorder.visible = false;
+      view.timerDrainMask.clear();
+      return;
+    }
+
+    const ratio = clamp01(remaining / totalLifetimeSec);
+    const cardHeight = EVENT_HEIGHT;
+    const drainY = Math.floor((1 - ratio) * cardHeight);
+    const maskHeight = Math.max(0, cardHeight - drainY);
+    view.timerDrainBorder.visible = maskHeight > 0;
+    view.timerDrainBorder.alpha = 0.7 + (1 - ratio) * 0.3;
+    view.timerDrainMask.clear();
+    if (maskHeight > 0) {
+      view.timerDrainMask
+        .beginFill(0xffffff, 1)
+        .drawRect(0, drainY, view.width, maskHeight)
+        .endFill();
+    }
   }
 
   // --------------------------------------------------------
@@ -3383,7 +3448,10 @@ export function createBoardView(opts) {
         }
 
       const view = eventViews.get(id);
-      if (view) updateEventRemaining(view, state);
+      if (view) {
+        view.event = eventInst;
+        updateEventRemaining(view, state);
+      }
     }
 
       for (const [id, view] of eventViews.entries()) {
