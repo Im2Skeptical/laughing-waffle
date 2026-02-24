@@ -1,73 +1,16 @@
 // scroll-graph-orchestrator.js
 
 import {
-  SCROLL_GRAPH_SUBJECT_DEFS,
   SCROLL_GRAPH_SUBJECT_IDS,
-  SCROLL_GRAPH_TYPE_DEFS,
 } from "../../defs/gamepieces/scroll-timegraph-defs.js";
-
-function toSafeSec(value, fallback = 0) {
-  if (!Number.isFinite(value)) return Math.max(0, Math.floor(fallback));
-  return Math.max(0, Math.floor(value));
-}
-
-function getScrollGraphState(item) {
-  const graphState = item?.systemState?.timegraph;
-  if (!graphState || typeof graphState !== "object") return null;
-
-  const typeId =
-    typeof graphState.scrollType === "string" ? graphState.scrollType : null;
-  const subjectId =
-    typeof graphState.subject === "string" ? graphState.subject : null;
-  if (!SCROLL_GRAPH_TYPE_DEFS[typeId]) return null;
-  if (!SCROLL_GRAPH_SUBJECT_DEFS[subjectId]) return null;
-
-  const horizonSec = toSafeSec(graphState.horizonSec, 120);
-  const historyWindowSec = toSafeSec(graphState.historyWindowSec, 120);
-  const manufacturedSec = Number.isFinite(graphState.manufacturedSec)
-    ? toSafeSec(graphState.manufacturedSec, 0)
-    : null;
-  const editableRangeMode =
-    typeof graphState.editableRangeMode === "string"
-      ? graphState.editableRangeMode
-      : null;
-  const editableRangeStartSec = Number.isFinite(graphState.editableRangeStartSec)
-    ? toSafeSec(graphState.editableRangeStartSec, 0)
-    : Number.isFinite(graphState.editableMinSec)
-      ? toSafeSec(graphState.editableMinSec, 0)
-      : null;
-  const editableRangeEndSec = Number.isFinite(graphState.editableRangeEndSec)
-    ? toSafeSec(graphState.editableRangeEndSec, 0)
-    : Number.isFinite(graphState.editableMaxSec)
-      ? toSafeSec(graphState.editableMaxSec, 0)
-      : null;
-
-  return {
-    typeId,
-    subjectId,
-    windowMode:
-      typeof graphState.windowMode === "string"
-        ? graphState.windowMode
-        : SCROLL_GRAPH_TYPE_DEFS[typeId].windowMode,
-    editable:
-      typeof graphState.editable === "boolean"
-        ? graphState.editable
-        : !!SCROLL_GRAPH_TYPE_DEFS[typeId].editable,
-    frozen:
-      typeof graphState.frozen === "boolean"
-        ? graphState.frozen
-        : !!SCROLL_GRAPH_TYPE_DEFS[typeId].frozen,
-    requiresManufacturedSec:
-      graphState.requiresManufacturedSec === true ||
-      SCROLL_GRAPH_TYPE_DEFS[typeId].requiresManufacturedSec === true,
-    horizonSec,
-    historyWindowSec,
-    manufacturedSec,
-    editableRangeMode,
-    editableRangeStartSec,
-    editableRangeEndSec,
-  };
-}
+import {
+  computeHistoryZoneSegments,
+  computeScrollCommitDecision,
+  computeScrollWindowSpec,
+  getAbsoluteEditableRangeFromScrollState,
+  getScrollTimegraphStateFromItem,
+  toSafeSec,
+} from "../../model/timegraph/edit-policy.js";
 
 function resolveWindowSpecForScroll(runner, scrollState) {
   const timeline = runner.getTimeline?.();
@@ -76,92 +19,25 @@ function resolveWindowSpecForScroll(runner, scrollState) {
   const cursorSec = toSafeSec(cursorState?.tSec, historyEndSec);
   const editableBounds = runner.getEditableHistoryBounds?.();
   const minEditableSec = toSafeSec(editableBounds?.minEditableSec, 0);
-
-  const anchorSec = Number.isFinite(scrollState.manufacturedSec)
-    ? toSafeSec(scrollState.manufacturedSec, historyEndSec)
-    : historyEndSec;
-
-  if (
-    scrollState.editableRangeMode === "absolute" &&
-    Number.isFinite(scrollState.editableRangeEndSec)
-  ) {
-    const rangeStartSec = toSafeSec(scrollState.editableRangeStartSec, 0);
-    const rangeEndSec = Math.max(
-      rangeStartSec,
-      toSafeSec(scrollState.editableRangeEndSec, rangeStartSec)
-    );
-    const minSec = rangeStartSec;
-    const maxSec = rangeEndSec;
-    return {
-      minSec,
-      maxSec: Math.max(minSec + 1, maxSec),
-      scrubSec: Math.max(minSec, Math.min(cursorSec, maxSec)),
-    };
-  }
-
-  if (scrollState.windowMode === "future") {
-    const minSec = anchorSec;
-    const maxSec = anchorSec + scrollState.horizonSec;
-    return { minSec, maxSec, scrubSec: cursorSec };
-  }
-
-  if (scrollState.windowMode === "historyWindow") {
-    const maxSec = anchorSec;
-    const minSec = Math.max(0, anchorSec - scrollState.historyWindowSec);
-    return { minSec, maxSec, scrubSec: maxSec };
-  }
-
-  if (scrollState.windowMode === "fullHistory") {
-    const maxSec = Math.max(historyEndSec, cursorSec);
-    return { minSec: 0, maxSec, scrubSec: cursorSec };
-  }
-
-  if (scrollState.windowMode === "rollingEditable") {
-    const maxSec = historyEndSec;
-    const rollingMin = Math.max(0, maxSec - scrollState.historyWindowSec);
-    const minSec = Math.max(minEditableSec, rollingMin);
-    return {
-      minSec,
-      maxSec: Math.max(minSec + 1, maxSec),
-      scrubSec: Math.max(minSec, Math.min(cursorSec, maxSec)),
-    };
-  }
-
-  const liveMax = Math.max(historyEndSec, cursorSec);
-  return { minSec: 0, maxSec: Math.max(1, liveMax), scrubSec: cursorSec };
+  return computeScrollWindowSpec({
+    scrollState,
+    historyEndSec,
+    cursorSec,
+    minEditableSec,
+  });
 }
 
 function resolveCommitPolicy(runner, scrollState, commitSpec) {
-  if (!scrollState.editable) {
-    return { allow: false, reason: "Read-only scroll" };
-  }
-
   const scrubSec = toSafeSec(commitSpec?.scrubSec, 0);
   const historyEndSec = toSafeSec(commitSpec?.historyEndSec, 0);
   const bounds = runner.getEditableHistoryBounds?.();
   const minEditableSec = toSafeSec(bounds?.minEditableSec, 0);
-
-  if (scrubSec > historyEndSec) {
-    return { allow: false, reason: "Forecast is preview-only" };
-  }
-  if (
-    scrollState.editableRangeMode === "absolute" &&
-    Number.isFinite(scrollState.editableRangeEndSec)
-  ) {
-    const rangeStartSec = toSafeSec(scrollState.editableRangeStartSec, 0);
-    const rangeEndSec = Math.max(
-      rangeStartSec,
-      toSafeSec(scrollState.editableRangeEndSec, rangeStartSec)
-    );
-    if (scrubSec < rangeStartSec || scrubSec > rangeEndSec) {
-      return { allow: false, reason: "Outside scroll editable range" };
-    }
-    return { allow: true };
-  }
-  if (scrubSec < minEditableSec) {
-    return { allow: false, reason: "Outside editable history window" };
-  }
-  return { allow: true };
+  return computeScrollCommitDecision({
+    scrollState,
+    scrubSec,
+    historyEndSec,
+    minEditableSec,
+  });
 }
 
 function resolveControllerHorizonOverride(scrollState) {
@@ -184,6 +60,25 @@ function resolveControllerHorizonOverride(scrollState) {
   return null;
 }
 
+function resolveHistoryZoneSegmentsForScroll(runner, scrollState, zoneSpec) {
+  const minSec = toSafeSec(zoneSpec?.minSec, 0);
+  const maxSec = toSafeSec(zoneSpec?.maxSec, minSec);
+  const historyEndSec = toSafeSec(zoneSpec?.historyEndSec, 0);
+  const editableBounds = runner.getEditableHistoryBounds?.();
+  const baseMinEditableSec = toSafeSec(editableBounds?.minEditableSec, 0);
+
+  const absoluteRange = getAbsoluteEditableRangeFromScrollState(scrollState);
+  const extraEditableRanges = absoluteRange ? [absoluteRange] : [];
+
+  return computeHistoryZoneSegments({
+    minSec,
+    maxSec,
+    historyEndSec,
+    baseMinEditableSec,
+    extraEditableRanges,
+  });
+}
+
 function applyScrollConfigToView(runner, view, scrollState, fixedWindowSpec = null) {
   if (fixedWindowSpec) {
     view.setWindowSpecResolver?.(() => fixedWindowSpec);
@@ -195,11 +90,15 @@ function applyScrollConfigToView(runner, view, scrollState, fixedWindowSpec = nu
   view.setCommitPolicyResolver?.((commitSpec) =>
     resolveCommitPolicy(runner, scrollState, commitSpec)
   );
+  view.setHistoryZoneResolver?.((zoneSpec) =>
+    resolveHistoryZoneSegmentsForScroll(runner, scrollState, zoneSpec)
+  );
 }
 
 function clearScrollConfigFromView(view) {
   view.setWindowSpecResolver?.(null);
   view.setCommitPolicyResolver?.(null);
+  view.setHistoryZoneResolver?.(null);
   view.setSeriesValueOverrideResolver?.(null);
 }
 
@@ -423,7 +322,7 @@ export function createScrollGraphOrchestrator({
       return { handled: false, reason: "missingItemId" };
     }
 
-    const scrollState = getScrollGraphState(item);
+    const scrollState = getScrollTimegraphStateFromItem(item);
     if (!scrollState) {
       return { handled: false, reason: "notScrollGraphItem" };
     }

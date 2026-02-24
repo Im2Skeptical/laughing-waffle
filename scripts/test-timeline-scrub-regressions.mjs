@@ -11,11 +11,20 @@ import {
   seedMemoStateDataAtSecond,
 } from "../src/model/timeline/index.js";
 import { createProjectionCache } from "../src/model/timegraph/projection-cache.js";
+import {
+  computeHistoryZoneSegments,
+  computeScrollCommitDecision,
+  computeScrollWindowSpec,
+  getAbsoluteEditableRangeFromTimegraphState,
+  mergeSecRanges,
+  normalizeTimegraphPolicyState,
+} from "../src/model/timegraph/edit-policy.js";
 import { createTimeGraphController } from "../src/model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../src/model/graph-metrics.js";
 import { cropDefs } from "../src/defs/gamepieces/crops-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { forageDropTables } from "../src/defs/gamepieces/forage-droptables-defs.js";
+import { itemDefs } from "../src/defs/gamepieces/item-defs.js";
 import { ENV_EVENT_DRAW_CADENCE_SEC } from "../src/defs/gamesettings/gamerules-defs.js";
 import { deserializeGameState, serializeGameState } from "../src/model/state.js";
 import { createInitialState } from "../src/model/game-model.js";
@@ -827,11 +836,157 @@ function runPersistentDropMemoryChecks() {
   });
 }
 
+function runTimegraphEditPolicyChecks() {
+  const moteGraphState = itemDefs?.moteOfEternity?.baseSystemState?.timegraph;
+  assert.ok(moteGraphState, "moteOfEternity timegraph state should exist");
+
+  const normalized = normalizeTimegraphPolicyState(moteGraphState);
+  assert.ok(normalized, "timegraph policy normalization should succeed");
+  assert.equal(
+    normalized.subjectId,
+    "systems",
+    "mote policy should target systems subject"
+  );
+
+  const absRange = getAbsoluteEditableRangeFromTimegraphState(moteGraphState, {
+    itemId: 123,
+    itemKind: "moteOfEternity",
+  });
+  assert.deepEqual(
+    absRange,
+    {
+      itemId: 123,
+      itemKind: "moteOfEternity",
+      minSec: 0,
+      maxSec: 240,
+    },
+    "mote absolute editable range should normalize deterministically"
+  );
+
+  const mergedRanges = mergeSecRanges([
+    { minSec: 20, maxSec: 30 },
+    { minSec: 0, maxSec: 10 },
+    { minSec: 10, maxSec: 20 },
+    { minSec: 28, maxSec: 35 },
+  ]);
+  assert.deepEqual(
+    mergedRanges,
+    [{ minSec: 0, maxSec: 35 }],
+    "range merge should be deterministic and contiguous"
+  );
+
+  const historyZones = computeHistoryZoneSegments({
+    minSec: 0,
+    maxSec: 240,
+    historyEndSec: 155,
+    baseMinEditableSec: 150,
+    extraEditableRanges: [{ minSec: 0, maxSec: 240 }],
+  });
+  assert.deepEqual(
+    historyZones,
+    [{ kind: "editableHistory", startSec: 0, endSec: 155 }],
+    "absolute editable range should paint full realized window history editable"
+  );
+
+  const commitAllowed = computeScrollCommitDecision({
+    scrollState: {
+      editable: true,
+      editableRangeMode: "absolute",
+      editableRangeStartSec: 0,
+      editableRangeEndSec: 240,
+    },
+    scrubSec: 120,
+    historyEndSec: 155,
+    minEditableSec: 150,
+  });
+  assert.deepEqual(
+    commitAllowed,
+    { allow: true },
+    "commit should be allowed within absolute editable range"
+  );
+
+  const commitForecast = computeScrollCommitDecision({
+    scrollState: {
+      editable: true,
+      editableRangeMode: "absolute",
+      editableRangeStartSec: 0,
+      editableRangeEndSec: 240,
+    },
+    scrubSec: 156,
+    historyEndSec: 155,
+    minEditableSec: 150,
+  });
+  assert.equal(
+    commitForecast?.allow,
+    false,
+    "forecast commits should remain blocked"
+  );
+
+  const rollingWindow = computeScrollWindowSpec({
+    scrollState: {
+      windowMode: "rollingEditable",
+      historyWindowSec: 120,
+      editable: true,
+    },
+    historyEndSec: 200,
+    cursorSec: 200,
+    minEditableSec: 195,
+  });
+  assert.deepEqual(
+    rollingWindow,
+    {
+      minSec: 195,
+      maxSec: 200,
+      scrubSec: 200,
+    },
+    "rollingEditable window mode should preserve prior behavior"
+  );
+
+  const runner = createSimRunner({ setupId: "devGym01" });
+  assertOk(runner.init(), "edit policy runner init");
+  runner.setPaused(false);
+  for (let i = 0; i < 20 * 60; i += 1) {
+    runner.update(1 / 60);
+  }
+
+  const state = runner.getCursorState();
+  const leaderId = state?.pawns?.[0]?.id;
+  assert.ok(Number.isFinite(leaderId), "expected leader for edit policy checks");
+  const leaderInv = state?.ownerInventories?.[leaderId];
+  assert.ok(leaderInv, "expected leader inventory for edit policy checks");
+
+  const statusBefore = runner.getEditWindowStatusAtSecond(0);
+  assert.equal(
+    statusBefore?.ok,
+    false,
+    "without grants, deep history should be outside base editable window"
+  );
+
+  const added = Inventory.addNewItem(state, leaderInv, {
+    kind: "moteOfEternity",
+    quantity: 1,
+  });
+  assert.ok(added, "failed to add mote item for policy check");
+
+  const statusAfter = runner.getEditWindowStatusAtSecond(0);
+  assert.equal(
+    statusAfter?.ok,
+    true,
+    "absolute editable grant should unlock deep history second"
+  );
+  assert.equal(
+    statusAfter?.editableByItemGrant,
+    true,
+    "absolute editable grant source should be reported"
+  );
+}
+
 function run() {
   runScenarioSkillProgressionOverrideChecks();
   runLeaderInventorySectionCapabilityChecks();
   runEnvDeckDrawFeedChecks();
   runPersistentDropMemoryChecks();
+  runTimegraphEditPolicyChecks();
 
   const runner = createSimRunner({ setupId: "devGym01" });
   runner.init();

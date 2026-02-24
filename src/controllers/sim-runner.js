@@ -36,6 +36,7 @@ import {
   ensurePersistentKnowledgeState,
   mergePersistentKnowledge,
 } from "../model/persistent-memory.js";
+import { resolveEditWindowStatusAtSecond } from "../model/timegraph/edit-policy.js";
 import { createActionPlanner } from "./actionmanagers/action-planner.js";
 import {
   perfEnabled,
@@ -118,96 +119,16 @@ export function createSimRunner({
     };
   }
 
-  function parseAbsoluteEditGrantFromItem(item) {
-    const graphState = item?.systemState?.timegraph;
-    if (!graphState || typeof graphState !== "object") return null;
-
-    const mode = String(graphState.editableRangeMode || "").toLowerCase();
-    if (mode !== "absolute") return null;
-
-    const minRaw = Number.isFinite(graphState.editableRangeStartSec)
-      ? graphState.editableRangeStartSec
-      : Number.isFinite(graphState.editableMinSec)
-        ? graphState.editableMinSec
-        : 0;
-    const maxRaw = Number.isFinite(graphState.editableRangeEndSec)
-      ? graphState.editableRangeEndSec
-      : Number.isFinite(graphState.editableMaxSec)
-        ? graphState.editableMaxSec
-        : null;
-    if (!Number.isFinite(maxRaw)) return null;
-
-    const minSec = Math.max(0, Math.floor(minRaw));
-    const maxSec = Math.max(0, Math.floor(maxRaw));
-    if (maxSec < minSec) return null;
-
-    return {
-      itemId: Number.isFinite(item?.id) ? Math.floor(item.id) : null,
-      itemKind: typeof item?.kind === "string" ? item.kind : null,
-      minSec,
-      maxSec,
-    };
-  }
-
-  function collectAbsoluteEditGrantsFromState(state) {
-    const grants = [];
-    const seenItemIds = new Set();
-
-    const scanItem = (item) => {
-      if (!item || typeof item !== "object") return;
-      const itemId = Number.isFinite(item?.id) ? Math.floor(item.id) : null;
-      if (itemId != null && seenItemIds.has(itemId)) return;
-      const grant = parseAbsoluteEditGrantFromItem(item);
-      if (!grant) return;
-      grants.push(grant);
-      if (itemId != null) seenItemIds.add(itemId);
-    };
-
-    const ownerInventories = state?.ownerInventories;
-    if (ownerInventories && typeof ownerInventories === "object") {
-      for (const inv of Object.values(ownerInventories)) {
-        const items = Array.isArray(inv?.items) ? inv.items : [];
-        for (const item of items) scanItem(item);
-      }
-    }
-
-    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
-    for (const pawn of pawns) {
-      const equipment = pawn?.equipment;
-      if (!equipment || typeof equipment !== "object") continue;
-      for (const equipped of Object.values(equipment)) {
-        scanItem(equipped);
-      }
-    }
-
-    return grants;
-  }
-
-  function resolveAbsoluteEditGrantAtSecond(state, sec) {
-    const grants = collectAbsoluteEditGrantsFromState(state);
-    for (const grant of grants) {
-      if (sec < grant.minSec || sec > grant.maxSec) continue;
-      return grant;
-    }
-    return null;
-  }
-
   function getEditWindowStatusForSecond(tSec) {
     const sec = Math.max(0, Math.floor(tSec ?? 0));
     const bounds = getEditableHistoryBounds();
-    const editableByWindow = sec >= bounds.minEditableSec;
-    const itemGrant = editableByWindow
-      ? null
-      : resolveAbsoluteEditGrantAtSecond(cursorState, sec);
-    const editable = editableByWindow || !!itemGrant;
-    return {
-      ok: editable,
-      editable,
+    const resolved = resolveEditWindowStatusAtSecond({
       tSec: sec,
-      reason: editable ? null : "outsideEditableHistoryWindow",
-      editableByWindow,
-      editableByItemGrant: !!itemGrant,
-      itemGrant: itemGrant || null,
+      minEditableSec: bounds.minEditableSec,
+      state: cursorState,
+    });
+    return {
+      ...resolved,
       ...bounds,
     };
   }
@@ -1435,6 +1356,7 @@ export function createSimRunner({
     getPreviewStatus,
     isPreviewing: () => !!dragPreviewState,
     getEditableHistoryBounds,
+    getEditWindowStatusAtSecond: (tSec) => getEditWindowStatusForSecond(tSec),
     getLastPlannerCommitError: () => lastPlannerCommitError,
     setPreviewState: (s) => {
       dragPreviewState = s || null;

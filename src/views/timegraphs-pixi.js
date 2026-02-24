@@ -8,10 +8,75 @@ import {
   getActionSecondsInRange,
   getActionSecondsInRangeSampled,
 } from "../model/timeline/index.js";
+import { computeHistoryZoneSegments } from "../model/timegraph/edit-policy.js";
 import {
   TIME_STATE_COLORS,
   TIME_STATE_GRAPH_BG_ALPHA,
 } from "./layout-pixi.js";
+
+const HISTORY_ZONE_KIND_ORDER = {
+  fixedHistory: 0,
+  editableHistory: 1,
+};
+
+function normalizeHistoryZoneSegments(rawSegments, { minSec, maxSec, historyEndSec }) {
+  const min = Math.max(0, Math.floor(minSec ?? 0));
+  const max = Math.max(min, Math.floor(maxSec ?? min));
+  const historyEnd = Math.max(0, Math.floor(historyEndSec ?? 0));
+  const realizedEnd = Math.min(max, historyEnd);
+  if (realizedEnd <= min) return [];
+
+  const list = Array.isArray(rawSegments) ? rawSegments : [];
+  const clipped = [];
+  for (const entry of list) {
+    const kind = String(entry?.kind ?? "");
+    if (kind !== "fixedHistory" && kind !== "editableHistory") continue;
+    const startSec = Math.max(min, Math.floor(entry?.startSec ?? min));
+    const endSec = Math.min(realizedEnd, Math.floor(entry?.endSec ?? startSec));
+    if (endSec <= startSec) continue;
+    clipped.push({ kind, startSec, endSec });
+  }
+  if (!clipped.length) return [];
+
+  clipped.sort(
+    (a, b) =>
+      a.startSec - b.startSec ||
+      a.endSec - b.endSec ||
+      (HISTORY_ZONE_KIND_ORDER[a.kind] ?? 99) -
+        (HISTORY_ZONE_KIND_ORDER[b.kind] ?? 99)
+  );
+
+  const out = [];
+  for (const entry of clipped) {
+    const prev = out[out.length - 1];
+    if (!prev) {
+      out.push({ ...entry });
+      continue;
+    }
+    if (entry.startSec < prev.endSec) {
+      if (entry.kind === prev.kind) {
+        prev.endSec = Math.max(prev.endSec, entry.endSec);
+      } else {
+        const clippedStart = prev.endSec;
+        if (entry.endSec > clippedStart) {
+          out.push({
+            kind: entry.kind,
+            startSec: clippedStart,
+            endSec: entry.endSec,
+          });
+        }
+      }
+      continue;
+    }
+    if (entry.startSec === prev.endSec && entry.kind === prev.kind) {
+      prev.endSec = Math.max(prev.endSec, entry.endSec);
+      continue;
+    }
+    out.push({ ...entry });
+  }
+
+  return out;
+}
 
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {
@@ -56,6 +121,7 @@ export function createMetricGraphView({
     typeof getWindowSpec === "function" ? getWindowSpec : null;
   let commitPolicyResolver =
     typeof canCommitScrubSecond === "function" ? canCommitScrubSecond : null;
+  let historyZoneResolver = null;
   let seriesValueOverrideResolver =
     typeof getSeriesValueOverride === "function" ? getSeriesValueOverride : null;
 
@@ -770,9 +836,41 @@ export function createMetricGraphView({
       plotG.endFill();
     }
 
-    const fixedEnd = Math.min(historyEndSec, minEditableSec);
-    drawZone(minSec, fixedEnd, TIME_STATE_COLORS.fixedHistory);
-    drawZone(minEditableSec, historyEndSec, TIME_STATE_COLORS.editableHistory);
+    const defaultHistoryZones = computeHistoryZoneSegments({
+      minSec,
+      maxSec,
+      historyEndSec,
+      baseMinEditableSec: minEditableSec,
+      extraEditableRanges: [],
+    });
+    const customHistoryZones =
+      typeof historyZoneResolver === "function"
+        ? historyZoneResolver({
+            minSec,
+            maxSec,
+            historyEndSec,
+            editableBounds,
+            timeline: tl,
+            cursorState: cs,
+            graphData: data,
+            zoomed,
+          })
+        : null;
+    const historyZones = normalizeHistoryZoneSegments(
+      Array.isArray(customHistoryZones) && customHistoryZones.length
+        ? customHistoryZones
+        : defaultHistoryZones,
+      { minSec, maxSec, historyEndSec }
+    );
+    for (const zone of historyZones) {
+      if (zone.kind === "fixedHistory") {
+        drawZone(zone.startSec, zone.endSec, TIME_STATE_COLORS.fixedHistory);
+        continue;
+      }
+      if (zone.kind === "editableHistory") {
+        drawZone(zone.startSec, zone.endSec, TIME_STATE_COLORS.editableHistory);
+      }
+    }
     drawZone(historyEndSec, maxSec, TIME_STATE_COLORS.forecast);
 
     // Grid
@@ -1074,6 +1172,12 @@ export function createMetricGraphView({
     statusNote = "";
   }
 
+  function setHistoryZoneResolver(nextResolver) {
+    historyZoneResolver =
+      typeof nextResolver === "function" ? nextResolver : null;
+    statusNote = "";
+  }
+
   return {
     open,
     close,
@@ -1082,6 +1186,7 @@ export function createMetricGraphView({
     setWindowSpecResolver,
     setCommitPolicyResolver,
     setSeriesValueOverrideResolver,
+    setHistoryZoneResolver,
   };
 }
 

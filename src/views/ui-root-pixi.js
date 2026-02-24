@@ -337,6 +337,10 @@ function resolveTimeStateKey() {
   // Live frontier is un-tinted.
   if (sec >= historyEndSec) return null;
 
+  const status = runner.getEditWindowStatusAtSecond?.(sec);
+  if (status?.ok === true) return "editableHistory";
+  if (status?.ok === false) return "fixedHistory";
+
   const bounds = runner.getEditableHistoryBounds?.();
   const minEditableSec = Number.isFinite(bounds?.minEditableSec)
     ? Math.max(0, Math.floor(bounds.minEditableSec))
