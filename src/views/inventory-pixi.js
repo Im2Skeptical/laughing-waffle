@@ -109,6 +109,9 @@ const AP_OVERLAY_FADE_OUT = 8;
 const AP_OVERLAY_FILL = 0x8a1f2a;
 const AP_OVERLAY_STROKE = 0xff4f5e;
 const ITEM_TAP_MAX_DRAG_PX = 8;
+const CONSUME_PROMPT_HOLD_SEC = 0.9;
+const CONSUME_PROMPT_FADE_SEC = 0.45;
+const CONSUME_PROMPT_TEXT = "Consume?";
 
 function getItemTierBorderColor(item, def) {
   const tier = item?.tier ?? def?.defaultTier ?? null;
@@ -167,6 +170,7 @@ export function createInventoryView({
   let lastPointerPos = null;
   let buildGhost = null;
   let buildGhostDefId = null;
+  let consumePrompt = null;
 
   // Owners currently showing an error flash; used to pause auto-rebuilds.
   const flashingOwners = new Set();
@@ -1957,6 +1961,9 @@ export function createInventoryView({
       win.container.visible = false;
       clearActiveBuildForOwner(ownerId);
     }
+    if (consumePrompt?.ownerId === ownerId && !win.pinned) {
+      hideConsumePrompt();
+    }
   }
 
   function hideWindow(ownerId) {
@@ -1968,6 +1975,9 @@ export function createInventoryView({
     win.container.visible = false;
     win.pinText.text = "[ ]";
     clearActiveBuildForOwner(ownerId);
+    if (consumePrompt?.ownerId === ownerId) {
+      hideConsumePrompt();
+    }
   }
 
   function togglePinned(ownerId) {
@@ -2739,6 +2749,210 @@ export function createInventoryView({
   // ITEM INTERACTION
   // ---------------------------------------------------------------------------
 
+  function hasConsumeEffect(item) {
+    if (!item || typeof onUseItem !== "function") return false;
+    const def = itemDefs?.[item.kind];
+    if (!def || typeof def !== "object") return false;
+    if (Array.isArray(def.onUse)) return def.onUse.length > 0;
+    return !!(def.onUse && typeof def.onUse === "object");
+  }
+
+  function ensureConsumePrompt() {
+    if (consumePrompt?.container) return consumePrompt;
+    const container = new PIXI.Container();
+    container.visible = false;
+    container.eventMode = "static";
+    container.cursor = "pointer";
+    container.zIndex = 120;
+
+    const bg = new PIXI.Graphics();
+    const text = new PIXI.Text(CONSUME_PROMPT_TEXT, {
+      fill: 0xf8fbff,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    container.addChild(bg, text);
+    layer.addChild(container);
+
+    consumePrompt = {
+      container,
+      bg,
+      text,
+      ownerId: null,
+      itemId: null,
+      sourceEquipmentSlotId: null,
+      holdSec: 0,
+      fadeSec: 0,
+      totalSec: 0,
+      anchorBounds: null,
+    };
+
+    container.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+    });
+    container.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      confirmConsumePrompt();
+    });
+
+    return consumePrompt;
+  }
+
+  function hideConsumePrompt() {
+    if (!consumePrompt) return;
+    consumePrompt.ownerId = null;
+    consumePrompt.itemId = null;
+    consumePrompt.sourceEquipmentSlotId = null;
+    consumePrompt.anchorBounds = null;
+    consumePrompt.holdSec = 0;
+    consumePrompt.fadeSec = 0;
+    consumePrompt.totalSec = 0;
+    if (consumePrompt.container) {
+      consumePrompt.container.visible = false;
+      consumePrompt.container.alpha = 1;
+    }
+  }
+
+  function positionConsumePrompt(bounds) {
+    if (!consumePrompt?.container || !consumePrompt?.bg || !consumePrompt?.text) {
+      return;
+    }
+    if (!bounds) return;
+    const text = consumePrompt.text;
+    const bg = consumePrompt.bg;
+    const width = Math.max(64, Math.ceil(text.width) + 16);
+    const height = 20;
+    bg.clear();
+    bg.lineStyle(1, 0xbfd7ff, 0.98);
+    bg.beginFill(0x24324b, 0.96);
+    bg.drawRoundedRect(0, 0, width, height, 6);
+    bg.endFill();
+    text.x = Math.floor((width - text.width) / 2);
+    text.y = Math.floor((height - text.height) / 2) - 1;
+
+    consumePrompt.container.x = Math.round(bounds.x + (bounds.width - width) * 0.5);
+    consumePrompt.container.y = Math.round(bounds.y + (bounds.height - height) * 0.5);
+  }
+
+  function showConsumePrompt({ ownerId, itemId, sourceEquipmentSlotId, view }) {
+    const prompt = ensureConsumePrompt();
+    const bounds = view?.getBounds?.() ?? null;
+    if (!bounds) return false;
+
+    prompt.ownerId = ownerId;
+    prompt.itemId = itemId;
+    prompt.sourceEquipmentSlotId = sourceEquipmentSlotId ?? null;
+    prompt.anchorBounds = bounds;
+    prompt.holdSec = CONSUME_PROMPT_HOLD_SEC;
+    prompt.fadeSec = CONSUME_PROMPT_FADE_SEC;
+    prompt.totalSec = prompt.holdSec + prompt.fadeSec;
+    prompt.container.alpha = 1;
+    prompt.container.visible = true;
+    positionConsumePrompt(bounds);
+    return true;
+  }
+
+  function isConsumePromptMatch({ ownerId, itemId, sourceEquipmentSlotId }) {
+    if (!consumePrompt?.container?.visible) return false;
+    return (
+      consumePrompt.ownerId === ownerId &&
+      consumePrompt.itemId === itemId &&
+      (consumePrompt.sourceEquipmentSlotId ?? null) ===
+        (sourceEquipmentSlotId ?? null)
+    );
+  }
+
+  function confirmConsumePrompt() {
+    if (!consumePrompt?.container?.visible) return false;
+    const ownerId = consumePrompt.ownerId;
+    const itemId = consumePrompt.itemId;
+    const sourceEquipmentSlotId = consumePrompt.sourceEquipmentSlotId ?? null;
+    if (ownerId == null || itemId == null) {
+      hideConsumePrompt();
+      return false;
+    }
+
+    const inv = getInventoryForOwner(ownerId);
+    const item =
+      inv?.itemsById?.[itemId] ||
+      inv?.items?.find?.((candidate) => candidate?.id === itemId) ||
+      null;
+    if (!item) {
+      hideConsumePrompt();
+      return false;
+    }
+
+    const used = tryUseItemFromTap({
+      ownerId,
+      item,
+      sourceEquipmentSlotId,
+      view: null,
+    });
+    hideConsumePrompt();
+    if (used) {
+      rebuildWindow(ownerId);
+      return true;
+    }
+    return false;
+  }
+
+  function handleConsumeTapInteraction({
+    ownerId,
+    item,
+    sourceEquipmentSlotId,
+    view,
+  }) {
+    if (!hasConsumeEffect(item)) {
+      if (
+        consumePrompt?.container?.visible &&
+        consumePrompt.ownerId === ownerId &&
+        consumePrompt.itemId === item?.id
+      ) {
+        hideConsumePrompt();
+      }
+      return "none";
+    }
+
+    const itemId = item?.id ?? null;
+    if (itemId == null) return "none";
+
+    if (isConsumePromptMatch({ ownerId, itemId, sourceEquipmentSlotId })) {
+      return confirmConsumePrompt() ? "used" : "none";
+    }
+
+    const shown = showConsumePrompt({
+      ownerId,
+      itemId,
+      sourceEquipmentSlotId,
+      view,
+    });
+    return shown ? "prompted" : "none";
+  }
+
+  function updateConsumePrompt(dt) {
+    if (!consumePrompt?.container?.visible) return;
+    const frameDt = Number.isFinite(dt) && dt > 0 ? dt : 1 / 60;
+    consumePrompt.totalSec = Math.max(0, (consumePrompt.totalSec ?? 0) - frameDt);
+    if (consumePrompt.totalSec <= 0) {
+      hideConsumePrompt();
+      return;
+    }
+
+    if (consumePrompt.totalSec > (consumePrompt.fadeSec ?? 0)) {
+      consumePrompt.container.alpha = 1;
+    } else {
+      const fadeSec = Math.max(0.01, consumePrompt.fadeSec ?? CONSUME_PROMPT_FADE_SEC);
+      consumePrompt.container.alpha = Math.max(
+        0,
+        Math.min(1, consumePrompt.totalSec / fadeSec)
+      );
+    }
+
+    if (consumePrompt.anchorBounds) {
+      positionConsumePrompt(consumePrompt.anchorBounds);
+    }
+  }
+
   function wasTapInteraction() {
     const maxSq = ITEM_TAP_MAX_DRAG_PX * ITEM_TAP_MAX_DRAG_PX;
     return (dragItem.movedDistanceSq ?? 0) <= maxSq;
@@ -2790,6 +3004,7 @@ export function createInventoryView({
     requestPauseForAction?.();
     const g = globalPos;
     if (!g) return;
+    hideConsumePrompt();
     const sourceSlotId = view?.sourceEquipmentSlotId ?? null;
 
     dragItem.lastGlobalPos = { x: g.x, y: g.y };
@@ -2969,14 +3184,18 @@ export function createInventoryView({
     }
 
     if (tapInteraction) {
-      const used = tryUseItemFromTap({
+      const consumeResult = handleConsumeTapInteraction({
         ownerId: sourceOwner,
         item,
         sourceEquipmentSlotId,
         view,
       });
-      if (used) {
+      if (consumeResult === "used") {
         rebuildWindow(sourceOwner);
+        finish();
+        return;
+      }
+      if (consumeResult === "prompted") {
         finish();
         return;
       }
@@ -3852,6 +4071,7 @@ export function createInventoryView({
 
   function update(dt) {
     updateApDragOverlays(dt);
+    updateConsumePrompt(dt);
     if (dragItem.active || activeSplit || flashingOwners.size > 0) {
       return;
     }
