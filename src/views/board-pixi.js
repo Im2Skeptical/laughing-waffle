@@ -1811,15 +1811,15 @@ export function createBoardView(opts) {
     const hubBoardBg = new PIXI.Graphics();
     hubBoardBg.eventMode = "none";
     hubBoardBg.zIndex = -200;
-    hubStructuresLayer?.addChild(hubBoardBg);
+    tileLayer?.addChild(hubBoardBg);
 
     const regionHeader = createAreaHeaderChrome(() => promptForAreaRename("region"));
-    regionHeader.container.zIndex = 80;
-    hubStructuresLayer?.addChild(regionHeader.container);
+    regionHeader.container.zIndex = -120;
+    tileLayer?.addChild(regionHeader.container);
 
     const hubHeader = createAreaHeaderChrome(() => promptForAreaRename("hub"));
-    hubHeader.container.zIndex = 80;
-    hubStructuresLayer?.addChild(hubHeader.container);
+    hubHeader.container.zIndex = -120;
+    tileLayer?.addChild(hubHeader.container);
 
     areaChrome = {
       regionBoardBg,
