@@ -390,6 +390,7 @@ function runLeaderInventorySectionCapabilityChecks() {
     emptyCaps,
     {
       equipment: true,
+      systems: true,
       prestige: false,
       skills: false,
       build: false,
@@ -428,6 +429,7 @@ function runLeaderInventorySectionCapabilityChecks() {
     invalidCaps,
     {
       equipment: false,
+      systems: false,
       prestige: false,
       skills: false,
       build: false,

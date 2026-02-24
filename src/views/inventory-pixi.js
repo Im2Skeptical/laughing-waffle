@@ -11,6 +11,7 @@ import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { itemSystemDefs } from "../defs/gamesystems/item-system-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
+import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import {
   LEADER_EQUIPMENT_SLOT_LABELS,
   LEADER_EQUIPMENT_SLOT_ORDER,
@@ -80,6 +81,24 @@ const EQUIP_SLOT_STROKE = 0x44506e;
 const EQUIP_SLOT_STROKE_ACTIVE = 0x6f8dc6;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
+const LEADER_SYSTEMS_ROW_HEIGHT = 18;
+const LEADER_SYSTEMS_ROW_GAP = 4;
+const LEADER_SYSTEMS_ICON_SIZE = 12;
+const LEADER_SYSTEMS_BAR_HEIGHT = 8;
+const LEADER_SYSTEMS_BAR_BG = 0x2b3142;
+const LEADER_SYSTEMS_BAR_BORDER = 0x0f1422;
+const LEADER_SYSTEMS_BAR_TEXT = 0xe6eef9;
+const LEADER_SYSTEMS_BAR_RADIUS = 4;
+const LEADER_SYSTEMS_ICON_BORDER = 0x141c2b;
+const LEADER_SYSTEMS_FALLBACK_COLOR = 0x7a7a7a;
+const LEADER_FAITH_SYSTEM_ID = "leaderFaith";
+const LEADER_SYSTEM_TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
+const LEADER_SYSTEM_UI_OVERRIDES = Object.freeze({
+  stamina: { icon: "S", color: 0x4f7fa6 },
+  hunger: { icon: "H", color: 0xd9793a },
+  leadership: { icon: "L", color: 0x8f9ab8 },
+  [LEADER_FAITH_SYSTEM_ID]: { icon: "Fa", color: 0x8f6fff },
+});
 const SKILLS_PANEL_HEIGHT = 102;
 const SKILLS_UNLOCKED_LIST_MAX = 5;
 const SKILLS_LIST_LINE_HEIGHT = 14;
@@ -298,6 +317,7 @@ export function createInventoryView({
     if (!leader || !Number.isFinite(leader.id)) {
       return {
         equipment: false,
+        systems: false,
         prestige: false,
         skills: false,
         build: false,
@@ -587,12 +607,134 @@ export function createInventoryView({
     return BUILD_PANEL_PADDING * 2 + rowsHeight + rowGap + BUILD_PANEL_HINT_HEIGHT;
   }
 
+  function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function getLeaderSystemIds(leader) {
+    const ids = new Set();
+    for (const systemId of Object.keys(pawnSystemDefs || {})) {
+      ids.add(systemId);
+    }
+    if (leader?.role === "leader") {
+      ids.add(LEADER_FAITH_SYSTEM_ID);
+    }
+    const stateIds = leader?.systemState && typeof leader.systemState === "object"
+      ? Object.keys(leader.systemState)
+      : [];
+    for (const systemId of stateIds) {
+      ids.add(systemId);
+    }
+    const tierIds = leader?.systemTiers && typeof leader.systemTiers === "object"
+      ? Object.keys(leader.systemTiers)
+      : [];
+    for (const systemId of tierIds) {
+      ids.add(systemId);
+    }
+    return Array.from(ids.values()).sort((a, b) => a.localeCompare(b));
+  }
+
+  function getLeaderSystemsSignature(leader) {
+    return getLeaderSystemIds(leader).join("|");
+  }
+
+  function getLeaderSystemUi(systemId) {
+    if (systemId === LEADER_FAITH_SYSTEM_ID) {
+      return {
+        label: "Faith",
+        icon: LEADER_SYSTEM_UI_OVERRIDES[LEADER_FAITH_SYSTEM_ID].icon,
+        color: LEADER_SYSTEM_UI_OVERRIDES[LEADER_FAITH_SYSTEM_ID].color,
+      };
+    }
+    const override = LEADER_SYSTEM_UI_OVERRIDES[systemId] || null;
+    const def = pawnSystemDefs?.[systemId];
+    const label = def?.ui?.name || systemId || "System";
+    const icon =
+      typeof override?.icon === "string" && override.icon.length > 0
+        ? override.icon
+        : label
+        ? label.slice(0, 1).toUpperCase()
+        : "?";
+    const color = Number.isFinite(override?.color)
+      ? override.color
+      : LEADER_SYSTEMS_FALLBACK_COLOR;
+    return {
+      label,
+      icon,
+      color,
+    };
+  }
+
+  function getLeaderSystemTier(leader, systemId) {
+    if (systemId === LEADER_FAITH_SYSTEM_ID) {
+      const faithTier = leader?.leaderFaith?.tier;
+      if (
+        typeof faithTier === "string" &&
+        LEADER_SYSTEM_TIER_ORDER.includes(faithTier)
+      ) {
+        return faithTier;
+      }
+      return "gold";
+    }
+    const fromLeader = leader?.systemTiers?.[systemId];
+    if (
+      typeof fromLeader === "string" &&
+      LEADER_SYSTEM_TIER_ORDER.includes(fromLeader)
+    ) {
+      return fromLeader;
+    }
+    const fromDef = pawnSystemDefs?.[systemId]?.defaultTier;
+    if (
+      typeof fromDef === "string" &&
+      LEADER_SYSTEM_TIER_ORDER.includes(fromDef)
+    ) {
+      return fromDef;
+    }
+    return "bronze";
+  }
+
+  function getLeaderSystemTierRatio(tier) {
+    const maxIndex = Math.max(1, LEADER_SYSTEM_TIER_ORDER.length - 1);
+    const tierIndex = LEADER_SYSTEM_TIER_ORDER.indexOf(tier);
+    const safeIndex = tierIndex >= 0 ? tierIndex : 0;
+    return clamp01(safeIndex / maxIndex);
+  }
+
+  function computeLeaderSystemsContentHeight(systemCount) {
+    const rows = Math.max(0, Math.floor(systemCount ?? 0));
+    if (rows <= 0) return 0;
+    return (
+      rows * LEADER_SYSTEMS_ROW_HEIGHT +
+      Math.max(0, rows - 1) * LEADER_SYSTEMS_ROW_GAP
+    );
+  }
+
+  function computeLeaderSystemsContentHeightForLeader(leader) {
+    return computeLeaderSystemsContentHeight(getLeaderSystemIds(leader).length);
+  }
+
   function ensureSectionState(win) {
-    if (!win) return { equipment: false, prestige: false, skills: false, build: false };
+    if (!win) {
+      return {
+        equipment: false,
+        systems: false,
+        prestige: false,
+        skills: false,
+        build: false,
+      };
+    }
     if (!win.sectionState || typeof win.sectionState !== "object") {
-      win.sectionState = { equipment: false, prestige: false, skills: false, build: false };
+      win.sectionState = {
+        equipment: false,
+        systems: false,
+        prestige: false,
+        skills: false,
+        build: false,
+      };
     }
     if (typeof win.sectionState.equipment !== "boolean") win.sectionState.equipment = false;
+    if (typeof win.sectionState.systems !== "boolean") win.sectionState.systems = false;
     if (typeof win.sectionState.prestige !== "boolean") win.sectionState.prestige = false;
     if (typeof win.sectionState.skills !== "boolean") win.sectionState.skills = false;
     if (typeof win.sectionState.build !== "boolean") win.sectionState.build = false;
@@ -708,6 +850,237 @@ export function createInventoryView({
     return { root, bg, text, setEnabled };
   }
 
+  function drawLeaderSystemsBarFill(row, ratio, color) {
+    const width = row.barWidth * clamp01(ratio);
+    row.barFill.clear();
+    if (width <= 0) return;
+    row.barFill.beginFill(color, 0.95);
+    row.barFill.drawRoundedRect(
+      row.barX,
+      row.barY,
+      width,
+      LEADER_SYSTEMS_BAR_HEIGHT,
+      LEADER_SYSTEMS_BAR_RADIUS
+    );
+    row.barFill.endFill();
+  }
+
+  function buildLeaderSystemTooltipLines(leader, systemId) {
+    const lines = [];
+    const ui = getLeaderSystemUi(systemId);
+    if (systemId === LEADER_FAITH_SYSTEM_ID) {
+      lines.push("Leader faith progression tier.");
+      const faith = leader?.leaderFaith;
+      if (faith && typeof faith === "object") {
+        const eatStreak = Number.isFinite(faith.eatStreak)
+          ? Math.max(0, Math.floor(faith.eatStreak))
+          : 0;
+        const decayElapsedSec = Number.isFinite(faith.decayElapsedSec)
+          ? Math.max(0, Math.floor(faith.decayElapsedSec))
+          : 0;
+        lines.push(`Eat streak: ${eatStreak}`);
+        lines.push(`Decay elapsed: ${decayElapsedSec}s`);
+      }
+      lines.push(`Tier: ${getLeaderSystemTier(leader, systemId)}`);
+      return lines;
+    }
+
+    const def = pawnSystemDefs?.[systemId];
+    if (def?.ui?.description) {
+      lines.push(def.ui.description);
+    }
+    const sysState = leader?.systemState?.[systemId];
+    if (sysState && typeof sysState === "object") {
+      if (Number.isFinite(sysState.cur) || Number.isFinite(sysState.max)) {
+        const cur = Number.isFinite(sysState.cur) ? Math.floor(sysState.cur) : 0;
+        const max = Number.isFinite(sysState.max) ? Math.floor(sysState.max) : 0;
+        lines.push(`Level: ${cur}/${max}`);
+      } else {
+        const booleanKeys = Object.keys(sysState)
+          .filter((key) => typeof sysState[key] === "boolean")
+          .sort((a, b) => a.localeCompare(b));
+        if (booleanKeys.length > 0) {
+          const key = booleanKeys[0];
+          lines.push(`${key}: ${sysState[key] ? "On" : "Off"}`);
+        }
+      }
+
+      if (systemId === "hunger" && Number.isFinite(sysState.belowThresholdSec)) {
+        lines.push(`Below threshold: ${Math.max(0, Math.floor(sysState.belowThresholdSec))}s`);
+      }
+    }
+    lines.push(`Tier: ${getLeaderSystemTier(leader, systemId)}`);
+    if (lines.length <= 1 && ui.label) {
+      lines.unshift(ui.label);
+    }
+    return lines;
+  }
+
+  function createLeaderSystemsRow(contentWidth, ownerId, systemId) {
+    const ui = getLeaderSystemUi(systemId);
+    const container = new PIXI.Container();
+    container.eventMode = "passive";
+
+    const icon = new PIXI.Container();
+    icon.eventMode = "static";
+    icon.cursor = "help";
+    icon.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+    });
+    icon.on("pointerover", () => {
+      if (!tooltipView || !canShowHoverUI()) return;
+      const leader = getLeaderForOwner(ownerId);
+      if (!leader) return;
+      tooltipView.show(
+        {
+          title: ui.label,
+          lines: buildLeaderSystemTooltipLines(leader, systemId),
+        },
+        icon.getBounds()
+      );
+    });
+    icon.on("pointerout", () => {
+      tooltipView?.hide?.();
+    });
+    container.addChild(icon);
+
+    const iconBg = new PIXI.Graphics()
+      .lineStyle(1, LEADER_SYSTEMS_ICON_BORDER, 0.85)
+      .beginFill(ui.color, 1)
+      .drawCircle(
+        LEADER_SYSTEMS_ICON_SIZE / 2,
+        LEADER_SYSTEMS_ROW_HEIGHT / 2,
+        LEADER_SYSTEMS_ICON_SIZE / 2
+      )
+      .endFill();
+    icon.addChild(iconBg);
+
+    const iconText = new PIXI.Text(ui.icon, {
+      fill: 0xffffff,
+      fontSize: 8,
+      fontWeight: "bold",
+    });
+    iconText.anchor.set(0.5, 0.5);
+    iconText.x = LEADER_SYSTEMS_ICON_SIZE / 2;
+    iconText.y = LEADER_SYSTEMS_ROW_HEIGHT / 2;
+    icon.addChild(iconText);
+
+    const barX = LEADER_SYSTEMS_ICON_SIZE + 6;
+    const barY = Math.floor((LEADER_SYSTEMS_ROW_HEIGHT - LEADER_SYSTEMS_BAR_HEIGHT) / 2);
+    const barWidth = Math.max(12, contentWidth - barX - 2);
+
+    const barBg = new PIXI.Graphics()
+      .lineStyle(1, LEADER_SYSTEMS_BAR_BORDER, 0.9)
+      .beginFill(LEADER_SYSTEMS_BAR_BG, 0.95)
+      .drawRoundedRect(
+        barX,
+        barY,
+        barWidth,
+        LEADER_SYSTEMS_BAR_HEIGHT,
+        LEADER_SYSTEMS_BAR_RADIUS
+      )
+      .endFill();
+    const barFill = new PIXI.Graphics();
+    container.addChild(barBg, barFill);
+
+    const labelText = new PIXI.Text("", {
+      fill: LEADER_SYSTEMS_BAR_TEXT,
+      fontSize: 9,
+    });
+    labelText.x = barX + 4;
+    labelText.y = barY - 2;
+    container.addChild(labelText);
+
+    return {
+      systemId,
+      container,
+      icon,
+      labelText,
+      barFill,
+      barX,
+      barY,
+      barWidth,
+      uiColor: ui.color,
+      height: LEADER_SYSTEMS_ROW_HEIGHT,
+    };
+  }
+
+  function getLeaderSystemRowVisual(leader, systemId) {
+    if (systemId === LEADER_FAITH_SYSTEM_ID) {
+      const tier = getLeaderSystemTier(leader, systemId);
+      return {
+        label: tier,
+        ratio: getLeaderSystemTierRatio(tier),
+      };
+    }
+    const sysState = leader?.systemState?.[systemId];
+    if (sysState && typeof sysState === "object") {
+      const curNum = Number.isFinite(sysState.cur) ? Math.floor(sysState.cur) : null;
+      const maxNum = Number.isFinite(sysState.max) ? Math.floor(sysState.max) : null;
+      if (curNum != null || maxNum != null) {
+        const cur = curNum != null ? curNum : 0;
+        const max = maxNum != null ? maxNum : 0;
+        const ratio = max > 0 ? cur / max : 0;
+        return { label: `${cur}/${max}`, ratio };
+      }
+
+      const booleanKeys = Object.keys(sysState)
+        .filter((key) => typeof sysState[key] === "boolean")
+        .sort((a, b) => a.localeCompare(b));
+      if (booleanKeys.length > 0) {
+        const key = booleanKeys[0];
+        const enabled = sysState[key] === true;
+        return {
+          label: `${key}: ${enabled ? "On" : "Off"}`,
+          ratio: enabled ? 1 : 0,
+        };
+      }
+    }
+
+    const tier = getLeaderSystemTier(leader, systemId);
+    return {
+      label: tier,
+      ratio: getLeaderSystemTierRatio(tier),
+    };
+  }
+
+  function rebuildLeaderSystemsRows(win, leader) {
+    const panel = win?.leaderPanel;
+    if (!panel?.systemsRowsContainer) return;
+    const signature = getLeaderSystemsSignature(leader);
+    if (signature === panel.systemsSignature) return;
+
+    panel.systemsSignature = signature;
+    panel.systemRows = [];
+    panel.systemsRowsContainer.removeChildren();
+
+    const contentWidth = Math.max(
+      40,
+      win.panelWidth - INNER_PADDING * 2 - LEADER_PANEL_PADDING * 2
+    );
+    const systemIds = getLeaderSystemIds(leader);
+    let y = 0;
+    for (const systemId of systemIds) {
+      const row = createLeaderSystemsRow(contentWidth, win.ownerId, systemId);
+      row.container.y = y;
+      panel.systemsRowsContainer.addChild(row.container);
+      panel.systemRows.push(row);
+      y += LEADER_SYSTEMS_ROW_HEIGHT + LEADER_SYSTEMS_ROW_GAP;
+    }
+    panel.systemsContentHeight = computeLeaderSystemsContentHeight(panel.systemRows.length);
+  }
+
+  function updateLeaderSystemsRows(win, leader) {
+    const panel = win?.leaderPanel;
+    const rows = panel?.systemRows;
+    if (!Array.isArray(rows)) return;
+    for (const row of rows) {
+      const visual = getLeaderSystemRowVisual(leader, row.systemId);
+      row.labelText.text = visual.label;
+      drawLeaderSystemsBarFill(row, visual.ratio, row.uiColor);
+    }
+  }
+
   function resizeWindowFrame(win, height) {
     if (!win) return;
     const h = Math.max(HEADER_HEIGHT + INNER_PADDING * 2, Math.floor(height));
@@ -756,11 +1129,13 @@ export function createInventoryView({
         : Math.max(0, Math.floor(buildOptionCount));
 
     const equipVisible = resolvedCaps.equipment !== false;
+    const systemsVisible = resolvedCaps.systems === true;
     const prestigeVisible = resolvedCaps.prestige === true;
     const skillsVisible = resolvedCaps.skills === true;
     const buildVisible = resolvedCaps.build === true;
 
     const equipExpanded = equipVisible && state.equipment !== false;
+    const systemsExpanded = systemsVisible && state.systems !== false;
     const prestigeExpanded = prestigeVisible && state.prestige !== false;
     const skillsExpanded = skillsVisible && state.skills !== false;
     const buildExpanded = buildVisible && state.build !== false;
@@ -792,6 +1167,10 @@ export function createInventoryView({
     }
 
     const buildContentHeight = computeBuildContentHeight(optionsCount);
+    const systemsContentHeight = Number.isFinite(panel.systemsContentHeight)
+      ? Math.max(0, Math.floor(panel.systemsContentHeight))
+      : computeLeaderSystemsContentHeightForLeader(leader);
+    panel.systemsContentHeight = systemsContentHeight;
     panel.buildPanelHeight = buildContentHeight;
 
     let nextSectionY = LEADER_PANEL_PADDING;
@@ -833,6 +1212,15 @@ export function createInventoryView({
       }
     };
 
+    layoutSection({
+      visible: systemsVisible,
+      expanded: systemsExpanded,
+      label: "Systems",
+      header: panel.systemsHeader,
+      content: panel.systemsContent,
+      contentX: LEADER_PANEL_PADDING,
+      contentHeight: systemsContentHeight,
+    });
     layoutSection({
       visible: prestigeVisible,
       expanded: prestigeExpanded,
@@ -1386,9 +1774,15 @@ export function createInventoryView({
     const buildOptions = leader
       ? computeBuildOptions(getStateSafe(), leader)
       : [];
+    const systemsPanelHeight = leader
+      ? computeLeaderSystemsContentHeightForLeader(leader)
+      : 0;
     const buildPanelHeight = computeBuildContentHeight(buildOptions.length);
     const leaderPanelHeight = leader
       ? LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        systemsPanelHeight +
+        BUILD_PANEL_GAP +
         SECTION_HEADER_HEIGHT +
         LEADER_PANEL_HEIGHT +
         BUILD_PANEL_GAP +
@@ -1529,7 +1923,13 @@ export function createInventoryView({
       apOverlayTarget: 0,
       equipmentPanel: null,
       leaderPanel: null,
-      sectionState: { equipment: false, prestige: false, skills: false, build: false },
+      sectionState: {
+        equipment: false,
+        systems: false,
+        prestige: false,
+        skills: false,
+        build: false,
+      },
       uiScale: 1,
       bin: {
         container: bin,
@@ -1626,6 +2026,9 @@ export function createInventoryView({
       const leaderPanelInnerHeight =
         LEADER_PANEL_PADDING +
         SECTION_HEADER_HEIGHT +
+        systemsPanelHeight +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
         LEADER_PANEL_HEIGHT +
         BUILD_PANEL_GAP +
         SECTION_HEADER_HEIGHT +
@@ -1645,6 +2048,26 @@ export function createInventoryView({
       panelBg.endFill();
       panel.addChild(panelBg);
 
+      const systemsHeader = createSectionLozenge("Systems", () => {
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.systems) return;
+        const sectionState = ensureSectionState(win);
+        sectionState.systems = !sectionState.systems;
+        updateLeaderPanel(win);
+      });
+      systemsHeader.container.x = LEADER_PANEL_PADDING;
+      systemsHeader.container.y = LEADER_PANEL_PADDING;
+      panel.addChild(systemsHeader.container);
+
+      const systemsContent = new PIXI.Container();
+      systemsContent.x = LEADER_PANEL_PADDING;
+      systemsContent.y = systemsHeader.container.y + SECTION_HEADER_HEIGHT;
+      panel.addChild(systemsContent);
+
+      const systemsRowsContainer = new PIXI.Container();
+      systemsRowsContainer.eventMode = "passive";
+      systemsContent.addChild(systemsRowsContainer);
+
       const prestigeHeader = createSectionLozenge("Prestige", () => {
         const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
         if (!caps.prestige) return;
@@ -1653,12 +2076,16 @@ export function createInventoryView({
         updateLeaderPanel(win);
       });
       prestigeHeader.container.x = LEADER_PANEL_PADDING;
-      prestigeHeader.container.y = LEADER_PANEL_PADDING;
+      prestigeHeader.container.y =
+        LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        systemsPanelHeight +
+        BUILD_PANEL_GAP;
       panel.addChild(prestigeHeader.container);
 
       const prestigeContent = new PIXI.Container();
       prestigeContent.x = LEADER_PANEL_PADDING;
-      prestigeContent.y = LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT;
+      prestigeContent.y = prestigeHeader.container.y + SECTION_HEADER_HEIGHT;
       panel.addChild(prestigeContent);
 
       const prestigeText = new PIXI.Text("", {
@@ -1771,7 +2198,13 @@ export function createInventoryView({
       });
       skillsHeader.container.x = LEADER_PANEL_PADDING;
       skillsHeader.container.y =
-        LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT + LEADER_PANEL_HEIGHT + BUILD_PANEL_GAP;
+        LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        systemsPanelHeight +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        LEADER_PANEL_HEIGHT +
+        BUILD_PANEL_GAP;
       panel.addChild(skillsHeader.container);
 
       const skillsContent = new PIXI.Container();
@@ -1823,6 +2256,9 @@ export function createInventoryView({
       buildHeader.container.x = LEADER_PANEL_PADDING;
       buildHeader.container.y =
         LEADER_PANEL_PADDING +
+        SECTION_HEADER_HEIGHT +
+        systemsPanelHeight +
+        BUILD_PANEL_GAP +
         SECTION_HEADER_HEIGHT +
         LEADER_PANEL_HEIGHT +
         BUILD_PANEL_GAP +
@@ -1876,6 +2312,12 @@ export function createInventoryView({
       win.leaderPanel = {
         container: panel,
         bg: panelBg,
+        systemsHeader,
+        systemsContent,
+        systemsRowsContainer,
+        systemRows: [],
+        systemsSignature: "",
+        systemsContentHeight: systemsPanelHeight,
         prestigeHeader,
         prestigeContent,
         skillsHeader,
@@ -2548,7 +2990,18 @@ export function createInventoryView({
     }
 
     const options = sectionCaps.build ? computeBuildOptions(state, leader) : [];
+    if (sectionCaps.systems) {
+      rebuildLeaderSystemsRows(win, leader);
+    } else if (panel.systemsRowsContainer) {
+      panel.systemRows = [];
+      panel.systemsSignature = "";
+      panel.systemsContentHeight = 0;
+      panel.systemsRowsContainer.removeChildren();
+    }
     layoutLeaderSections(win, leader, options.length, sectionCaps);
+    if (sectionCaps.systems) {
+      updateLeaderSystemsRows(win, leader);
+    }
 
     const data = computeLeaderPanelData(leader);
     if (sectionCaps.prestige) {

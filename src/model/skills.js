@@ -568,6 +568,7 @@ export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
   if (!leaderPawn || leaderPawn.role !== "leader") {
     return {
       equipment: false,
+      systems: false,
       prestige: false,
       skills: false,
       build: false,
@@ -578,6 +579,7 @@ export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
   const availability = computeAvailableRecipesAndBuildings(state);
   return {
     equipment: true,
+    systems: true,
     prestige: unlockedSet.has("Worship"),
     skills: unlockedSet.has("Memory"),
     build: availability.hubStructureIds.size > 0,
