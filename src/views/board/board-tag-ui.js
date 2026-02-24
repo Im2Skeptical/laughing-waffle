@@ -6,7 +6,11 @@ import { envSystemDefs } from "../../defs/gamesystems/env-systems-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
-import { hasEnvTagUnlock } from "../../model/skills.js";
+import {
+  hasAnyLeaderUnlockedSkillNode,
+  hasEnvTagUnlock,
+} from "../../model/skills.js";
+import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
 
 const TAG_PILL_HEIGHT = 20;
@@ -218,6 +222,76 @@ export function createTagUi(opts) {
     return "Material";
   }
 
+  function getItemDisplayNameByKind(kind) {
+    if (typeof kind !== "string" || !kind.length) return "Item";
+    const defName = itemDefs?.[kind]?.name;
+    if (typeof defName === "string" && defName.trim().length > 0) return defName;
+    return kind;
+  }
+
+  function collectDropTableKeysFromEffect(effect, out) {
+    if (Array.isArray(effect)) {
+      for (const entry of effect) {
+        collectDropTableKeysFromEffect(entry, out);
+      }
+      return;
+    }
+    if (!effect || typeof effect !== "object") return;
+    if (effect.op === "SpawnFromDropTable") {
+      const tableKey =
+        typeof effect.tableKey === "string" && effect.tableKey.length > 0
+          ? effect.tableKey
+          : "forageDrops";
+      out.add(tableKey);
+    }
+  }
+
+  function getTagDropTableKeys(tagDef) {
+    const out = new Set();
+    const intents = Array.isArray(tagDef?.intents) ? tagDef.intents : [];
+    for (const intent of intents) {
+      collectDropTableKeysFromEffect(intent?.effect, out);
+    }
+    return Array.from(out.values()).sort((a, b) => a.localeCompare(b));
+  }
+
+  function buildDroppedItemsTooltipLines(tileInst, tagDef) {
+    const state = getGameState?.();
+    if (!state) return [];
+    if (!hasAnyLeaderUnlockedSkillNode(state, "Memory")) return [];
+
+    const tileDefId = typeof tileInst?.defId === "string" ? tileInst.defId : null;
+    if (!tileDefId) return [];
+
+    const tableKeys = getTagDropTableKeys(tagDef);
+    if (tableKeys.length <= 0) return [];
+
+    const discoveredItemKinds = [];
+    const seenKinds = new Set();
+
+    for (const tableKey of tableKeys) {
+      const kinds = getDroppedItemKindsForPool(state, { tableKey, tileDefId });
+      for (const kind of kinds) {
+        if (seenKinds.has(kind)) continue;
+        seenKinds.add(kind);
+        discoveredItemKinds.push(kind);
+      }
+    }
+
+    discoveredItemKinds.sort((a, b) => a.localeCompare(b));
+
+    const lines = ["Dropped Items:"];
+    if (discoveredItemKinds.length <= 0) {
+      lines.push("- none yet");
+      return lines;
+    }
+
+    for (const kind of discoveredItemKinds) {
+      lines.push(`- ${getItemDisplayNameByKind(kind)}`);
+    }
+    return lines;
+  }
+
   function buildRowsForBuildProcess(tileInst) {
     const process = getBuildProcess(tileInst);
     if (!process) return [{ kind: "labor" }];
@@ -268,6 +342,10 @@ export function createTagUi(opts) {
           lines.push(`${label}: ${tier}`);
         }
       }
+    }
+    const droppedItemLines = buildDroppedItemsTooltipLines(tileInst, tagDef);
+    if (droppedItemLines.length > 0) {
+      lines.push(...droppedItemLines);
     }
     return lines;
   }

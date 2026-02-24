@@ -9,6 +9,7 @@ export function computeTimelineMutationSig(tl) {
 
   const baseRef = tl.baseStateData;
   const aRef = tl.actions;
+  const persistentKnowledgeRef = tl?.persistentKnowledge ?? null;
 
   const aLastRef = aLast;
   const aLastSec = aLast ? Math.floor(aLast.tSec ?? 0) : 0;
@@ -19,6 +20,7 @@ export function computeTimelineMutationSig(tl) {
     aLen,
     aLastRef,
     aLastSec,
+    persistentKnowledgeRef,
   };
 }
 
@@ -29,6 +31,7 @@ export function mutationSigEquals(a, b) {
     a.aRef === b.aRef &&
     a.aLen === b.aLen &&
     a.aLastRef === b.aLastRef &&
-    a.aLastSec === b.aLastSec
+    a.aLastSec === b.aLastSec &&
+    a.persistentKnowledgeRef === b.persistentKnowledgeRef
   );
 }

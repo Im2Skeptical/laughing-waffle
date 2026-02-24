@@ -25,6 +25,7 @@ import {
   getGlobalSkillModifier,
 } from "./skills.js";
 import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
+import { ensurePersistentKnowledgeState } from "./persistent-memory.js";
 
 const BOARD_COLS = 12;
 const BOARD_LAYERS = ["tile", "event", "envStructure"];
@@ -410,11 +411,15 @@ export function createEmptyState(seed = 123456789) {
     skillProgressionDefs: null,
     skillRuntime: null,
     passiveTimingRuntime: null,
+    persistentKnowledge: {
+      droppedItemKindsByPoolId: {},
+    },
 
     rng: { seed, baseSeed: seed },
   };
 
   ensureSkillRuntimeState(state);
+  ensurePersistentKnowledgeState(state);
   attachRngHelpers(state);
   return state;
 }
@@ -983,6 +988,7 @@ export function deserializeGameState(data) {
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
   if (!Array.isArray(state.gameEventFeed)) state.gameEventFeed = [];
+  ensurePersistentKnowledgeState(state);
   if (
     !state.skillProgressionDefs ||
     typeof state.skillProgressionDefs !== "object" ||

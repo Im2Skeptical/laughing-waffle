@@ -16,6 +16,7 @@ import { ensureSystemState } from "../core/system-state.js";
 import { TIER_ASC, TIER_DESC, getTierRank } from "../core/tiers.js";
 import { resolveOwnerTargets } from "../core/targets-owner.js";
 import { pushGameEvent } from "../../event-feed.js";
+import { rememberDroppedItemKind } from "../../persistent-memory.js";
 
 export function handleAddResource(state, effect) {
   const key = effect.resource;
@@ -364,6 +365,15 @@ export function handleSpawnFromDropTable(state, effect, context) {
   }
 
   const changed = totalAdded > 0;
+  const tileDefId = typeof source?.defId === "string" ? source.defId : null;
+
+  if ((changed || blockedReason) && tileDefId) {
+    rememberDroppedItemKind(state, {
+      tableKey,
+      tileDefId,
+      itemKind: kind,
+    });
+  }
 
   if (eventMeta && !changed && blockedReason) {
     const rarity = resolveDropRarity(entry, kind, tier);

@@ -617,11 +617,16 @@ export function createMetricGraphView({
     ) {
       minSec = Math.max(0, Math.floor(customWindowSpec.minSec));
       maxSec = Math.max(minSec + 1, Math.floor(customWindowSpec.maxSec));
-      const preferredScrub = Number.isFinite(customWindowSpec.scrubSec)
-        ? Math.floor(customWindowSpec.scrubSec)
-        : Number.isFinite(forecastPreviewSec)
-          ? forecastPreviewSec
-          : currentT;
+      const allowPreviewScrub =
+        customWindowSpec.forceScrubToCursor !== true &&
+        Number.isFinite(forecastPreviewSec);
+      const preferredScrub = allowPreviewScrub
+        ? forecastPreviewSec
+        : Number.isFinite(customWindowSpec.scrubSec)
+          ? Math.floor(customWindowSpec.scrubSec)
+          : Number.isFinite(forecastPreviewSec)
+            ? forecastPreviewSec
+            : currentT;
       if (!isScrubbing || customWindowSpec.forceScrubToCursor === true) {
         scrubSec = clampInt(preferredScrub, minSec, maxSec);
       } else {

@@ -3,16 +3,28 @@ import assert from "node:assert/strict";
 import { createSimRunner } from "../src/controllers/sim-runner.js";
 import { ActionKinds } from "../src/model/actions.js";
 import {
+  createTimelineFromInitialState,
   getStateDataAtSecond,
+  maintainCheckpoints,
+  replaceActionsAtSecond,
   rebuildStateAtSecond,
+  seedMemoStateDataAtSecond,
 } from "../src/model/timeline/index.js";
+import { createProjectionCache } from "../src/model/timegraph/projection-cache.js";
 import { createTimeGraphController } from "../src/model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../src/model/graph-metrics.js";
 import { cropDefs } from "../src/defs/gamepieces/crops-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
+import { forageDropTables } from "../src/defs/gamepieces/forage-droptables-defs.js";
 import { ENV_EVENT_DRAW_CADENCE_SEC } from "../src/defs/gamesettings/gamerules-defs.js";
-import { deserializeGameState } from "../src/model/state.js";
+import { deserializeGameState, serializeGameState } from "../src/model/state.js";
 import { createInitialState } from "../src/model/game-model.js";
+import { handleSpawnFromDropTable } from "../src/model/effects/ops/game-ops.js";
+import { Inventory } from "../src/model/inventory-model.js";
+import {
+  getDroppedItemKindsForPool,
+  rememberDroppedItemKind,
+} from "../src/model/persistent-memory.js";
 import {
   computeAvailableRecipesAndBuildings,
   getLeaderInventorySectionCapabilities,
@@ -20,6 +32,47 @@ import {
 
 function assertOk(res, label) {
   assert.equal(res?.ok, true, `${label} failed: ${JSON.stringify(res)}`);
+}
+
+function withMockLocalStorage(runCase) {
+  const hadOwn = Object.prototype.hasOwnProperty.call(globalThis, "localStorage");
+  const prev = globalThis.localStorage;
+  const store = new Map();
+  const mockStorage = {
+    getItem(key) {
+      if (!store.has(key)) return null;
+      return store.get(key);
+    },
+    setItem(key, value) {
+      store.set(String(key), String(value));
+    },
+    removeItem(key) {
+      store.delete(String(key));
+    },
+    clear() {
+      store.clear();
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    writable: true,
+    value: mockStorage,
+  });
+
+  try {
+    return runCase(mockStorage);
+  } finally {
+    if (hadOwn) {
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        writable: true,
+        value: prev,
+      });
+    } else {
+      delete globalThis.localStorage;
+    }
+  }
 }
 
 function toSafeSec(value) {
@@ -367,10 +420,418 @@ function runLeaderInventorySectionCapabilityChecks() {
   );
 }
 
+function withTestDropTable(runCase) {
+  const testTableKey = "testPersistentDropMemory";
+  const prev = Object.prototype.hasOwnProperty.call(forageDropTables, testTableKey)
+    ? forageDropTables[testTableKey]
+    : undefined;
+
+  forageDropTables[testTableKey] = {
+    tierWeights: { bronze: 1, silver: 1, gold: 1, diamond: 1 },
+    nullWeight: 0,
+    default: {
+      drops: [{ kind: "stone", weight: 1, qtyMin: 1, qtyMax: 1 }],
+    },
+    byTile: {
+      tile_floodplains: {
+        nullWeight: 0,
+        drops: [{ kind: "stone", weight: 1, qtyMin: 1, qtyMax: 1 }],
+      },
+      tile_wetlands: {
+        nullWeight: 0,
+        drops: [{ kind: "straw", weight: 1, qtyMin: 1, qtyMax: 1 }],
+      },
+      tile_levee: {
+        nullWeight: 0,
+        drops: [{ kind: "stone", weight: 1, qtyMin: 1, qtyMax: 1 }],
+      },
+      tile_hinterland: {
+        nullWeight: 0,
+        drops: [{ miss: true, weight: 1 }],
+      },
+    },
+  };
+
+  try {
+    runCase(testTableKey);
+  } finally {
+    if (prev === undefined) delete forageDropTables[testTableKey];
+    else forageDropTables[testTableKey] = prev;
+  }
+}
+
+function runPersistentDropMemoryChecks() {
+  const makeDropTestState = () =>
+    createInitialState({
+      rngSeed: 123,
+      board: {
+        cols: 1,
+        tiles: ["tile_floodplains"],
+      },
+      hub: {
+        cols: 1,
+        structures: [],
+      },
+      pawns: [{ name: "Drop Tester", role: "leader", hubCol: 0 }],
+    });
+
+  withTestDropTable((tableKey) => {
+    const hitState = makeDropTestState();
+    const hitOwnerId = hitState?.pawns?.[0]?.id;
+    assert.ok(Number.isFinite(hitOwnerId), "hit test owner missing");
+
+    const hitRes = handleSpawnFromDropTable(
+      hitState,
+      {
+        op: "SpawnFromDropTable",
+        tableKey,
+        target: { ownerId: hitOwnerId },
+      },
+      {
+        kind: "game",
+        state: hitState,
+        source: { defId: "tile_floodplains", col: 0, tags: [] },
+        pawnId: hitOwnerId,
+        ownerId: hitOwnerId,
+        tSec: 0,
+      }
+    );
+    assert.equal(hitRes, true, "hit drop should return true");
+    assert.deepEqual(
+      getDroppedItemKindsForPool(hitState, {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      ["stone"],
+      "hit drop should record discovered item"
+    );
+
+    const blockedState = makeDropTestState();
+    const blockedOwnerId = blockedState?.pawns?.[0]?.id;
+    assert.ok(Number.isFinite(blockedOwnerId), "blocked test owner missing");
+
+    const blockedInv = Inventory.create(1, 1);
+    Inventory.init(blockedInv);
+    blockedState.ownerInventories[blockedOwnerId] = blockedInv;
+    Inventory.addNewItem(blockedState, blockedInv, {
+      kind: "stone",
+      width: 1,
+      height: 1,
+      quantity: 999,
+      gridX: 0,
+      gridY: 0,
+    });
+
+    const blockedRes = handleSpawnFromDropTable(
+      blockedState,
+      {
+        op: "SpawnFromDropTable",
+        tableKey,
+        target: { ownerId: blockedOwnerId },
+      },
+      {
+        kind: "game",
+        state: blockedState,
+        source: { defId: "tile_levee", col: 0, tags: [] },
+        pawnId: blockedOwnerId,
+        ownerId: blockedOwnerId,
+        tSec: 0,
+      }
+    );
+    assert.equal(blockedRes, false, "blocked drop returns false when no event meta");
+    assert.deepEqual(
+      getDroppedItemKindsForPool(blockedState, {
+        tableKey,
+        tileDefId: "tile_levee",
+      }),
+      ["stone"],
+      "blocked drop should still record discovered item"
+    );
+
+    const missState = makeDropTestState();
+    const missOwnerId = missState?.pawns?.[0]?.id;
+    assert.ok(Number.isFinite(missOwnerId), "miss test owner missing");
+
+    const missRes = handleSpawnFromDropTable(
+      missState,
+      {
+        op: "SpawnFromDropTable",
+        tableKey,
+        target: { ownerId: missOwnerId },
+      },
+      {
+        kind: "game",
+        state: missState,
+        source: { defId: "tile_hinterland", col: 0, tags: [] },
+        pawnId: missOwnerId,
+        ownerId: missOwnerId,
+        tSec: 0,
+      }
+    );
+    assert.equal(missRes, true, "resolved miss should return true");
+    assert.deepEqual(
+      getDroppedItemKindsForPool(missState, {
+        tableKey,
+        tileDefId: "tile_hinterland",
+      }),
+      [],
+      "miss outcome should not record discovered items"
+    );
+
+    const persistentState = makeDropTestState();
+    const persistentOwnerId = persistentState?.pawns?.[0]?.id;
+    assert.ok(Number.isFinite(persistentOwnerId), "persistent test owner missing");
+
+    const timeline = createTimelineFromInitialState(persistentState);
+
+    const floodplainsRes = handleSpawnFromDropTable(
+      persistentState,
+      {
+        op: "SpawnFromDropTable",
+        tableKey,
+        target: { ownerId: persistentOwnerId },
+      },
+      {
+        kind: "game",
+        state: persistentState,
+        source: { defId: "tile_floodplains", col: 0, tags: [] },
+        pawnId: persistentOwnerId,
+        ownerId: persistentOwnerId,
+        tSec: 9,
+      }
+    );
+    assert.equal(floodplainsRes, true, "floodplains drop should resolve");
+
+    const wetlandsRes = handleSpawnFromDropTable(
+      persistentState,
+      {
+        op: "SpawnFromDropTable",
+        tableKey,
+        target: { ownerId: persistentOwnerId },
+      },
+      {
+        kind: "game",
+        state: persistentState,
+        source: { defId: "tile_wetlands", col: 0, tags: [] },
+        pawnId: persistentOwnerId,
+        ownerId: persistentOwnerId,
+        tSec: 10,
+      }
+    );
+    assert.equal(wetlandsRes, true, "wetlands drop should resolve");
+
+    persistentState.tSec = 10;
+    persistentState.simStepIndex = 10 * 60;
+    maintainCheckpoints(timeline, persistentState);
+
+    const beforeEdit = rebuildStateAtSecond(timeline, 0);
+    assertOk(beforeEdit, "persistent memory rebuild before edit");
+    assert.deepEqual(
+      getDroppedItemKindsForPool(beforeEdit.state, {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      ["stone"],
+      "floodplains memory should be present before branch edit"
+    );
+    assert.deepEqual(
+      getDroppedItemKindsForPool(beforeEdit.state, {
+        tableKey,
+        tileDefId: "tile_wetlands",
+      }),
+      ["straw"],
+      "wetlands memory should be present before branch edit"
+    );
+
+    const replaceRes = replaceActionsAtSecond(
+      timeline,
+      5,
+      [
+        {
+          kind: ActionKinds.DEBUG_SET_CAP,
+          payload: { enabled: true, cap: 250, points: 250 },
+          apCost: 0,
+        },
+      ],
+      { truncateFuture: true }
+    );
+    assertOk(replaceRes, "branch edit replaceActionsAtSecond");
+    timeline.historyEndSec = 5;
+    timeline.cursorSec = 5;
+
+    const afterEdit = rebuildStateAtSecond(timeline, 0);
+    assertOk(afterEdit, "persistent memory rebuild after edit");
+    assert.deepEqual(
+      getDroppedItemKindsForPool(afterEdit.state, {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      ["stone"],
+      "floodplains memory should persist across branch edits"
+    );
+    assert.deepEqual(
+      getDroppedItemKindsForPool(afterEdit.state, {
+        tableKey,
+        tileDefId: "tile_wetlands",
+      }),
+      ["straw"],
+      "wetlands memory should persist across branch edits"
+    );
+
+    const cacheState = makeDropTestState();
+    const cacheTimeline = createTimelineFromInitialState(cacheState);
+    const cacheController = createTimeGraphController({
+      getTimeline: () => cacheTimeline,
+      getCursorState: () => cacheState,
+      metric: GRAPH_METRICS.gold,
+    });
+    cacheController.setActive(true);
+    cacheController.ensureCache();
+
+    const forecastSec = 5;
+    const forecastBefore = cacheController.getStateAt(forecastSec);
+    assert.ok(forecastBefore, "forecast preview before knowledge change should resolve");
+    assert.deepEqual(
+      getDroppedItemKindsForPool(forecastBefore, {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      [],
+      "forecast preview should start empty before discovered drops"
+    );
+
+    rememberDroppedItemKind(cacheState, {
+      tableKey,
+      tileDefId: "tile_floodplains",
+      itemKind: "stone",
+    });
+    cacheState.tSec = 0;
+    cacheState.simStepIndex = 0;
+    maintainCheckpoints(cacheTimeline, cacheState);
+
+    const forecastAfter = cacheController.getStateAt(forecastSec);
+    assert.ok(forecastAfter, "forecast preview after knowledge change should resolve");
+    assert.deepEqual(
+      getDroppedItemKindsForPool(forecastAfter, {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      ["stone"],
+      "forecast cache should invalidate when persistent knowledge mutates"
+    );
+
+    const seekRunner = createSimRunner({ setupId: "devGym01" });
+    assertOk(seekRunner.init(), "seek runner init");
+    const seekTimeline = seekRunner.getTimeline();
+    const learnedSeekState = deserializeGameState(
+      serializeGameState(seekRunner.getState())
+    );
+    rememberDroppedItemKind(learnedSeekState, {
+      tableKey,
+      tileDefId: "tile_floodplains",
+      itemKind: "stone",
+    });
+    learnedSeekState.tSec = 1;
+    learnedSeekState.simStepIndex = 60;
+    assertOk(
+      seedMemoStateDataAtSecond(
+        seekTimeline,
+        1,
+        serializeGameState(learnedSeekState)
+      ),
+      "seed memo with learned drop memory"
+    );
+    assertOk(seekRunner.commitCursorSecond(1), "seek to learned second");
+    assertOk(
+      seekRunner.commitCursorSecond(0),
+      "rewind without extra action"
+    );
+    assert.deepEqual(
+      getDroppedItemKindsForPool(seekRunner.getTimeline(), {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      ["stone"],
+      "seek/rewind should keep learned drop memory without extra actions"
+    );
+
+    const projectionLearnState = createInitialState({
+      rngSeed: 123,
+      board: {
+        cols: 1,
+        tiles: ["tile_floodplains"],
+      },
+      hub: {
+        cols: 1,
+        structures: [],
+      },
+      pawns: [{ name: "Projection Learner", role: "leader", envCol: 0 }],
+    });
+    const projectionTimeline = createTimelineFromInitialState(projectionLearnState);
+    const projectionCache = createProjectionCache();
+    assert.deepEqual(
+      getDroppedItemKindsForPool(projectionTimeline, {
+        tableKey: "forageDrops",
+        tileDefId: "tile_floodplains",
+      }),
+      [],
+      "projection learning should start with no known drops"
+    );
+    assertOk(
+      projectionCache.ensureForecastWindow(projectionTimeline, 5, undefined, 1),
+      "projection forecast window build"
+    );
+    assert.ok(
+      getDroppedItemKindsForPool(projectionTimeline, {
+        tableKey: "forageDrops",
+        tileDefId: "tile_floodplains",
+      }).length > 0,
+      "forecast compute should persist learned drops without commit"
+    );
+
+    withMockLocalStorage(() => {
+      const previewRunner = createSimRunner({ setupId: "devGym01" });
+      assertOk(previewRunner.init(), "preview runner init");
+      const previewState = deserializeGameState(
+        serializeGameState(previewRunner.getState())
+      );
+      rememberDroppedItemKind(previewState, {
+        tableKey,
+        tileDefId: "tile_wetlands",
+        itemKind: "straw",
+      });
+      previewState.tSec = 12;
+      previewState.simStepIndex = 12 * 60;
+      previewRunner.setPreviewState(previewState);
+
+      assert.deepEqual(
+        getDroppedItemKindsForPool(previewRunner.getTimeline(), {
+          tableKey,
+          tileDefId: "tile_wetlands",
+        }),
+        ["straw"],
+        "setPreviewState should persist learned drop memory without commit"
+      );
+
+      assertOk(previewRunner.saveToSlot(1), "save after preview learning");
+      assertOk(previewRunner.loadFromSlot(1), "load after preview learning");
+      assert.deepEqual(
+        getDroppedItemKindsForPool(previewRunner.getState(), {
+          tableKey,
+          tileDefId: "tile_wetlands",
+        }),
+        ["straw"],
+        "save/load should retain preview-learned drop memory"
+      );
+    });
+  });
+}
+
 function run() {
   runScenarioSkillProgressionOverrideChecks();
   runLeaderInventorySectionCapabilityChecks();
   runEnvDeckDrawFeedChecks();
+  runPersistentDropMemoryChecks();
 
   const runner = createSimRunner({ setupId: "devGym01" });
   runner.init();

@@ -12,6 +12,7 @@ import {
 
 import {
   createTimelineFromInitialState,
+  absorbTimelinePersistentKnowledge,
   appendActionAtCursor,
   truncateCheckpointsAfterSecond,
   truncateTimelineAfterSecond,
@@ -30,6 +31,11 @@ import {
 } from "../model/state.js";
 import { applyAction } from "../model/actions.js";
 import { canonicalizeSnapshot } from "../model/canonicalize.js";
+import {
+  clonePersistentKnowledge,
+  ensurePersistentKnowledgeState,
+  mergePersistentKnowledge,
+} from "../model/persistent-memory.js";
 import { createActionPlanner } from "./actionmanagers/action-planner.js";
 import {
   perfEnabled,
@@ -224,6 +230,14 @@ export function createSimRunner({
     };
   }
 
+  function applyTimelinePersistentKnowledgeToState(stateLike) {
+    if (!stateLike || typeof stateLike !== "object") return false;
+    if (!timeline || typeof timeline !== "object") return false;
+    ensurePersistentKnowledgeState(stateLike);
+    ensurePersistentKnowledgeState(timeline);
+    return mergePersistentKnowledge(stateLike, timeline);
+  }
+
   function validateActionOnPreviewState(kind, payload, apCost) {
     if (!dragPreviewState) {
       return { ok: false, reason: "noPreviewState" };
@@ -280,7 +294,10 @@ export function createSimRunner({
 
   const actionPlanner = createActionPlanner({
     getTimeline: () => timeline,
-    getState: () => cursorState,
+    getState: () => {
+      applyTimelinePersistentKnowledgeToState(cursorState);
+      return cursorState;
+    },
     onInvalidate: (reason) => onInvalidate?.(`planner:${reason}`),
     onEdit: (reason) => {
       dragPreviewState = null;
@@ -396,6 +413,7 @@ export function createSimRunner({
     );
     return {
       baseStateData: tl.baseStateData ?? null,
+      persistentKnowledge: clonePersistentKnowledge(tl),
       actions: Array.isArray(tl.actions) ? tl.actions : [],
       checkpoints: Array.isArray(tl.checkpoints) ? tl.checkpoints : [],
       cursorSec: Math.floor(tl.cursorSec ?? 0),
@@ -417,6 +435,11 @@ export function createSimRunner({
     );
     return {
       baseStateData,
+      persistentKnowledge: clonePersistentKnowledge(
+        rawTimeline?.persistentKnowledge != null
+          ? rawTimeline.persistentKnowledge
+          : fallbackStateData
+      ),
       actions: Array.isArray(rawTimeline.actions) ? rawTimeline.actions : [],
       checkpoints: Array.isArray(rawTimeline.checkpoints)
         ? rawTimeline.checkpoints
@@ -625,6 +648,9 @@ export function createSimRunner({
       loadStateObjectIntoGameState(rebuilt.state);
       cursorState = gameState;
     }
+
+    absorbTimelinePersistentKnowledge(timeline, cursorState);
+    applyTimelinePersistentKnowledgeToState(cursorState);
 
     const prevHistoryEnd = Math.floor(timeline.historyEndSec ?? 0);
 
@@ -1397,14 +1423,23 @@ export function createSimRunner({
     }),
 
     getTimeline: () => timeline,
-    getCursorState: () => cursorState,
-    getState: () => dragPreviewState || cursorState,
+    getCursorState: () => {
+      applyTimelinePersistentKnowledgeToState(cursorState);
+      return cursorState;
+    },
+    getState: () => {
+      const state = dragPreviewState || cursorState;
+      applyTimelinePersistentKnowledgeToState(state);
+      return state;
+    },
     getPreviewStatus,
     isPreviewing: () => !!dragPreviewState,
     getEditableHistoryBounds,
     getLastPlannerCommitError: () => lastPlannerCommitError,
     setPreviewState: (s) => {
       dragPreviewState = s || null;
+      absorbTimelinePersistentKnowledge(timeline, dragPreviewState);
+      applyTimelinePersistentKnowledgeToState(dragPreviewState);
       simAccumulator = 0;
       return dragPreviewState;
     },

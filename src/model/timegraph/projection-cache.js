@@ -5,7 +5,10 @@ import {
   buildProjectionStateStepWindowFromStateData,
   buildProjectionStateWindowFromStateData,
 } from "../projection.js";
-import { getStateDataAtSecond } from "../timeline/index.js";
+import {
+  absorbTimelinePersistentKnowledge,
+  getStateDataAtSecond,
+} from "../timeline/index.js";
 import {
   DEFAULT_PROJECTION_CACHE_MAX_BYTES,
   DEFAULT_STATE_DATA_ESTIMATE_BYTES,
@@ -21,6 +24,7 @@ function computeTimelineSignature(tl) {
   const revision = Number.isFinite(tl?.revision)
     ? Math.floor(tl.revision)
     : 0;
+  const persistentKnowledgeRef = tl?.persistentKnowledge ?? null;
   return {
     baseRef: tl?.baseStateData ?? null,
     actionsRef: actions,
@@ -28,6 +32,7 @@ function computeTimelineSignature(tl) {
     lastRef: last,
     lastSec: last ? Math.floor(last.tSec ?? 0) : 0,
     revision,
+    persistentKnowledgeRef,
   };
 }
 
@@ -39,7 +44,8 @@ function signatureEquals(a, b) {
     a.actionsLen === b.actionsLen &&
     a.lastRef === b.lastRef &&
     a.lastSec === b.lastSec &&
-    a.revision === b.revision
+    a.revision === b.revision &&
+    a.persistentKnowledgeRef === b.persistentKnowledgeRef
   );
 }
 
@@ -205,6 +211,11 @@ export function createProjectionCache({
       forecastStepSec === step &&
       stateDataBySecond.size > 0
     ) {
+      const knownSec = Math.min(forecastEndSec, targetBoundaryEnd);
+      const knownData = stateDataBySecond.get(knownSec);
+      if (knownData != null) {
+        absorbTimelinePersistentKnowledge(tl, knownData);
+      }
       return { ok: true };
     }
 
@@ -239,6 +250,11 @@ export function createProjectionCache({
         forecastEndSec = extend.window.endSec;
         forecastStepSec = step;
         forecastDtStep = dtStep;
+        const knownSec = Math.min(forecastEndSec, targetBoundaryEnd);
+        const knownData = stateDataBySecond.get(knownSec);
+        if (knownData != null) {
+          absorbTimelinePersistentKnowledge(tl, knownData);
+        }
         return { ok: true };
       }
     }
@@ -273,6 +289,11 @@ export function createProjectionCache({
       } else {
         forecastStepSec = step;
         forecastDtStep = dtStep;
+        const knownSec = Math.min(forecastEndSec, targetBoundaryEnd);
+        const knownData = stateDataBySecond.get(knownSec);
+        if (knownData != null) {
+          absorbTimelinePersistentKnowledge(tl, knownData);
+        }
         return { ok: true };
       }
     }
@@ -292,6 +313,10 @@ export function createProjectionCache({
     forecastEndSec = winRes.window.endSec;
     forecastStepSec = step;
     forecastDtStep = dtStep;
+    const knownData = stateDataBySecond.get(forecastEndSec);
+    if (knownData != null) {
+      absorbTimelinePersistentKnowledge(tl, knownData);
+    }
 
     return { ok: true };
   }
@@ -316,7 +341,10 @@ export function createProjectionCache({
     }
 
     const cached = touch(t);
-    if (cached != null) return { ok: true, stateData: cached };
+    if (cached != null) {
+      absorbTimelinePersistentKnowledge(tl, cached);
+      return { ok: true, stateData: cached };
+    }
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
@@ -325,7 +353,10 @@ export function createProjectionCache({
     if (!forecastRes.ok) return forecastRes;
 
     const forecastData = touch(t);
-    if (forecastData != null) return { ok: true, stateData: forecastData };
+    if (forecastData != null) {
+      absorbTimelinePersistentKnowledge(tl, forecastData);
+      return { ok: true, stateData: forecastData };
+    }
 
     if (t >= forecastBaseSec && step > 0) {
       const offset = t - forecastBaseSec;
@@ -347,11 +378,13 @@ export function createProjectionCache({
             const sd = win.stateDataBySecond.get(t);
             if (sd != null) {
               setForecastState(t, historyEnd, sd);
+              absorbTimelinePersistentKnowledge(tl, sd);
               return { ok: true, stateData: sd };
             }
           }
         } else if (delta === 0) {
           setForecastState(t, historyEnd, anchorData);
+          absorbTimelinePersistentKnowledge(tl, anchorData);
           return { ok: true, stateData: anchorData };
         }
       }

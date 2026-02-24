@@ -550,6 +550,19 @@ export function hasUnlockedSkillNode(state, pawnId, nodeId) {
   return unlockedSet.has(nodeId);
 }
 
+export function hasAnyLeaderUnlockedSkillNode(state, nodeId) {
+  if (typeof nodeId !== "string" || !nodeId.length) return false;
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    if (!pawn || pawn.role !== "leader") continue;
+    const unlocked = Array.isArray(pawn.unlockedSkillNodeIds)
+      ? pawn.unlockedSkillNodeIds
+      : [];
+    if (unlocked.includes(nodeId)) return true;
+  }
+  return false;
+}
+
 export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
   const leaderPawn = getPawnById(state, leaderPawnId);
   if (!leaderPawn || leaderPawn.role !== "leader") {

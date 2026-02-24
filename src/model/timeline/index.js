@@ -8,6 +8,11 @@ import { canonicalizeSnapshot } from "../canonicalize.js";
 import { applyAction } from "../actions.js";
 import { updateGame } from "../game-model.js";
 import {
+  clonePersistentKnowledge,
+  ensurePersistentKnowledgeState,
+  mergePersistentKnowledge,
+} from "../persistent-memory.js";
+import {
   perfEnabled,
   perfNowMs,
   recordTimelineRebuild,
@@ -66,6 +71,7 @@ export function createEmptyTimelineFromBase(baseState) {
   const baseStateData = serializeGameState(baseState);
   const tl = {
     baseStateData,
+    persistentKnowledge: clonePersistentKnowledge(baseState),
     actions: [],
     // Integer Second Cursor
     cursorSec: 0,
@@ -326,6 +332,35 @@ function ensureRevisionFreshAgainstOutOfBandMutations(tl) {
   return { bumped: false };
 }
 
+export function absorbTimelinePersistentKnowledge(tl, sourceLike) {
+  if (!tl || typeof tl !== "object") return { changed: false };
+  ensurePersistentKnowledgeState(tl);
+  const changed = mergePersistentKnowledge(tl, sourceLike);
+  if (!changed) return { changed: false };
+  // Swap reference so cache signatures can detect knowledge-only mutations.
+  tl.persistentKnowledge = clonePersistentKnowledge(tl);
+  tl._memoGuardSig = computeTimelineMutationSig(tl);
+  return { changed: true };
+}
+
+function applyTimelinePersistentKnowledgeToState(tl, state) {
+  if (!state || typeof state !== "object") return false;
+  ensurePersistentKnowledgeState(state);
+  if (!tl || typeof tl !== "object") return false;
+  ensurePersistentKnowledgeState(tl);
+  return mergePersistentKnowledge(state, tl);
+}
+
+function enrichStateDataWithTimelinePersistentKnowledge(tl, stateData) {
+  if (stateData == null) return stateData;
+  if (!tl || typeof tl !== "object") return stateData;
+  ensurePersistentKnowledgeState(tl);
+  const state = deserializeGameState(stateData);
+  const changed = applyTimelinePersistentKnowledgeToState(tl, state);
+  if (!changed) return stateData;
+  return serializeGameState(state);
+}
+
 // -----------------------------------------------------------------------------
 // Timeline Mutation (Dual-Write)
 // -----------------------------------------------------------------------------
@@ -505,6 +540,8 @@ export function maintainCheckpoints(tl, state, opts = {}) {
     return currentStateData;
   };
 
+  absorbTimelinePersistentKnowledge(tl, state);
+
   // Keep a hot, revision-keyed snapshot for direct scrub reads.
   if (writeMemo) {
     memoPutStateData(tl, currentSec, ensureCurrentStateData());
@@ -605,6 +642,10 @@ export function rebuildStateAtSecond(tl, targetSec) {
   if (memoStateData != null) {
     const state = deserializeGameState(memoStateData);
     canonicalizeSnapshot(state);
+    const merged = applyTimelinePersistentKnowledgeToState(tl, state);
+    if (merged) {
+      memoPutStateData(tl, target, serializeGameState(state));
+    }
     if (perfEnabled()) {
       recordTimelineRebuild({
         ms: perfNowMs() - perfStart,
@@ -665,6 +706,7 @@ export function rebuildStateAtSecond(tl, targetSec) {
     }
   }
 
+  applyTimelinePersistentKnowledgeToState(tl, state);
   memoPutStateData(tl, target, serializeGameState(state));
   tl._memoGuardSig = computeTimelineMutationSig(tl);
 
@@ -695,7 +737,11 @@ export function seedMemoStateDataAtSecond(tl, targetSec, stateData) {
   ensureRevisionFreshAgainstOutOfBandMutations(tl);
 
   const target = Math.floor(targetSec);
-  memoPutStateData(tl, target, stateData);
+  const enrichedStateData = enrichStateDataWithTimelinePersistentKnowledge(
+    tl,
+    stateData
+  );
+  memoPutStateData(tl, target, enrichedStateData);
   return { ok: true };
 }
 
@@ -716,10 +762,15 @@ export function seedCheckpointStateDataAtSecond(
   const sec = Math.max(0, Math.floor(targetSec));
   tl.checkpoints = Array.isArray(tl.checkpoints) ? tl.checkpoints : [];
 
+  const enrichedStateData = enrichStateDataWithTimelinePersistentKnowledge(
+    tl,
+    stateData
+  );
+
   const cpData = {
     checkpointSec: sec,
     appliedThroughSec: sec,
-    stateData,
+    stateData: enrichedStateData,
   };
   const cpBytes = estimateCheckpointBytes(tl, cpData);
   tl._checkpointAvgBytes = Number.isFinite(tl._checkpointAvgBytes)
@@ -754,7 +805,7 @@ export function seedCheckpointStateDataAtSecond(
       historyEndSec,
       hotMin,
       hotMax,
-      fallbackStateData: stateData,
+      fallbackStateData: enrichedStateData,
     });
     if (tl.checkpoints.length !== beforeLen || budgetTrimmed) changed = true;
   }
@@ -791,14 +842,25 @@ export function getStateDataAtSecond(tl, targetSec) {
   // Safety: if there are actions at targetSec, an exact checkpoint at the
   // same second might predate those actions and return stale state.
   if (exact?.stateData != null && !hasActionsAtTarget) {
-    memoPutStateData(tl, target, exact.stateData);
-    return { ok: true, stateData: exact.stateData, source: "checkpoint" };
+    const enrichedStateData = enrichStateDataWithTimelinePersistentKnowledge(
+      tl,
+      exact.stateData
+    );
+    memoPutStateData(tl, target, enrichedStateData);
+    return { ok: true, stateData: enrichedStateData, source: "checkpoint" };
   }
 
   // Memo fast-path.
   const memoStateData = memoGetStateData(tl, target);
   if (memoStateData != null) {
-    return { ok: true, stateData: memoStateData, source: "memo" };
+    const enrichedStateData = enrichStateDataWithTimelinePersistentKnowledge(
+      tl,
+      memoStateData
+    );
+    if (enrichedStateData !== memoStateData) {
+      memoPutStateData(tl, target, enrichedStateData);
+    }
+    return { ok: true, stateData: enrichedStateData, source: "memo" };
   }
 
   // Rebuild path (writes memo).
