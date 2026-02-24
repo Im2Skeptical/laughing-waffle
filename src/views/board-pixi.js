@@ -121,6 +121,8 @@ export function createBoardView(opts) {
   const AP_OVERLAY_FADE_OUT = 8;
   const AP_OVERLAY_FILL = 0x8a1f2a;
   const AP_OVERLAY_STROKE = 0xff4f5e;
+  const PAWN_LANDING_OVERLAY_FILL = 0x2d7daa;
+  const PAWN_LANDING_OVERLAY_STROKE = 0xd5f3ff;
   const DISTRIBUTOR_RANGE_OVERLAY_FILL = 0x2d6b95;
   const DISTRIBUTOR_RANGE_OVERLAY_STROKE = 0x84cbff;
   const DISTRIBUTOR_BASE_RANGE = 1;
@@ -1123,6 +1125,55 @@ export function createBoardView(opts) {
     overlay.visible = false;
     overlay.eventMode = "none";
     return overlay;
+  }
+
+  function createPawnLandingOverlay(width, height, radius) {
+    const overlay = new PIXI.Graphics();
+    overlay
+      .lineStyle(2, PAWN_LANDING_OVERLAY_STROKE, 0.95)
+      .beginFill(PAWN_LANDING_OVERLAY_FILL, 0.3)
+      .drawRoundedRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4), radius)
+      .endFill();
+    overlay.visible = false;
+    overlay.eventMode = "none";
+    return overlay;
+  }
+
+  function setPawnLandingOverlayVisible(view, active) {
+    const overlay = view?.pawnLandingOverlay;
+    if (!overlay) return;
+    overlay.visible = !!active;
+  }
+
+  function resolvePawnDropTargetFromPos(globalPos, envCols, hubCols) {
+    if (!globalPos) return null;
+    const envLen = Number.isFinite(envCols) ? Math.max(0, envCols) : BOARD_COLS;
+    const hubLen = Number.isFinite(hubCols) ? Math.max(0, hubCols) : HUB_COLS;
+    if (envLen <= 0 && hubLen <= 0) return null;
+
+    const tileCenterY = TILE_ROW_Y + TILE_HEIGHT * 0.5;
+    const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT * 0.5;
+    const distToTile = Math.abs(globalPos.y - tileCenterY);
+    const distToHub = Math.abs(globalPos.y - hubCenterY);
+    const targetRow = distToTile <= distToHub ? "env" : "hub";
+    const targetCols = targetRow === "env" ? envLen : hubLen;
+    if (targetCols <= 0) return null;
+
+    let bestCol = null;
+    let bestDist2 = Infinity;
+    for (let col = 0; col < targetCols; col++) {
+      const cx =
+        targetRow === "env"
+          ? getBoardColumnX(app.screen.width, col) + TILE_WIDTH * 0.5
+          : getHubColumnX(app.screen.width, col) + HUB_STRUCTURE_WIDTH * 0.5;
+      const dx = globalPos.x - cx;
+      const d2 = dx * dx;
+      if (d2 < bestDist2) {
+        bestDist2 = d2;
+        bestCol = col;
+      }
+    }
+    return bestCol == null ? null : { row: targetRow, col: bestCol };
   }
 
   function setDistributorRangeOverlayVisible(view, active) {
@@ -2784,6 +2835,13 @@ export function createBoardView(opts) {
     const apOverlay = createApOverlay(TILE_WIDTH, TILE_HEIGHT, 8);
     content.addChild(apOverlay);
 
+    const pawnLandingOverlay = createPawnLandingOverlay(
+      TILE_WIDTH,
+      TILE_HEIGHT,
+      8
+    );
+    content.addChild(pawnLandingOverlay);
+
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
     focusOutline.drawRoundedRect(2, 2, TILE_WIDTH - 4, TILE_HEIGHT - 4, 6);
@@ -2858,6 +2916,7 @@ export function createBoardView(opts) {
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      pawnLandingOverlay,
       focusOutline,
       isFocused: false,
     };
@@ -3397,6 +3456,9 @@ export function createBoardView(opts) {
     const apOverlay = createApOverlay(width, height, 10);
     content.addChild(apOverlay);
 
+    const pawnLandingOverlay = createPawnLandingOverlay(width, height, 10);
+    content.addChild(pawnLandingOverlay);
+
     const distributorRangeOverlay = createDistributorRangeOverlay(
       width,
       height,
@@ -3502,6 +3564,7 @@ export function createBoardView(opts) {
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      pawnLandingOverlay,
       distributorRangeOverlay,
       focusOutline,
       isFocused: false,
@@ -3856,6 +3919,13 @@ export function createBoardView(opts) {
     );
     cont.addChild(apOverlay);
 
+    const pawnLandingOverlay = createPawnLandingOverlay(
+      HUB_STRUCTURE_WIDTH,
+      HUB_STRUCTURE_HEIGHT,
+      10
+    );
+    cont.addChild(pawnLandingOverlay);
+
     const distributorRangeOverlay = createDistributorRangeOverlay(
       HUB_STRUCTURE_WIDTH,
       HUB_STRUCTURE_HEIGHT,
@@ -3879,6 +3949,7 @@ export function createBoardView(opts) {
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      pawnLandingOverlay,
       distributorRangeOverlay,
     };
   }
@@ -4049,6 +4120,10 @@ export function createBoardView(opts) {
 
     const invalidEnv = new Set();
     const invalidHub = new Set();
+    const dropTarget =
+      isPawnDrag && lastPointerPos
+        ? resolvePawnDropTargetFromPos(lastPointerPos, envCols, hubCols)
+        : null;
 
     if (isPawnDrag && typeof actionPlanner?.getPawnMoveAffordability === "function") {
       for (let col = 0; col < envCols; col++) {
@@ -4073,6 +4148,12 @@ export function createBoardView(opts) {
       const isInvalid = isPawnDrag && col != null && invalidEnv.has(col);
       view.apOverlayTarget = isInvalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
+      const isDropTarget =
+        isPawnDrag &&
+        dropTarget?.row === "env" &&
+        col != null &&
+        dropTarget.col === col;
+      setPawnLandingOverlayVisible(view, isDropTarget);
     }
 
     const coveredHubCols = new Set();
@@ -4097,6 +4178,12 @@ export function createBoardView(opts) {
       }
       view.apOverlayTarget = invalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
+      const isDropTarget =
+        isPawnDrag &&
+        dropTarget?.row === "hub" &&
+        dropTarget.col >= base &&
+        dropTarget.col < base + span;
+      setPawnLandingOverlayVisible(view, isDropTarget);
     }
 
     for (const view of hubSlotViews) {
@@ -4109,6 +4196,13 @@ export function createBoardView(opts) {
         invalidHub.has(col);
       view.apOverlayTarget = isInvalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
+      const isDropTarget =
+        isPawnDrag &&
+        dropTarget?.row === "hub" &&
+        col != null &&
+        !coveredHubCols.has(col) &&
+        dropTarget.col === col;
+      setPawnLandingOverlayVisible(view, isDropTarget);
     }
 
     let hoverInvalid = false;
