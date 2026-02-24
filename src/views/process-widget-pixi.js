@@ -45,9 +45,12 @@ const HEADER_PAD_Y = 6;
 const BODY_PAD = 8;
 const SEGMENT_GAP = 6;
 
-const DRAWER_COLLAPSED = 22;
+const DRAWER_COLLAPSED = 30;
 const DRAWER_EXPANDED = 126;
 const BUFFER_SIZE = 44;
+const DRAWER_TOGGLE_BUTTON_HEIGHT = 16;
+const DRAWER_TOGGLE_BUTTON_MIN_WIDTH = 20;
+const DRAWER_TOGGLE_BUTTON_EDGE_PAD = 4;
 
 const MODULE_GAP = 8;
 const MODULE_PAD = 6;
@@ -1979,23 +1982,62 @@ export function createProcessWidgetView({
     const key = `${keyId}:${kind}`;
     const expanded = drawerExpanded[kind].has(key);
 
-    const arrow = new PIXI.Text(expanded ? (kind === "inputs" ? "<" : ">") : (kind === "inputs" ? ">" : "<"), {
+    const arrowText = expanded
+      ? kind === "inputs"
+        ? "<"
+        : ">"
+      : kind === "inputs"
+      ? ">"
+      : "<";
+    const button = new PIXI.Container();
+    button.eventMode = "static";
+    button.cursor = "pointer";
+    const buttonBg = new PIXI.Graphics();
+    const arrow = new PIXI.Text(arrowText, {
       fill: COLORS.headerSub,
       fontSize: 12,
     });
-    arrow.eventMode = "static";
-    arrow.cursor = "pointer";
-    arrow.x = Math.floor((width - arrow.width) / 2);
-    arrow.y = 6;
-    arrow.on("pointertap", () => {
+    button.addChild(buttonBg, arrow);
+    button.on("pointertap", () => {
       if (expanded) drawerExpanded[kind].delete(key);
       else drawerExpanded[kind].add(key);
       invalidateAllSignatures();
     });
-    container.addChild(arrow);
+    container.addChild(button);
+
+    const buttonWidth = Math.max(
+      DRAWER_TOGGLE_BUTTON_MIN_WIDTH,
+      Math.min(width - 2, 26)
+    );
+    buttonBg.clear();
+    buttonBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+    buttonBg.beginFill(COLORS.moduleBg, 0.98);
+    buttonBg.drawRoundedRect(
+      0,
+      0,
+      buttonWidth,
+      DRAWER_TOGGLE_BUTTON_HEIGHT,
+      4
+    );
+    buttonBg.endFill();
+    arrow.x = Math.floor((buttonWidth - arrow.width) / 2);
+    arrow.y = Math.floor((DRAWER_TOGGLE_BUTTON_HEIGHT - arrow.height) / 2) - 1;
 
     if (expanded) {
-      let y = 22;
+      button.x =
+        kind === "inputs"
+          ? Math.max(
+              DRAWER_TOGGLE_BUTTON_EDGE_PAD,
+              width - buttonWidth - DRAWER_TOGGLE_BUTTON_EDGE_PAD
+            )
+          : DRAWER_TOGGLE_BUTTON_EDGE_PAD;
+    } else {
+      button.x = Math.floor((width - buttonWidth) / 2);
+    }
+    button.y = 4;
+
+    if (expanded) {
+      let y = DRAWER_TOGGLE_BUTTON_HEIGHT + 8;
       const routingDef = routingProcessDef || processDef;
       const activeProcess = routingProcess || process;
       const routing = routingState || activeProcess?.routing || null;
