@@ -1040,6 +1040,8 @@ inventoryView = createInventoryView({
   setApDragWarning,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
+  setBuildPlacementPreview: (preview) =>
+    boardView?.setDistributorBuildPreview?.(preview),
   onUseItem: (spec) => {
     const scrollUseResult = scrollGraphOrchestrator?.handleUseItem?.(spec);
     if (scrollUseResult?.handled === true) {

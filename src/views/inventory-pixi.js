@@ -176,6 +176,7 @@ export function createInventoryView({
   setApDragWarning,
   discardItemFromOwner,
   flashActionGhost,
+  setBuildPlacementPreview,
   onUseItem,
   layout = null,
 }) {
@@ -1372,6 +1373,7 @@ export function createInventoryView({
     if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
     activeBuildSpec = null;
     if (buildGhost) buildGhost.container.visible = false;
+    pushBuildPlacementPreview();
   }
 
   function setActiveBuild(ownerId, defId) {
@@ -1383,10 +1385,12 @@ export function createInventoryView({
     ) {
       activeBuildSpec = null;
       if (buildGhost) buildGhost.container.visible = false;
+      pushBuildPlacementPreview();
       return;
     }
     requestPauseForAction?.();
     activeBuildSpec = { ownerId, defId };
+    pushBuildPlacementPreview();
   }
 
   function ensureBuildGhost() {
@@ -1609,6 +1613,33 @@ export function createInventoryView({
       }
     }
     return bestCol;
+  }
+
+  function pushBuildPlacementPreview() {
+    if (typeof setBuildPlacementPreview !== "function") return;
+    if (!activeBuildSpec) {
+      setBuildPlacementPreview(null);
+      return;
+    }
+    const state = getStateSafe();
+    if (!state) {
+      setBuildPlacementPreview(null);
+      return;
+    }
+    const { width: screenWidth } = getScreenSize();
+    const pos = lastPointerPos || {
+      x: screenWidth / 2,
+      y: HUB_STRUCTURE_ROW_Y + Math.floor(HUB_STRUCTURE_HEIGHT / 2),
+    };
+    const col = resolveHubColFromPos(state, pos, screenWidth);
+    if (col == null) {
+      setBuildPlacementPreview(null);
+      return;
+    }
+    setBuildPlacementPreview({
+      defId: activeBuildSpec.defId,
+      hubCol: col,
+    });
   }
 
   function flashBuildGhost(defId) {
@@ -4550,6 +4581,7 @@ export function createInventoryView({
         const win = windows.get(ownerId);
         if (win) updateLeaderPanel(win);
       }
+      pushBuildPlacementPreview();
     });
 
     stage.on("pointermove", (ev) => {
@@ -4558,6 +4590,7 @@ export function createInventoryView({
       lastPointerPos = { x: p.x, y: p.y };
       if (!activeBuildSpec) return;
       updateBuildGhostContent(activeBuildSpec.defId);
+      pushBuildPlacementPreview();
       if (buildGhost) {
         buildGhost.container.visible = true;
         updateBuildGhostPosition(lastPointerPos);
@@ -4568,6 +4601,7 @@ export function createInventoryView({
   function update(dt) {
     updateApDragOverlays(dt);
     updateConsumePrompt(dt);
+    pushBuildPlacementPreview();
     if (dragItem.active || activeSplit || flashingOwners.size > 0) {
       return;
     }

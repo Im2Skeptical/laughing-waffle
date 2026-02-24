@@ -8,6 +8,7 @@ import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { hasEnvTagUnlock, hasHubTagUnlock } from "../model/skills.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
@@ -120,6 +121,9 @@ export function createBoardView(opts) {
   const AP_OVERLAY_FADE_OUT = 8;
   const AP_OVERLAY_FILL = 0x8a1f2a;
   const AP_OVERLAY_STROKE = 0xff4f5e;
+  const DISTRIBUTOR_RANGE_OVERLAY_FILL = 0x2d6b95;
+  const DISTRIBUTOR_RANGE_OVERLAY_STROKE = 0x84cbff;
+  const DISTRIBUTOR_BASE_RANGE = 1;
   const FEEDBACK_MISS_THROTTLE_SEC = 1;
   const FEEDBACK_MISS_DURATION_SEC = 0.8;
   const FEEDBACK_HIT_DURATION_SEC = 1.05;
@@ -249,6 +253,8 @@ export function createBoardView(opts) {
   let focusedTileCol = null;
   let focusedHubCol = null;
   let apDragWarningActive = false;
+  let buildDistributorRangePreview = null;
+  let iconDistributorRangePreview = null;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
   let lastProcessedGameEventId = 0;
@@ -364,6 +370,122 @@ export function createBoardView(opts) {
     const rg = Math.round(ag + (bg - ag) * blend);
     const rb = Math.round(ab + (bb - ab) * blend);
     return ((rr & 0xff) << 16) | ((rg & 0xff) << 8) | (rb & 0xff);
+  }
+
+  function getStructureSpan(structure, fallbackCol = null) {
+    const def = hubStructureDefs?.[structure?.defId];
+    const span =
+      Number.isFinite(structure?.span) && structure.span > 0
+        ? Math.floor(structure.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const col = Number.isFinite(structure?.col)
+      ? Math.floor(structure.col)
+      : Number.isFinite(fallbackCol)
+      ? Math.floor(fallbackCol)
+      : null;
+    return { col, span };
+  }
+
+  function spanDistance(aCol, aSpan, bCol, bSpan) {
+    const aStart = Number.isFinite(aCol) ? Math.floor(aCol) : 0;
+    const bStart = Number.isFinite(bCol) ? Math.floor(bCol) : 0;
+    const aLen = Number.isFinite(aSpan) ? Math.max(1, Math.floor(aSpan)) : 1;
+    const bLen = Number.isFinite(bSpan) ? Math.max(1, Math.floor(bSpan)) : 1;
+    const aEnd = aStart + aLen - 1;
+    const bEnd = bStart + bLen - 1;
+    if (bStart > aEnd) return bStart - aEnd;
+    if (aStart > bEnd) return aStart - bEnd;
+    return 0;
+  }
+
+  function resolveDistributionRangeByTier(tier, baseRange = DISTRIBUTOR_BASE_RANGE) {
+    const base = Number.isFinite(baseRange)
+      ? Math.max(0, Math.floor(baseRange))
+      : 0;
+    const def = hubSystemDefs?.distribution;
+    const resolvedTier =
+      (typeof tier === "string" && tier.length > 0 ? tier : null) ||
+      def?.defaultTier ||
+      "bronze";
+    const raw = def?.rangeByTier?.[resolvedTier];
+    let tierRange = null;
+    if (raw === "global") {
+      tierRange = Number.POSITIVE_INFINITY;
+    } else if (Number.isFinite(raw)) {
+      tierRange = Math.max(0, Math.floor(raw));
+    } else if (typeof raw === "string") {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        tierRange = Math.max(0, Math.floor(parsed));
+      }
+    }
+    if (tierRange == null) tierRange = base;
+    return Math.max(base, tierRange);
+  }
+
+  function hasDistributorTag(defId) {
+    const tags = Array.isArray(hubStructureDefs?.[defId]?.tags)
+      ? hubStructureDefs[defId].tags
+      : [];
+    return tags.includes("distributor");
+  }
+
+  function normalizeDistributorRangePreview(preview) {
+    const col = Number.isFinite(preview?.hubCol) ? Math.floor(preview.hubCol) : null;
+    if (col == null) return null;
+    const span =
+      Number.isFinite(preview?.span) && preview.span > 0
+        ? Math.floor(preview.span)
+        : 1;
+    const range =
+      preview?.range === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : Number.isFinite(preview?.range)
+        ? Math.max(0, Math.floor(preview.range))
+        : null;
+    if (range == null) return null;
+    return { hubCol: col, span, range };
+  }
+
+  function sameDistributorRangePreview(a, b) {
+    if (a == null && b == null) return true;
+    if (!a || !b) return false;
+    return a.hubCol === b.hubCol && a.span === b.span && a.range === b.range;
+  }
+
+  function buildDistributorRangePreviewFromSpec(spec) {
+    const defId = typeof spec?.defId === "string" ? spec.defId : null;
+    if (!defId || !hasDistributorTag(defId)) return null;
+    const hubCol = Number.isFinite(spec?.hubCol) ? Math.floor(spec.hubCol) : null;
+    if (hubCol == null) return null;
+    const def = hubStructureDefs?.[defId];
+    const span =
+      Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const range = resolveDistributionRangeByTier(
+      hubSystemDefs?.distribution?.defaultTier,
+      DISTRIBUTOR_BASE_RANGE
+    );
+    return normalizeDistributorRangePreview({ hubCol, span, range });
+  }
+
+  function buildDistributorRangePreviewFromView(view) {
+    const structure = view?.structure;
+    if (!structure || !hasDistributorTag(structure.defId)) return null;
+    const spanInfo = getStructureSpan(structure, view?.col);
+    if (spanInfo.col == null) return null;
+    const range = resolveDistributionRangeByTier(
+      structure?.systemTiers?.distribution,
+      DISTRIBUTOR_BASE_RANGE
+    );
+    return normalizeDistributorRangePreview({
+      hubCol: spanInfo.col,
+      span: spanInfo.span,
+      range,
+    });
   }
 
   function getMaxEventFeedId(feed) {
@@ -991,6 +1113,94 @@ export function createBoardView(opts) {
     return overlay;
   }
 
+  function createDistributorRangeOverlay(width, height, radius) {
+    const overlay = new PIXI.Graphics();
+    overlay
+      .lineStyle(2, DISTRIBUTOR_RANGE_OVERLAY_STROKE, 0.9)
+      .beginFill(DISTRIBUTOR_RANGE_OVERLAY_FILL, 0.26)
+      .drawRoundedRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4), radius)
+      .endFill();
+    overlay.visible = false;
+    overlay.eventMode = "none";
+    return overlay;
+  }
+
+  function setDistributorRangeOverlayVisible(view, active) {
+    const overlay = view?.distributorRangeOverlay;
+    if (!overlay) return;
+    overlay.visible = !!active;
+  }
+
+  function getActiveDistributorRangePreview() {
+    return iconDistributorRangePreview || buildDistributorRangePreview;
+  }
+
+  function updateDistributorRangeOverlays() {
+    const preview = getActiveDistributorRangePreview();
+    if (!preview) {
+      for (const view of hubStructureViews.values()) {
+        setDistributorRangeOverlayVisible(view, false);
+      }
+      for (const view of hubSlotViews) {
+        setDistributorRangeOverlayVisible(view, false);
+      }
+      return;
+    }
+
+    const coveredHubCols = new Set();
+    for (const view of hubStructureViews.values()) {
+      const spanInfo = getStructureSpan(view?.structure, view?.col);
+      if (spanInfo.col == null) {
+        setDistributorRangeOverlayVisible(view, false);
+        continue;
+      }
+      for (let c = spanInfo.col; c < spanInfo.col + spanInfo.span; c++) {
+        coveredHubCols.add(c);
+      }
+      const dist = spanDistance(
+        preview.hubCol,
+        preview.span,
+        spanInfo.col,
+        spanInfo.span
+      );
+      setDistributorRangeOverlayVisible(view, dist <= preview.range);
+    }
+
+    for (const view of hubSlotViews) {
+      const col = Number.isFinite(view?.col) ? Math.floor(view.col) : null;
+      if (col == null || coveredHubCols.has(col)) {
+        setDistributorRangeOverlayVisible(view, false);
+        continue;
+      }
+      const dist = spanDistance(preview.hubCol, preview.span, col, 1);
+      setDistributorRangeOverlayVisible(view, dist <= preview.range);
+    }
+  }
+
+  function setBuildDistributorRangePreview(spec) {
+    const next = buildDistributorRangePreviewFromSpec(spec);
+    if (sameDistributorRangePreview(buildDistributorRangePreview, next)) return;
+    buildDistributorRangePreview = next;
+  }
+
+  function clearBuildDistributorRangePreview() {
+    if (buildDistributorRangePreview == null) return;
+    buildDistributorRangePreview = null;
+  }
+
+  function setIconDistributorRangePreview(view, systemId) {
+    if (systemId !== "distribution") {
+      iconDistributorRangePreview = null;
+      return;
+    }
+    iconDistributorRangePreview = buildDistributorRangePreviewFromView(view);
+  }
+
+  function clearIconDistributorRangePreview(systemId = null) {
+    if (systemId != null && systemId !== "distribution") return;
+    iconDistributorRangePreview = null;
+  }
+
   function updateApOverlay(view, dt) {
     if (!view?.apOverlay) return;
     const target = Number.isFinite(view.apOverlayTarget)
@@ -1009,6 +1219,20 @@ export function createBoardView(opts) {
     view.apOverlay.visible = view.apOverlayAlpha > 0.01;
   }
 
+  function handleSystemIconHover(view, systemId) {
+    setIconDistributorRangePreview(view, systemId);
+    onSystemIconHover?.(view, systemId);
+  }
+
+  function handleSystemIconOut(view, systemId) {
+    clearIconDistributorRangePreview(systemId);
+    onSystemIconOut?.(view, systemId);
+  }
+
+  function handleSystemIconClick(view, systemId) {
+    onSystemIconClick?.(view, systemId);
+  }
+
   tagUi = createTagUi({
     interaction,
     tooltipView,
@@ -1020,9 +1244,9 @@ export function createBoardView(opts) {
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
     toggleTag: dispatchTileTagToggle,
-    onSystemIconHover,
-    onSystemIconOut,
-    onSystemIconClick,
+    onSystemIconHover: handleSystemIconHover,
+    onSystemIconOut: handleSystemIconOut,
+    onSystemIconClick: handleSystemIconClick,
   });
 
   const hubTagUi = createHubTagUi({
@@ -1035,9 +1259,9 @@ export function createBoardView(opts) {
     requestPauseForAction,
     toggleTag: dispatchHubTagToggle,
     openRecipeDropdown: hubPanels?.openRecipeDropdown,
-    onSystemIconHover,
-    onSystemIconOut,
-    onSystemIconClick,
+    onSystemIconHover: handleSystemIconHover,
+    onSystemIconOut: handleSystemIconOut,
+    onSystemIconClick: handleSystemIconClick,
   });
 
   tileTagDragController = createPillDragController({
@@ -3173,6 +3397,13 @@ export function createBoardView(opts) {
     const apOverlay = createApOverlay(width, height, 10);
     content.addChild(apOverlay);
 
+    const distributorRangeOverlay = createDistributorRangeOverlay(
+      width,
+      height,
+      10
+    );
+    content.addChild(distributorRangeOverlay);
+
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
     focusOutline.drawRoundedRect(2, 2, width - 4, height - 4, 8);
@@ -3271,6 +3502,7 @@ export function createBoardView(opts) {
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      distributorRangeOverlay,
       focusOutline,
       isFocused: false,
       cancelButton,
@@ -3624,6 +3856,13 @@ export function createBoardView(opts) {
     );
     cont.addChild(apOverlay);
 
+    const distributorRangeOverlay = createDistributorRangeOverlay(
+      HUB_STRUCTURE_WIDTH,
+      HUB_STRUCTURE_HEIGHT,
+      10
+    );
+    cont.addChild(distributorRangeOverlay);
+
     const pos = layoutHubColPos(
       app.screen.width,
       col,
@@ -3640,6 +3879,7 @@ export function createBoardView(opts) {
       apOverlay,
       apOverlayAlpha: 0,
       apOverlayTarget: 0,
+      distributorRangeOverlay,
     };
   }
 
@@ -3740,6 +3980,7 @@ export function createBoardView(opts) {
       ? { x: lastPointerPos.x, y: lastPointerPos.y }
       : null;
     if (activeHover) clearActiveHover();
+    clearIconDistributorRangePreview();
 
     hubExpandedTagById.clear();
     for (const view of hubStructureViews.values()) {
@@ -3783,6 +4024,7 @@ export function createBoardView(opts) {
     syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
     syncAreaChrome(s, cols, hubCols);
+    updateDistributorRangeOverlays();
     eventSnapshotsById = collectEventSnapshots(s, cols);
     lastSeenEventSec = Number.isFinite(s?.tSec) ? Math.floor(s.tSec) : null;
 
@@ -3923,6 +4165,7 @@ export function createBoardView(opts) {
     syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
     syncAreaChrome(s, cols, hubCols);
+    updateDistributorRangeOverlays();
     updatePlanFocus();
     processTileRollFeedbackEvents(s);
     updateTileActivityOverlays(dt);
@@ -3985,7 +4228,19 @@ export function createBoardView(opts) {
     return null;
   }
 
-  return { init, rebuildAll, update, getInventoryOwnerAtGlobalPos };
+  return {
+    init,
+    rebuildAll,
+    update,
+    getInventoryOwnerAtGlobalPos,
+    setDistributorBuildPreview(spec) {
+      if (!spec) {
+        clearBuildDistributorRangePreview();
+      } else {
+        setBuildDistributorRangePreview(spec);
+      }
+    },
+  };
 }
 
 /**
