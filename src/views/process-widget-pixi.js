@@ -45,11 +45,10 @@ const HEADER_PAD_Y = 6;
 const BODY_PAD = 8;
 const SEGMENT_GAP = 6;
 
-const DRAWER_COLLAPSED = 30;
-const DRAWER_EXPANDED = 126;
+const DRAWER_COLLAPSED = 60;
+const DRAWER_EXPANDED = 156;
 const BUFFER_SIZE = 44;
-const DRAWER_TOGGLE_BUTTON_HEIGHT = 16;
-const DRAWER_TOGGLE_BUTTON_MIN_WIDTH = 20;
+const DRAWER_TOGGLE_BUTTON_MIN_WIDTH = 44;
 const DRAWER_TOGGLE_BUTTON_EDGE_PAD = 4;
 
 const MODULE_GAP = 8;
@@ -1995,7 +1994,8 @@ export function createProcessWidgetView({
     const buttonBg = new PIXI.Graphics();
     const arrow = new PIXI.Text(arrowText, {
       fill: COLORS.headerSub,
-      fontSize: 12,
+      fontSize: 16,
+      fontWeight: "bold",
     });
     button.addChild(buttonBg, arrow);
     button.on("pointertap", () => {
@@ -2007,37 +2007,47 @@ export function createProcessWidgetView({
 
     const buttonWidth = Math.max(
       DRAWER_TOGGLE_BUTTON_MIN_WIDTH,
-      Math.min(width - 2, 26)
+      Math.min(width - DRAWER_TOGGLE_BUTTON_EDGE_PAD * 2, 56)
     );
-    buttonBg.clear();
-    buttonBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-    buttonBg.beginFill(COLORS.moduleBg, 0.98);
-    buttonBg.drawRoundedRect(
-      0,
-      0,
-      buttonWidth,
-      DRAWER_TOGGLE_BUTTON_HEIGHT,
-      4
-    );
-    buttonBg.endFill();
-    arrow.x = Math.floor((buttonWidth - arrow.width) / 2);
-    arrow.y = Math.floor((DRAWER_TOGGLE_BUTTON_HEIGHT - arrow.height) / 2) - 1;
+    const buttonX = expanded
+      ? kind === "inputs"
+        ? Math.max(
+            DRAWER_TOGGLE_BUTTON_EDGE_PAD,
+            width - buttonWidth - DRAWER_TOGGLE_BUTTON_EDGE_PAD
+          )
+        : DRAWER_TOGGLE_BUTTON_EDGE_PAD
+      : Math.floor((width - buttonWidth) / 2);
+    const contentInset = expanded
+      ? buttonWidth + DRAWER_TOGGLE_BUTTON_EDGE_PAD * 2
+      : 0;
+    const contentInsetLeft =
+      expanded && kind === "outputs" ? contentInset : 0;
+    const contentInsetRight =
+      expanded && kind === "inputs" ? contentInset : 0;
+    const contentLeft = MODULE_PAD + contentInsetLeft;
+    const contentRight = MODULE_PAD + contentInsetRight;
+    const contentWidth = Math.max(28, width - contentLeft - contentRight);
 
-    if (expanded) {
-      button.x =
-        kind === "inputs"
-          ? Math.max(
-              DRAWER_TOGGLE_BUTTON_EDGE_PAD,
-              width - buttonWidth - DRAWER_TOGGLE_BUTTON_EDGE_PAD
-            )
-          : DRAWER_TOGGLE_BUTTON_EDGE_PAD;
-    } else {
-      button.x = Math.floor((width - buttonWidth) / 2);
+    function layoutDrawerToggle(buttonHeightTarget) {
+      const buttonHeight = Math.max(
+        24,
+        Math.floor(buttonHeightTarget) - DRAWER_TOGGLE_BUTTON_EDGE_PAD * 2
+      );
+      button.x = buttonX;
+      button.y = DRAWER_TOGGLE_BUTTON_EDGE_PAD;
+      buttonBg.clear();
+      buttonBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+      buttonBg.beginFill(COLORS.moduleBg, 0.98);
+      buttonBg.drawRoundedRect(0, 0, buttonWidth, buttonHeight, 6);
+      buttonBg.endFill();
+      arrow.x = Math.floor((buttonWidth - arrow.width) / 2);
+      arrow.y = Math.floor((buttonHeight - arrow.height) / 2) - 1;
     }
-    button.y = 4;
+
+    layoutDrawerToggle(height);
 
     if (expanded) {
-      let y = DRAWER_TOGGLE_BUTTON_HEIGHT + 8;
+      let y = MODULE_PAD;
       const routingDef = routingProcessDef || processDef;
       const activeProcess = routingProcess || process;
       const routing = routingState || activeProcess?.routing || null;
@@ -2051,7 +2061,7 @@ export function createProcessWidgetView({
           fontSize: 10,
           fontWeight: "bold",
         });
-        label.x = MODULE_PAD;
+        label.x = contentLeft;
         label.y = y;
         container.addChild(label);
         y += 14;
@@ -2072,7 +2082,7 @@ export function createProcessWidgetView({
         const orderedList = orderedRaw.length > 0 ? orderedRaw : candidates;
 
         const pillContainer = new PIXI.Container();
-        pillContainer.x = MODULE_PAD;
+        pillContainer.x = contentLeft;
         pillContainer.y = y;
         container.addChild(pillContainer);
 
@@ -2084,7 +2094,7 @@ export function createProcessWidgetView({
           pillContainer,
           pillEntries: [],
           ignoreNextTap: false,
-          entryWidth: width - MODULE_PAD * 2,
+          entryWidth: contentWidth,
           routingMode: routingMode || "process",
           targetRef: targetRef || null,
           systemId: systemId || null,
@@ -2115,7 +2125,14 @@ export function createProcessWidgetView({
 
     drawDrawerBox(bg, width, height);
 
-    return { container };
+    return {
+      container,
+      bg,
+      setHeight: (nextHeight) => {
+        drawDrawerBox(bg, width, nextHeight);
+        layoutDrawerToggle(nextHeight);
+      },
+    };
   }
   function buildProcessCard(state, target, entry, index, count, opts = {}) {
     const process = entry.process;
@@ -2385,12 +2402,17 @@ export function createProcessWidgetView({
 
     let leftDrawer = null;
     let rightDrawer = null;
+    const drawerHeightTarget = Math.max(
+      bodyHeightTarget,
+      moduleMaxHeight,
+      showBuffer ? BUFFER_SIZE + 18 : 0
+    );
 
     if (inputDrawerVisible) {
       leftDrawer = buildRoutingDrawer({
         kind: "inputs",
         width: leftDrawerWidth,
-        height: bodyHeightTarget,
+        height: drawerHeightTarget,
         process,
         processDef,
         routingProcess,
@@ -2421,7 +2443,7 @@ export function createProcessWidgetView({
       rightDrawer = buildRoutingDrawer({
         kind: "outputs",
         width: rightDrawerWidth,
-        height: bodyHeightTarget,
+        height: drawerHeightTarget,
         process,
         processDef,
         routingProcess,
@@ -2454,12 +2476,10 @@ export function createProcessWidgetView({
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
 
     if (leftDrawer) {
-      drawDrawerBox(leftDrawer.container.children[0], leftDrawerWidth, bodyContentHeight);
-      leftDrawer.container.height = bodyContentHeight;
+      leftDrawer.setHeight?.(bodyContentHeight);
     }
     if (rightDrawer) {
-      drawDrawerBox(rightDrawer.container.children[0], rightDrawerWidth, bodyContentHeight);
-      rightDrawer.container.height = bodyContentHeight;
+      rightDrawer.setHeight?.(bodyContentHeight);
     }
 
     if (showBuffer && buffer) {
