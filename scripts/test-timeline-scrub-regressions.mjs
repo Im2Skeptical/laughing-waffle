@@ -13,7 +13,10 @@ import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { ENV_EVENT_DRAW_CADENCE_SEC } from "../src/defs/gamesettings/gamerules-defs.js";
 import { deserializeGameState } from "../src/model/state.js";
 import { createInitialState } from "../src/model/game-model.js";
-import { computeAvailableRecipesAndBuildings } from "../src/model/skills.js";
+import {
+  computeAvailableRecipesAndBuildings,
+  getLeaderInventorySectionCapabilities,
+} from "../src/model/skills.js";
 
 function assertOk(res, label) {
   assert.equal(res?.ok, true, `${label} failed: ${JSON.stringify(res)}`);
@@ -283,8 +286,90 @@ function runScenarioSkillProgressionOverrideChecks() {
   );
 }
 
+function runLeaderInventorySectionCapabilityChecks() {
+  const scenario = {
+    rngSeed: 456,
+    skillProgressionDefs: {
+      defaultStartingSkillPoints: 2,
+      defaultUnlockedRecipes: ["__none__"],
+      defaultUnlockedHubStructures: ["__none__"],
+    },
+    board: {
+      cols: 1,
+      tiles: ["tile_hinterland"],
+    },
+    hub: {
+      cols: 10,
+      structures: [{ defId: "granary", hubCol: 0 }],
+    },
+    pawns: [
+      {
+        name: "Gate Pawn",
+        role: "leader",
+        hubCol: 0,
+        unlockedSkillNodeIds: [],
+      },
+    ],
+  };
+
+  const state = createInitialState(scenario);
+  const leaderId = state?.pawns?.[0]?.id;
+  assert.ok(Number.isFinite(leaderId), "expected leader id for inventory capability checks");
+
+  const emptyCaps = getLeaderInventorySectionCapabilities(state, leaderId);
+  assert.deepEqual(
+    emptyCaps,
+    {
+      equipment: true,
+      prestige: false,
+      skills: false,
+      build: false,
+    },
+    "leader inventory capabilities should be gated by unlocked skills and recipes"
+  );
+
+  state.pawns[0].unlockedSkillNodeIds = ["Memory"];
+  const memoryCaps = getLeaderInventorySectionCapabilities(state, leaderId);
+  assert.equal(memoryCaps.skills, true, "Memory should unlock Skills section");
+  assert.equal(memoryCaps.prestige, false, "Worship should still gate Prestige section");
+
+  state.pawns[0].unlockedSkillNodeIds = ["Memory", "Worship"];
+  const worshipCaps = getLeaderInventorySectionCapabilities(state, leaderId);
+  assert.equal(worshipCaps.skills, true, "Memory should keep Skills section unlocked");
+  assert.equal(worshipCaps.prestige, true, "Worship should unlock Prestige section");
+
+  state.skillRuntime = {
+    modifiers: {
+      global: {},
+      pawnById: {},
+    },
+    unlocks: {
+      recipes: [],
+      hubStructures: ["hearth"],
+      envTags: [],
+      hubTags: [],
+      itemTags: [],
+    },
+  };
+  const buildCaps = getLeaderInventorySectionCapabilities(state, leaderId);
+  assert.equal(buildCaps.build, true, "any unlocked hub structure should unlock Build section");
+
+  const invalidCaps = getLeaderInventorySectionCapabilities(state, -99999);
+  assert.deepEqual(
+    invalidCaps,
+    {
+      equipment: false,
+      prestige: false,
+      skills: false,
+      build: false,
+    },
+    "unknown leaders should not expose inventory section capabilities"
+  );
+}
+
 function run() {
   runScenarioSkillProgressionOverrideChecks();
+  runLeaderInventorySectionCapabilityChecks();
   runEnvDeckDrawFeedChecks();
 
   const runner = createSimRunner({ setupId: "devGym01" });

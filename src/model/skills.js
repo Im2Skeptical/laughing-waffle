@@ -544,6 +544,33 @@ export function getUnlockedSkillSet(state, pawnId) {
   return new Set(uniqueSortedStrings(pawn.unlockedSkillNodeIds));
 }
 
+export function hasUnlockedSkillNode(state, pawnId, nodeId) {
+  if (typeof nodeId !== "string" || !nodeId.length) return false;
+  const unlockedSet = getUnlockedSkillSet(state, pawnId);
+  return unlockedSet.has(nodeId);
+}
+
+export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
+  const leaderPawn = getPawnById(state, leaderPawnId);
+  if (!leaderPawn || leaderPawn.role !== "leader") {
+    return {
+      equipment: false,
+      prestige: false,
+      skills: false,
+      build: false,
+    };
+  }
+
+  const unlockedSet = getUnlockedSkillSet(state, leaderPawn.id);
+  const availability = computeAvailableRecipesAndBuildings(state);
+  return {
+    equipment: true,
+    prestige: unlockedSet.has("Worship"),
+    skills: unlockedSet.has("Memory"),
+    build: availability.hubStructureIds.size > 0,
+  };
+}
+
 export function evaluateSkillNodeUnlock(state, pawnId, nodeId, opts = {}) {
   const pawn = getPawnById(state, pawnId);
   if (!pawn) return { ok: false, reason: "noPawn" };

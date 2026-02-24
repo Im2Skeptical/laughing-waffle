@@ -23,6 +23,7 @@ import {
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
   computeAvailableRecipesAndBuildings,
+  getLeaderInventorySectionCapabilities,
   getSkillNodes,
   getUnlockedSkillSet,
 } from "../model/skills.js";
@@ -284,6 +285,18 @@ export function createInventoryView({
     const pawns = state?.pawns;
     if (!Array.isArray(pawns)) return null;
     return pawns.find((candidatePawn) => candidatePawn?.id === ownerId) || null;
+  }
+
+  function getLeaderSectionCapabilities(state, leader) {
+    if (!leader || !Number.isFinite(leader.id)) {
+      return {
+        equipment: false,
+        prestige: false,
+        skills: false,
+        build: false,
+      };
+    }
+    return getLeaderInventorySectionCapabilities(state, Math.floor(leader.id));
   }
 
   function getInventoryPawnBadgeLabel(pawn) {
@@ -718,12 +731,16 @@ export function createInventoryView({
     }
   }
 
-  function layoutLeaderSections(win, leader, buildOptionCount = null) {
+  function layoutLeaderSections(win, leader, buildOptionCount = null, sectionCaps = null) {
     if (!win || !leader) return;
     const state = ensureSectionState(win);
     const panel = win.leaderPanel;
     const equip = win.equipmentPanel;
     if (!panel || !equip) return;
+    const resolvedCaps =
+      sectionCaps && typeof sectionCaps === "object"
+        ? sectionCaps
+        : getLeaderSectionCapabilities(getStateSafe(), leader);
 
     const sectionWidth = win.panelWidth - INNER_PADDING * 2;
     const optionsCount =
@@ -731,13 +748,23 @@ export function createInventoryView({
         ? computeBuildOptions(getStateSafe(), leader).length
         : Math.max(0, Math.floor(buildOptionCount));
 
-    const equipExpanded = state.equipment !== false;
-    const prestigeExpanded = state.prestige !== false;
-    const skillsExpanded = state.skills !== false;
-    const buildExpanded = state.build !== false;
+    const equipVisible = resolvedCaps.equipment !== false;
+    const prestigeVisible = resolvedCaps.prestige === true;
+    const skillsVisible = resolvedCaps.skills === true;
+    const buildVisible = resolvedCaps.build === true;
 
-    const equipHeight = equipExpanded ? EQUIP_PANEL_HEIGHT : SECTION_HEADER_HEIGHT;
+    const equipExpanded = equipVisible && state.equipment !== false;
+    const prestigeExpanded = prestigeVisible && state.prestige !== false;
+    const skillsExpanded = skillsVisible && state.skills !== false;
+    const buildExpanded = buildVisible && state.build !== false;
+
+    const equipHeight = !equipVisible
+      ? 0
+      : equipExpanded
+      ? EQUIP_PANEL_HEIGHT
+      : SECTION_HEADER_HEIGHT;
     equip.container.y = HEADER_HEIGHT + INNER_PADDING;
+    equip.container.visible = equipVisible;
     equip.header?.setExpanded?.(equipExpanded, false, "Equipment");
     if (equip.bg) {
       equip.bg.clear();
@@ -750,7 +777,8 @@ export function createInventoryView({
       equip.header.container.y = 4;
     }
 
-    const bodyY = HEADER_HEIGHT + INNER_PADDING + equipHeight + INNER_PADDING;
+    const bodyY =
+      HEADER_HEIGHT + INNER_PADDING + (equipVisible ? equipHeight + INNER_PADDING : 0);
     win.body.y = bodyY;
     if (win.bin?.container) {
       win.bin.container.y = bodyY;
@@ -759,66 +787,85 @@ export function createInventoryView({
     const buildContentHeight = computeBuildContentHeight(optionsCount);
     panel.buildPanelHeight = buildContentHeight;
 
-    const prestigeContentHeight = prestigeExpanded ? LEADER_PANEL_HEIGHT : 0;
-    const skillsContentHeight = skillsExpanded ? SKILLS_PANEL_HEIGHT : 0;
-    const buildContentShownHeight = buildExpanded ? buildContentHeight : 0;
+    let nextSectionY = LEADER_PANEL_PADDING;
+    let visibleSectionCount = 0;
+    const layoutSection = ({
+      visible,
+      expanded,
+      label,
+      header,
+      content,
+      contentX,
+      contentHeight,
+    }) => {
+      if (!header?.container) return;
+      if (!visible) {
+        header.setExpanded?.(false, false, label);
+        header.container.visible = false;
+        if (content) content.visible = false;
+        return;
+      }
 
-    panel.prestigeHeader?.setExpanded?.(prestigeExpanded, false, "Prestige");
-    if (panel.prestigeHeader?.container) {
-      panel.prestigeHeader.container.x = LEADER_PANEL_PADDING;
-      panel.prestigeHeader.container.y = LEADER_PANEL_PADDING;
-    }
-    if (panel.prestigeContent) {
-      panel.prestigeContent.visible = prestigeExpanded;
-      panel.prestigeContent.x = LEADER_PANEL_PADDING;
-      panel.prestigeContent.y = LEADER_PANEL_PADDING + SECTION_HEADER_HEIGHT;
-    }
+      if (visibleSectionCount > 0) {
+        nextSectionY += BUILD_PANEL_GAP;
+      }
+      visibleSectionCount += 1;
 
-    const skillsHeaderY =
-      LEADER_PANEL_PADDING +
-      SECTION_HEADER_HEIGHT +
-      prestigeContentHeight +
-      BUILD_PANEL_GAP;
-    panel.skillsHeader?.setExpanded?.(skillsExpanded, false, "Skills");
-    if (panel.skillsHeader?.container) {
-      panel.skillsHeader.container.x = LEADER_PANEL_PADDING;
-      panel.skillsHeader.container.y = skillsHeaderY;
-    }
-    if (panel.skillsContent) {
-      panel.skillsContent.visible = skillsExpanded;
-      panel.skillsContent.x = LEADER_PANEL_PADDING;
-      panel.skillsContent.y = skillsHeaderY + SECTION_HEADER_HEIGHT;
-    }
+      header.container.visible = true;
+      header.setExpanded?.(expanded, false, label);
+      header.container.x = LEADER_PANEL_PADDING;
+      header.container.y = nextSectionY;
+      nextSectionY += SECTION_HEADER_HEIGHT;
 
-    const buildHeaderY =
-      skillsHeaderY +
-      SECTION_HEADER_HEIGHT +
-      skillsContentHeight +
-      BUILD_PANEL_GAP;
-    panel.buildHeader?.setExpanded?.(buildExpanded, false, "Build");
-    if (panel.buildHeader?.container) {
-      panel.buildHeader.container.x = LEADER_PANEL_PADDING;
-      panel.buildHeader.container.y = buildHeaderY;
-    }
-    if (panel.buildPanel) {
-      panel.buildPanel.visible = buildExpanded;
-      panel.buildPanel.x = 0;
-      panel.buildPanel.y = buildHeaderY + SECTION_HEADER_HEIGHT;
-    }
+      if (!content) return;
+      content.visible = expanded;
+      content.x = contentX;
+      content.y = nextSectionY;
+      if (expanded) {
+        nextSectionY += contentHeight;
+      }
+    };
 
-    const leaderInnerHeight =
-      LEADER_PANEL_PADDING +
-      SECTION_HEADER_HEIGHT +
-      prestigeContentHeight +
-      BUILD_PANEL_GAP +
-      SECTION_HEADER_HEIGHT +
-      skillsContentHeight +
-      BUILD_PANEL_GAP +
-      SECTION_HEADER_HEIGHT +
-      buildContentShownHeight +
-      LEADER_PANEL_PADDING;
+    layoutSection({
+      visible: prestigeVisible,
+      expanded: prestigeExpanded,
+      label: "Prestige",
+      header: panel.prestigeHeader,
+      content: panel.prestigeContent,
+      contentX: LEADER_PANEL_PADDING,
+      contentHeight: LEADER_PANEL_HEIGHT,
+    });
+    layoutSection({
+      visible: skillsVisible,
+      expanded: skillsExpanded,
+      label: "Skills",
+      header: panel.skillsHeader,
+      content: panel.skillsContent,
+      contentX: LEADER_PANEL_PADDING,
+      contentHeight: SKILLS_PANEL_HEIGHT,
+    });
+    layoutSection({
+      visible: buildVisible,
+      expanded: buildExpanded,
+      label: "Build",
+      header: panel.buildHeader,
+      content: panel.buildPanel,
+      contentX: 0,
+      contentHeight: buildContentHeight,
+    });
 
     panel.container.y = bodyY + win.rows * win.cellSize + INNER_PADDING;
+    if (visibleSectionCount <= 0) {
+      panel.container.visible = false;
+      if (panel.bg) {
+        panel.bg.clear();
+      }
+      resizeWindowFrame(win, panel.container.y);
+      return;
+    }
+
+    const leaderInnerHeight = nextSectionY + LEADER_PANEL_PADDING;
+    panel.container.visible = true;
     if (panel.bg) {
       panel.bg.clear();
       panel.bg.beginFill(0x1b1b28, 0.95);
@@ -1592,6 +1639,8 @@ export function createInventoryView({
       panel.addChild(panelBg);
 
       const prestigeHeader = createSectionLozenge("Prestige", () => {
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.prestige) return;
         const sectionState = ensureSectionState(win);
         sectionState.prestige = !sectionState.prestige;
         updateLeaderPanel(win);
@@ -1690,6 +1739,8 @@ export function createInventoryView({
 
       minusBtn.on("pointertap", () => {
         if (uiBlocked) return;
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.prestige) return;
         if (typeof adjustFollowerCount === "function") {
           adjustFollowerCount({ leaderId: ownerId, delta: -1 });
         }
@@ -1697,12 +1748,16 @@ export function createInventoryView({
 
       plusBtn.on("pointertap", () => {
         if (uiBlocked) return;
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.prestige) return;
         if (typeof adjustFollowerCount === "function") {
           adjustFollowerCount({ leaderId: ownerId, delta: 1 });
         }
       });
 
       const skillsHeader = createSectionLozenge("Skills", () => {
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.skills) return;
         const sectionState = ensureSectionState(win);
         sectionState.skills = !sectionState.skills;
         updateLeaderPanel(win);
@@ -1752,6 +1807,8 @@ export function createInventoryView({
       skillsContent.addChild(unlockedNodesText);
 
       const buildHeader = createSectionLozenge("Build", () => {
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.build) return;
         const sectionState = ensureSectionState(win);
         sectionState.build = !sectionState.build;
         updateLeaderPanel(win);
@@ -1833,6 +1890,7 @@ export function createInventoryView({
         buildRows,
         buildOptionsSignature: "",
         buildPanelHeight,
+        sectionCaps: getLeaderSectionCapabilities(getStateSafe(), leader),
       };
     }
 
@@ -2467,34 +2525,48 @@ export function createInventoryView({
       clearActiveBuildForOwner(win.ownerId);
       return;
     }
-    const data = computeLeaderPanelData(leader);
-    const options = computeBuildOptions(getStateSafe(), leader);
-    layoutLeaderSections(win, leader, options.length);
-    win.leaderPanel.container.visible = true;
-    win.leaderPanel.prestigeText.text = `Prestige: ${data.effective}/${data.base}`;
-    win.leaderPanel.reservedText.text = `Reserved: ${data.reserved} (Debt ${data.debt})`;
-    if (data.hungryCount > 0) {
-      win.leaderPanel.hungryText.text = `Hungry: ${data.hungryCount} (Debt ${data.hungryDebt})`;
-    } else {
-      win.leaderPanel.hungryText.text = `Hungry: 0`;
-    }
-    win.leaderPanel.followerCountText.text = String(data.followerCount);
-
-    const canMinus = data.followerCount > 0;
-    win.leaderPanel.minusBtn.alpha = canMinus ? 1 : 0.35;
-    win.leaderPanel.minusBtn.eventMode = canMinus ? "static" : "none";
-    win.leaderPanel.minusBtn.cursor = canMinus ? "pointer" : "default";
-
     const panel = win.leaderPanel;
-    if (panel.skillPointsText) {
+    const state = getStateSafe();
+    const sectionCaps = getLeaderSectionCapabilities(state, leader);
+    panel.sectionCaps = sectionCaps;
+
+    if (!sectionCaps.build) {
+      clearActiveBuildForOwner(win.ownerId);
+    }
+
+    const options = sectionCaps.build ? computeBuildOptions(state, leader) : [];
+    layoutLeaderSections(win, leader, options.length, sectionCaps);
+
+    const data = computeLeaderPanelData(leader);
+    if (sectionCaps.prestige) {
+      panel.prestigeText.text = `Prestige: ${data.effective}/${data.base}`;
+      panel.reservedText.text = `Reserved: ${data.reserved} (Debt ${data.debt})`;
+      if (data.hungryCount > 0) {
+        panel.hungryText.text = `Hungry: ${data.hungryCount} (Debt ${data.hungryDebt})`;
+      } else {
+        panel.hungryText.text = "Hungry: 0";
+      }
+      panel.followerCountText.text = String(data.followerCount);
+    }
+
+    const canMinus = sectionCaps.prestige && data.followerCount > 0;
+    panel.minusBtn.alpha = canMinus ? 1 : 0.35;
+    panel.minusBtn.eventMode = canMinus ? "static" : "none";
+    panel.minusBtn.cursor = canMinus ? "pointer" : "default";
+    panel.plusBtn.alpha = sectionCaps.prestige ? 1 : 0.35;
+    panel.plusBtn.eventMode = sectionCaps.prestige ? "static" : "none";
+    panel.plusBtn.cursor = sectionCaps.prestige ? "pointer" : "default";
+
+    if (sectionCaps.skills && panel.skillPointsText) {
       const skillPoints = Number.isFinite(leader?.skillPoints)
         ? Math.max(0, Math.floor(leader.skillPoints))
         : 0;
       panel.skillPointsText.text = `Skill Points: ${skillPoints}`;
+    } else if (panel.skillPointsText) {
+      panel.skillPointsText.text = "";
     }
 
-    if (panel.unlockedNodesText) {
-      const state = getStateSafe();
+    if (sectionCaps.skills && panel.unlockedNodesText) {
       const unlockedIds = Array.from(getUnlockedSkillSet(state, leader.id));
       const skillNodeDefs = getSkillNodes();
       const visibleIds = unlockedIds.slice(0, SKILLS_UNLOCKED_LIST_MAX);
@@ -2513,11 +2585,15 @@ export function createInventoryView({
         lines.push(`+${remaining} more`);
       }
       panel.unlockedNodesText.text = lines.join("\n");
+    } else if (panel.unlockedNodesText) {
+      panel.unlockedNodesText.text = "";
     }
 
-    panel.openSkillTreeButton?.setEnabled?.(typeof openSkillTree === "function");
+    panel.openSkillTreeButton?.setEnabled?.(
+      sectionCaps.skills && typeof openSkillTree === "function"
+    );
 
-    if (panel.buildListContainer) {
+    if (panel.buildListContainer && sectionCaps.build) {
       let activeDefId =
         activeBuildSpec && activeBuildSpec.ownerId === win.ownerId
           ? activeBuildSpec.defId
@@ -2644,6 +2720,17 @@ export function createInventoryView({
 
       if (panel.buildPanel) {
         panel.buildPanel.cursor = activeDefId != null ? "pointer" : "default";
+      }
+    } else {
+      panel.buildOptionsSignature = "";
+      if (panel.buildListContainer) {
+        panel.buildListContainer.removeChildren();
+        panel.buildRows = [];
+        panel.buildListContainer.alpha = 1;
+        panel.buildListContainer.eventMode = "none";
+      }
+      if (panel.buildHintText) {
+        panel.buildHintText.text = "";
       }
     }
   }
