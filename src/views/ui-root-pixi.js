@@ -50,6 +50,7 @@ import { createEventLogView } from "./event-log-pixi.js";
 import { createYearEndPerformanceView } from "./year-end-performance-pixi.js";
 import { createRunCompleteView } from "./run-complete-pixi.js";
 import { createPlayfieldMuchaStyle } from "./playfield-mucha-style.js";
+import { createBackdropView } from "./backdrop-pixi.js";
 import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
@@ -160,12 +161,22 @@ let actionLogView = null;
 let eventLogView = null;
 let yearEndPerformanceView = null;
 let runCompleteView = null;
+let backdropView = null;
 let externalUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
 let stateTintOverlay = null;
 let lastStateTintKey = "__init__";
+let stateTintCurrentR = 1;
+let stateTintCurrentG = 1;
+let stateTintCurrentB = 1;
+let stateTintCurrentAlpha = 0;
+let stateTintTargetR = 1;
+let stateTintTargetG = 1;
+let stateTintTargetB = 1;
+let stateTintTargetAlpha = 0;
+const STATE_TINT_TRANSITION_SEC = 0.28;
 const liveSeenYearEndEventIds = new Set();
 const liveSeenRunCompleteEventIds = new Set();
 const FULL_VIEW_REBUILD_REASONS = new Set([
@@ -208,6 +219,7 @@ const runner = createSimRunner({
       boardView.rebuildAll();
       pawnsView.rebuildAll();
     }
+    backdropView?.refresh?.();
     chromeView.refresh?.();
     timeControlsView.refresh?.();
   },
@@ -265,6 +277,7 @@ function resizeCanvas() {
   skillTreeEditorView?.resize?.();
   yearEndPerformanceView?.resize?.();
   runCompleteView?.resize?.();
+  backdropView?.refresh?.();
   if (stateTintOverlay) {
     redrawStateTintOverlayBounds();
   }
@@ -278,6 +291,7 @@ document?.addEventListener?.("webkitfullscreenchange", resizeCanvas);
 resizeCanvas();
 
 const uiLayers = {
+  backgroundLayer: new PIXI.Container(),
   tileLayer: new PIXI.Container(),
   eventLayer: new PIXI.Container(),
   envStructuresLayer: new PIXI.Container(),
@@ -296,6 +310,7 @@ const uiLayers = {
 app.stage.eventMode = "static";
 app.stage.hitArea = app.screen;
 app.stage.addChild(
+  uiLayers.backgroundLayer,
   uiLayers.tileLayer,
   uiLayers.eventLayer,
   uiLayers.envStructuresLayer,
@@ -321,6 +336,25 @@ function redrawStateTintOverlayBounds() {
   stateTintOverlay.beginFill(0xffffff, 1);
   stateTintOverlay.drawRect(0, 0, app.screen.width, app.screen.height);
   stateTintOverlay.endFill();
+}
+
+function toColorRgb01(color) {
+  const value = Number.isFinite(color) ? Math.floor(color) >>> 0 : 0xffffff;
+  const r = ((value >> 16) & 0xff) / 255;
+  const g = ((value >> 8) & 0xff) / 255;
+  const b = (value & 0xff) / 255;
+  return { r, g, b };
+}
+
+function toHexColor(r, g, b) {
+  const rr = Math.max(0, Math.min(255, Math.round(r * 255)));
+  const gg = Math.max(0, Math.min(255, Math.round(g * 255)));
+  const bb = Math.max(0, Math.min(255, Math.round(b * 255)));
+  return (rr << 16) | (gg << 8) | bb;
+}
+
+function lerp(from, to, t) {
+  return from + (to - from) * t;
 }
 
 function resolveTimeStateKey() {
@@ -351,18 +385,58 @@ function resolveTimeStateKey() {
   return "editableHistory";
 }
 
-function updateStateTintOverlay() {
+function updateStateTintOverlay(frameDt = 1 / 60) {
   const key = resolveTimeStateKey();
-  if (key === lastStateTintKey) return;
-  lastStateTintKey = key;
-  if (!key) {
+  if (key !== lastStateTintKey) {
+    lastStateTintKey = key;
+    if (!key) {
+      stateTintTargetAlpha = 0;
+    } else {
+      const color = TIME_STATE_COLORS[key];
+      const rgb = toColorRgb01(color);
+      stateTintTargetR = rgb.r;
+      stateTintTargetG = rgb.g;
+      stateTintTargetB = rgb.b;
+      stateTintTargetAlpha = TIME_STATE_FILTER_ALPHA;
+      if (stateTintCurrentAlpha <= 0.0001) {
+        stateTintCurrentR = stateTintTargetR;
+        stateTintCurrentG = stateTintTargetG;
+        stateTintCurrentB = stateTintTargetB;
+      }
+    }
+  }
+
+  const dt = Number.isFinite(frameDt) ? Math.max(0, Number(frameDt)) : 1 / 60;
+  const step = Math.min(1, dt / STATE_TINT_TRANSITION_SEC);
+  stateTintCurrentR = lerp(stateTintCurrentR, stateTintTargetR, step);
+  stateTintCurrentG = lerp(stateTintCurrentG, stateTintTargetG, step);
+  stateTintCurrentB = lerp(stateTintCurrentB, stateTintTargetB, step);
+  stateTintCurrentAlpha = lerp(stateTintCurrentAlpha, stateTintTargetAlpha, step);
+
+  if (
+    Math.abs(stateTintCurrentAlpha - stateTintTargetAlpha) < 0.0005 &&
+    Math.abs(stateTintCurrentR - stateTintTargetR) < 0.001 &&
+    Math.abs(stateTintCurrentG - stateTintTargetG) < 0.001 &&
+    Math.abs(stateTintCurrentB - stateTintTargetB) < 0.001
+  ) {
+    stateTintCurrentR = stateTintTargetR;
+    stateTintCurrentG = stateTintTargetG;
+    stateTintCurrentB = stateTintTargetB;
+    stateTintCurrentAlpha = stateTintTargetAlpha;
+  }
+
+  if (stateTintCurrentAlpha <= 0.0001 && stateTintTargetAlpha <= 0.0001) {
     stateTintOverlay.visible = false;
     return;
   }
-  const color = TIME_STATE_COLORS[key];
+
   stateTintOverlay.visible = true;
-  stateTintOverlay.tint = Number.isFinite(color) ? color : 0xffffff;
-  stateTintOverlay.alpha = TIME_STATE_FILTER_ALPHA;
+  stateTintOverlay.tint = toHexColor(
+    stateTintCurrentR,
+    stateTintCurrentG,
+    stateTintCurrentB
+  );
+  stateTintOverlay.alpha = Math.max(0, Math.min(1, stateTintCurrentAlpha));
 }
 
 redrawStateTintOverlayBounds();
@@ -461,6 +535,7 @@ function clearExternalUiFocus() {
 }
 
 function setMainUiVisible(visible) {
+  uiLayers.backgroundLayer.visible = visible;
   uiLayers.tileLayer.visible = visible;
   uiLayers.eventLayer.visible = visible;
   uiLayers.envStructuresLayer.visible = visible;
@@ -1104,6 +1179,16 @@ const playfieldShader = createPlayfieldMuchaStyle({
   getState: () => runner.getState(),
   getTimeline: () => runner.getTimeline(),
   getPreviewStatus: () => runner.getPreviewStatus?.(),
+  getViewportSize: () => ({
+    width: app.screen.width,
+    height: app.screen.height,
+  }),
+});
+
+backdropView = createBackdropView({
+  app,
+  layer: uiLayers.backgroundLayer,
+  paintStyleController: playfieldShader,
 });
 
 const boardView = createBoardView({
@@ -1358,6 +1443,7 @@ const chromeView = createChromeView({
   app,
   layer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
+  paintStyleController: playfieldShader,
 });
 
 // NEW: Sun/Moon rotating disks HUD view
@@ -1625,6 +1711,7 @@ runner.init();
 interactionController.init();
 tooltipView.init();
 inventoryView.init();
+backdropView.init();
 boardView.init();
 pawnsView.init();
 processWidgetView.init();
@@ -1684,7 +1771,8 @@ app.ticker.add((delta) => {
   const frameDt = delta / 60;
   runTimed("runner.update", () => runner.update(frameDt));
   runTimed("playfieldShader.update", () => playfieldShader.update());
-  runTimed("stateTint.update", () => updateStateTintOverlay());
+  runTimed("backdrop.update", () => backdropView.update(frameDt));
+  runTimed("stateTint.update", () => updateStateTintOverlay(frameDt));
   runTimed("queuedActions.flush", () => flushQueuedActions());
   runTimed("interaction.update", () => interactionController.update(frameDt));
   runTimed("envEventDeck.update", () => envEventDeckView.update(frameDt));

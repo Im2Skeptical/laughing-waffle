@@ -27,15 +27,28 @@ function getScreenHeight(app) {
   return Math.max(1, height);
 }
 
-export function createChromeView({ app, layer, getGameState }) {
+export function createChromeView({
+  app,
+  layer,
+  getGameState,
+  paintStyleController,
+}) {
   const root = new PIXI.Container();
   root.eventMode = "none";
   layer?.addChild(root);
 
-  const topbarBg = new PIXI.Graphics();
-  const centerPlate = new PIXI.Graphics();
+  const paintLayer = new PIXI.Container();
+  const inkLayer = new PIXI.Container();
+  root.addChild(paintLayer, inkLayer);
+
+  const topbarFill = new PIXI.Graphics();
+  const centerPlateFill = new PIXI.Graphics();
+  paintLayer.addChild(topbarFill, centerPlateFill);
+
+  const topbarDivider = new PIXI.Graphics();
+  const centerPlateBorder = new PIXI.Graphics();
   const centerPlateAccents = new PIXI.Graphics();
-  root.addChild(topbarBg, centerPlate, centerPlateAccents);
+  inkLayer.addChild(topbarDivider, centerPlateBorder, centerPlateAccents);
 
   const yearText = new PIXI.Text("", {
     fill: 0xf0ece1,
@@ -44,11 +57,26 @@ export function createChromeView({ app, layer, getGameState }) {
     fontWeight: "700",
   });
   yearText.anchor.set(0.5, 0.5);
-  root.addChild(yearText);
+  inkLayer.addChild(yearText);
 
   let lastScreenWidth = -1;
   let lastScreenHeight = -1;
   let lastYearLabel = "";
+  let paintRegistered = false;
+
+  function registerPaintLayer() {
+    if (paintRegistered) return;
+    paintStyleController?.registerPaintContainer?.(paintLayer, {
+      profile: "topbar",
+    });
+    paintRegistered = true;
+  }
+
+  function unregisterPaintLayer() {
+    if (!paintRegistered) return;
+    paintStyleController?.unregisterPaintContainer?.(paintLayer);
+    paintRegistered = false;
+  }
 
   function applyLayout() {
     const screenWidth = getScreenWidth(app);
@@ -70,19 +98,33 @@ export function createChromeView({ app, layer, getGameState }) {
     const plateX = Math.round((screenWidth - plateWidth) * 0.5);
     const plateY = 4;
 
-    topbarBg.clear();
-    topbarBg.beginFill(0x3b3639, 0.96);
-    topbarBg.drawRect(0, 0, screenWidth, barHeight);
-    topbarBg.endFill();
-    topbarBg.lineStyle(1, 0x7a6f66, 0.65);
-    topbarBg.moveTo(0, barHeight - 0.5);
-    topbarBg.lineTo(screenWidth, barHeight - 0.5);
+    topbarFill.clear();
+    topbarFill.beginFill(0x3b3639, 0.96);
+    topbarFill.drawRect(0, 0, screenWidth, barHeight);
+    topbarFill.endFill();
 
-    centerPlate.clear();
-    centerPlate.lineStyle(2, 0x72695f, 0.9);
-    centerPlate.beginFill(0x5a5552, 0.98);
-    centerPlate.drawRoundedRect(plateX, plateY, plateWidth, plateHeight, 12);
-    centerPlate.endFill();
+    topbarDivider.clear();
+    topbarDivider.lineStyle(1, 0x7a6f66, 0.65);
+    const dividerY = barHeight - 0.5;
+    const platePad = 10;
+    const leftEndX = Math.max(0, plateX - platePad);
+    const dividerRightStartX = Math.min(
+      screenWidth,
+      plateX + plateWidth + platePad
+    );
+    topbarDivider.moveTo(0, dividerY);
+    topbarDivider.lineTo(leftEndX, dividerY);
+    topbarDivider.moveTo(dividerRightStartX, dividerY);
+    topbarDivider.lineTo(screenWidth, dividerY);
+
+    centerPlateFill.clear();
+    centerPlateFill.beginFill(0x5a5552, 1);
+    centerPlateFill.drawRoundedRect(plateX, plateY, plateWidth, plateHeight, 12);
+    centerPlateFill.endFill();
+
+    centerPlateBorder.clear();
+    centerPlateBorder.lineStyle(2, 0x72695f, 0.9);
+    centerPlateBorder.drawRoundedRect(plateX, plateY, plateWidth, plateHeight, 12);
 
     centerPlateAccents.clear();
     centerPlateAccents.lineStyle(3, 0xb8a048, 0.85);
@@ -111,7 +153,10 @@ export function createChromeView({ app, layer, getGameState }) {
     );
 
     yearText.style.fontSize = clamp(Math.round(barHeight * 0.58), 22, 34);
-    yearText.position.set(Math.round(screenWidth * 0.5), Math.round(plateY + plateHeight * 0.5));
+    yearText.position.set(
+      Math.round(screenWidth * 0.5),
+      Math.round(plateY + plateHeight * 0.5)
+    );
   }
 
   function update() {
@@ -131,6 +176,7 @@ export function createChromeView({ app, layer, getGameState }) {
   }
 
   function init() {
+    registerPaintLayer();
     applyLayout();
     update();
   }
@@ -139,5 +185,11 @@ export function createChromeView({ app, layer, getGameState }) {
     applyLayout();
   }
 
-  return { init, refresh, update };
+  function destroy() {
+    unregisterPaintLayer();
+    if (root.parent) root.parent.removeChild(root);
+    root.destroy({ children: true });
+  }
+
+  return { init, refresh, update, destroy };
 }

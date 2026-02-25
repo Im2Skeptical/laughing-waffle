@@ -4,6 +4,10 @@ import {
   computeTimeWarp,
   getVisualTimeSec,
 } from "../src/views/filters/mucha-time-uniforms.js";
+import {
+  computeProfileAnimationWarp,
+  normalizeMuchaStyleConfig,
+} from "../src/views/playfield-mucha-style.js";
 
 function assertClose(actual, expected, epsilon = 1e-9) {
   assert.ok(
@@ -80,6 +84,55 @@ function assertClose(actual, expected, epsilon = 1e-9) {
   });
   assert.ok(warp.warp >= 0 && warp.warp <= 1);
   assert.ok(warp.normalizedDistance >= 0 && warp.normalizedDistance <= 1);
+}
+
+{
+  const cfg = normalizeMuchaStyleConfig({
+    intensity: 1.4,
+    mottling: 0.9,
+    warmth: 0.7,
+    grain: 0.8,
+    colorBleed: 0.25,
+    profiles: {
+      topbar: {
+        intensity: 0.5,
+        alwaysAnimated: true,
+      },
+    },
+  });
+  assert.equal(cfg.profiles.playfield.intensity, 1.4);
+  assert.equal(cfg.profiles.playfield.mottling, 0.9);
+  assert.equal(cfg.profiles.playfield.misregister, 0.25);
+  assert.equal(cfg.profiles.backdrop.alwaysAnimated, true);
+  assert.equal(cfg.profiles.topbar.intensity, 0.5);
+  assert.equal(cfg.profiles.topbar.alwaysAnimated, true);
+}
+
+{
+  const cfg = normalizeMuchaStyleConfig({
+    profiles: {
+      backdrop: {
+        intensity: 9,
+        vignetteInner: 0.95,
+        vignetteOuter: 0.1,
+        wobbleScale: 0,
+        misregisterMode: 0.2,
+      },
+    },
+  });
+  assert.equal(cfg.profiles.backdrop.intensity, 1.5);
+  assert.equal(cfg.profiles.backdrop.wobbleScale, 0.1);
+  assert.equal(cfg.profiles.backdrop.misregisterMode, 0);
+  assert.ok(
+    cfg.profiles.backdrop.vignetteOuter > cfg.profiles.backdrop.vignetteInner
+  );
+}
+
+{
+  const frontierWarp = computeProfileAnimationWarp(0, false);
+  const animatedWarp = computeProfileAnimationWarp(0, true);
+  assert.equal(frontierWarp, 0);
+  assert.ok(animatedWarp > 0);
 }
 
 console.log("[test] Playfield shader time uniforms OK");
