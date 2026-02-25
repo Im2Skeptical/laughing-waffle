@@ -54,6 +54,9 @@ export function createSkillTreeView({
   const buttonsLayout = skillTreeLayout?.buttons ?? {};
   const sideTextLayout = skillTreeLayout?.sideText ?? {};
   const graphBoundsLayout = skillTreeLayout?.layoutBounds ?? {};
+  const SAVE_BUTTON_WIDTH = 110;
+  const CANCEL_BUTTON_WIDTH = 110;
+  const EXIT_BUTTON_WIDTH = 110;
 
   const VIEWPORT_X = Number.isFinite(viewportLayout?.x)
     ? Math.floor(viewportLayout.x)
@@ -73,12 +76,17 @@ export function createSkillTreeView({
   const SIDE_TEXT_WIDTH = Number.isFinite(sideTextLayout?.width)
     ? Math.floor(sideTextLayout.width)
     : 390;
-  const SAVE_BUTTON_X = Number.isFinite(buttonsLayout?.saveExitX)
-    ? Math.floor(buttonsLayout.saveExitX)
+  const SAVE_BUTTON_X = Number.isFinite(buttonsLayout?.saveX)
+    ? Math.floor(buttonsLayout.saveX)
+    : Number.isFinite(buttonsLayout?.saveExitX)
+      ? Math.floor(buttonsLayout.saveExitX)
     : RIGHT_PANEL_X;
   const CANCEL_BUTTON_X = Number.isFinite(buttonsLayout?.cancelX)
     ? Math.floor(buttonsLayout.cancelX)
-    : 1690;
+    : SAVE_BUTTON_X + SAVE_BUTTON_WIDTH + 12;
+  const EXIT_BUTTON_X = Number.isFinite(buttonsLayout?.exitX)
+    ? Math.floor(buttonsLayout.exitX)
+    : CANCEL_BUTTON_X + CANCEL_BUTTON_WIDTH + 12;
   const EDITOR_BUTTON_X = Number.isFinite(buttonsLayout?.editorX)
     ? Math.floor(buttonsLayout.editorX)
     : 1800;
@@ -117,6 +125,14 @@ export function createSkillTreeView({
       ? Math.floor(graphBoundsLayout.leftPad)
       : 120,
   };
+  const EDGE_COLOR_LEARNED = 0x6bd37b;
+  const EDGE_COLOR_QUEUED = 0x58c7ff;
+  const NODE_TAG_TINT_BY_TAG = Object.freeze({
+    Blue: 0x68aefb,
+    Green: 0x72cf82,
+    Red: 0xd77575,
+    Black: 0x8a93a3,
+  });
 
   const root = new PIXI.Container();
   root.visible = false;
@@ -182,15 +198,26 @@ export function createSkillTreeView({
   root.addChild(viewportMask);
   viewport.mask = viewportMask;
 
-  const saveBtn = makeButton("Save/Exit", 160, () => saveAndExit());
+  // Keep panel text above the viewport even when viewport background is opaque.
+  root.addChild(title);
+  root.addChild(pointsText);
+  root.addChild(errorText);
+  root.addChild(infoText);
+
+  const saveBtn = makeButton("Save", SAVE_BUTTON_WIDTH, () => saveChanges());
   saveBtn.root.x = SAVE_BUTTON_X;
   saveBtn.root.y = 104;
   root.addChild(saveBtn.root);
 
-  const cancelBtn = makeButton("Cancel/Back", 160, () => cancelAndExit());
+  const cancelBtn = makeButton("Cancel", CANCEL_BUTTON_WIDTH, () => cancelQueuedChanges());
   cancelBtn.root.x = CANCEL_BUTTON_X;
   cancelBtn.root.y = 104;
   root.addChild(cancelBtn.root);
+
+  const exitBtn = makeButton("Exit", EXIT_BUTTON_WIDTH, () => exitSkillTree());
+  exitBtn.root.x = EXIT_BUTTON_X;
+  exitBtn.root.y = 104;
+  root.addChild(exitBtn.root);
 
   const editorBtn = makeButton("Editor", 90, () => openEditor());
   editorBtn.root.x = EDITOR_BUTTON_X;
@@ -294,6 +321,57 @@ export function createSkillTreeView({
       MIN_NODE_RADIUS,
       MAX_NODE_RADIUS
     );
+  }
+
+  function blendColor(baseColor, tintColor, strength = 0.18) {
+    const mix = clamp(strength, 0, 1);
+    const inv = 1 - mix;
+    const br = (baseColor >> 16) & 0xff;
+    const bg = (baseColor >> 8) & 0xff;
+    const bb = baseColor & 0xff;
+    const tr = (tintColor >> 16) & 0xff;
+    const tg = (tintColor >> 8) & 0xff;
+    const tb = tintColor & 0xff;
+    const nr = Math.round(br * inv + tr * mix);
+    const ng = Math.round(bg * inv + tg * mix);
+    const nb = Math.round(bb * inv + tb * mix);
+    return (nr << 16) | (ng << 8) | nb;
+  }
+
+  function getNodeTagTint(nodeDef) {
+    const tags = Array.isArray(nodeDef?.tags) ? nodeDef.tags : [];
+    let totalR = 0;
+    let totalG = 0;
+    let totalB = 0;
+    let count = 0;
+    for (const tag of tags) {
+      const tint = NODE_TAG_TINT_BY_TAG[tag];
+      if (!Number.isFinite(tint)) continue;
+      totalR += (tint >> 16) & 0xff;
+      totalG += (tint >> 8) & 0xff;
+      totalB += tint & 0xff;
+      count += 1;
+    }
+    if (!count) return null;
+    const avgR = Math.round(totalR / count);
+    const avgG = Math.round(totalG / count);
+    const avgB = Math.round(totalB / count);
+    return (avgR << 16) | (avgG << 8) | avgB;
+  }
+
+  function getNodeFillColor(nodeDef, status) {
+    const baseColor =
+      status === "unlocked"
+        ? 0x5dbb63
+        : status === "pending"
+          ? 0x4fa3ff
+          : status === "unlockable"
+            ? 0xe6c84f
+            : 0x3b4255;
+    const tint = getNodeTagTint(nodeDef);
+    if (!Number.isFinite(tint)) return baseColor;
+    const strength = status === "locked" ? 0.22 : 0.16;
+    return blendColor(baseColor, tint, strength);
   }
 
   function applyCamera() {
@@ -692,7 +770,7 @@ export function createSkillTreeView({
     }
 
     const focusNodeId = getInfoNodeId();
-    const { focusNodes, focusEdges } = getFocusSets(layout.edges || [], focusNodeId);
+    const { focusEdges } = getFocusSets(layout.edges || [], focusNodeId);
     const unlockedProjected = getBufferedUnlockedSet(state);
     const edgeLaneData = computeEdgeLaneData(layout.edges || [], positions);
 
@@ -723,6 +801,12 @@ export function createSkillTreeView({
       ) {
         continue;
       }
+
+      const edgeQueued =
+        (sa === "pending" && sb === "pending") ||
+        (sa === "pending" && sb === "unlocked") ||
+        (sa === "unlocked" && sb === "pending");
+      const edgeLearned = sa === "unlocked" && sb === "unlocked";
 
       let color = EDGE_COLOR;
       let alpha = EDGE_ALPHA * 0.26;
@@ -765,6 +849,27 @@ export function createSkillTreeView({
         alpha *= endAHot || endBHot ? 0.7 : 0.45;
       }
 
+      if (edgeLearned) {
+        color = EDGE_COLOR_LEARNED;
+        alpha = Math.max(
+          alpha,
+          edgeMode === EDGE_MODE_FOCUS && focusNodeId && !focusEdges.has(edgeKey)
+            ? 0.68
+            : 0.88
+        );
+        width = Math.max(width, 2.8);
+      }
+      if (edgeQueued) {
+        color = EDGE_COLOR_QUEUED;
+        alpha = Math.max(
+          alpha,
+          edgeMode === EDGE_MODE_FOCUS && focusNodeId && !focusEdges.has(edgeKey)
+            ? 0.78
+            : 0.97
+        );
+        width = Math.max(width, 3.2);
+      }
+
       edgeGraphics.lineStyle(width, color, alpha);
       const dx = pb.x - pa.x;
       const dy = pb.y - pa.y;
@@ -804,23 +909,15 @@ export function createSkillTreeView({
       const nodeRadius = getNodeRadius(nodeDef, treeDef);
       const isHovered = hoverNodeId === nodeId;
       const isSelected = selectedNodeId === nodeId;
-      const inFocusNeighborhood = !focusNodeId || focusNodes.has(nodeId);
 
       const node = new PIXI.Container();
       node.x = pos.x;
       node.y = pos.y;
       node.eventMode = "static";
       node.cursor = status === "unlockable" ? "pointer" : "default";
-      node.alpha = inFocusNeighborhood ? 1 : 0.36;
+      node.alpha = 1;
 
-      const fillColor =
-        status === "unlocked"
-          ? 0x5dbb63
-          : status === "pending"
-          ? 0x4fa3ff
-          : status === "unlockable"
-          ? 0xe6c84f
-          : 0x3b4255;
+      const fillColor = getNodeFillColor(nodeDef, status);
 
       const circle = new PIXI.Graphics();
       circle
@@ -829,7 +926,7 @@ export function createSkillTreeView({
           isHovered ? 0xffffff : 0xcfe8ff,
           1
         )
-        .beginFill(fillColor, status === "locked" ? 0.65 : 0.95)
+        .beginFill(fillColor, 1)
         .drawCircle(0, 0, nodeRadius)
         .endFill();
       node.addChild(circle);
@@ -1029,19 +1126,20 @@ export function createSkillTreeView({
     return ordered;
   }
 
-  function saveAndExit() {
+  function commitQueuedUnlocks() {
     const state = getState();
     if (!state?.paused) {
       errorText.text = "Skill changes can only be saved while paused.";
-      return;
+      return { ok: false, reason: "notPaused", unlocked: [] };
     }
     const leaderPawn = getLeaderPawn(state);
     if (!leaderPawn) {
       errorText.text = "No active leader pawn.";
-      return;
+      return { ok: false, reason: "noLeaderPawn", unlocked: [] };
     }
 
     const order = resolveCommitOrder(state, leaderPawn);
+    const unlocked = [];
     for (const nodeId of order) {
       const res = runner?.dispatchAction?.(
         ActionKinds.UNLOCK_SKILL_NODE,
@@ -1052,22 +1150,37 @@ export function createSkillTreeView({
         errorText.text = `Failed to unlock "${nodeId}": ${res?.reason || "unknown"}`;
         bufferUnlockIds.clear();
         renderTree();
-        return;
+        return { ok: false, reason: res?.reason || "unlockFailed", unlocked };
       }
+      unlocked.push(nodeId);
     }
-
-    const exitCb = onExit;
-    const leaderPawnId = activeLeaderPawnId;
-    close();
-    exitCb?.({
-      saved: true,
-      leaderPawnId,
-      pawnId: leaderPawnId,
-      unlocked: order,
-    });
+    bufferUnlockIds.clear();
+    return { ok: true, unlocked };
   }
 
-  function cancelAndExit() {
+  function saveChanges() {
+    const commit = commitQueuedUnlocks();
+    if (!commit?.ok) return;
+    const count = commit.unlocked.length;
+    errorText.text =
+      count > 0
+        ? `Saved ${count} queued ${count === 1 ? "skill" : "skills"}.`
+        : "No queued skill changes to save.";
+    renderTree();
+  }
+
+  function cancelQueuedChanges() {
+    const count = bufferUnlockIds.size;
+    bufferUnlockIds.clear();
+    errorText.text =
+      count > 0
+        ? `Canceled ${count} queued ${count === 1 ? "skill" : "skills"}.`
+        : "No queued skill changes to cancel.";
+    renderTree();
+  }
+
+  function exitSkillTree() {
+
     const exitCb = onExit;
     const leaderPawnId = activeLeaderPawnId;
     close();
@@ -1175,7 +1288,7 @@ export function createSkillTreeView({
       ? app.screen.height
       : VIEWPORT_DESIGN_HEIGHT;
     bg.clear();
-    bg.beginFill(0x0a1020, 0.98);
+    bg.beginFill(0x0a1020, 1);
     bg.drawRect(0, 0, width, height);
     bg.endFill();
 
@@ -1191,7 +1304,7 @@ export function createSkillTreeView({
     viewportMask.endFill();
 
     viewportBg.clear();
-    viewportBg.beginFill(0x111827, 0.24);
+    viewportBg.beginFill(0x111827, 1);
     viewportBg.lineStyle(2, 0x2a3350, 0.9);
     viewportBg.drawRoundedRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 12);
     viewportBg.endFill();

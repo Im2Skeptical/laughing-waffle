@@ -106,8 +106,9 @@ export const VIEW_LAYOUT = {
     panel: { x: 1910 },
     sideText: { width: 390 },
     buttons: {
-      saveExitX: 1910,
-      cancelX: 2090,
+      saveX: 1910,
+      cancelX: 2032,
+      exitX: 2154,
       editorX: 2200,
       zoomInX: 1910,
       zoomOutX: 2010,

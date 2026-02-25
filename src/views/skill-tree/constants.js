@@ -14,7 +14,7 @@ export const EDGE_LANE_STEP_DENSE = 14;
 export const EDGE_ENDPOINT_LANE_SCALE = 0.38;
 export const EDGE_CURVE_MAX_OFFSET = 64;
 
-export const MIN_ZOOM = 0.35;
+export const MIN_ZOOM = 0.15;
 export const MAX_ZOOM = 2.4;
 
 export const EDGE_MODE_ALL = "all";

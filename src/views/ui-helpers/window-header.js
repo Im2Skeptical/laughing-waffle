@@ -20,6 +20,12 @@ export function createWindowHeader(opts = {}) {
     pinStyle = { fill: 0xffffff, fontSize: 12 },
     closeText = "x",
     closeStyle = { fill: 0xffffff, fontSize: 12 },
+    closeButtonWidth = 42,
+    closeButtonHeight = 16,
+    closeButtonRadius = 4,
+    closeButtonBg = 0x4a5672,
+    closeButtonBgHover = 0x5b6b8f,
+    closeButtonStroke = 0xb7c8e8,
     pinOffsetX = 40,
     closeOffsetX = 20,
     hitAreaTopPadding = 0,
@@ -57,16 +63,56 @@ export function createWindowHeader(opts = {}) {
   }
 
   let closeNode = null;
+  let closeButton = null;
+  let closeButtonBgGraphic = null;
+  let closeHovered = false;
+
+  function drawCloseButton(buttonWidth, buttonHeight) {
+    if (!closeButtonBgGraphic) return;
+    closeButtonBgGraphic.clear();
+    closeButtonBgGraphic
+      .lineStyle(1, closeButtonStroke, 0.95)
+      .beginFill(closeHovered ? closeButtonBgHover : closeButtonBg, 0.98)
+      .drawRoundedRect(
+        0,
+        0,
+        buttonWidth,
+        buttonHeight,
+        Math.max(0, closeButtonRadius)
+      )
+      .endFill();
+  }
+
   if (showClose) {
     closeNode = new PIXI.Text(closeText, closeStyle);
-    closeNode.eventMode = "static";
-    closeNode.cursor = "pointer";
-    closeNode.on("pointerdown", (ev) => ev?.stopPropagation?.());
-    closeNode.on("pointertap", (ev) => {
+    closeNode.eventMode = "none";
+
+    closeButton = new PIXI.Container();
+    closeButton.eventMode = "static";
+    closeButton.cursor = "pointer";
+    closeButtonBgGraphic = new PIXI.Graphics();
+    closeButton.addChild(closeButtonBgGraphic);
+    closeButton.addChild(closeNode);
+    closeButton.on("pointerover", () => {
+      closeHovered = true;
+      drawCloseButton(
+        Math.max(30, Math.floor(closeButtonWidth)),
+        Math.max(14, Math.floor(closeButtonHeight))
+      );
+    });
+    closeButton.on("pointerout", () => {
+      closeHovered = false;
+      drawCloseButton(
+        Math.max(30, Math.floor(closeButtonWidth)),
+        Math.max(14, Math.floor(closeButtonHeight))
+      );
+    });
+    closeButton.on("pointerdown", (ev) => ev?.stopPropagation?.());
+    closeButton.on("pointertap", (ev) => {
       ev?.stopPropagation?.();
       onClose?.();
     });
-    header.addChild(closeNode);
+    header.addChild(closeButton);
   }
 
   let currentWidth = Number.isFinite(width) ? width : 0;
@@ -84,13 +130,30 @@ export function createWindowHeader(opts = {}) {
       height + topPad + bottomPad
     );
 
-    if (pinNode) {
-      pinNode.x = currentWidth - pinOffsetX;
-      pinNode.y = paddingY;
+    if (closeNode && closeButton) {
+      const buttonWidth = Math.max(30, Math.floor(closeButtonWidth));
+      const buttonHeight = Math.max(
+        14,
+        Math.min(height - 4, Math.floor(closeButtonHeight))
+      );
+      closeButton.x = Math.max(0, currentWidth - closeOffsetX - buttonWidth);
+      closeButton.y = Math.floor((height - buttonHeight) / 2);
+      closeButton.hitArea = new PIXI.Rectangle(0, 0, buttonWidth, buttonHeight);
+      drawCloseButton(buttonWidth, buttonHeight);
+      closeNode.x = Math.floor((buttonWidth - closeNode.width) / 2);
+      closeNode.y = Math.floor((buttonHeight - closeNode.height) / 2);
     }
-    if (closeNode) {
-      closeNode.x = currentWidth - closeOffsetX;
-      closeNode.y = paddingY;
+    if (pinNode) {
+      const preferredPinX = currentWidth - pinOffsetX;
+      if (closeButton) {
+        pinNode.x = Math.min(
+          preferredPinX,
+          closeButton.x - Math.max(8, pinNode.width + 6)
+        );
+      } else {
+        pinNode.x = preferredPinX;
+      }
+      pinNode.y = paddingY;
     }
   }
 
@@ -158,6 +221,7 @@ export function createWindowHeader(opts = {}) {
     titleText,
     pinText: pinNode,
     closeText: closeNode,
+    closeButton,
     setPinned,
     setTitle,
     setWidth,

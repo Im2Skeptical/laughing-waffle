@@ -1366,7 +1366,7 @@ export function createSkillTreeEditorView({ app, layer, layout = null } = {}) {
 
   function redrawViewportFrame() {
     viewportBg.clear();
-    viewportBg.beginFill(0x101b34, 0.22);
+    viewportBg.beginFill(0x101b34, 1);
     viewportBg.lineStyle(edgeEditMode === EDGE_EDIT_MODE_NONE ? 2 : 3, getViewportBorderColor(), 0.95);
     viewportBg.drawRoundedRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 12);
     viewportBg.endFill();
@@ -2724,14 +2724,14 @@ export function createSkillTreeEditorView({ app, layer, layout = null } = {}) {
       ? app.screen.height
       : VIEWPORT_DESIGN_HEIGHT;
     bg.clear();
-    bg.beginFill(0x081224, 0.98);
+    bg.beginFill(0x081224, 1);
     bg.drawRect(0, 0, width, height);
     bg.endFill();
 
     const panelHeight = Math.max(240, height - 24);
     panelBg.clear();
-    panelBg.beginFill(0x0c172f, 0.98);
-    panelBg.lineStyle(2, 0x273f6d, 0.98);
+    panelBg.beginFill(0x0c172f, 1);
+    panelBg.lineStyle(2, 0x273f6d, 1);
     panelBg.drawRoundedRect(PANEL_X - 10, 12, PANEL_WIDTH, panelHeight, 12);
     panelBg.endFill();
 
