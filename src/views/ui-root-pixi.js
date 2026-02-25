@@ -72,6 +72,7 @@ import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
 import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
 import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
 import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrator.js";
+import { installGlobalTextStylePolicy } from "./ui-helpers/text-style-policy.js";
 
 const BOOT_VARIANT_FLAGS = normalizeVariantFlags(
   setupDefs?.[BOOT_SETUP_ID]?.variantFlags
@@ -94,6 +95,11 @@ export const app = new PIXI.Application({
   height: VIEWPORT_DESIGN_HEIGHT,
   backgroundColor: 0x57514b,
   antialias: true,
+});
+
+installGlobalTextStylePolicy(PIXI, {
+  fontFamily: "Georgia",
+  titleVariant: "small-caps",
 });
 
 document.body.appendChild(app.view);
@@ -370,8 +376,11 @@ function resolveTimeStateKey() {
       ? Math.max(0, Math.floor(preview.previewSec))
       : cursorSec;
 
-  // Live frontier is un-tinted.
-  if (sec >= historyEndSec) return null;
+  // Live frontier is un-tinted unless explicitly paused.
+  if (sec >= historyEndSec) {
+    if (cursorState?.paused === true) return "paused";
+    return null;
+  }
 
   const status = runner.getEditWindowStatusAtSecond?.(sec);
   if (status?.ok === true) return "editableHistory";

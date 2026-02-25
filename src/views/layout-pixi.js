@@ -77,7 +77,7 @@ export const VIEW_LAYOUT = {
   debugOverlay: {
     anchorX: "right",
     anchorY: "top",
-    offsetX: -24,
+    offsetX: -10,
     offsetY: 4,
   },
   logs: {
@@ -141,7 +141,7 @@ export const VIEW_LAYOUT = {
     enabled: true,
     zIndex: 0,
     moon: {
-      x: 2000,
+      x: 2050,
       y: 400,
       scale: 0.5,
       alpha: 1.0,
@@ -151,7 +151,7 @@ export const VIEW_LAYOUT = {
       texturePath: "images/MoonDisk_01.png",
     },
     season: {
-      x: 2000,
+      x: 2050,
       y: 400,
       scale: 0.75,
       alpha: 1.0,
@@ -382,6 +382,7 @@ export const TIME_STATE_COLORS = Object.freeze({
   fixedHistory: 0x701313, // brown #701313
   editableHistory: 0xd18a3a, // orange
   forecast: 0x89c2ff, // light blue
+  paused: 0xb9a780, // muted parchment amber
 });
 export const TIME_STATE_GRAPH_BG_ALPHA = 0.2;
 export const TIME_STATE_FILTER_ALPHA = 0.12;

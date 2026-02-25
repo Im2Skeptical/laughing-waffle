@@ -181,7 +181,7 @@ export function createEventLogView({
 
   const collapsedMarker = new PIXI.Text(COLLAPSED_MARKER_TEXT, {
     fill: 0xffffff,
-    fontSize: 52,
+    fontSize: 36,
     fontWeight: "bold",
   });
   collapsedMarker.y = 12;

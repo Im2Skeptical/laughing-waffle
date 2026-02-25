@@ -14,6 +14,9 @@ export const TIME_CONTROLS_LAYOUT = {
   screenPadding: 16,
   verticalGapFromDiskPx: 0,
   diskTextureRadiusPx: 220,
+  // Relative alignment of button baselines against the lever track center.
+  // Positive moves buttons downward; negative moves buttons upward.
+  buttonAlignOffsetY: 1,
 };
 
 function clamp(value, min, max) {
@@ -118,12 +121,26 @@ export function createTimeControlsView({
   });
 
   const controls = [
-    { node: pauseButton, width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
-    { node: commitButton, width: BUTTON_WIDTH, height: BUTTON_HEIGHT },
+    {
+      node: pauseButton,
+      width: BUTTON_WIDTH,
+      height: BUTTON_HEIGHT,
+      alignHeight: BUTTON_HEIGHT,
+      role: "button",
+    },
+    {
+      node: commitButton,
+      width: BUTTON_WIDTH,
+      height: BUTTON_HEIGHT,
+      alignHeight: BUTTON_HEIGHT,
+      role: "button",
+    },
     {
       node: timeLeverView.container,
       width: timeLeverView.width,
       height: timeLeverView.height,
+      alignHeight: timeLeverView.trackHeight,
+      role: "lever",
     },
   ];
 
@@ -142,12 +159,22 @@ export function createTimeControlsView({
     const unclampedStartX = anchor.x - totalWidth * 0.5;
     const maxStartX = Math.max(screenPadding, app.screen.width - totalWidth - screenPadding);
     const startX = clamp(unclampedStartX, screenPadding, maxStartX);
-    const centerY = anchor.y + BUTTON_HEIGHT * 0.5;
+    const trackHeight = Number.isFinite(timeLeverView.trackHeight)
+      ? Math.max(1, timeLeverView.trackHeight)
+      : BUTTON_HEIGHT;
+    const rowCenterY = anchor.y + trackHeight * 0.5;
+    const buttonAlignOffsetY = Number.isFinite(layout?.buttonAlignOffsetY)
+      ? Number(layout.buttonAlignOffsetY)
+      : 0;
 
     let x = startX;
     for (const control of visibleControls) {
       control.node.x = x;
-      control.node.y = centerY - control.height * 0.5;
+      const alignHeight = Number.isFinite(control.alignHeight)
+        ? Math.max(1, control.alignHeight)
+        : control.height;
+      const alignOffsetY = control.role === "button" ? buttonAlignOffsetY : 0;
+      control.node.y = rowCenterY - alignHeight * 0.5 + alignOffsetY;
       x += control.width + gap;
     }
   }

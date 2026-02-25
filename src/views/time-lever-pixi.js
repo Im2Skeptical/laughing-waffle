@@ -7,7 +7,7 @@ export function createTimeLeverView({
   getTimeScale,
   setTimeScaleTarget,
   width = 220,
-  height = 36,
+  height = 50,
   handleWidth = 44,
   handleHeight = 28,
   margin = 4,
@@ -201,6 +201,7 @@ export function createTimeLeverView({
   return {
     container: timeLever,
     width,
+    trackHeight: height,
     height: fullHeight,
     update: updateTimeLever,
   };

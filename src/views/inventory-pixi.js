@@ -63,6 +63,8 @@ const ITEM_TIER_BORDER_COLORS = {
 const ITEM_GLYPH_COLOR = 0xffffff; //0xffffff
 const ITEM_GLYPH_SHADOW = 0x111111;
 const ITEM_GLYPH_ALPHA = 0.9;
+const ITEM_GLYPH_FONT_POLICY_FLAG = "__preserveFontFamily";
+const ITEM_GLYPH_NO_SMALLCAPS_FLAG = "__disableTitleSmallCaps";
 const EQUIP_PANEL_HEIGHT = 164;
 const EQUIP_PANEL_PADDING = 8;
 const EQUIP_SLOT_VISUAL_CELL_SIZE = 18;
@@ -2794,6 +2796,8 @@ export function createInventoryView({
     const glyphText = formatItemGlyphLabel(def, item);
     if (glyphText) {
       const glyph = new PIXI.Text(glyphText, {
+        [ITEM_GLYPH_FONT_POLICY_FLAG]: true,
+        [ITEM_GLYPH_NO_SMALLCAPS_FLAG]: true,
         fill: ITEM_GLYPH_COLOR,
         fontSize: 16,
         fontWeight: "bold",
@@ -2804,6 +2808,8 @@ export function createInventoryView({
       glyph.alpha = ITEM_GLYPH_ALPHA;
 
       const glyphShadow = new PIXI.Text(glyphText, {
+        [ITEM_GLYPH_FONT_POLICY_FLAG]: true,
+        [ITEM_GLYPH_NO_SMALLCAPS_FLAG]: true,
         fill: ITEM_GLYPH_SHADOW,
         fontSize: 16,
         fontWeight: "bold",
