@@ -139,6 +139,37 @@ function getItemTierBorderColor(item, def) {
   return ITEM_TIER_BORDER_COLORS[tier] ?? ITEM_TIER_BORDER_COLORS.default;
 }
 
+function extractAsciiLetters(text) {
+  if (typeof text !== "string" || text.length === 0) return "";
+  let out = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    const isUpper = code >= 65 && code <= 90;
+    const isLower = code >= 97 && code <= 122;
+    if (isUpper || isLower) out += text[i];
+  }
+  return out;
+}
+
+function formatItemGlyphLabel(def, item) {
+  const rawGlyph = def?.ui?.shortLabel ?? def?.shortLabel ?? "";
+  const explicitLetters = extractAsciiLetters(String(rawGlyph || "").trim());
+  let sourceLetters = explicitLetters;
+  if (sourceLetters.length < 2) {
+    const defName = def?.name ?? "";
+    const kindName = item?.kind ?? "";
+    sourceLetters =
+      extractAsciiLetters(String(defName)) +
+      extractAsciiLetters(String(kindName)) +
+      explicitLetters;
+  }
+  if (sourceLetters.length === 0) return "";
+  if (sourceLetters.length === 1) sourceLetters += sourceLetters;
+  const first = sourceLetters[0].toUpperCase();
+  const second = sourceLetters[1].toLowerCase();
+  return `${first}${second}`;
+}
+
 export function createInventoryView({
   layer,
   dragLayer,
@@ -2760,14 +2791,7 @@ export function createInventoryView({
     c.bg = box;
     c.bg.__baseTint = 0xffffff;
 
-    const defName = def?.name ?? item.kind ?? "";
-    const rawGlyph =
-      def?.ui?.shortLabel ??
-      def?.shortLabel ??
-      (typeof defName === "string" && defName.length > 0
-        ? defName.slice(0, 1)
-        : "");
-    const glyphText = String(rawGlyph || "").trim();
+    const glyphText = formatItemGlyphLabel(def, item);
     if (glyphText) {
       const glyph = new PIXI.Text(glyphText, {
         fill: ITEM_GLYPH_COLOR,

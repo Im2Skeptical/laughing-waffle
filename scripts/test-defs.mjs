@@ -16,6 +16,7 @@ import {
   skillNodes,
 } from "../src/defs/gamepieces/skill-tree-defs.js";
 import { INTENT_AP_COSTS } from "../src/defs/gamesettings/action-costs-defs.js";
+import { eventLogTypeDefs } from "../src/defs/gamesettings/event-log-types-defs.js";
 import { LEADER_EQUIPMENT_SLOT_ORDER } from "../src/defs/gamesystems/equipment-slot-defs.js";
 import { validateEnvDefs } from "../src/defs/validate-env-defs.js";
 import { validateSkillDefs } from "../src/defs/validate-skill-defs.js";
@@ -98,7 +99,27 @@ function validateCoreDefinitions() {
     LEADER_EQUIPMENT_SLOT_ORDER.length > 0,
     "[test] LEADER_EQUIPMENT_SLOT_ORDER is empty"
   );
+  assert.ok(
+    Object.keys(eventLogTypeDefs).length > 0,
+    "[test] eventLogTypeDefs is empty"
+  );
   console.log("[test] Core defs exports OK");
+}
+
+function validateEventLogTypeDefs() {
+  for (const [typeId, def] of Object.entries(eventLogTypeDefs)) {
+    assert.ok(def && typeof def === "object", `[test] eventLog type "${typeId}" missing def`);
+    const hasGlyph = Object.prototype.hasOwnProperty.call(def, "glyph");
+    if (!hasGlyph) continue;
+
+    const glyph = typeof def.glyph === "string" ? def.glyph.trim() : "";
+    assert.ok(glyph.length > 0, `[test] eventLog type "${typeId}" has empty glyph`);
+    assert.ok(
+      glyph.length <= 2,
+      `[test] eventLog type "${typeId}" glyph must be 1-2 chars, got "${glyph}"`
+    );
+  }
+  console.log("[test] Event log type glyph validation complete");
 }
 
 function validateEnvironmentDefsSoft() {
@@ -150,5 +171,6 @@ function validateSkillDefsHard() {
 
 await checkDefsBundleability();
 validateCoreDefinitions();
+validateEventLogTypeDefs();
 validateEnvironmentDefsSoft();
 validateSkillDefsHard();

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "serve",
     "build": "node scripts/build-check.mjs",
-    "test": "node scripts/test-defs.mjs && node scripts/test-hosting-paths.mjs && node scripts/test-timeline-scrub-regressions.mjs",
+    "test": "node scripts/test-defs.mjs && node scripts/test-event-log-controller.mjs && node scripts/test-hosting-paths.mjs && node scripts/test-timeline-scrub-regressions.mjs",
     "verify": "npm run test && npm run build",
     "skill:apply-export": "node scripts/apply-skill-editor-export.mjs"
   },

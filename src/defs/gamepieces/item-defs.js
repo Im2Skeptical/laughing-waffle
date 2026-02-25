@@ -574,6 +574,7 @@ export const itemDefs = {
     color: 0x8c78d0,  //#8c78d0
     maxStack: 1,
     baseTags: ["unique"],
+    defaultTier: "silver",
     defaultWidth: 2,
     defaultHeight: 2,
     onUse: [
@@ -612,6 +613,7 @@ export const itemDefs = {
     color: 0x8c78d0,  //#8c78d0
     maxStack: 1,
     baseTags: ["unique"],
+    defaultTier: "diamond",
     baseSystemTiers: { timegraph: "bronze" },
     baseSystemState: {
       timegraph: {
