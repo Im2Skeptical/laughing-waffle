@@ -67,6 +67,7 @@ import {
  *  - dispatchAction: (kind, payload, opts?) => any
  *  - queueActionWhenPaused?: (fn) => any
  *  - requestPauseForAction?: () => void
+ *  - paintStyleController?: { registerPaintContainer?: fn, unregisterPaintContainer?: fn }
  *  - setApDragWarning?: (active: boolean) => void
  */
 export function createBoardView(opts) {
@@ -86,6 +87,7 @@ export function createBoardView(opts) {
     dispatchAction,
     queueActionWhenPaused,
     requestPauseForAction,
+    paintStyleController,
     setApDragWarning,
     flashActionGhost,
     onSystemIconHover,
@@ -1102,6 +1104,14 @@ export function createBoardView(opts) {
     }
   }
 
+  function registerPaintContainer(container) {
+    paintStyleController?.registerPaintContainer?.(container);
+  }
+
+  function unregisterPaintContainer(container) {
+    paintStyleController?.unregisterPaintContainer?.(container);
+  }
+
   function createApOverlay(width, height, radius) {
     const overlay = new PIXI.Graphics();
     overlay
@@ -1433,6 +1443,10 @@ export function createBoardView(opts) {
     const content = new PIXI.Container();
     content.pivot.set(width / 2, height / 2);
     content.position.set(width / 2, height / 2);
+    const contentShadow = new PIXI.Container();
+    const contentPaint = new PIXI.Container();
+    const contentInk = new PIXI.Container();
+    content.addChild(contentShadow, contentPaint, contentInk);
 
     const shadow = new PIXI.Graphics()
       .beginFill(GAMEPIECE_SHADOW_COLOR, GAMEPIECE_SHADOW_ALPHA)
@@ -1445,7 +1459,7 @@ export function createBoardView(opts) {
       )
       .endFill();
     shadow.visible = false;
-    content.addChild(shadow);
+    contentShadow.addChild(shadow);
 
     container.addChild(content);
 
@@ -1464,7 +1478,7 @@ export function createBoardView(opts) {
       }
     }
 
-    return { content, setActive };
+    return { content, contentPaint, contentInk, setActive };
   }
 
   function getScaledAnchorRect(container, width, height, scale) {
@@ -1949,6 +1963,18 @@ export function createBoardView(opts) {
     if (container?.parent) container.parent.removeChild(container);
   }
 
+  function unregisterPaintForHoverView(view) {
+    unregisterPaintContainer(view?.contentPaint);
+  }
+
+  function unregisterAreaChromePaint(chrome) {
+    if (!chrome) return;
+    unregisterPaintContainer(chrome.regionBoardPaintLayer);
+    unregisterPaintContainer(chrome.hubBoardPaintLayer);
+    unregisterPaintContainer(chrome.regionHeader?.paintLayer);
+    unregisterPaintContainer(chrome.hubHeader?.paintLayer);
+  }
+
   function getAreaDisplayName(state, areaKind) {
     const key = areaKind === "hub" ? "hub" : "region";
     const fallback = AREA_NAME_FALLBACKS[key];
@@ -2007,8 +2033,12 @@ export function createBoardView(opts) {
     container.eventMode = "static";
     container.cursor = "pointer";
 
-    const bg = new PIXI.Graphics();
+    const paintLayer = new PIXI.Container();
+    const inkLayer = new PIXI.Container();
+    const paintBg = new PIXI.Graphics();
+    const border = new PIXI.Graphics();
     const accents = new PIXI.Graphics();
+    border.eventMode = "none";
     accents.eventMode = "none";
     const text = new PIXI.Text("", {
       fill: 0xf3efe4,
@@ -2018,23 +2048,36 @@ export function createBoardView(opts) {
     });
     text.anchor.set(0.5, 0.5);
 
-    container.addChild(bg, accents, text);
+    paintLayer.addChild(paintBg);
+    inkLayer.addChild(border, accents, text);
+    container.addChild(paintLayer, inkLayer);
 
     container.on("pointerover", () => {
-      bg.alpha = 1;
+      paintBg.alpha = 1;
+      border.alpha = 1;
       accents.alpha = 1;
     });
     container.on("pointerout", () => {
-      bg.alpha = 0.94;
+      paintBg.alpha = 0.94;
+      border.alpha = 0.92;
       accents.alpha = 0.86;
     });
     container.on("pointertap", (ev) => {
       ev?.stopPropagation?.();
       onRename?.();
     });
-    bg.alpha = 0.94;
+    paintBg.alpha = 0.94;
+    border.alpha = 0.92;
     accents.alpha = 0.86;
-    return { container, bg, accents, text };
+    return {
+      container,
+      paintLayer,
+      inkLayer,
+      paintBg,
+      border,
+      accents,
+      text,
+    };
   }
 
   function drawAreaHeaderChrome(header, width, height) {
@@ -2042,11 +2085,14 @@ export function createBoardView(opts) {
     const w = Math.max(180, Math.floor(width));
     const h = Math.max(36, Math.floor(height));
     const r = Math.max(8, Math.floor(h * 0.25));
-    header.bg.clear();
-    header.bg.lineStyle(2, 0x73695f, 0.92);
-    header.bg.beginFill(0x565252, 0.98);
-    header.bg.drawRoundedRect(0, 0, w, h, r);
-    header.bg.endFill();
+    header.paintBg.clear();
+    header.paintBg.beginFill(0x565252, 0.98);
+    header.paintBg.drawRoundedRect(0, 0, w, h, r);
+    header.paintBg.endFill();
+
+    header.border.clear();
+    header.border.lineStyle(2, 0x73695f, 0.92);
+    header.border.drawRoundedRect(0, 0, w, h, r);
 
     header.accents.clear();
     header.accents.lineStyle(3, 0xb69e45, 0.86);
@@ -2078,15 +2124,31 @@ export function createBoardView(opts) {
 
   function ensureAreaChrome() {
     if (areaChrome) return areaChrome;
-    const regionBoardBg = new PIXI.Graphics();
-    regionBoardBg.eventMode = "none";
-    regionBoardBg.zIndex = -200;
-    tileLayer?.addChild(regionBoardBg);
+    const regionBoardContainer = new PIXI.Container();
+    regionBoardContainer.eventMode = "none";
+    regionBoardContainer.zIndex = -200;
+    const regionBoardPaintLayer = new PIXI.Container();
+    const regionBoardInkLayer = new PIXI.Container();
+    const regionBoardFill = new PIXI.Graphics();
+    const regionBoardFrame = new PIXI.Graphics();
+    const regionBoardInner = new PIXI.Graphics();
+    regionBoardPaintLayer.addChild(regionBoardFill);
+    regionBoardInkLayer.addChild(regionBoardFrame, regionBoardInner);
+    regionBoardContainer.addChild(regionBoardPaintLayer, regionBoardInkLayer);
+    tileLayer?.addChild(regionBoardContainer);
 
-    const hubBoardBg = new PIXI.Graphics();
-    hubBoardBg.eventMode = "none";
-    hubBoardBg.zIndex = -200;
-    tileLayer?.addChild(hubBoardBg);
+    const hubBoardContainer = new PIXI.Container();
+    hubBoardContainer.eventMode = "none";
+    hubBoardContainer.zIndex = -200;
+    const hubBoardPaintLayer = new PIXI.Container();
+    const hubBoardInkLayer = new PIXI.Container();
+    const hubBoardFill = new PIXI.Graphics();
+    const hubBoardFrame = new PIXI.Graphics();
+    const hubBoardInner = new PIXI.Graphics();
+    hubBoardPaintLayer.addChild(hubBoardFill);
+    hubBoardInkLayer.addChild(hubBoardFrame, hubBoardInner);
+    hubBoardContainer.addChild(hubBoardPaintLayer, hubBoardInkLayer);
+    tileLayer?.addChild(hubBoardContainer);
 
     const regionHeader = createAreaHeaderChrome(() => promptForAreaRename("region"));
     regionHeader.container.zIndex = -120;
@@ -2097,10 +2159,22 @@ export function createBoardView(opts) {
     tileLayer?.addChild(hubHeader.container);
 
     areaChrome = {
-      regionBoardBg,
-      hubBoardBg,
+      regionBoardContainer,
+      regionBoardPaintLayer,
+      regionBoardFill,
+      regionBoardFrame,
+      regionBoardInner,
+      hubBoardContainer,
+      hubBoardPaintLayer,
+      hubBoardFill,
+      hubBoardFrame,
+      hubBoardInner,
       regionHeader,
       hubHeader,
+      regionBoardPaintRegistered: false,
+      hubBoardPaintRegistered: false,
+      regionHeaderPaintRegistered: false,
+      hubHeaderPaintRegistered: false,
       layoutKey: "",
       regionName: "",
       hubName: "",
@@ -2162,19 +2236,30 @@ export function createBoardView(opts) {
     ].join("|");
 
     if (layoutKey !== chrome.layoutKey) {
-      chrome.regionBoardBg.clear();
-      chrome.regionBoardBg.lineStyle(4, 0x777168, 0.9);
-      chrome.regionBoardBg.beginFill(0x5f5b56, 0.72);
-      chrome.regionBoardBg.drawRoundedRect(
+      chrome.regionBoardFill.clear();
+      chrome.regionBoardFill.beginFill(0x5f5b56, 0.72);
+      chrome.regionBoardFill.drawRoundedRect(
         regionPanelX,
         regionPanelY,
         regionPanelW,
         regionPanelH,
         20
       );
-      chrome.regionBoardBg.endFill();
-      chrome.regionBoardBg.lineStyle(2, 0x8f867a, 0.24);
-      chrome.regionBoardBg.drawRoundedRect(
+      chrome.regionBoardFill.endFill();
+
+      chrome.regionBoardFrame.clear();
+      chrome.regionBoardFrame.lineStyle(4, 0x777168, 0.9);
+      chrome.regionBoardFrame.drawRoundedRect(
+        regionPanelX,
+        regionPanelY,
+        regionPanelW,
+        regionPanelH,
+        20
+      );
+
+      chrome.regionBoardInner.clear();
+      chrome.regionBoardInner.lineStyle(2, 0x8f867a, 0.24);
+      chrome.regionBoardInner.drawRoundedRect(
         regionPanelX + 8,
         regionPanelY + 8,
         Math.max(1, regionPanelW - 16),
@@ -2182,13 +2267,18 @@ export function createBoardView(opts) {
         14
       );
 
-      chrome.hubBoardBg.clear();
-      chrome.hubBoardBg.lineStyle(4, 0x777168, 0.9);
-      chrome.hubBoardBg.beginFill(0x5f5b56, 0.72);
-      chrome.hubBoardBg.drawRoundedRect(hubPanelX, hubPanelY, hubPanelW, hubPanelH, 20);
-      chrome.hubBoardBg.endFill();
-      chrome.hubBoardBg.lineStyle(2, 0x8f867a, 0.24);
-      chrome.hubBoardBg.drawRoundedRect(
+      chrome.hubBoardFill.clear();
+      chrome.hubBoardFill.beginFill(0x5f5b56, 0.72);
+      chrome.hubBoardFill.drawRoundedRect(hubPanelX, hubPanelY, hubPanelW, hubPanelH, 20);
+      chrome.hubBoardFill.endFill();
+
+      chrome.hubBoardFrame.clear();
+      chrome.hubBoardFrame.lineStyle(4, 0x777168, 0.9);
+      chrome.hubBoardFrame.drawRoundedRect(hubPanelX, hubPanelY, hubPanelW, hubPanelH, 20);
+
+      chrome.hubBoardInner.clear();
+      chrome.hubBoardInner.lineStyle(2, 0x8f867a, 0.24);
+      chrome.hubBoardInner.drawRoundedRect(
         hubPanelX + 8,
         hubPanelY + 8,
         Math.max(1, hubPanelW - 16),
@@ -2229,6 +2319,23 @@ export function createBoardView(opts) {
         hubPanelY - HUB_HEADER_HEIGHT * 0.62 + HUB_HEADER_OFFSET_Y
       );
       chrome.layoutKey = layoutKey;
+    }
+
+    if (!chrome.regionBoardPaintRegistered) {
+      registerPaintContainer(chrome.regionBoardPaintLayer);
+      chrome.regionBoardPaintRegistered = true;
+    }
+    if (!chrome.hubBoardPaintRegistered) {
+      registerPaintContainer(chrome.hubBoardPaintLayer);
+      chrome.hubBoardPaintRegistered = true;
+    }
+    if (!chrome.regionHeaderPaintRegistered) {
+      registerPaintContainer(chrome.regionHeader?.paintLayer);
+      chrome.regionHeaderPaintRegistered = true;
+    }
+    if (!chrome.hubHeaderPaintRegistered) {
+      registerPaintContainer(chrome.hubHeader?.paintLayer);
+      chrome.hubHeaderPaintRegistered = true;
     }
 
     const regionName = getAreaDisplayName(state, "region");
@@ -2711,7 +2818,7 @@ export function createBoardView(opts) {
       });
       t.x = 6;
       t.y = y;
-      view.content.addChild(t);
+      view.contentInk.addChild(t);
       view.lineTextNodes.push(t);
       y += t.height + 1;
       if (y > maxLineY) break;
@@ -2764,7 +2871,12 @@ export function createBoardView(opts) {
     cont.cursor = "pointer";
     const hoverTextNodes = [];
     const hoverTextBaseNodes = [];
-    const { content, setActive: setHoverActive } = attachHoverFx(
+    const {
+      content,
+      contentPaint,
+      contentInk,
+      setActive: setHoverActive,
+    } = attachHoverFx(
       cont,
       TILE_WIDTH,
       TILE_HEIGHT,
@@ -2772,14 +2884,14 @@ export function createBoardView(opts) {
       () => hoverTextNodes
     );
 
-    content.addChild(
+    contentPaint.addChild(
       new PIXI.Graphics()
         .beginFill(0x3a3a3a)
         .drawRoundedRect(0, 0, TILE_WIDTH, TILE_HEIGHT, 8)
         .endFill()
     );
 
-    content.addChild(
+    contentPaint.addChild(
       new PIXI.Graphics()
         .beginFill(color)
         .drawRoundedRect(3, 3, TILE_WIDTH - 6, TILE_HEIGHT - 6, 6)
@@ -2788,8 +2900,8 @@ export function createBoardView(opts) {
 
     const forageActivityOverlay = createTileActivityOverlay(ACTIVITY_FORAGE_COLOR);
     const fishActivityOverlay = createTileActivityOverlay(ACTIVITY_FISH_COLOR);
-    content.addChild(forageActivityOverlay);
-    content.addChild(fishActivityOverlay);
+    contentPaint.addChild(forageActivityOverlay);
+    contentPaint.addChild(fishActivityOverlay);
 
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
@@ -2799,7 +2911,7 @@ export function createBoardView(opts) {
     });
     titleText.x = 6;
     titleText.y = 6;
-    content.addChild(titleText);
+    contentInk.addChild(titleText);
 
     const tagContainer = new PIXI.Container();
     const tagStartY = titleText.y + titleText.height + 4;
@@ -2809,7 +2921,7 @@ export function createBoardView(opts) {
       Math.round((TILE_WIDTH - TAG_LAYOUT.PILL_WIDTH) / 2)
     );
     tagContainer.y = tagStartY;
-    content.addChild(tagContainer);
+    contentInk.addChild(tagContainer);
 
     const pawnBadge = new PIXI.Container();
     const pawnBg = new PIXI.Graphics()
@@ -2825,28 +2937,28 @@ export function createBoardView(opts) {
     pawnBadge.x = TILE_WIDTH - 12;
     pawnBadge.y = 0;
     pawnBadge.visible = false;
-    content.addChild(pawnBadge);
+    contentInk.addChild(pawnBadge);
 
     const feedbackLayer = new PIXI.Container();
     feedbackLayer.eventMode = "none";
     feedbackLayer.zIndex = 1;
-    content.addChild(feedbackLayer);
+    contentInk.addChild(feedbackLayer);
 
     const apOverlay = createApOverlay(TILE_WIDTH, TILE_HEIGHT, 8);
-    content.addChild(apOverlay);
+    contentInk.addChild(apOverlay);
 
     const pawnLandingOverlay = createPawnLandingOverlay(
       TILE_WIDTH,
       TILE_HEIGHT,
       8
     );
-    content.addChild(pawnLandingOverlay);
+    contentInk.addChild(pawnLandingOverlay);
 
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
     focusOutline.drawRoundedRect(2, 2, TILE_WIDTH - 4, TILE_HEIGHT - 4, 6);
     focusOutline.visible = false;
-    content.addChild(focusOutline);
+    contentInk.addChild(focusOutline);
 
     hoverTextBaseNodes.push(titleText, pawnText);
     hoverTextNodes.push(...hoverTextBaseNodes);
@@ -2903,6 +3015,7 @@ export function createBoardView(opts) {
         holdHover: false,
         hoverHoldMove: null,
         holdHoverForOccupant: false,
+      contentPaint,
       pawnBadge,
       pawnText,
       feedbackLayer,
@@ -2923,6 +3036,7 @@ export function createBoardView(opts) {
 
     tagUi?.rebuildTileTags?.(view, tileInst);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    registerPaintContainer(contentPaint);
     bindTouchLongPress({
       app,
       target: cont,
@@ -2994,7 +3108,12 @@ export function createBoardView(opts) {
     cont.cursor = "pointer";
     cont.zIndex = 5;
     const hoverTextNodes = [];
-    const { content, setActive: setHoverActive } = attachHoverFx(
+    const {
+      content,
+      contentPaint,
+      contentInk,
+      setActive: setHoverActive,
+    } = attachHoverFx(
       cont,
       width,
       EVENT_HEIGHT,
@@ -3002,14 +3121,14 @@ export function createBoardView(opts) {
       () => hoverTextNodes
     );
 
-    content.addChild(
+    contentPaint.addChild(
       new PIXI.Graphics()
         .beginFill(0x2f2f2f)
         .drawRoundedRect(0, 0, width, EVENT_HEIGHT, 8)
         .endFill()
     );
 
-    content.addChild(
+    contentPaint.addChild(
       new PIXI.Graphics()
         .beginFill(color)
         .drawRoundedRect(3, 3, width - 6, EVENT_HEIGHT - 6, 6)
@@ -3020,18 +3139,18 @@ export function createBoardView(opts) {
     timerBorderBase
       .lineStyle(1, 0x111827, 0.85)
       .drawRoundedRect(1, 1, width - 2, EVENT_HEIGHT - 2, 8);
-    content.addChild(timerBorderBase);
+    contentInk.addChild(timerBorderBase);
 
     const drainBorderColor = mixHexColor(color, 0xffffff, 0.42);
     const timerDrainBorder = new PIXI.Graphics();
     timerDrainBorder
       .lineStyle(3, drainBorderColor, 0.95)
       .drawRoundedRect(1.5, 1.5, width - 3, EVENT_HEIGHT - 3, 7);
-    content.addChild(timerDrainBorder);
+    contentInk.addChild(timerDrainBorder);
 
     const timerDrainMask = new PIXI.Graphics();
     timerDrainMask.eventMode = "none";
-    content.addChild(timerDrainMask);
+    contentInk.addChild(timerDrainMask);
     timerDrainBorder.mask = timerDrainMask;
 
     const titleText = new PIXI.Text(title, {
@@ -3042,7 +3161,7 @@ export function createBoardView(opts) {
     });
     titleText.x = 6;
     titleText.y = 4;
-    content.addChild(titleText);
+    contentInk.addChild(titleText);
 
     const descText = new PIXI.Text(desc, {
       fill: 0x101010,
@@ -3052,7 +3171,7 @@ export function createBoardView(opts) {
     });
     descText.x = 6;
     descText.y = titleText.y + titleText.height + 1;
-    content.addChild(descText);
+    contentInk.addChild(descText);
 
     const remainingText = new PIXI.Text("", {
       fill: 0x101010,
@@ -3060,7 +3179,7 @@ export function createBoardView(opts) {
     });
     remainingText.x = 6;
     remainingText.y = EVENT_HEIGHT - 16;
-    content.addChild(remainingText);
+    contentInk.addChild(remainingText);
 
     hoverTextNodes.push(titleText, descText, remainingText);
 
@@ -3073,6 +3192,7 @@ export function createBoardView(opts) {
       timerDrainMask,
       hoverTextNodes,
       setHoverActive,
+      contentPaint,
     };
 
     cont.on("pointerenter", () => {
@@ -3118,6 +3238,7 @@ export function createBoardView(opts) {
     eventLayer.addChild(cont);
 
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    registerPaintContainer(contentPaint);
     bindTouchLongPress({
       app,
       target: cont,
@@ -3218,7 +3339,12 @@ export function createBoardView(opts) {
     cont.cursor = "pointer";
     cont.zIndex = 4;
     const hoverTextNodes = [];
-    const { content, setActive: setHoverActive } = attachHoverFx(
+    const {
+      content,
+      contentPaint,
+      contentInk,
+      setActive: setHoverActive,
+    } = attachHoverFx(
       cont,
       width,
       height,
@@ -3230,13 +3356,13 @@ export function createBoardView(opts) {
       .beginFill(0x2f2f2f)
       .drawRoundedRect(0, 0, width, height, 8)
       .endFill();
-    content.addChild(baseBg);
+    contentPaint.addChild(baseBg);
 
     const cardFill = new PIXI.Graphics()
       .beginFill(color)
       .drawRoundedRect(3, 3, width - 6, height - 6, 6)
       .endFill();
-    content.addChild(cardFill);
+    contentPaint.addChild(cardFill);
 
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
@@ -3246,7 +3372,7 @@ export function createBoardView(opts) {
     });
     titleText.x = 6;
     titleText.y = 5;
-    content.addChild(titleText);
+    contentInk.addChild(titleText);
 
     const descText = new PIXI.Text(desc, {
       fill: 0x101010,
@@ -3257,7 +3383,7 @@ export function createBoardView(opts) {
     });
     descText.x = 6;
     descText.y = titleText.y + titleText.height + 2;
-    content.addChild(descText);
+    contentInk.addChild(descText);
     hoverTextNodes.push(titleText, descText);
 
     const view = {
@@ -3271,6 +3397,7 @@ export function createBoardView(opts) {
       cardFillColor: color,
       hoverTextNodes,
       setHoverActive,
+      contentPaint,
     };
 
     cont.on("pointerenter", () => {
@@ -3304,6 +3431,7 @@ export function createBoardView(opts) {
 
     envStructuresLayer.addChild(cont);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    registerPaintContainer(contentPaint);
     bindTouchLongPress({
       app,
       target: cont,
@@ -3376,7 +3504,12 @@ export function createBoardView(opts) {
     cont.zIndex = 1;
     const hoverTextNodes = [];
     const hoverTextBaseNodes = [];
-    const { content, setActive: setHoverActive } = attachHoverFx(
+    const {
+      content,
+      contentPaint,
+      contentInk,
+      setActive: setHoverActive,
+    } = attachHoverFx(
       cont,
       width,
       height,
@@ -3388,13 +3521,13 @@ export function createBoardView(opts) {
       .beginFill(0x3a3a3a)
       .drawRoundedRect(0, 0, width, height, 10)
       .endFill();
-    content.addChild(baseBg);
+    contentPaint.addChild(baseBg);
 
     const cardFill = new PIXI.Graphics()
       .beginFill(color)
       .drawRoundedRect(3, 3, width - 6, height - 6, 8)
       .endFill();
-    content.addChild(cardFill);
+    contentPaint.addChild(cardFill);
 
     const titleText = new PIXI.Text(title, {
       fill: 0xffffff,
@@ -3404,7 +3537,7 @@ export function createBoardView(opts) {
     });
     titleText.x = 6;
     titleText.y = 6;
-    content.addChild(titleText);
+    contentInk.addChild(titleText);
     hoverTextBaseNodes.push(titleText);
     hoverTextNodes.push(titleText);
 
@@ -3419,7 +3552,7 @@ export function createBoardView(opts) {
       });
       t.x = 6;
       t.y = y;
-      content.addChild(t);
+      contentInk.addChild(t);
       lineTextNodes.push(t);
       hoverTextBaseNodes.push(t);
       hoverTextNodes.push(t);
@@ -3430,7 +3563,7 @@ export function createBoardView(opts) {
     let meterViews = [];
     if (meters.length > 0) {
       const meterResult = createMeters(
-        content,
+        contentInk,
         meters,
         structureInst,
         y + 2,
@@ -3451,26 +3584,26 @@ export function createBoardView(opts) {
       Math.round((width - HUB_TAG_LAYOUT.PILL_WIDTH) / 2)
     );
     tagContainer.y = tagStartY;
-    content.addChild(tagContainer);
+    contentInk.addChild(tagContainer);
 
     const apOverlay = createApOverlay(width, height, 10);
-    content.addChild(apOverlay);
+    contentInk.addChild(apOverlay);
 
     const pawnLandingOverlay = createPawnLandingOverlay(width, height, 10);
-    content.addChild(pawnLandingOverlay);
+    contentInk.addChild(pawnLandingOverlay);
 
     const distributorRangeOverlay = createDistributorRangeOverlay(
       width,
       height,
       10
     );
-    content.addChild(distributorRangeOverlay);
+    contentInk.addChild(distributorRangeOverlay);
 
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
     focusOutline.drawRoundedRect(2, 2, width - 4, height - 4, 8);
     focusOutline.visible = false;
-    content.addChild(focusOutline);
+    contentInk.addChild(focusOutline);
 
     const cancelButton = new PIXI.Container();
     cancelButton.eventMode = "static";
@@ -3525,7 +3658,7 @@ export function createBoardView(opts) {
       });
     });
 
-    content.addChild(cancelButton);
+    contentInk.addChild(cancelButton);
 
     function structureHasInventory() {
       const s = getGameState?.();
@@ -3542,6 +3675,8 @@ export function createBoardView(opts) {
       meterViews,
       lineTextNodes,
       titleText,
+      contentInk,
+      contentPaint,
       hoverTextBaseNodes,
       tagContainer,
       tagStartY,
@@ -3641,6 +3776,7 @@ export function createBoardView(opts) {
     hubStructuresLayer.addChild(cont);
 
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
+    registerPaintContainer(contentPaint);
     return view;
   }
 
@@ -3686,6 +3822,7 @@ export function createBoardView(opts) {
         if (view) {
           if (activeHover?.view === view) clearActiveHover(view);
           clearTileRollFxForCol(col);
+          unregisterPaintForHoverView(view);
           removeFromParent(view.container);
           tileViews[col] = undefined;
         }
@@ -3696,6 +3833,7 @@ export function createBoardView(opts) {
         if (view) {
           if (activeHover?.view === view) clearActiveHover(view);
           clearTileRollFxForCol(col);
+          unregisterPaintForHoverView(view);
           removeFromParent(view.container);
         }
         tileViews[col] = buildTileView(tileInst, col);
@@ -3730,6 +3868,7 @@ export function createBoardView(opts) {
         const hiddenView = eventViews.get(id);
         if (hiddenView) {
           if (activeHover?.view === hiddenView) clearActiveHover(hiddenView);
+          unregisterPaintForHoverView(hiddenView);
           removeFromParent(hiddenView.container);
           eventViews.delete(id);
         }
@@ -3738,7 +3877,10 @@ export function createBoardView(opts) {
 
         const existing = eventViews.get(id);
         if (!existing || existing.event.instanceId !== eventInst.instanceId) {
-          if (existing) removeFromParent(existing.container);
+          if (existing) {
+            unregisterPaintForHoverView(existing);
+            removeFromParent(existing.container);
+          }
           eventViews.set(id, buildEventView(eventInst, col));
         }
 
@@ -3752,6 +3894,7 @@ export function createBoardView(opts) {
       for (const [id, view] of eventViews.entries()) {
         if (seen.has(id)) continue;
         if (activeHover?.view === view) clearActiveHover(view);
+        unregisterPaintForHoverView(view);
         removeFromParent(view.container);
         eventViews.delete(id);
       }
@@ -3781,7 +3924,10 @@ export function createBoardView(opts) {
         !existing ||
         existing.structure.instanceId !== structureInst.instanceId
       ) {
-        if (existing) removeFromParent(existing.container);
+        if (existing) {
+          unregisterPaintForHoverView(existing);
+          removeFromParent(existing.container);
+        }
         envStructureViews.set(id, buildEnvStructureView(structureInst, col));
       }
 
@@ -3794,6 +3940,7 @@ export function createBoardView(opts) {
     for (const [id, view] of envStructureViews.entries()) {
       if (seen.has(id)) continue;
       if (activeHover?.view === view) clearActiveHover(view);
+      unregisterPaintForHoverView(view);
       removeFromParent(view.container);
       envStructureViews.delete(id);
     }
@@ -4004,7 +4151,10 @@ export function createBoardView(opts) {
           !existing ||
           existing.structure.instanceId !== structureInst.instanceId
         ) {
-          if (existing) removeFromParent(existing.container);
+          if (existing) {
+            unregisterPaintForHoverView(existing);
+            removeFromParent(existing.container);
+          }
           const expandedTagId = hubExpandedTagById.get(structureInst.instanceId) ?? null;
           hubStructureViews.set(
             id,
@@ -4019,6 +4169,7 @@ export function createBoardView(opts) {
       for (const [id, view] of hubStructureViews.entries()) {
       if (seen.has(id)) continue;
       if (activeHover?.view === view) clearActiveHover(view);
+      unregisterPaintForHoverView(view);
       removeFromParent(view.container);
       hubStructureViews.delete(id);
       }
@@ -4066,6 +4217,11 @@ export function createBoardView(opts) {
     clearEventExpiryFxRuntime();
     eventSnapshotsById = new Map();
     lastSeenEventSec = null;
+    for (const view of tileViews) unregisterPaintForHoverView(view);
+    for (const view of eventViews.values()) unregisterPaintForHoverView(view);
+    for (const view of envStructureViews.values()) unregisterPaintForHoverView(view);
+    for (const view of hubStructureViews.values()) unregisterPaintForHoverView(view);
+    unregisterAreaChromePaint(areaChrome);
     tileLayer.removeChildren();
     eventLayer.removeChildren();
     envStructuresLayer.removeChildren();

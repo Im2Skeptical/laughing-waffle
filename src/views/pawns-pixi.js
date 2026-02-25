@@ -7,7 +7,7 @@
 // from the same layout math used by board-pixi.js.
 //
 // Wiring:
-// - opts { getPawns, getHubSlots, interaction, tooltipView, inventoryView, onPawnDropped }
+// - opts { getPawns, getHubSlots, interaction, tooltipView, inventoryView, onPawnDropped, paintStyleController? }
 
 import {
   BOARD_COLS,
@@ -50,6 +50,7 @@ export function createPawnsView(opts) {
     getPawnMoveAffordability,
     setDragGhost,
     resolveDragGhost,
+    paintStyleController,
     getGameState,
     getFocusIntent,
     getExternalFocus,
@@ -152,6 +153,14 @@ export function createPawnsView(opts) {
 
   function getTooltipSafe() {
     return tooltipView || null;
+  }
+
+  function registerPaintContainer(container) {
+    paintStyleController?.registerPaintContainer?.(container);
+  }
+
+  function unregisterPaintContainer(container) {
+    paintStyleController?.unregisterPaintContainer?.(container);
   }
 
   function emitDropped(payload) {
@@ -670,6 +679,9 @@ export function createPawnsView(opts) {
   // ---------------------------------------------------------------------------
   function createPawnView(pawn, followerOrdinalByPawnId = null) {
     const container = new PIXI.Container();
+    const shadowLayer = new PIXI.Container();
+    const paintLayer = new PIXI.Container();
+    const inkLayer = new PIXI.Container();
 
     const pos = Number.isFinite(pawn.envCol)
       ? getBasePosForEnvCol(pawn.envCol)
@@ -679,6 +691,7 @@ export function createPawnsView(opts) {
 
     container.eventMode = "static";
     container.cursor = "pointer";
+    container.addChild(shadowLayer, paintLayer, inkLayer);
 
     const fillColor = typeof pawn.color === "number" ? pawn.color : 0xaa66ff;
     const isLeader = pawn?.role === "leader";
@@ -710,31 +723,31 @@ export function createPawnsView(opts) {
     }
     shadow.endFill();
     shadow.visible = false;
-    container.addChild(shadow);
+    shadowLayer.addChild(shadow);
 
     const redGlow = new PIXI.Graphics().beginFill(0xff2f3a, 0.28);
     drawPawnShape(redGlow, { isLeader, radius: shapeRadius + 6 });
     redGlow.endFill();
     redGlow.visible = false;
-    container.addChild(redGlow);
+    paintLayer.addChild(redGlow);
 
     const dimBg = new PIXI.Graphics().beginFill(dimColor(fillColor), 1);
     drawPawnShape(dimBg, { isLeader, radius: shapeRadius });
     dimBg.endFill();
-    container.addChild(dimBg);
+    paintLayer.addChild(dimBg);
 
     const staminaFill = new PIXI.Graphics().beginFill(fillColor, 1);
     drawPawnShape(staminaFill, { isLeader, radius: shapeRadius });
     staminaFill.endFill();
-    container.addChild(staminaFill);
+    paintLayer.addChild(staminaFill);
 
     const staminaMask = new PIXI.Graphics();
-    container.addChild(staminaMask);
+    paintLayer.addChild(staminaMask);
     staminaFill.mask = staminaMask;
 
     const outline = new PIXI.Graphics().lineStyle(2, 0x000000, 1);
     drawPawnShape(outline, { isLeader, radius: shapeRadius + 1 });
-    container.addChild(outline);
+    inkLayer.addChild(outline);
 
     const label = new PIXI.Text(getLabelForPawn(pawn, followerOrdinalByPawnId), {
       fill: 0xffffff,
@@ -742,13 +755,14 @@ export function createPawnsView(opts) {
       fontWeight: "bold",
     });
     label.anchor.set(0.5);
-    container.addChild(label);
+    inkLayer.addChild(label);
 
     const flashRing = new PIXI.Graphics();
     flashRing.visible = false;
-    container.addChild(flashRing);
+    inkLayer.addChild(flashRing);
 
     layer.addChild(container);
+    registerPaintContainer(paintLayer);
 
     // -----------------------------------------------------------------------
     const view = {
@@ -767,6 +781,7 @@ export function createPawnsView(opts) {
       staminaMask,
       shapeRadius,
       staminaRatio: null,
+      paintLayer,
     };
 
     // -----------------------------------------------------------------------
@@ -996,6 +1011,7 @@ export function createPawnsView(opts) {
     if (view.container?.parent) {
       view.container.parent.removeChild(view.container);
     }
+    unregisterPaintContainer(view.paintLayer);
     view.container?.removeAllListeners?.();
     view.container?.destroy?.({ children: true });
     viewsById.delete(pawnId);

@@ -176,6 +176,19 @@ export const VIEW_LAYOUT = {
     consumedDurationSec: 0.58,
     overflowBadgeHoldSec: 1.25,
   },
+  playfieldShader: {
+    enabled: true,
+    quality: "medium",
+    intensity: 1,
+    mottling: 0.6,
+    warmth: 0.7,
+    grain: 0.7,
+    colorBleed: 0.4,
+    timeReactive: true,
+    driftWindowSec: 120,
+    forecastBoost: 0.35,
+    historyBoost: 0.18,
+  },
   // Centralized playfield layout controls.
   // Region/hub anchors move the gameplay lanes (slots, pieces, pawns, deck pathing).
   // Chrome offsets move the decorative backplates + name headers independently.

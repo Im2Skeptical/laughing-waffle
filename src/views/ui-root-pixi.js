@@ -49,6 +49,7 @@ import { createActionLogView } from "./action-log-pixi.js";
 import { createEventLogView } from "./event-log-pixi.js";
 import { createYearEndPerformanceView } from "./year-end-performance-pixi.js";
 import { createRunCompleteView } from "./run-complete-pixi.js";
+import { createPlayfieldMuchaStyle } from "./playfield-mucha-style.js";
 import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
@@ -1098,6 +1099,13 @@ function clearActionLogAndReset() {
   );
 }
 
+const playfieldShader = createPlayfieldMuchaStyle({
+  layout: VIEW_LAYOUT.playfieldShader,
+  getState: () => runner.getState(),
+  getTimeline: () => runner.getTimeline(),
+  getPreviewStatus: () => runner.getPreviewStatus?.(),
+});
+
 const boardView = createBoardView({
   app,
   tileLayer: uiLayers.tileLayer,
@@ -1113,6 +1121,7 @@ const boardView = createBoardView({
   inventoryView,
   queueActionWhenPaused,
   requestPauseForAction,
+  paintStyleController: playfieldShader,
   setApDragWarning,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
@@ -1136,6 +1145,7 @@ const pawnsView = createPawnsView({
   app,
   layer: uiLayers.pawnLayer,
   hoverLayer: uiLayers.hoverLayer,
+  paintStyleController: playfieldShader,
   getPawns: () => runner.getState().pawns,
   getHubSlots: () => runner.getState().hub.slots,
   getGameState: () => runner.getState(),
@@ -1673,6 +1683,7 @@ app.ticker.add((delta) => {
 
   const frameDt = delta / 60;
   runTimed("runner.update", () => runner.update(frameDt));
+  runTimed("playfieldShader.update", () => playfieldShader.update());
   runTimed("stateTint.update", () => updateStateTintOverlay());
   runTimed("queuedActions.flush", () => flushQueuedActions());
   runTimed("interaction.update", () => interactionController.update(frameDt));
@@ -1753,6 +1764,11 @@ window.__DBG__ = {
     return { ok: true, previewing: runner.isPreviewing?.() ?? false };
   },
   dispatch: (kind, payload) => runner.dispatchAction(kind, payload),
+  setPlayfieldShaderEnabled: (nextEnabled) =>
+    playfieldShader.setEnabled(nextEnabled),
+  setPlayfieldShaderQuality: (nextQuality) =>
+    playfieldShader.setQuality(nextQuality),
+  getPlayfieldShaderState: () => playfieldShader.getState(),
   getLastPlannerCommitError: () =>
     runner.getLastPlannerCommitError?.() ?? null,
   perf: () =>
