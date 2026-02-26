@@ -18,6 +18,7 @@ import {
 } from "./ui-helpers/log-panel-theme.js";
 import { drawLogRoundedRect } from "./ui-helpers/log-row-pixi.js";
 import { VIEW_LAYOUT } from "./layout-pixi.js";
+import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 
 const HOLD_SEC = 5;
 const FADE_SEC = 10;
@@ -163,7 +164,7 @@ export function createEventLogView({
   container.addChild(bg);
 
   const title = new PIXI.Text("Event Log", {
-    fill: 0xffffff,
+    fill: MUCHA_UI_COLORS.ink.primary,
     fontSize: 24,
     fontWeight: "bold",
   });
@@ -172,7 +173,7 @@ export function createEventLogView({
   container.addChild(title);
 
   const tip = new PIXI.Text("Recent world + pawn events", {
-    fill: 0x9aa0b5,
+    fill: MUCHA_UI_COLORS.ink.muted,
     fontSize: 11,
   });
   tip.x = PADDING;
@@ -180,7 +181,7 @@ export function createEventLogView({
   container.addChild(tip);
 
   const collapsedMarker = new PIXI.Text(COLLAPSED_MARKER_TEXT, {
-    fill: 0xffffff,
+    fill: MUCHA_UI_COLORS.ink.primary,
     fontSize: 36,
     fontWeight: "bold",
   });
@@ -213,7 +214,7 @@ export function createEventLogView({
   drawerHandle.addChild(drawerHandleBg);
 
   const drawerHandleArrow = new PIXI.Text("<", {
-    fill: 0x22304f,
+    fill: MUCHA_UI_COLORS.ink.contrast,
     fontSize: 16,
     fontWeight: "bold",
   });
@@ -263,7 +264,9 @@ export function createEventLogView({
 
   function drawExpandedRow(spec, state, rowY) {
     const typeDef = getEventLogTypeDef(spec.type);
-    const typeColor = Number.isFinite(typeDef?.color) ? typeDef.color : 0x9aa0b5;
+    const typeColor = Number.isFinite(typeDef?.color)
+      ? typeDef.color
+      : MUCHA_UI_COLORS.ink.muted;
     const typeLabel = typeDef?.label || spec.type || "Event";
 
     const row = new PIXI.Container();
@@ -290,7 +293,7 @@ export function createEventLogView({
     row.addChild(rowBg);
 
     const text = new PIXI.Text(spec.text || "", {
-      fill: 0xffffff,
+      fill: MUCHA_UI_COLORS.ink.primary,
       fontSize: 14,
       wordWrap: true,
       wordWrapWidth: rowWidth - (hasYearEndPerformanceData(spec) ? 132 : 48),
@@ -323,7 +326,7 @@ export function createEventLogView({
         ? "Live state"
         : formatCalendarTimestamp(spec.tSec, state);
     const timestamp = new PIXI.Text(timestampLabel, {
-      fill: 0x9aa0b5,
+      fill: MUCHA_UI_COLORS.ink.muted,
       fontSize: 10,
     });
     timestamp.anchor.set(1, 1);
@@ -342,7 +345,7 @@ export function createEventLogView({
 
       const open = isYearEndPerformanceOpen?.(spec.id) === true;
       const chipText = new PIXI.Text(open ? "Report: Open" : "Report", {
-        fill: open ? 0x111827 : 0xdde8ff,
+        fill: open ? MUCHA_UI_COLORS.ink.contrast : MUCHA_UI_COLORS.ink.primary,
         fontSize: 9,
         fontWeight: "bold",
       });
@@ -351,8 +354,15 @@ export function createEventLogView({
       const chipW = Math.ceil(chipText.width) + 10;
       const chipH = 16;
       chipBg.clear();
-      chipBg.beginFill(open ? 0x9cc3ff : 0x344666, 0.96);
-      chipBg.lineStyle(1, open ? 0xdbeafe : 0x7aa2df, 0.95);
+      chipBg.beginFill(
+        open ? MUCHA_UI_COLORS.accents.cream : MUCHA_UI_COLORS.surfaces.panelSoft,
+        0.96
+      );
+      chipBg.lineStyle(
+        1,
+        open ? MUCHA_UI_COLORS.surfaces.border : MUCHA_UI_COLORS.surfaces.borderSoft,
+        0.95
+      );
       chipBg.drawRoundedRect(0, 0, chipW, chipH, 7);
       chipBg.endFill();
 
@@ -386,7 +396,9 @@ export function createEventLogView({
 
   function drawCollapsedRow(spec, rowY) {
     const typeDef = getEventLogTypeDef(spec.type);
-    const typeColor = Number.isFinite(typeDef?.color) ? typeDef.color : 0x9aa0b5;
+    const typeColor = Number.isFinite(typeDef?.color)
+      ? typeDef.color
+      : MUCHA_UI_COLORS.ink.muted;
     const glyph = resolveEventGlyph(typeDef, spec);
     const iconWidth = Math.max(24, DRAWER_COLLAPSED_WIDTH - PADDING * 2);
     const iconY = Math.floor((LOG_ROW_HEIGHT - COLLAPSED_ICON_HEIGHT) / 2);
@@ -414,7 +426,7 @@ export function createEventLogView({
     row.addChild(iconBg);
 
     const glyphText = new PIXI.Text(glyph, {
-      fill: 0xf8fbff,
+      fill: MUCHA_UI_COLORS.ink.primary,
       fontSize: 16,
       fontWeight: "bold",
     });
@@ -436,8 +448,15 @@ export function createEventLogView({
     if (hasYearEndPerformanceData(spec)) {
       const reportOpen = isYearEndPerformanceOpen?.(spec.id) === true;
       const reportDot = new PIXI.Graphics();
-      reportDot.beginFill(reportOpen ? 0xa6d7ff : 0xe6f0ff, 1);
-      reportDot.lineStyle(1, reportOpen ? 0xffffff : 0x8bb2eb, 1);
+      reportDot.beginFill(
+        reportOpen ? MUCHA_UI_COLORS.accents.gold : MUCHA_UI_COLORS.accents.cream,
+        1
+      );
+      reportDot.lineStyle(
+        1,
+        reportOpen ? MUCHA_UI_COLORS.ink.primary : MUCHA_UI_COLORS.surfaces.border,
+        1
+      );
       reportDot.drawCircle(0, 0, 4);
       reportDot.endFill();
       reportDot.x = iconWidth - 6;
@@ -542,8 +561,8 @@ export function createEventLogView({
     drawerHandle.x = panelWidth;
     drawerHandle.y = Math.floor((PANEL_HEIGHT - DRAWER_HANDLE_HEIGHT) / 2);
     drawerHandleBg.clear();
-    drawerHandleBg.beginFill(0xf2f4ff, 0.96);
-    drawerHandleBg.lineStyle(1, 0xc4ccdf, 0.95);
+    drawerHandleBg.beginFill(MUCHA_UI_COLORS.accents.cream, 0.96);
+    drawerHandleBg.lineStyle(1, MUCHA_UI_COLORS.surfaces.border, 0.95);
     drawerHandleBg.drawRoundedRect(
       -DRAWER_HANDLE_WIDTH / 2,
       0,

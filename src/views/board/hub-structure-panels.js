@@ -7,6 +7,7 @@ import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
+import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 
 const SYSTEM_RECIPE_KIND = {
   fireplace: { kind: "cook", pauseLabel: "Pause cooking" },
@@ -213,13 +214,18 @@ function createRecipeDropdown(layer, app) {
     row.hitArea = new PIXI.Rectangle(0, 0, width, 36);
 
     const bg = new PIXI.Graphics()
-      .beginFill(selected ? 0x303a55 : 0x1f263d, 0.95)
+      .beginFill(
+        selected
+          ? MUCHA_UI_COLORS.surfaces.panelSoft
+          : MUCHA_UI_COLORS.surfaces.panelRaised,
+        0.95
+      )
       .drawRoundedRect(0, 0, width, 36, 6)
       .endFill();
     row.addChild(bg);
 
     const name = new PIXI.Text(entry.name || entry.recipeId, {
-      fill: 0xffffff,
+      fill: MUCHA_UI_COLORS.ink.primary,
       fontSize: 11,
       fontWeight: "bold",
     });
@@ -231,7 +237,7 @@ function createRecipeDropdown(layer, app) {
       ? "No recipe selected"
       : formatRecipeDetails(entry.recipe);
     const detail = new PIXI.Text(detailText, {
-      fill: 0xc7d2ee,
+      fill: MUCHA_UI_COLORS.ink.secondary,
       fontSize: 9,
       wordWrap: true,
       wordWrapWidth: width - 12,
@@ -281,7 +287,7 @@ function createRecipeDropdown(layer, app) {
     }
 
     const height = Math.max(1, y);
-    bg.beginFill(0x141b2b, 0.95);
+    bg.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.95);
     bg.drawRoundedRect(0, 0, width, height, 8);
     bg.endFill();
     container.setChildIndex(bg, 0);

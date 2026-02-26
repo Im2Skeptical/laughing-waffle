@@ -44,6 +44,7 @@ import {
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
+import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 
 
 
@@ -58,12 +59,12 @@ const BIN_PAD = 6;
 const ITEM_TIER_BORDER_WIDTH = 2;
 const ITEM_TIER_BORDER_COLORS = {
   bronze: 0x8b6a3f,
-  silver: 0xbfc9d9,
+  silver: 0xcdbfa8,
   gold: 0xf2d16b,
-  diamond: 0x7fd0ff,
+  diamond: 0xace3d9, //#ace3d9
   default: 0x333333,
 };
-const ITEM_GLYPH_COLOR = 0xffffff; //0xffffff
+const ITEM_GLYPH_COLOR = MUCHA_UI_COLORS.ink.primary;
 const ITEM_GLYPH_SHADOW = 0x111111;
 const ITEM_GLYPH_ALPHA = 0.9;
 const ITEM_GLYPH_FONT_POLICY_FLAG = "__preserveFontFamily";
@@ -80,29 +81,29 @@ const EQUIP_SLOT_VISUAL_CELLS = {
   ring2: { w: 1, h: 1 },
   amulet: { w: 1, h: 1 },
 };
-const EQUIP_SLOT_BG = 0x161a2a;
-const EQUIP_SLOT_BG_OCCUPIED = 0x26334a;
-const EQUIP_SLOT_STROKE = 0x44506e;
-const EQUIP_SLOT_STROKE_ACTIVE = 0x6f8dc6;
+const EQUIP_SLOT_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
+const EQUIP_SLOT_BG_OCCUPIED = MUCHA_UI_COLORS.surfaces.panelRaised;
+const EQUIP_SLOT_STROKE = MUCHA_UI_COLORS.surfaces.borderSoft;
+const EQUIP_SLOT_STROKE_ACTIVE = MUCHA_UI_COLORS.accents.gold;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
 const LEADER_SYSTEMS_ROW_HEIGHT = 18;
 const LEADER_SYSTEMS_ROW_GAP = 4;
 const LEADER_SYSTEMS_ICON_SIZE = 12;
 const LEADER_SYSTEMS_BAR_HEIGHT = 8;
-const LEADER_SYSTEMS_BAR_BG = 0x2b3142;
-const LEADER_SYSTEMS_BAR_BORDER = 0x0f1422;
-const LEADER_SYSTEMS_BAR_TEXT = 0xe6eef9;
+const LEADER_SYSTEMS_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
+const LEADER_SYSTEMS_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
+const LEADER_SYSTEMS_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const LEADER_SYSTEMS_BAR_RADIUS = 4;
-const LEADER_SYSTEMS_ICON_BORDER = 0x141c2b;
-const LEADER_SYSTEMS_FALLBACK_COLOR = 0x7a7a7a;
+const LEADER_SYSTEMS_ICON_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
+const LEADER_SYSTEMS_FALLBACK_COLOR = MUCHA_UI_COLORS.surfaces.border;
 const LEADER_FAITH_SYSTEM_ID = "leaderFaith";
 const LEADER_SYSTEM_TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 const LEADER_SYSTEM_UI_OVERRIDES = Object.freeze({
-  stamina: { icon: "S", color: 0x4f7fa6 },
-  hunger: { icon: "H", color: 0xd9793a },
-  leadership: { icon: "L", color: 0x8f9ab8 },
-  [LEADER_FAITH_SYSTEM_ID]: { icon: "Fa", color: 0x8f6fff },
+  stamina: { icon: "S", color: 0x8ea17f },
+  hunger: { icon: "H", color: 0xb67e56 },
+  leadership: { icon: "L", color: 0xb59f78 },
+  [LEADER_FAITH_SYSTEM_ID]: { icon: "Fa", color: 0xa0886a },
 });
 const SKILLS_PANEL_HEIGHT = 102;
 const SKILLS_UNLOCKED_LIST_MAX = 5;
@@ -112,17 +113,17 @@ const BUILD_PANEL_ROW_GAP = 4;
 const BUILD_PANEL_PADDING = 6;
 const BUILD_PANEL_HINT_HEIGHT = 12;
 const BUILD_PANEL_GAP = 8;
-const BUILD_PANEL_BG = 0x202436;
-const BUILD_PANEL_ROW_BG = 0x2a2f45;
-const BUILD_PANEL_ROW_BG_ACTIVE = 0x303a55;
-const BUILD_PANEL_TEXT = 0xffffff;
-const BUILD_PANEL_TEXT_MUTED = 0xb4bfd6;
+const BUILD_PANEL_BG = MUCHA_UI_COLORS.surfaces.panel;
+const BUILD_PANEL_ROW_BG = MUCHA_UI_COLORS.surfaces.panelRaised;
+const BUILD_PANEL_ROW_BG_ACTIVE = MUCHA_UI_COLORS.surfaces.panelSoft;
+const BUILD_PANEL_TEXT = MUCHA_UI_COLORS.ink.primary;
+const BUILD_PANEL_TEXT_MUTED = MUCHA_UI_COLORS.ink.muted;
 const SECTION_HEADER_HEIGHT = 22;
 const SECTION_HEADER_RADIUS = 9;
-const SECTION_HEADER_BG = 0x2c3450;
-const SECTION_HEADER_BG_ACTIVE = 0x364061;
-const SECTION_HEADER_TEXT = 0xe8efff;
-const SECTION_HEADER_ARROW = 0x9eb3d8;
+const SECTION_HEADER_BG = MUCHA_UI_COLORS.surfaces.panelRaised;
+const SECTION_HEADER_BG_ACTIVE = MUCHA_UI_COLORS.surfaces.panelSoft;
+const SECTION_HEADER_TEXT = MUCHA_UI_COLORS.ink.primary;
+const SECTION_HEADER_ARROW = MUCHA_UI_COLORS.ink.secondary;
 const BUILD_GHOST_SCALE_IDLE = 1.2;
 const BUILD_GHOST_SCALE_PLACE = 0.85;
 const BUILD_GHOST_PANEL_WIDTH = 140;
@@ -138,6 +139,18 @@ const ITEM_TAP_MAX_DRAG_TOUCH_PX = 20;
 const CONSUME_PROMPT_HOLD_SEC = 0.9;
 const CONSUME_PROMPT_FADE_SEC = 0.45;
 const CONSUME_PROMPT_TEXT = "Consume?";
+const INVENTORY_WINDOW_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
+const INVENTORY_SECTION_BG = MUCHA_UI_COLORS.surfaces.panel;
+const INVENTORY_SUBPANEL_BG = MUCHA_UI_COLORS.surfaces.panelRaised;
+const INVENTORY_HEADER_BG = MUCHA_UI_COLORS.surfaces.header;
+const INVENTORY_HEADER_TEXT = MUCHA_UI_COLORS.ink.primary;
+const INVENTORY_FOCUS_STROKE = MUCHA_UI_COLORS.accents.glow;
+const INVENTORY_BIN_FILL = MUCHA_UI_COLORS.surfaces.panel;
+const INVENTORY_BIN_STROKE = MUCHA_UI_COLORS.surfaces.borderSoft;
+const INVENTORY_GRID_LINE = MUCHA_UI_COLORS.surfaces.borderSoft;
+const INVENTORY_BUTTON_BG = MUCHA_UI_COLORS.surfaces.header;
+const INVENTORY_PROMPT_BG = MUCHA_UI_COLORS.surfaces.panelSoft;
+const INVENTORY_PROMPT_STROKE = MUCHA_UI_COLORS.surfaces.border;
 const INVENTORY_TOOLTIP_MIN_SCALE = Number.isFinite(GAMEPIECE_HOVER_SCALE)
   ? Math.max(1, GAMEPIECE_HOVER_SCALE)
   : 2;
@@ -1140,14 +1153,14 @@ export function createInventoryView({
 
     if (win.bg) {
       win.bg.clear();
-      win.bg.beginFill(0x101018, 0.95);
+      win.bg.beginFill(INVENTORY_WINDOW_BG, 0.95);
       win.bg.drawRoundedRect(0, 0, win.panelWidth, h, 8);
       win.bg.endFill();
     }
 
     if (win.focusOutline) {
       win.focusOutline.clear();
-      win.focusOutline.lineStyle(2, 0x7fd0ff, 1);
+      win.focusOutline.lineStyle(2, INVENTORY_FOCUS_STROKE, 1);
       win.focusOutline.drawRoundedRect(1, 1, win.panelWidth - 2, h - 2, 10);
     }
 
@@ -1202,7 +1215,7 @@ export function createInventoryView({
     equip.header?.setExpanded?.(equipExpanded, false, "Equipment");
     if (equip.bg) {
       equip.bg.clear();
-      equip.bg.beginFill(0x1b1b28, 0.95);
+      equip.bg.beginFill(INVENTORY_SECTION_BG, 0.95);
       equip.bg.drawRoundedRect(0, 0, sectionWidth, equipHeight, 6);
       equip.bg.endFill();
     }
@@ -1315,7 +1328,7 @@ export function createInventoryView({
     panel.container.visible = true;
     if (panel.bg) {
       panel.bg.clear();
-      panel.bg.beginFill(0x1b1b28, 0.95);
+      panel.bg.beginFill(INVENTORY_SECTION_BG, 0.95);
       panel.bg.drawRoundedRect(0, 0, sectionWidth, leaderInnerHeight, 6);
       panel.bg.endFill();
     }
@@ -1488,7 +1501,7 @@ export function createInventoryView({
 
     const panel = new PIXI.Container();
     const panelBg = new PIXI.Graphics()
-      .beginFill(0x1b1f2f, 0.95)
+      .beginFill(INVENTORY_SUBPANEL_BG, 0.95)
       .drawRoundedRect(0, 0, BUILD_GHOST_PANEL_WIDTH, 10, 8)
       .endFill();
     panel.addChild(panelBg);
@@ -1581,7 +1594,7 @@ export function createInventoryView({
     let y = BUILD_GHOST_PANEL_PAD + 16;
     for (const text of lines) {
       const lineText = new PIXI.Text(text, {
-        fill: 0xc7d2ee,
+        fill: MUCHA_UI_COLORS.ink.secondary,
         fontSize: 10,
       });
       lineText.x = BUILD_GHOST_PANEL_PAD;
@@ -1597,7 +1610,7 @@ export function createInventoryView({
     );
     ghost.panelBg.clear();
     ghost.panelBg
-      .beginFill(0x1b1f2f, 0.95)
+      .beginFill(INVENTORY_SUBPANEL_BG, 0.95)
       .drawRoundedRect(0, 0, BUILD_GHOST_PANEL_WIDTH, panelHeight, 8)
       .endFill();
     ghost.panelHeight = panelHeight;
@@ -1885,7 +1898,7 @@ export function createInventoryView({
 
     // Background
     const bg = new PIXI.Graphics();
-    bg.beginFill(0x101018, 0.95);
+    bg.beginFill(INVENTORY_WINDOW_BG, 0.95);
     bg.drawRoundedRect(0, 0, w, h, 8);
     bg.endFill();
     c.addChild(bg);
@@ -1911,9 +1924,9 @@ export function createInventoryView({
       width: w,
       height: HEADER_HEIGHT,
       radius: 8,
-      background: 0x303048,
+      background: INVENTORY_HEADER_BG,
       title: getOwnerLabel(ownerId),
-      titleStyle: { fill: 0xffffff, fontSize: 13 },
+      titleStyle: { fill: INVENTORY_HEADER_TEXT, fontSize: 13 },
       paddingX: 8,
       paddingY: 4,
       pinOffsetX: 40,
@@ -1945,7 +1958,7 @@ export function createInventoryView({
     }
 
     const focusOutline = new PIXI.Graphics();
-    focusOutline.lineStyle(2, 0x7fd0ff, 1);
+    focusOutline.lineStyle(2, INVENTORY_FOCUS_STROKE, 1);
     focusOutline.drawRoundedRect(1, 1, w - 2, h - 2, 10);
     focusOutline.visible = false;
     c.addChild(focusOutline);
@@ -1960,8 +1973,8 @@ export function createInventoryView({
 
     const binBg = new PIXI.Graphics();
     binBg
-      .lineStyle(1, 0x4b4f66, 1)
-      .beginFill(0x1b1f2f, 0.9)
+      .lineStyle(1, INVENTORY_BIN_STROKE, 1)
+      .beginFill(INVENTORY_BIN_FILL, 0.9)
       .drawRoundedRect(0, 0, binSize, binSize, 6)
       .endFill();
     bin.addChild(binBg);
@@ -2033,7 +2046,7 @@ export function createInventoryView({
       c.addChild(equipPanel);
 
       const equipBg = new PIXI.Graphics();
-      equipBg.beginFill(0x1b1b28, 0.95);
+      equipBg.beginFill(INVENTORY_SECTION_BG, 0.95);
       equipBg.drawRoundedRect(0, 0, w - INNER_PADDING * 2, EQUIP_PANEL_HEIGHT, 6);
       equipBg.endFill();
       equipPanel.addChild(equipBg);
@@ -2119,7 +2132,7 @@ export function createInventoryView({
         SECTION_HEADER_HEIGHT +
         buildPanelHeight +
         LEADER_PANEL_PADDING;
-      panelBg.beginFill(0x1b1b28, 0.95);
+      panelBg.beginFill(INVENTORY_SECTION_BG, 0.95);
       panelBg.drawRoundedRect(
         0,
         0,
@@ -2219,7 +2232,7 @@ export function createInventoryView({
       prestigeContent.addChild(minusBtn);
 
       const minusBg = new PIXI.Graphics();
-      minusBg.beginFill(0x333355);
+      minusBg.beginFill(INVENTORY_BUTTON_BG);
       minusBg.drawRoundedRect(0, 0, 18, 18, 4);
       minusBg.endFill();
       minusBtn.addChild(minusBg);
@@ -2240,7 +2253,7 @@ export function createInventoryView({
       prestigeContent.addChild(plusBtn);
 
       const plusBg = new PIXI.Graphics();
-      plusBg.beginFill(0x333355);
+      plusBg.beginFill(INVENTORY_BUTTON_BG);
       plusBg.drawRoundedRect(0, 0, 18, 18, 4);
       plusBg.endFill();
       plusBtn.addChild(plusBg);
@@ -2736,7 +2749,7 @@ export function createInventoryView({
 
   function drawGrid(win) {
     const g = new PIXI.Graphics();
-    g.lineStyle(1, 0x404060, 1);
+    g.lineStyle(1, INVENTORY_GRID_LINE, 1);
 
     const { cols, rows, cellSize } = win;
 
@@ -3204,7 +3217,7 @@ export function createInventoryView({
 
           const cost = INTENT_AP_COSTS?.buildDesignate ?? 0;
           const costText = new PIXI.Text(String(cost), {
-            fill: 0x7fd0ff,
+            fill: MUCHA_UI_COLORS.accents.gold,
             fontSize: 10,
           });
           costText.x = rowWidth - 18;
@@ -3376,8 +3389,8 @@ export function createInventoryView({
     const width = Math.max(64, Math.ceil(text.width) + 16);
     const height = 20;
     bg.clear();
-    bg.lineStyle(1, 0xbfd7ff, 0.98);
-    bg.beginFill(0x24324b, 0.96);
+    bg.lineStyle(1, INVENTORY_PROMPT_STROKE, 0.98);
+    bg.beginFill(INVENTORY_PROMPT_BG, 0.96);
     bg.drawRoundedRect(0, 0, width, height, 6);
     bg.endFill();
     text.x = Math.floor((width - text.width) / 2);
@@ -4526,7 +4539,7 @@ export function createInventoryView({
     dlg.addChild(plus);
 
     const okBtn = new PIXI.Graphics();
-    okBtn.beginFill(0x333355);
+    okBtn.beginFill(INVENTORY_BUTTON_BG);
     okBtn.drawRoundedRect(0, 0, 50, 24, 4);
     okBtn.endFill();
     okBtn.x = panelW / 2 - 25;

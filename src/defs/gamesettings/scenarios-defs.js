@@ -18,7 +18,7 @@ export const setupDefs = {
 
     devUi: {
       //openInventories: [{ type: "hubStructure", hubCol: 0 }],
-      openSkillTree: true,
+      //openSkillTree: true,
     },
 
     // Optional progression override:

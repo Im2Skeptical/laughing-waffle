@@ -21,6 +21,7 @@ import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
+import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 import {
   VIEW_LAYOUT,
   VIEWPORT_DESIGN_HEIGHT,
@@ -81,28 +82,28 @@ const WITHDRAWABLE_POOL_SYSTEM_IDS = new Set([
 ]);
 
 const COLORS = {
-  panel: 0x151a2a,
-  panelBorder: 0x2a3146,
-  headerBg: 0x303048,
-  headerText: 0xffffff,
-  headerSub: 0xa0a7bb,
-  moduleBg: 0x1e2438,
-  moduleBorder: 0x2b334a,
-  moduleText: 0xe6eef9,
-  moduleSub: 0x9aa0b5,
-  drawerBg: 0x1a2034,
-  drawerBorder: 0x2a3146,
-  pillEnabled: 0x2a3958,
-  pillDisabled: 0x2a2f3d,
-  pillInvalid: 0x4b252c,
-  pillLocked: 0x232a3d,
-  pillText: 0xe6eef9,
-  pillTextDisabled: 0x99a2b5,
-  pillTextInvalid: 0xf2b0b0,
-  progressBg: 0x2a2f45,
-  progressFill: 0x7ccf6b,
-  bufferBg: 0x1b2136,
-  bufferBorder: 0x323b56,
+  panel: MUCHA_UI_COLORS.surfaces.panelDeep,
+  panelBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
+  headerBg: MUCHA_UI_COLORS.surfaces.header,
+  headerText: MUCHA_UI_COLORS.ink.primary,
+  headerSub: MUCHA_UI_COLORS.ink.muted,
+  moduleBg: MUCHA_UI_COLORS.surfaces.panel,
+  moduleBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
+  moduleText: MUCHA_UI_COLORS.ink.primary,
+  moduleSub: MUCHA_UI_COLORS.ink.secondary,
+  drawerBg: MUCHA_UI_COLORS.surfaces.panel,
+  drawerBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
+  pillEnabled: MUCHA_UI_COLORS.surfaces.panelSoft,
+  pillDisabled: MUCHA_UI_COLORS.surfaces.panelRaised,
+  pillInvalid: 0x5e3b34,
+  pillLocked: MUCHA_UI_COLORS.surfaces.panel,
+  pillText: MUCHA_UI_COLORS.ink.primary,
+  pillTextDisabled: MUCHA_UI_COLORS.ink.muted,
+  pillTextInvalid: MUCHA_UI_COLORS.ink.alert,
+  progressBg: MUCHA_UI_COLORS.surfaces.panelRaised,
+  progressFill: MUCHA_UI_COLORS.accents.sage,
+  bufferBg: MUCHA_UI_COLORS.surfaces.panelDeep,
+  bufferBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
 };
 
 export function createProcessWidgetView({
@@ -981,7 +982,7 @@ export function createProcessWidgetView({
       toggle.lineStyle(1, COLORS.panelBorder, 0.9);
       toggle.drawRoundedRect(0, 0, TOGGLE_SIZE, TOGGLE_SIZE, 3);
     } else if (entry.enabled) {
-      toggle.beginFill(0xd7ffe0, 1);
+      toggle.beginFill(MUCHA_UI_COLORS.accents.cream, 1);
       toggle.drawCircle(TOGGLE_SIZE / 2, TOGGLE_SIZE / 2, 3);
       toggle.endFill();
     } else {
@@ -1418,7 +1419,7 @@ export function createProcessWidgetView({
 
       const btnBg = new PIXI.Graphics();
       btnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      btnBg.beginFill(0x2c3348, 0.98);
+      btnBg.beginFill(COLORS.pillEnabled, 0.98);
       btnBg.drawRoundedRect(0, 0, btnWidth, btnHeight, 6);
       btnBg.endFill();
       btn.addChild(btnBg);
@@ -1539,7 +1540,7 @@ export function createProcessWidgetView({
 
       const btnBg = new PIXI.Graphics();
       btnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      btnBg.beginFill(0x2c3348, 0.98);
+      btnBg.beginFill(COLORS.pillEnabled, 0.98);
       btnBg.drawRoundedRect(0, 0, btnWidth, btnHeight, 6);
       btnBg.endFill();
       btn.addChild(btnBg);
@@ -1698,7 +1699,7 @@ export function createProcessWidgetView({
 
     const selectBg = new PIXI.Graphics();
     selectBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-    selectBg.beginFill(0x2c3348, 0.98);
+    selectBg.beginFill(COLORS.pillEnabled, 0.98);
     selectBg.drawRoundedRect(0, 0, selectBtnW, selectBtnH, 6);
     selectBg.endFill();
     selectBtn.addChild(selectBg);
@@ -1816,7 +1817,7 @@ export function createProcessWidgetView({
     function drawSmallButton(nodeBg, enabled) {
       nodeBg.clear();
       nodeBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      nodeBg.beginFill(enabled ? 0x2f3f60 : 0x252b39, 0.98);
+      nodeBg.beginFill(enabled ? COLORS.pillEnabled : COLORS.pillDisabled, 0.98);
       nodeBg.drawRoundedRect(0, 0, btnW, btnH, 5);
       nodeBg.endFill();
     }
@@ -1835,7 +1836,7 @@ export function createProcessWidgetView({
       amountText.y = amountBg.y + 2;
       amountBg.clear();
       amountBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      amountBg.beginFill(0x1c2234, 0.98);
+      amountBg.beginFill(COLORS.bufferBg, 0.98);
       amountBg.drawRoundedRect(0, 0, amountW, btnH, 5);
       amountBg.endFill();
 
@@ -1907,7 +1908,7 @@ export function createProcessWidgetView({
     const drawSlot = (isError = false) => {
       slot.clear();
       slot.lineStyle(1, isError ? 0xff4f5e : COLORS.bufferBorder, 0.9);
-      slot.beginFill(isError ? 0x8a1f2a : 0x1a2034, 0.95);
+      slot.beginFill(isError ? 0x8a1f2a : COLORS.drawerBg, 0.95);
       slot.drawRoundedRect(0, 0, size, size, 8);
       slot.endFill();
     };
@@ -4284,13 +4285,16 @@ function createSelectionDropdown(layer, app) {
     row.cursor = "pointer";
 
     const bg = new PIXI.Graphics();
-    bg.beginFill(selected ? 0x303a55 : 0x1f263d, 0.95);
+    bg.beginFill(
+      selected ? MUCHA_UI_COLORS.surfaces.panelSoft : MUCHA_UI_COLORS.surfaces.panelRaised,
+      0.95
+    );
     bg.drawRoundedRect(0, 0, width, rowHeight, 6);
     bg.endFill();
     row.addChild(bg);
 
     const name = new PIXI.Text(String(entry?.label ?? entry?.value ?? ""), {
-      fill: 0xffffff,
+      fill: MUCHA_UI_COLORS.ink.primary,
       fontSize: 11,
       fontWeight: "bold",
     });
@@ -4300,7 +4304,7 @@ function createSelectionDropdown(layer, app) {
 
     if (hasDetail) {
       const detail = new PIXI.Text(String(entry.detail), {
-        fill: 0xc7d2ee,
+        fill: MUCHA_UI_COLORS.ink.secondary,
         fontSize: 9,
         wordWrap: true,
         wordWrapWidth: width - 12,
@@ -4346,7 +4350,7 @@ function createSelectionDropdown(layer, app) {
     if (y > 0) y -= 4;
 
     const height = Math.max(1, y);
-    bg.beginFill(0x141b2b, 0.96);
+    bg.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.96);
     bg.drawRoundedRect(0, 0, safeWidth, height, 8);
     bg.endFill();
     container.setChildIndex(bg, 0);

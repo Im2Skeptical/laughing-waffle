@@ -10,6 +10,7 @@ import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import { TIER_ASC } from "../../model/effects/core/tiers.js";
 import { hasHubTagUnlock } from "../../model/skills.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
+import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -21,34 +22,34 @@ const TAG_TOGGLE_SIZE = 12;
 const TAG_TOGGLE_PAD = 4;
 const TAG_LABEL_X = TAG_PILL_PAD_X + TAG_TOGGLE_SIZE + TAG_TOGGLE_PAD;
 const TAG_ROW_SCALE_ACTIVE = 1.05;
-const TAG_PILL_BG_ACTIVE = 0x1f263d;
-const TAG_PILL_BG_TOP = 0x2a3958;
-const TAG_PILL_BG_LOW = 0x273245;
-const TAG_PILL_BG_BYPASSED = 0x4b252c;
-const TAG_PILL_BORDER_ACTIVE = 0x1b2a42;
-const TAG_PILL_BORDER_TOP = 0x1e2c44;
-const TAG_PILL_BORDER_LOW = 0x141c2b;
-const TAG_PILL_BORDER_BYPASSED = 0x7a2d36;
-const TAG_PILL_TEXT = 0xe6eef9;
-const TAG_PILL_TEXT_LOW = 0xb8c2d6;
-const TAG_PILL_TEXT_BYPASSED = 0xf2b0b0;
+const TAG_PILL_BG_ACTIVE = MUCHA_UI_COLORS.surfaces.panelSoft;
+const TAG_PILL_BG_TOP = MUCHA_UI_COLORS.surfaces.panelRaised;
+const TAG_PILL_BG_LOW = MUCHA_UI_COLORS.surfaces.panel;
+const TAG_PILL_BG_BYPASSED = 0x5e3b34;
+const TAG_PILL_BORDER_ACTIVE = MUCHA_UI_COLORS.surfaces.border;
+const TAG_PILL_BORDER_TOP = MUCHA_UI_COLORS.surfaces.border;
+const TAG_PILL_BORDER_LOW = MUCHA_UI_COLORS.surfaces.borderSoft;
+const TAG_PILL_BORDER_BYPASSED = 0x8e5b53;
+const TAG_PILL_TEXT = MUCHA_UI_COLORS.ink.primary;
+const TAG_PILL_TEXT_LOW = MUCHA_UI_COLORS.ink.secondary;
+const TAG_PILL_TEXT_BYPASSED = MUCHA_UI_COLORS.ink.alert;
 
 const SYSTEM_ROW_HEIGHT = 18;
 const SYSTEM_ROW_GAP = 4;
 const SYSTEM_ICON_SIZE = 12;
 const SYSTEM_BAR_HEIGHT = 8;
-const SYSTEM_BAR_BG = 0x2b3142;
-const SYSTEM_BAR_BORDER = 0x0f1422;
-const SYSTEM_BAR_TEXT = 0xe6eef9;
+const SYSTEM_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
+const SYSTEM_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
+const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
 
 const HUB_SYSTEM_UI_MAP = {
-  build: { label: "Build", icon: "B", color: 0x8f8f8f },
-  fireplace: { label: "Fireplace", icon: "F", color: 0xd9793a },
-  workspace: { label: "Workspace", icon: "W", color: 0x7a9a5f },
-  residents: { label: "Residents", icon: "R", color: 0x8f9ab8 },
-  granaryStore: { label: "Granary", icon: "G", color: 0xc2a16a },
-  storage: { label: "Storage", icon: "S", color: 0x6a8fbf },
+  build: { label: "Build", icon: "B", color: 0x8f7a58 },
+  fireplace: { label: "Fireplace", icon: "F", color: 0xb67e56 },
+  workspace: { label: "Workspace", icon: "W", color: 0x8ca66b },
+  residents: { label: "Residents", icon: "R", color: 0xb7a57f },
+  granaryStore: { label: "Granary", icon: "G", color: 0xc2a06d },
+  storage: { label: "Storage", icon: "S", color: 0x8ea17f },
 };
 
 const TAG_PILL_STYLES = {
@@ -117,7 +118,7 @@ export function createHubTagUi(opts) {
     const def = hubSystemDefs?.[systemId];
     const label = def?.ui?.name || systemId || "System";
     const icon = label ? label.slice(0, 1).toUpperCase() : "?";
-    return { label, icon, color: 0x7a7a7a };
+    return { label, icon, color: MUCHA_UI_COLORS.surfaces.border };
   }
 
   function isRecipeSystem(systemId) {

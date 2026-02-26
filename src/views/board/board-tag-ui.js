@@ -13,6 +13,7 @@ import {
 import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
+import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -24,17 +25,17 @@ const TAG_TOGGLE_SIZE = 12;
 const TAG_TOGGLE_PAD = 4;
 const TAG_LABEL_X = TAG_PILL_PAD_X + TAG_TOGGLE_SIZE + TAG_TOGGLE_PAD;
 const TAG_ROW_SCALE_ACTIVE = 1.05;
-const TAG_PILL_BG_ACTIVE = 0x1f263d;
-const TAG_PILL_BG_TOP = 0x2a3958;
-const TAG_PILL_BG_LOW = 0x273245;
-const TAG_PILL_BG_BYPASSED = 0x4b252c;
-const TAG_PILL_BORDER_ACTIVE = 0x1b2a42;
-const TAG_PILL_BORDER_TOP = 0x1e2c44;
-const TAG_PILL_BORDER_LOW = 0x141c2b;
-const TAG_PILL_BORDER_BYPASSED = 0x7a2d36;
-const TAG_PILL_TEXT = 0xe6eef9;
-const TAG_PILL_TEXT_LOW = 0xb8c2d6;
-const TAG_PILL_TEXT_BYPASSED = 0xf2b0b0;
+const TAG_PILL_BG_ACTIVE = MUCHA_UI_COLORS.surfaces.panelSoft;
+const TAG_PILL_BG_TOP = MUCHA_UI_COLORS.surfaces.panelRaised;
+const TAG_PILL_BG_LOW = MUCHA_UI_COLORS.surfaces.panel;
+const TAG_PILL_BG_BYPASSED = 0x5e3b34;
+const TAG_PILL_BORDER_ACTIVE = MUCHA_UI_COLORS.surfaces.border;
+const TAG_PILL_BORDER_TOP = MUCHA_UI_COLORS.surfaces.border;
+const TAG_PILL_BORDER_LOW = MUCHA_UI_COLORS.surfaces.borderSoft;
+const TAG_PILL_BORDER_BYPASSED = 0x8e5b53;
+const TAG_PILL_TEXT = MUCHA_UI_COLORS.ink.primary;
+const TAG_PILL_TEXT_LOW = MUCHA_UI_COLORS.ink.secondary;
+const TAG_PILL_TEXT_BYPASSED = MUCHA_UI_COLORS.ink.alert;
 
 const TAG_PILL_STYLES = {
   active: {
@@ -71,28 +72,28 @@ const SYSTEM_ROW_HEIGHT = 18;
 const SYSTEM_ROW_GAP = 4;
 const SYSTEM_ICON_SIZE = 12;
 const SYSTEM_BAR_HEIGHT = 8;
-const SYSTEM_BAR_BG = 0x2b3142;
-const SYSTEM_BAR_BORDER = 0x0f1422;
-const SYSTEM_BAR_TEXT = 0xe6eef9;
+const SYSTEM_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
+const SYSTEM_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
+const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
 
 const TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 
 const GROWTH_BAR_COLORS = {
-  idle: 0x58606f,
-  planting: 0xe0c65a,
-  maturing: 0x9adf8f,
-  harvesting: 0x4dbf6b,
+  idle: 0x6f6651,
+  planting: 0xcdb16d,
+  maturing: 0x98ad77,
+  harvesting: 0x6c8a58,
 };
 
 const SYSTEM_UI_MAP = {
-  build: { label: "Build", icon: "B", color: 0x8f8f8f },
-  hydration: { label: "Hydration", icon: "H", color: 0x5aa2ff },
-  fertility: { label: "Fertility", icon: "F", color: 0xb07a4f },
-  growth: { label: "Growth", icon: "G", color: 0x7ccf6b },
-  fishDensity: { label: "Fish", icon: "Fi", color: 0x4f7fa6 },
-  turfDensity: { label: "Turf", icon: "T", color: 0x7a9a5f },
-  mineralRarity: { label: "Ore", icon: "O", color: 0xa17c5b },
+  build: { label: "Build", icon: "B", color: 0x8f7a58 },
+  hydration: { label: "Hydration", icon: "H", color: 0x8ea17f },
+  fertility: { label: "Fertility", icon: "F", color: 0xb0875e },
+  growth: { label: "Growth", icon: "G", color: 0x8ca66b },
+  fishDensity: { label: "Fish", icon: "Fi", color: 0x7f9879 },
+  turfDensity: { label: "Turf", icon: "T", color: 0x8ea377 },
+  mineralRarity: { label: "Ore", icon: "O", color: 0xaa835e },
 };
 
 export const TAG_LAYOUT = {
@@ -150,7 +151,7 @@ export function createTagUi(opts) {
     if (entry) return entry;
     const raw = String(systemId || "");
     const icon = raw ? raw.slice(0, 1).toUpperCase() : "?";
-    return { label: raw || "System", icon, color: 0x7a7a7a };
+    return { label: raw || "System", icon, color: MUCHA_UI_COLORS.surfaces.border };
   }
 
   function getTagLabel(tagId) {

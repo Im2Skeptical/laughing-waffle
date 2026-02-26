@@ -1,5 +1,6 @@
 // window-header.js
 // Shared draggable header with pin + close controls.
+import { MUCHA_UI_COLORS } from "./mucha-ui-palette.js";
 
 export function createWindowHeader(opts = {}) {
   const {
@@ -8,24 +9,24 @@ export function createWindowHeader(opts = {}) {
     width,
     height = 22,
     radius = 8,
-    background = 0x303048,
+    background = MUCHA_UI_COLORS.surfaces.header,
     title = "",
-    titleStyle = { fill: 0xffffff, fontSize: 12 },
+    titleStyle = { fill: MUCHA_UI_COLORS.ink.primary, fontSize: 12 },
     paddingX = 8,
     paddingY = 4,
     showPin = true,
     showClose = true,
     pinText = "[ ]",
     pinTextPinned = "[*]",
-    pinStyle = { fill: 0xffffff, fontSize: 12 },
+    pinStyle = { fill: MUCHA_UI_COLORS.ink.primary, fontSize: 12 },
     closeText = "x",
-    closeStyle = { fill: 0xffffff, fontSize: 12 },
+    closeStyle = { fill: MUCHA_UI_COLORS.ink.primary, fontSize: 12 },
     closeButtonWidth = 42,
     closeButtonHeight = 16,
     closeButtonRadius = 4,
-    closeButtonBg = 0x4a5672,
-    closeButtonBgHover = 0x5b6b8f,
-    closeButtonStroke = 0xb7c8e8,
+    closeButtonBg = MUCHA_UI_COLORS.surfaces.panelSoft,
+    closeButtonBgHover = MUCHA_UI_COLORS.surfaces.panelRaised,
+    closeButtonStroke = MUCHA_UI_COLORS.surfaces.border,
     pinOffsetX = 40,
     closeOffsetX = 20,
     hitAreaTopPadding = 0,

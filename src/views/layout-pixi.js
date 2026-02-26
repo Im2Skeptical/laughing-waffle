@@ -379,9 +379,9 @@ export const CHARACTER_ROW_OFFSET_Y = Math.floor(
 
 // Shared UI colors for communicating time-state zones.
 export const TIME_STATE_COLORS = Object.freeze({
-  fixedHistory: 0x701313, // brown #701313
-  editableHistory: 0xd18a3a, // orange
-  forecast: 0x89c2ff, // light blue
+  fixedHistory: 0x6a3f2b, // umber
+  editableHistory: 0xb48a57, // ochre
+  forecast: 0x7f9879, // muted sage
   paused: 0xb9a780, // muted parchment amber
 });
 export const TIME_STATE_GRAPH_BG_ALPHA = 0.2;

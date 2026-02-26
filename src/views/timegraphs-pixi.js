@@ -13,11 +13,31 @@ import {
   TIME_STATE_COLORS,
   TIME_STATE_GRAPH_BG_ALPHA,
 } from "./layout-pixi.js";
+import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 
 const HISTORY_ZONE_KIND_ORDER = {
   fixedHistory: 0,
   editableHistory: 1,
 };
+
+const TIMEGRAPH_THEME = Object.freeze({
+  panelHeaderBg: MUCHA_UI_COLORS.surfaces.header,
+  panelBodyBg: MUCHA_UI_COLORS.surfaces.panelDeep,
+  panelBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
+  textPrimary: MUCHA_UI_COLORS.ink.primary,
+  textMuted: MUCHA_UI_COLORS.ink.secondary,
+  buttonBg: MUCHA_UI_COLORS.surfaces.panelSoft,
+  buttonBgActive: MUCHA_UI_COLORS.surfaces.panelRaised,
+  buttonCloseBg: 0x6e4f46,
+  legendStroke: MUCHA_UI_COLORS.surfaces.borderSoft,
+  legendStrokeHover: MUCHA_UI_COLORS.ink.primary,
+  gridMajor: 0x6d6248,
+  gridMinor: 0x5a523f,
+  actionMarker: MUCHA_UI_COLORS.accents.sage,
+  forecastMarker: MUCHA_UI_COLORS.accents.sage,
+  scrubMarker: MUCHA_UI_COLORS.ink.secondary,
+  scrubLiveMarker: MUCHA_UI_COLORS.accents.gold,
+});
 
 function normalizeHistoryZoneSegments(rawSegments, { minSec, maxSec, historyEndSec }) {
   const min = Math.max(0, Math.floor(minSec ?? 0));
@@ -171,7 +191,7 @@ export function createMetricGraphView({
   const text = new PIXI.Text("", {
     fontFamily: "Arial",
     fontSize: 14,
-    fill: 0xffffff,
+    fill: TIMEGRAPH_THEME.textPrimary,
   });
 
   root.addChild(header, body, legendContainer, plotG, scrubG, text);
@@ -208,7 +228,7 @@ export function createMetricGraphView({
   const zoomText = new PIXI.Text("", {
     fontFamily: "Arial",
     fontSize: 12,
-    fill: 0xffffff,
+    fill: TIMEGRAPH_THEME.textPrimary,
   });
   zoomBtn.addChild(zoomBg, zoomText);
   zoomBtn.eventMode = "static";
@@ -222,7 +242,7 @@ export function createMetricGraphView({
   const closeText = new PIXI.Text("Close", {
     fontFamily: "Arial",
     fontSize: 12,
-    fill: 0xffffff,
+    fill: TIMEGRAPH_THEME.textPrimary,
   });
   closeBtn.addChild(closeBg, closeText);
   closeBtn.eventMode = "static";
@@ -272,7 +292,7 @@ export function createMetricGraphView({
   let lastMarkerCap = 0;
   const ACTION_SNAP_THRESHOLD_SEC = 0.75;
   const MAX_ACTION_MARKERS_DENSITY = 2;
-  const FORECAST_PREVIEW_MARKER_COLOR = 0x8ed8ff;
+  const FORECAST_PREVIEW_MARKER_COLOR = TIMEGRAPH_THEME.forecastMarker;
   const SERIES_LINE_WIDTH_DEFAULT = 2;
   const SERIES_LINE_WIDTH_HOVERED = 3;
   const SERIES_LINE_WIDTH_DIMMED = 1.5;
@@ -469,11 +489,17 @@ export function createMetricGraphView({
       typeof hoveredLegendSeriesId === "string" && hoveredLegendSeriesId.length > 0;
     for (const [seriesId, entry] of legendEntriesBySeriesId.entries()) {
       const isHovered = hasHovered && seriesId === hoveredLegendSeriesId;
-      const lineColor = Number.isFinite(entry?.lineColor) ? entry.lineColor : 0xffffff;
+      const lineColor = Number.isFinite(entry?.lineColor)
+        ? entry.lineColor
+        : MUCHA_UI_COLORS.accents.gold;
       const baseAlpha = hasHovered && !isHovered ? 0.35 : 0.95;
       entry.bg.clear();
       entry.bg
-        .lineStyle(isHovered ? 2 : 1, isHovered ? 0xffffff : 0x111a2a, isHovered ? 0.95 : 0.85)
+        .lineStyle(
+          isHovered ? 2 : 1,
+          isHovered ? TIMEGRAPH_THEME.legendStrokeHover : TIMEGRAPH_THEME.legendStroke,
+          isHovered ? 0.95 : 0.85
+        )
         .beginFill(lineColor, baseAlpha)
         .drawCircle(LEGEND_ICON_SIZE / 2, LEGEND_ICON_SIZE / 2, LEGEND_ICON_SIZE / 2)
         .endFill();
@@ -525,7 +551,9 @@ export function createMetricGraphView({
       for (const s of list) {
         const seriesId = String(s?.id ?? "");
         if (!seriesId) continue;
-        const lineColor = Number.isFinite(s?.color) ? s.color : 0xffffff;
+        const lineColor = Number.isFinite(s?.color)
+          ? s.color
+          : MUCHA_UI_COLORS.accents.gold;
         const iconTextValue = toLegendIconText(
           String(s?.legendIcon ?? s?.legendLabel ?? s?.label ?? seriesId)
         );
@@ -559,7 +587,7 @@ export function createMetricGraphView({
 
         const bg = new PIXI.Graphics();
         const iconText = new PIXI.Text(iconTextValue, {
-          fill: 0xffffff,
+          fill: TIMEGRAPH_THEME.textPrimary,
           fontSize: LEGEND_ICON_TEXT_SIZE,
           fontWeight: "bold",
         });
@@ -597,7 +625,9 @@ export function createMetricGraphView({
     const y = Math.floor((HEADER_H - ZOOM_BTN_H) / 2);
 
     zoomBg.clear();
-    zoomBg.beginFill(zoomed ? 0x555555 : 0x333355);
+    zoomBg.beginFill(
+      zoomed ? TIMEGRAPH_THEME.buttonBgActive : TIMEGRAPH_THEME.buttonBg
+    );
     zoomBg.drawRoundedRect(0, 0, ZOOM_BTN_W, ZOOM_BTN_H, 6);
     zoomBg.endFill();
 
@@ -609,7 +639,7 @@ export function createMetricGraphView({
     zoomBtn.y = y;
 
     closeBg.clear();
-    closeBg.beginFill(0x4a2f3f);
+    closeBg.beginFill(TIMEGRAPH_THEME.buttonCloseBg);
     closeBg.drawRoundedRect(0, 0, CLOSE_BTN_W, CLOSE_BTN_H, 6);
     closeBg.endFill();
 
@@ -621,12 +651,14 @@ export function createMetricGraphView({
 
   function drawWindow() {
     header.clear();
-    header.beginFill(0x222244, 0.95);
+    header.lineStyle(1, TIMEGRAPH_THEME.panelBorder, 0.8);
+    header.beginFill(TIMEGRAPH_THEME.panelHeaderBg, 0.95);
     header.drawRoundedRect(0, 0, WIN_W, HEADER_H, 14);
     header.endFill();
 
     body.clear();
-    body.beginFill(0x101018, 0.92);
+    body.lineStyle(1, TIMEGRAPH_THEME.panelBorder, 0.72);
+    body.beginFill(TIMEGRAPH_THEME.panelBodyBg, 0.92);
     body.drawRoundedRect(0, HEADER_H, WIN_W, WIN_H - HEADER_H, 14);
     body.endFill();
 
@@ -874,9 +906,9 @@ export function createMetricGraphView({
     drawZone(historyEndSec, maxSec, TIME_STATE_COLORS.forecast);
 
     // Grid
-    plotG.lineStyle(1, 0x444466, 0.5);
+    plotG.lineStyle(1, TIMEGRAPH_THEME.gridMajor, 0.5);
     plotG.drawRect(plot.x, plot.y, plot.w, plot.h);
-    plotG.lineStyle(1, 0x444466, 0.2);
+    plotG.lineStyle(1, TIMEGRAPH_THEME.gridMinor, 0.2);
     const gridStep = getGridStep(maxSec - minSec, 12);
     const startGrid =
       Math.ceil(minSec / gridStep) * gridStep;
@@ -893,7 +925,9 @@ export function createMetricGraphView({
       typeof hoveredLegendSeriesId === "string" &&
       hoveredLegendSeriesId.length > 0;
     for (const s of seriesList) {
-      const lineColor = Number.isFinite(s.color) ? s.color : 0xffffff;
+      const lineColor = Number.isFinite(s.color)
+        ? s.color
+        : MUCHA_UI_COLORS.accents.gold;
       const isHovered = hasHoveredSeries && s.id === hoveredLegendSeriesId;
       const lineWidth = hasHoveredSeries
         ? isHovered
@@ -934,7 +968,7 @@ export function createMetricGraphView({
     );
     const markerSecs = getMarkerSeconds(markerActionSecs);
     if (markerSecs.length) {
-      plotG.beginFill(0x55ff55);
+      plotG.beginFill(TIMEGRAPH_THEME.actionMarker);
       plotG.lineStyle(0);
       for (const t of markerSecs) {
         if (t >= minSec && t <= maxSec) {
@@ -982,10 +1016,10 @@ export function createMetricGraphView({
     const x = timeToX(scrubSec);
 
     const color = isScrubbing
-      ? 0xffffff
+      ? TIMEGRAPH_THEME.textPrimary
       : hasForecastPreview
         ? FORECAST_PREVIEW_MARKER_COLOR
-        : 0xaaaaaa;
+        : TIMEGRAPH_THEME.scrubMarker;
     scrubG.lineStyle(1, color, 0.8);
     scrubG.moveTo(x, plot.y);
     scrubG.lineTo(x, plot.y + plot.h);
@@ -993,7 +1027,7 @@ export function createMetricGraphView({
     if (isScrubbing && Math.abs(scrubSec - curT) > 0) {
       const cx = timeToX(curT);
       if (cx >= plot.x && cx <= plot.x + plot.w) {
-        scrubG.lineStyle(1, 0x00ff00, 0.5);
+        scrubG.lineStyle(1, TIMEGRAPH_THEME.scrubLiveMarker, 0.5);
         scrubG.moveTo(cx, plot.y);
         scrubG.lineTo(cx, plot.y + plot.h);
       }

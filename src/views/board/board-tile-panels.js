@@ -5,6 +5,7 @@ import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import { ActionKinds } from "../../model/actions.js";
+import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 
 export function createTilePanels(opts) {
   const {
@@ -144,13 +145,18 @@ function createCropDropdown(layer, app) {
     row.hitArea = new PIXI.Rectangle(0, 0, width, 34);
 
     const bg = new PIXI.Graphics()
-      .beginFill(selected ? 0x303a55 : 0x1f263d, 0.95)
+      .beginFill(
+        selected
+          ? MUCHA_UI_COLORS.surfaces.panelSoft
+          : MUCHA_UI_COLORS.surfaces.panelRaised,
+        0.95
+      )
       .drawRoundedRect(0, 0, width, 34, 6)
       .endFill();
     row.addChild(bg);
 
     const name = new PIXI.Text(entry.name || entry.cropId, {
-      fill: 0xffffff,
+      fill: MUCHA_UI_COLORS.ink.primary,
       fontSize: 11,
       fontWeight: "bold",
     });
@@ -166,7 +172,7 @@ function createCropDropdown(layer, app) {
             : "any"
         } | ${entry.maturitySec ?? "?"}s`;
     const detail = new PIXI.Text(detailText, {
-      fill: 0xc7d2ee,
+      fill: MUCHA_UI_COLORS.ink.secondary,
       fontSize: 9,
     });
     detail.x = 8;
@@ -214,7 +220,7 @@ function createCropDropdown(layer, app) {
     }
 
     const height = Math.max(1, y);
-    bg.beginFill(0x141b2b, 0.95);
+    bg.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.95);
     bg.drawRoundedRect(0, 0, width, height, 8);
     bg.endFill();
     container.setChildIndex(bg, 0);
