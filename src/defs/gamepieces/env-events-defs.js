@@ -201,7 +201,7 @@ export const envEventDefs = {
     name: "Flooding",
     ui: { 
       description: "Overflow briefly changes the terrain.",
-      color: 0x0000ff
+      color: 0x1b69d6 // #1b69d6
     },
     class: "effect",
     defaultSpan: 1,
