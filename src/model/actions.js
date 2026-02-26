@@ -9,7 +9,7 @@ import {
   cmdStackItemsInOwner,
   cmdUseItem,
   cmdDiscardItemFromOwner,
-  cmdMoveProcessBufferItem,
+  cmdMoveProcessDropboxItem,
   cmdDepositItemToEquippedBasket,
   cmdEquipItemToLeaderSlot,
   cmdMoveLeaderEquipmentToInventory,
@@ -45,7 +45,7 @@ export const ActionKinds = {
   INVENTORY_STACK: "inventoryStack",
   INVENTORY_DISCARD: "inventoryDiscard",
   INVENTORY_USE_ITEM: "inventoryUseItem",
-  PROCESS_BUFFER_MOVE: "processBufferMove",
+  PROCESS_DROPBOX_MOVE: "processDropboxMove",
   DEPOSIT_ITEM_TO_BASKET: "depositItemToBasket",
   EQUIP_ITEM: "equipItem",
   UNEQUIP_ITEM: "unequipItem",
@@ -178,8 +178,8 @@ export function applyAction(state, action, context = {}) {
       result = cmdMoveItemBetweenOwners(state, payload);
       break;
 
-    case ActionKinds.PROCESS_BUFFER_MOVE:
-      result = cmdMoveProcessBufferItem(state, payload);
+    case ActionKinds.PROCESS_DROPBOX_MOVE:
+      result = cmdMoveProcessDropboxItem(state, payload);
       break;
 
     case ActionKinds.DEPOSIT_ITEM_TO_BASKET:

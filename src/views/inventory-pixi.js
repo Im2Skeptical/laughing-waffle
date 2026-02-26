@@ -3784,6 +3784,11 @@ export function createInventoryView({
 
     if (uiBlocked) {
       flashItemError(view, sourceOwner);
+      console.warn("inventoryMove failed: noDropTargetDetected", {
+        sourceOwner,
+        itemId: item?.id ?? null,
+        globalPos: g ? { x: g.x, y: g.y } : null,
+      });
       finish("fail");
       return;
     }
@@ -3929,100 +3934,135 @@ export function createInventoryView({
       return;
     }
 
-    const win = findWindowAt(g);
-    if (!win) {
-      const dropTargetRaw =
-        typeof getDropTargetOwnerAt === "function"
-          ? getDropTargetOwnerAt(g)
-          : null;
-      const targetOwner =
-        dropTargetRaw && typeof dropTargetRaw === "object"
-          ? dropTargetRaw.ownerId ?? null
-          : dropTargetRaw;
-      if (targetOwner != null) {
-        const isProcessDropbox =
-          typeof targetOwner === "string" &&
-          (targetOwner.startsWith("inv:process:") ||
-            targetOwner.startsWith("inv:dropbox:"));
-        if (targetOwner === sourceOwner) {
-          revealWindow(targetOwner);
-          finish();
-          return;
-        }
+    const dropTargetRaw =
+      typeof getDropTargetOwnerAt === "function"
+        ? getDropTargetOwnerAt(g)
+        : null;
+    const dropTargetOwner =
+      dropTargetRaw && typeof dropTargetRaw === "object"
+        ? dropTargetRaw.ownerId ?? null
+        : dropTargetRaw;
 
-        const targetInv = getInventoryForOwner(targetOwner);
-        const preview =
-          typeof getInventoryPreview === "function"
-            ? getInventoryPreview(targetOwner)
-            : null;
-
-        const placement = isProcessDropbox
-          ? { gx: 0, gy: 0 }
-          : findItemPlacement(targetInv, item, preview, null);
-        if (!placement) {
-          if (isProcessDropbox) {
-            flashDropTargetError?.(targetOwner);
-          } else {
-            revealWindow(targetOwner);
-            flashWindowError(targetOwner);
-          }
-          finish("fail");
-          return;
-        }
-
-        const handler =
-          sourceEquipmentSlotId
-            ? typeof moveEquippedItemToInventory === "function"
-              ? moveEquippedItemToInventory
-              : null
-            : typeof moveItemBetweenOwners === "function"
-              ? moveItemBetweenOwners
-              : null;
-
-        const result = handler
-          ? sourceEquipmentSlotId
-            ? handler({
-                fromOwnerId: sourceOwner,
-                toOwnerId: targetOwner,
-                slotId: sourceEquipmentSlotId,
-                targetGX: placement.gx,
-                targetGY: placement.gy,
-              })
-            : handler({
-                fromOwnerId: sourceOwner,
-                toOwnerId: targetOwner,
-                itemId: item.id,
-                targetGX: placement.gx,
-                targetGY: placement.gy,
-                viaProcessDropbox: isProcessDropbox,
-              })
-          : {
-              ok: false,
-              reason: sourceEquipmentSlotId
-                ? "noMoveEquippedItemToInventoryHandler"
-                : "noMoveItemBetweenOwnersHandler",
-            };
-
-        if (!result.ok) {
-          console.warn("inventoryMove failed:", result.reason, result);
-          if (isProcessDropbox) {
-            flashDropTargetError?.(targetOwner);
-          } else {
-            revealWindow(targetOwner);
-            flashWindowError(targetOwner);
-          }
-          flashItemError(view, sourceOwner);
-          finish("fail");
-          return;
-        }
-
-        rebuildWindow(sourceOwner);
-        rebuildWindow(targetOwner);
-        finish("success");
+    // Process/widget drop targets should win over inventory window hitboxes.
+    if (dropTargetOwner != null) {
+      const targetOwner = dropTargetOwner;
+      const isProcessDropbox =
+        typeof targetOwner === "string" &&
+        targetOwner.startsWith("inv:dropbox:");
+      if (targetOwner === sourceOwner) {
+        revealWindow(targetOwner);
+        finish();
         return;
       }
 
+      const targetInv = getInventoryForOwner(targetOwner);
+      const preview =
+        typeof getInventoryPreview === "function"
+          ? getInventoryPreview(targetOwner)
+          : null;
+
+      const placement = isProcessDropbox
+        ? { gx: 0, gy: 0 }
+        : findItemPlacement(targetInv, item, preview, null);
+      if (!placement) {
+        if (isProcessDropbox) {
+          flashDropTargetError?.(targetOwner);
+        } else {
+          revealWindow(targetOwner);
+          flashWindowError(targetOwner);
+        }
+        flashItemError(view, sourceOwner);
+        globalThis.__DBG_DROP_LAST__ = {
+          phase: "externalTargetPlacementBlocked",
+          sourceOwner,
+          targetOwner,
+          isProcessDropbox,
+          itemId: item?.id ?? null,
+          itemKind: item?.kind ?? null,
+          pointer: g ? { x: g.x, y: g.y } : null,
+        };
+        finish("fail");
+        return;
+      }
+
+      const handler =
+        sourceEquipmentSlotId
+          ? typeof moveEquippedItemToInventory === "function"
+            ? moveEquippedItemToInventory
+            : null
+          : typeof moveItemBetweenOwners === "function"
+            ? moveItemBetweenOwners
+            : null;
+
+      const result = handler
+        ? sourceEquipmentSlotId
+          ? handler({
+              fromOwnerId: sourceOwner,
+              toOwnerId: targetOwner,
+              slotId: sourceEquipmentSlotId,
+              targetGX: placement.gx,
+              targetGY: placement.gy,
+            })
+          : handler({
+              fromOwnerId: sourceOwner,
+              toOwnerId: targetOwner,
+              itemId: item.id,
+              targetGX: placement.gx,
+              targetGY: placement.gy,
+              viaProcessDropbox: isProcessDropbox,
+            })
+        : {
+            ok: false,
+            reason: sourceEquipmentSlotId
+              ? "noMoveEquippedItemToInventoryHandler"
+              : "noMoveItemBetweenOwnersHandler",
+          };
+
+      globalThis.__DBG_DROP_LAST__ = {
+        phase: "externalTargetMoveResult",
+        sourceOwner,
+        targetOwner,
+        isProcessDropbox,
+        itemId: item?.id ?? null,
+        itemKind: item?.kind ?? null,
+        pointer: g ? { x: g.x, y: g.y } : null,
+        result,
+      };
+
+      if (!result.ok) {
+        console.warn("inventoryMove failed:", result.reason, result);
+        if (isProcessDropbox) {
+          flashDropTargetError?.(targetOwner);
+        } else {
+          revealWindow(targetOwner);
+          flashWindowError(targetOwner);
+        }
+        flashItemError(view, sourceOwner);
+        finish("fail");
+        return;
+      }
+
+      rebuildWindow(sourceOwner);
+      rebuildWindow(targetOwner);
+      finish("success");
+      return;
+    }
+
+    const win = findWindowAt(g);
+    if (!win) {
       flashItemError(view, sourceOwner);
+      console.warn("inventoryMove failed: noDropTargetDetected", {
+        sourceOwner,
+        itemId: item?.id ?? null,
+        globalPos: g ? { x: g.x, y: g.y } : null,
+      });
+      globalThis.__DBG_DROP_LAST__ = {
+        phase: "noDropTargetDetected",
+        sourceOwner,
+        itemId: item?.id ?? null,
+        itemKind: item?.kind ?? null,
+        pointer: g ? { x: g.x, y: g.y } : null,
+      };
       finish("fail");
       return;
     }

@@ -296,7 +296,7 @@ function scrubProcessReferencesToRemovedPawns(state, removedPawnIds) {
             (processLeaderId != null && removedPawnIdSet.has(processLeaderId));
           if (removeProcess) {
             if (process.id != null && state.ownerInventories) {
-              delete state.ownerInventories[`inv:process:${process.id}`];
+              delete state.ownerInventories[`inv:dropbox:process:${process.id}`];
             }
             continue;
           }

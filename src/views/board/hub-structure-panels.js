@@ -97,6 +97,15 @@ export function createHubPanels(opts) {
         };
 
         const run = () => {
+          const sameSelection = (selectedId ?? null) === (nextRecipe ?? null);
+          if (sameSelection) {
+            if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+            return dispatchAction(
+              ActionKinds.SET_HUB_RECIPE_SELECTION,
+              { hubCol, systemId, recipeId: nextRecipe },
+              { apCost: 0 }
+            );
+          }
           if (actionPlanner?.setHubRecipeSelectionIntent) {
             const res = actionPlanner.setHubRecipeSelectionIntent({
               hubCol,

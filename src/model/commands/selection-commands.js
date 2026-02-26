@@ -1,6 +1,11 @@
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { computeAvailableRecipesAndBuildings, hasEnvTagUnlock } from "../skills.js";
+import { Inventory } from "../inventory-model.js";
+import {
+  getDropEndpointId,
+  getProcessDefForInstance,
+} from "../process-framework.js";
 import { ensureLocationNamesState } from "../state.js";
 import {
   ensureGrowthState,
@@ -59,6 +64,96 @@ function getRecipeKindForHubSystem(systemId) {
   return null;
 }
 
+function cloneRequirementsForProcess(requirements) {
+  const list = Array.isArray(requirements) ? requirements : [];
+  return list
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      ...entry,
+      amount: Math.max(0, Math.floor(entry.amount ?? 0)),
+      progress: Math.max(0, Math.floor(entry.progress ?? 0)),
+      consume: entry.consume !== false,
+    }));
+}
+
+function ensureProcessDropboxInventory(state, processId) {
+  const ownerId = getDropEndpointId(processId);
+  if (!ownerId) return false;
+  if (!state.ownerInventories || typeof state.ownerInventories !== "object") {
+    state.ownerInventories = {};
+  }
+  if (state.ownerInventories[ownerId]) return false;
+  const inv = Inventory.create(8, 8);
+  Inventory.init(inv);
+  inv.version = 0;
+  state.ownerInventories[ownerId] = inv;
+  return true;
+}
+
+function ensureSelectedRecipeProcess(state, structure, systemId, recipeId) {
+  if (!state || !structure || !systemId || !recipeId) {
+    return { changed: false, processId: null };
+  }
+  const systemState = ensureHubSystemState(structure, systemId);
+  if (!Array.isArray(systemState.processes)) {
+    systemState.processes = [];
+  }
+  const processes = systemState.processes;
+  const existing = processes.find((proc) => proc?.type === recipeId) || null;
+  if (existing) {
+    let changed = false;
+    const existingDef = getProcessDefForInstance(existing, structure, {
+      target: structure,
+      systemId,
+      state,
+    });
+    if (
+      (!Array.isArray(existing.requirements) || existing.requirements.length === 0) &&
+      Array.isArray(existingDef?.transform?.requirements) &&
+      existingDef.transform.requirements.length > 0
+    ) {
+      existing.requirements = cloneRequirementsForProcess(
+        existingDef.transform.requirements
+      );
+      changed = true;
+    }
+    if (ensureProcessDropboxInventory(state, existing.id)) changed = true;
+    return { changed, processId: existing.id };
+  }
+
+  const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+  const durationSec = Number.isFinite(recipeDefs?.[recipeId]?.durationSec)
+    ? Math.max(1, Math.floor(recipeDefs[recipeId].durationSec))
+    : 1;
+  const processId = `proc_${structure.instanceId}_${systemId}_${recipeId}_${nowSec}_${processes.length}`;
+  const process = {
+    id: processId,
+    type: recipeId,
+    mode: "work",
+    durationSec,
+    progress: 0,
+    startSec: nowSec,
+    ownerId: structure.instanceId ?? null,
+    completionPolicy: "none",
+  };
+  const processDef = getProcessDefForInstance(process, structure, {
+    target: structure,
+    systemId,
+    state,
+  });
+  if (
+    Array.isArray(processDef?.transform?.requirements) &&
+    processDef.transform.requirements.length > 0
+  ) {
+    process.requirements = cloneRequirementsForProcess(
+      processDef.transform.requirements
+    );
+  }
+  processes.push(process);
+  ensureProcessDropboxInventory(state, process.id);
+  return { changed: true, processId: process.id };
+}
+
 export function cmdSetHubRecipeSelection(state, { hubCol, systemId, recipeId } = {}) {
   if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
   if (!systemId || typeof systemId !== "string") {
@@ -92,23 +187,36 @@ export function cmdSetHubRecipeSelection(state, { hubCol, systemId, recipeId } =
   if (!Object.prototype.hasOwnProperty.call(systemState, "selectedRecipeId")) {
     systemState.selectedRecipeId = null;
   }
+  const recipeSystemKind = getRecipeKindForHubSystem(systemId);
   if (systemState.selectedRecipeId === nextRecipeId) {
+    const ensureRes =
+      nextRecipeId != null && recipeSystemKind
+        ? ensureSelectedRecipeProcess(state, structure, systemId, nextRecipeId)
+        : { changed: false, processId: null };
     return {
       ok: true,
       result: "recipeUnchanged",
       hubCol: col,
       systemId,
       recipeId: nextRecipeId,
+      processId: ensureRes.processId,
+      processInitialized: ensureRes.changed,
     };
   }
 
   systemState.selectedRecipeId = nextRecipeId;
+  const ensureRes =
+    nextRecipeId != null && recipeSystemKind
+      ? ensureSelectedRecipeProcess(state, structure, systemId, nextRecipeId)
+      : { changed: false, processId: null };
   return {
     ok: true,
     result: "recipeSelected",
     hubCol: col,
     systemId,
     recipeId: nextRecipeId,
+    processId: ensureRes.processId,
+    processInitialized: ensureRes.changed,
   };
 }
 

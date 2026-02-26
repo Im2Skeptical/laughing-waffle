@@ -3,13 +3,13 @@ import { isStructureUnderConstruction } from "../build-helpers.js";
 
 function getOwnerKindAndDef(state, ownerId) {
   const normalizedOwnerId =
-    typeof ownerId === "string" && !ownerId.startsWith("inv:process:")
+    typeof ownerId === "string" && !ownerId.startsWith("inv:dropbox:process:")
       ? Number.isFinite(Number(ownerId))
         ? Number(ownerId)
         : ownerId
       : ownerId;
-  if (typeof ownerId === "string" && ownerId.startsWith("inv:process:")) {
-    return { kind: "processBuffer", def: null };
+  if (typeof ownerId === "string" && ownerId.startsWith("inv:dropbox:process:")) {
+    return { kind: "processDropbox", def: null };
   }
   const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
   for (const slot of slots) {
@@ -40,7 +40,7 @@ export function canOwnerAcceptItem(state, ownerId, item) {
     return true;
   }
 
-  if (kind === "processBuffer") {
+  if (kind === "processDropbox") {
     return true;
   }
 

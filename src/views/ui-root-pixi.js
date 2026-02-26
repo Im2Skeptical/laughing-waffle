@@ -973,9 +973,12 @@ inventoryView = createInventoryView({
   layout: VIEW_LAYOUT.inventory,
   tooltipView,
   getOwnerLabel(ownerId) {
-    if (typeof ownerId === "string" && ownerId.startsWith("inv:process:")) {
-      const procId = ownerId.slice("inv:process:".length);
-      return procId ? `Process ${procId}` : "Process Buffer";
+    if (
+      typeof ownerId === "string" &&
+      ownerId.startsWith("inv:dropbox:process:")
+    ) {
+      const procId = ownerId.slice("inv:dropbox:process:".length);
+      return procId ? `Process ${procId} Dropbox` : "Process Dropbox";
     }
     const state = runner.getState();
     const hubSlot = state.hub.slots.find(
@@ -1008,8 +1011,9 @@ inventoryView = createInventoryView({
       affordable: true,
     },
   getDropTargetOwnerAt: (pos) =>
-    pawnsView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     processWidgetView?.getDropTargetOwnerAtGlobalPos?.(pos) ??
+    processWidgetView?.getNearestProcessDropboxOwnerAtGlobalPos?.(pos) ??
+    pawnsView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     boardView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     null,
   flashDropTargetError: (ownerId) =>
@@ -1076,15 +1080,15 @@ inventoryView = createInventoryView({
         targetGX: spec?.targetGX,
         targetGY: spec?.targetGY,
       };
-      const isProcessBuffer = (ownerId) =>
+      const isProcessDropbox = (ownerId) =>
         typeof ownerId === "string" &&
-        (ownerId.startsWith("inv:process:") || ownerId.startsWith("inv:dropbox:"));
+        ownerId.startsWith("inv:dropbox:");
       if (
-        (isProcessBuffer(payload.fromOwnerId) || isProcessBuffer(payload.toOwnerId)) &&
+        (isProcessDropbox(payload.fromOwnerId) || isProcessDropbox(payload.toOwnerId)) &&
         payload.fromOwnerId !== payload.toOwnerId
       ) {
         return runner.dispatchAction(
-          ActionKinds.PROCESS_BUFFER_MOVE,
+          ActionKinds.PROCESS_DROPBOX_MOVE,
           {
             ...payload,
             viaProcessDropbox: spec?.viaProcessDropbox === true,

@@ -11,7 +11,7 @@ import {
   normalizeProcessRequirements,
   seedRoutingWithCandidates,
   ensureProcessRequirements,
-  ensureProcessBufferInventory,
+  ensureProcessDropboxInventory,
 } from "./work-process-routing.js";
 
 function nowSecFrom(state, context) {
@@ -129,7 +129,7 @@ export function handleCreateWorkProcess(state, effect, context) {
       ensureProcessRoutingState(process, processDef, routingContext);
       seedRoutingWithCandidates(state, target, process, processDef, routingContext);
       ensureProcessRequirements(process, processDef);
-      ensureProcessBufferInventory(state, process, processDef);
+      ensureProcessDropboxInventory(state, process, processDef);
     }
 
     systemState[queueKey].push(process);

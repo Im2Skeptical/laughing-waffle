@@ -25,7 +25,8 @@ import { bumpInvVersion } from "./effects/core/inventory-version.js";
 const DEFAULT_PROCESS_INPUT_SLOT = "materials";
 const DEFAULT_PROCESS_OUTPUT_SLOT = "output";
 
-const DROP_ENDPOINT_PREFIX = "inv:process:";
+const DROP_ENDPOINT_PREFIX = "inv:dropbox:process:";
+const DROP_ENDPOINT_SENTINEL = "inv:dropbox:process";
 const POOL_ENDPOINT_PREFIX = "sys:pool:";
 
 function normalizeString(value) {
@@ -1305,7 +1306,7 @@ export function resolveFixedEndpointId(endpointId, process, context) {
     if (leaderId == null) return null;
     return `sys:pawn:${leaderId}`;
   }
-  if (endpointId === "inv:process") {
+  if (endpointId === DROP_ENDPOINT_SENTINEL) {
     return process?.id ? `${DROP_ENDPOINT_PREFIX}${process.id}` : null;
   }
   return endpointId;
@@ -1375,7 +1376,7 @@ export function resolveEndpointTarget(state, endpointId) {
   if (endpointId === "spawn:tileOccupants") {
     return { kind: "spawn" };
   }
-  if (endpointId.startsWith("inv:process:")) {
+  if (endpointId.startsWith(DROP_ENDPOINT_PREFIX)) {
     const inv = state?.ownerInventories?.[endpointId] ?? null;
     return inv ? { kind: "inventory", target: inv, ownerId: endpointId } : null;
   }

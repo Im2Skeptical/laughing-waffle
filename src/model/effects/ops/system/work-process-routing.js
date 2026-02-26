@@ -342,7 +342,7 @@ export function ensureTierBucket(container, itemId = null) {
   return bucket;
 }
 
-export function ensureProcessBufferInventory(state, process, processDef) {
+export function ensureProcessDropboxInventory(state, process, processDef) {
   if (!state || !process || !processDef?.supportsDropslot) return false;
   const ownerId = getDropEndpointId(process.id);
   if (!ownerId) return false;

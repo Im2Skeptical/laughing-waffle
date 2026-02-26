@@ -130,7 +130,10 @@ export function itemHasBaseTag(itemId, tag) {
 
 export function resolvePawnOwnerId(ownerId) {
   if (typeof ownerId === "number") return ownerId;
-  if (typeof ownerId === "string" && !ownerId.startsWith("inv:process:")) {
+  if (
+    typeof ownerId === "string" &&
+    !ownerId.startsWith("inv:dropbox:process:")
+  ) {
     const asNum = Number(ownerId);
     if (Number.isFinite(asNum)) return asNum;
   }

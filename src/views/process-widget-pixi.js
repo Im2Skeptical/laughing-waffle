@@ -51,7 +51,7 @@ const SEGMENT_GAP = 6;
 
 const DRAWER_COLLAPSED = 60;
 const DRAWER_EXPANDED = 156;
-const BUFFER_SIZE = 44;
+const DROPBOX_SIZE = 44;
 const DRAWER_TOGGLE_BUTTON_MIN_WIDTH = 44;
 const DRAWER_TOGGLE_BUTTON_EDGE_PAD = 4;
 
@@ -105,8 +105,8 @@ const COLORS = {
   pillTextInvalid: MUCHA_UI_COLORS.ink.alert,
   progressBg: MUCHA_UI_COLORS.surfaces.panelRaised,
   progressFill: MUCHA_UI_COLORS.accents.sage,
-  bufferBg: MUCHA_UI_COLORS.surfaces.panelDeep,
-  bufferBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
+  dropboxBg: MUCHA_UI_COLORS.surfaces.panelDeep,
+  dropboxBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
 };
 
 export function createProcessWidgetView({
@@ -848,7 +848,7 @@ export function createProcessWidgetView({
 
   function getEndpointLabel(state, endpointId) {
     if (!endpointId || typeof endpointId !== "string") return "Endpoint";
-    if (endpointId.startsWith("inv:process:")) return "Buffer";
+    if (endpointId.startsWith("inv:dropbox:process:")) return "Dropbox";
     if (endpointId.startsWith("res:state")) return "Stockpile";
     if (endpointId.startsWith("spawn:tileOccupants")) return "Spawn";
     if (endpointId.startsWith("sys:pool:")) {
@@ -1000,7 +1000,7 @@ export function createProcessWidgetView({
 
   function getEndpointFocusOwnerIds(state, endpointId) {
     if (!endpointId || typeof endpointId !== "string") return [];
-    if (endpointId.startsWith("inv:process:")) return [endpointId];
+    if (endpointId.startsWith("inv:dropbox:process:")) return [endpointId];
     if (endpointId.startsWith("inv:dropbox:hub:")) return [endpointId];
     if (endpointId.startsWith("inv:hub:")) {
       const id = endpointId.slice("inv:hub:".length);
@@ -1316,10 +1316,10 @@ export function createProcessWidgetView({
     bg.endFill();
   }
 
-  function drawBufferBox(bg, width, height) {
+  function drawDropboxBox(bg, width, height) {
     bg.clear();
-    bg.lineStyle(1, COLORS.bufferBorder, 0.9);
-    bg.beginFill(COLORS.bufferBg, 0.95);
+    bg.lineStyle(1, COLORS.dropboxBorder, 0.9);
+    bg.beginFill(COLORS.dropboxBg, 0.95);
     bg.drawRoundedRect(0, 0, width, height, MODULE_RADIUS);
     bg.endFill();
   }
@@ -2378,7 +2378,7 @@ export function createProcessWidgetView({
       amountText.y = amountBg.y + 2;
       amountBg.clear();
       amountBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      amountBg.beginFill(COLORS.bufferBg, 0.98);
+      amountBg.beginFill(COLORS.dropboxBg, 0.98);
       amountBg.drawRoundedRect(0, 0, amountW, btnH, 5);
       amountBg.endFill();
 
@@ -2433,23 +2433,25 @@ export function createProcessWidgetView({
     return height;
   }
 
-  function buildBufferModule({
+  function buildDropboxModule({
     container,
     width,
     height,
     process,
     dropTargets,
     dropOwnerId = null,
-    labelText = "Buffer",
+    labelText = "Dropbox",
+    dropEnabled = true,
   }) {
     const bg = new PIXI.Graphics();
     container.addChild(bg);
+    drawDropboxBox(bg, width, height);
 
     const size = Math.min(width, height);
     const slot = new PIXI.Graphics();
     const drawSlot = (isError = false) => {
       slot.clear();
-      slot.lineStyle(1, isError ? 0xff4f5e : COLORS.bufferBorder, 0.9);
+      slot.lineStyle(1, isError ? 0xff4f5e : COLORS.dropboxBorder, 0.9);
       slot.beginFill(isError ? 0x8a1f2a : COLORS.drawerBg, 0.95);
       slot.drawRoundedRect(0, 0, size, size, 8);
       slot.endFill();
@@ -2467,16 +2469,42 @@ export function createProcessWidgetView({
     label.y = slot.y + size + 4;
     container.addChild(label);
 
+    // Full-module drop hitbox so drops do not require exact slot-pixel precision.
+    const hitbox = new PIXI.Graphics();
+    hitbox.beginFill(0xffffff, 0.001);
+    hitbox.drawRoundedRect(0, 0, width, height, MODULE_RADIUS);
+    hitbox.endFill();
+    container.addChildAt(hitbox, 0);
+
     const dropId =
       typeof dropOwnerId === "string" && dropOwnerId.length > 0
         ? dropOwnerId
         : getDropEndpointId(process?.id);
-    if (dropId && Array.isArray(dropTargets)) {
+    const canDrop = dropEnabled === true && !!dropId;
+    if (canDrop && Array.isArray(dropTargets)) {
       let errorTimeout = null;
+      let cachedBounds = null;
       dropTargets.push({
         ownerId: dropId,
         kind: "processDropbox",
-        getBounds: () => slot.getBounds(),
+        getBounds: () => {
+          const bounds = hitbox.getBounds();
+          if (
+            Number.isFinite(bounds?.width) &&
+            Number.isFinite(bounds?.height) &&
+            bounds.width > 0 &&
+            bounds.height > 0
+          ) {
+            cachedBounds = {
+              x: bounds.x,
+              y: bounds.y,
+              width: bounds.width,
+              height: bounds.height,
+            };
+            return bounds;
+          }
+          return cachedBounds || bounds;
+        },
         flashError: () => {
           drawSlot(true);
           if (errorTimeout != null) clearTimeout(errorTimeout);
@@ -2490,13 +2518,27 @@ export function createProcessWidgetView({
       slot.eventMode = "static";
       slot.cursor = "pointer";
       slot.on("pointertap", () => {
-        if (dropId.startsWith("inv:process:")) {
+        if (dropId.startsWith("inv:dropbox:process:")) {
           inventoryView?.revealWindow?.(dropId, { pinned: true });
         }
       });
+    } else {
+      slot.alpha = 0.75;
+      label.alpha = 0.75;
+      slot.eventMode = "none";
+      slot.cursor = "default";
     }
+  }
 
-    drawBufferBox(bg, width, height);
+  function getWindowRect(win) {
+    if (!win?.container) return null;
+    const localBounds = win.container.getLocalBounds?.() ?? null;
+    const scale = Number.isFinite(win?.uiScale) ? win.uiScale : 1;
+    const width = Math.max(1, Math.floor((localBounds?.width ?? CORE_WIDTH) * scale));
+    const height = Math.max(1, Math.floor((localBounds?.height ?? 140) * scale));
+    const x = Number.isFinite(win.container.x) ? win.container.x : 0;
+    const y = Number.isFinite(win.container.y) ? win.container.y : 0;
+    return { x, y, width, height };
   }
 
   function buildRoutingDrawer({
@@ -2699,8 +2741,8 @@ export function createProcessWidgetView({
         : routingMode === "template"
           ? true
           : !isPreview;
-    const allowBuffer =
-      typeof opts.allowBuffer === "boolean" ? opts.allowBuffer : !isPreview;
+    const allowDropbox =
+      typeof opts.allowDropbox === "boolean" ? opts.allowDropbox : !isPreview;
     const drawerKey =
       opts.drawerKey ||
       (routingMode === "template"
@@ -2711,7 +2753,7 @@ export function createProcessWidgetView({
     const bg = new PIXI.Graphics();
     card.addChild(bg);
 
-    const showBuffer = allowBuffer && !!routingProcessDef?.supportsDropslot;
+    const showDropbox = allowDropbox && !!routingProcessDef?.supportsDropslot;
     const inputDrawerVisible =
       allowRouting && hasSelectableSlots(routingProcessDef, "inputs");
     const outputDrawerVisible =
@@ -2728,12 +2770,12 @@ export function createProcessWidgetView({
         : DRAWER_COLLAPSED
       : 0;
 
-    const bufferGap = showBuffer ? SEGMENT_GAP : 0;
-    const centralWidth = Math.max(120, CORE_WIDTH - (showBuffer ? (BUFFER_SIZE + bufferGap) : 0));
+    const dropboxGap = showDropbox ? SEGMENT_GAP : 0;
+    const centralWidth = Math.max(120, CORE_WIDTH - (showDropbox ? (DROPBOX_SIZE + dropboxGap) : 0));
 
     const segments = [];
     if (inputDrawerVisible) segments.push({ key: "left", width: leftDrawerWidth });
-    if (showBuffer) segments.push({ key: "buffer", width: BUFFER_SIZE });
+    if (showDropbox) segments.push({ key: "dropbox", width: DROPBOX_SIZE });
     segments.push({ key: "central", width: centralWidth });
     if (outputDrawerVisible) segments.push({ key: "right", width: rightDrawerWidth });
 
@@ -2950,7 +2992,7 @@ export function createProcessWidgetView({
     const drawerHeightTarget = Math.max(
       bodyHeightTarget,
       moduleMaxHeight,
-      showBuffer ? BUFFER_SIZE + 18 : 0
+      showDropbox ? DROPBOX_SIZE + 18 : 0
     );
 
     if (inputDrawerVisible) {
@@ -2969,19 +3011,19 @@ export function createProcessWidgetView({
         drawerKey,
         target,
         state,
-        hideDrop: showBuffer,
+        hideDrop: showDropbox,
       });
       leftDrawer.container.x = segments.find((s) => s.key === "left").x;
       leftDrawer.container.y = BODY_PAD;
       body.addChild(leftDrawer.container);
     }
 
-    let buffer = null;
-    if (showBuffer) {
-      buffer = new PIXI.Container();
-      buffer.x = segments.find((s) => s.key === "buffer").x;
-      buffer.y = BODY_PAD;
-      body.addChild(buffer);
+    let dropbox = null;
+    if (showDropbox) {
+      dropbox = new PIXI.Container();
+      dropbox.x = segments.find((s) => s.key === "dropbox").x;
+      dropbox.y = BODY_PAD;
+      body.addChild(dropbox);
     }
 
     if (outputDrawerVisible) {
@@ -3009,12 +3051,12 @@ export function createProcessWidgetView({
 
     const leftHeight = leftDrawer?.container?.height || 0;
     const rightHeight = rightDrawer?.container?.height || 0;
-    const bufferHeight = showBuffer ? BUFFER_SIZE + 18 : 0;
+    const dropboxHeight = showDropbox ? DROPBOX_SIZE + 18 : 0;
     const bodyContentHeight = Math.max(
       moduleMaxHeight,
       leftHeight,
       rightHeight,
-      bufferHeight,
+      dropboxHeight,
       bodyHeightTarget
     );
     stretchModuleViews(moduleViews, bodyContentHeight);
@@ -3029,14 +3071,18 @@ export function createProcessWidgetView({
       rightDrawer.setHeight?.(bodyContentHeight);
     }
 
-    if (showBuffer && buffer) {
-      buildBufferModule({
-        container: buffer,
-        width: BUFFER_SIZE,
+    if (showDropbox && dropbox) {
+      buildDropboxModule({
+        container: dropbox,
+        width: DROPBOX_SIZE,
         height: bodyContentHeight,
         process,
         dropTargets: opts.dropTargets,
-        labelText: routingProcessDef?.instantDropboxLoad ? "Dropbox" : "Buffer",
+        labelText: "Dropbox",
+        dropEnabled:
+          typeof opts.dropboxInteractive === "boolean"
+            ? opts.dropboxInteractive
+            : true,
       });
     }
 
@@ -3065,7 +3111,10 @@ export function createProcessWidgetView({
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (!entry?.process || !entry?.processDef) continue;
-      const built = buildProcessCard(state, target, entry, i, count, cardOpts);
+      const built = buildProcessCard(state, target, entry, i, count, {
+        ...cardOpts,
+        dropTargets,
+      });
       built.card.y = y;
       content.addChild(built.card);
       y += built.height + CARD_GAP;
@@ -3208,6 +3257,7 @@ export function createProcessWidgetView({
         1,
         {
           ...cardOpts,
+          dropTargets,
           groupMode: "growth",
           groupEntries: [],
           routingMode: "template",
@@ -3217,7 +3267,7 @@ export function createProcessWidgetView({
           routingTargetRef: makeTargetRef(target),
           routingSystemId: "growth",
           drawerKey: `template:growth:${getTargetKey(target) || "target"}`,
-          allowBuffer: false,
+          allowDropbox: false,
         }
       );
       built.card.y = 0;
@@ -3228,6 +3278,7 @@ export function createProcessWidgetView({
     const primary = entries[0];
     const built = buildProcessCard(state, target, primary, 0, 1, {
       ...cardOpts,
+      dropTargets,
       groupMode: "growth",
       groupEntries: entries,
     });
@@ -3267,6 +3318,7 @@ export function createProcessWidgetView({
         1,
         {
           ...cardOpts,
+          dropTargets,
           preview: true,
           forceModules,
           routingMode: "template",
@@ -3277,7 +3329,7 @@ export function createProcessWidgetView({
           routingSystemId: "build",
           drawerKey: `template:build:${getTargetKey(target) || "target"}`,
           allowRouting: true,
-          allowBuffer: false,
+          allowDropbox: false,
         }
       );
       built.card.y = 0;
@@ -3337,6 +3389,7 @@ export function createProcessWidgetView({
       1,
       {
         ...cardOpts,
+        dropTargets,
         preview: true,
         forceModules,
         routingMode: "template",
@@ -3347,7 +3400,7 @@ export function createProcessWidgetView({
         routingSystemId: "residents",
         drawerKey: `template:residents:${getTargetKey(target) || "target"}`,
         allowRouting: true,
-        allowBuffer: false,
+        allowDropbox: false,
       }
     );
     built.card.y = 0;
@@ -3575,6 +3628,15 @@ export function createProcessWidgetView({
         };
         const run = () => {
           if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+          const sameSelection = (selectedId ?? null) === (nextRecipe ?? null);
+          if (sameSelection) {
+            if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+            return dispatchAction(
+              ActionKinds.SET_HUB_RECIPE_SELECTION,
+              { hubCol, systemId, recipeId: nextRecipe },
+              { apCost: 0 }
+            );
+          }
           if (actionPlanner?.setHubRecipeSelectionIntent) {
             const res = actionPlanner.setHubRecipeSelectionIntent({
               hubCol,
@@ -3756,22 +3818,22 @@ export function createProcessWidgetView({
 
     const dropboxOwnerId = getDepositDropboxOwnerId(target);
     const showDropbox = !!dropboxOwnerId;
-    const bufferGap = showDropbox ? SEGMENT_GAP : 0;
+    const dropboxGap = showDropbox ? SEGMENT_GAP : 0;
     const centralWidth = Math.max(
       120,
-      totalWidth - (showDropbox ? BUFFER_SIZE + bufferGap : 0)
+      totalWidth - (showDropbox ? DROPBOX_SIZE + dropboxGap : 0)
     );
 
-    let buffer = null;
+    let dropbox = null;
     if (showDropbox) {
-      buffer = new PIXI.Container();
-      buffer.x = 0;
-      buffer.y = BODY_PAD;
-      body.addChild(buffer);
+      dropbox = new PIXI.Container();
+      dropbox.x = 0;
+      dropbox.y = BODY_PAD;
+      body.addChild(dropbox);
     }
 
     const central = new PIXI.Container();
-    central.x = showDropbox ? BUFFER_SIZE + bufferGap : 0;
+    central.x = showDropbox ? DROPBOX_SIZE + dropboxGap : 0;
     central.y = BODY_PAD;
     body.addChild(central);
 
@@ -3838,20 +3900,20 @@ export function createProcessWidgetView({
 
     central.height = moduleMaxHeight;
 
-    const bufferHeight = showDropbox ? BUFFER_SIZE + 18 : 0;
+    const dropboxHeight = showDropbox ? DROPBOX_SIZE + 18 : 0;
     const bodyContentHeight = Math.max(
       moduleMaxHeight,
-      bufferHeight,
+      dropboxHeight,
       MIN_BODY_CONTENT_HEIGHT
     );
     stretchModuleViews(moduleViews, bodyContentHeight);
     central.height = bodyContentHeight;
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
 
-    if (showDropbox && buffer) {
-      buildBufferModule({
-        container: buffer,
-        width: BUFFER_SIZE,
+    if (showDropbox && dropbox) {
+      buildDropboxModule({
+        container: dropbox,
+        width: DROPBOX_SIZE,
         height: bodyContentHeight,
         process: null,
         dropTargets: opts.dropTargets,
@@ -4069,7 +4131,7 @@ export function createProcessWidgetView({
         completionPolicy: "none",
       },
       routingSlots: { inputs: [], outputs: [] },
-      supportsDropslot: false,
+      supportsDropslot: true,
     };
   }
 
@@ -4097,6 +4159,7 @@ export function createProcessWidgetView({
           target?.systemState?.[systemId]?.routingTemplate || { inputs: {}, outputs: {} };
         const built = buildProcessCard(state, target, previewEntry, 0, 1, {
           ...cardOpts,
+          dropTargets,
           preview: true,
           forceModules,
           routingMode: "template",
@@ -4107,7 +4170,8 @@ export function createProcessWidgetView({
           routingSystemId: systemId,
           drawerKey: `template:${systemId}:${getTargetKey(target) || "target"}`,
           allowRouting: true,
-          allowBuffer: false,
+          allowDropbox: true,
+          dropboxInteractive: true,
         });
         built.card.y = 0;
         content.addChild(built.card);
@@ -4125,12 +4189,6 @@ export function createProcessWidgetView({
       ownerId: target?.instanceId ?? null,
     };
     const processDef = buildIdleProcessDef(systemId);
-    const templateProcess = getTemplateProcessForSystem(target, systemId, {
-      state,
-    });
-    const templateDef = templateProcess
-      ? getProcessDefForInstance(templateProcess, target, {})
-      : processDef;
     const routingState =
       target?.systemState?.[systemId]?.routingTemplate || { inputs: {}, outputs: {} };
     const forceModules = new Set(["requirements", "progress", "output"]);
@@ -4143,18 +4201,20 @@ export function createProcessWidgetView({
       1,
       {
         ...cardOpts,
+        dropTargets,
         preview: true,
         forceModules,
         variantOverride,
         routingMode: "template",
         routingState,
-        routingProcess: templateProcess || process,
-        routingProcessDef: templateDef,
+        routingProcess: process,
+        routingProcessDef: processDef,
         routingTargetRef: makeTargetRef(target),
         routingSystemId: systemId,
         drawerKey: `template:${systemId}:${targetKey}`,
         allowRouting: true,
-        allowBuffer: false,
+        allowDropbox: true,
+        dropboxInteractive: false,
       }
     );
     built.card.y = 0;
@@ -4271,6 +4331,7 @@ export function createProcessWidgetView({
         offsetIndex: Number.isFinite(offsetIndex) ? Math.floor(offsetIndex) : 0,
         idleFrames: 0,
         uiScale: 1,
+        lastBounds: null,
       };
       applyWindowScale(win);
       windows.set(windowId, win);
@@ -4550,6 +4611,7 @@ export function createProcessWidgetView({
         }
         positionWindowAtAnchor(win);
         win.container.visible = true;
+        win.lastBounds = getWindowRect(win);
         continue;
       }
 
@@ -4603,16 +4665,44 @@ export function createProcessWidgetView({
       }
       positionWindowAtAnchor(win);
       win.container.visible = true;
+      win.lastBounds = getWindowRect(win);
     }
     pruneWithdrawUiStateCache(state);
   }
 
   function getDropTargetOwnerAtGlobalPos(globalPos) {
     if (!globalPos) return null;
+    let fallbackOwnerId = null;
     for (const win of windows.values()) {
-      if (!win?.container?.visible) continue;
+      if (!win?.container) continue;
+      const rawBounds =
+        typeof win.container.getBounds === "function"
+          ? win.container.getBounds()
+          : null;
+      const winBounds =
+        rawBounds &&
+        Number.isFinite(rawBounds.width) &&
+        Number.isFinite(rawBounds.height) &&
+        rawBounds.width > 0 &&
+        rawBounds.height > 0
+          ? rawBounds
+          : win.lastBounds || null;
+      const pointerInsideWindow =
+        !!winBounds &&
+        globalPos.x >= winBounds.x &&
+        globalPos.x <= winBounds.x + winBounds.width &&
+        globalPos.y >= winBounds.y &&
+        globalPos.y <= winBounds.y + winBounds.height;
       for (const target of win.dropTargets || []) {
         if (!target || !target.getBounds) continue;
+        if (
+          fallbackOwnerId == null &&
+          pointerInsideWindow &&
+          target.kind === "processDropbox" &&
+          target.ownerId != null
+        ) {
+          fallbackOwnerId = target.ownerId;
+        }
         const bounds = target.getBounds();
         if (
           globalPos.x >= bounds.x &&
@@ -4624,14 +4714,108 @@ export function createProcessWidgetView({
         }
       }
     }
-    return null;
+    return fallbackOwnerId;
+  }
+
+  function distanceToRect(px, py, rect) {
+    if (!rect) return Number.POSITIVE_INFINITY;
+    const rx = Number.isFinite(rect.x) ? rect.x : 0;
+    const ry = Number.isFinite(rect.y) ? rect.y : 0;
+    const rw = Number.isFinite(rect.width) ? rect.width : 0;
+    const rh = Number.isFinite(rect.height) ? rect.height : 0;
+    const dx = Math.max(rx - px, 0, px - (rx + rw));
+    const dy = Math.max(ry - py, 0, py - (ry + rh));
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function getNearestProcessDropboxOwnerAtGlobalPos(globalPos, maxDistance = 400) {
+    if (!globalPos) return null;
+    const px = Number.isFinite(globalPos.x) ? globalPos.x : null;
+    const py = Number.isFinite(globalPos.y) ? globalPos.y : null;
+    if (px == null || py == null) return null;
+
+    let bestOwnerId = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const win of windows.values()) {
+      if (!win?.container) continue;
+      const rawBounds =
+        typeof win.container.getBounds === "function"
+          ? win.container.getBounds()
+          : null;
+      const winBounds =
+        rawBounds &&
+        Number.isFinite(rawBounds.width) &&
+        Number.isFinite(rawBounds.height) &&
+        rawBounds.width > 0 &&
+        rawBounds.height > 0
+          ? rawBounds
+          : win.lastBounds || getWindowRect(win);
+
+      let hadProcessDropboxTarget = false;
+      for (const target of win.dropTargets || []) {
+        if (!target || target.kind !== "processDropbox" || target.ownerId == null) {
+          continue;
+        }
+        hadProcessDropboxTarget = true;
+        const rawTargetBounds =
+          typeof target.getBounds === "function" ? target.getBounds() : null;
+        const targetBounds =
+          rawTargetBounds &&
+          Number.isFinite(rawTargetBounds.width) &&
+          Number.isFinite(rawTargetBounds.height) &&
+          rawTargetBounds.width > 0 &&
+          rawTargetBounds.height > 0
+            ? rawTargetBounds
+            : winBounds;
+        const dist = distanceToRect(px, py, targetBounds);
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          bestOwnerId = target.ownerId;
+        }
+      }
+
+      if (!hadProcessDropboxTarget && winBounds) {
+        const state = getStateSafe();
+        const target = resolveTargetFromRef(state, win.targetRef);
+        const systemId = win.groupKind || win.systemId || null;
+        let fallbackOwnerId = null;
+
+        if (target && systemId && isRecipeSystem(systemId)) {
+          const entries = collectProcessEntries(state, target, systemId);
+          if (entries.length > 0) {
+            const processId = entries[0]?.process?.id ?? null;
+            fallbackOwnerId = getDropEndpointId(processId);
+          } else {
+            const recipeId = getSelectedRecipeId(target, systemId);
+            const targetKey = getTargetKey(target) || "target";
+            if (recipeId) {
+              fallbackOwnerId = `inv:dropbox:process:preview:${systemId}:${targetKey}:${recipeId}`;
+            }
+          }
+        }
+
+        if (fallbackOwnerId) {
+          const dist = distanceToRect(px, py, winBounds);
+          if (dist < bestDistance) {
+            bestDistance = dist;
+            bestOwnerId = fallbackOwnerId;
+          }
+        }
+      }
+    }
+
+    if (!Number.isFinite(bestDistance) || bestDistance > Math.max(0, maxDistance)) {
+      return null;
+    }
+    return bestOwnerId;
   }
 
   function flashDropTargetError(ownerId) {
     if (ownerId == null) return false;
     let flashed = false;
     for (const win of windows.values()) {
-      if (!win?.container?.visible) continue;
+      if (!win?.container) continue;
       for (const target of win.dropTargets || []) {
         if (!target) continue;
         if (String(target.ownerId) !== String(ownerId)) continue;
@@ -4803,6 +4987,7 @@ export function createProcessWidgetView({
     init,
     update,
     getDropTargetOwnerAtGlobalPos,
+    getNearestProcessDropboxOwnerAtGlobalPos,
     flashDropTargetError,
     setHoverTarget,
     clearHoverTarget,

@@ -11,7 +11,7 @@ import { resolveEffectTargets } from "./targets.js";
 import {
   areRequirementsComplete,
   ensureProcessRequirements,
-  ensureProcessBufferInventory,
+  ensureProcessDropboxInventory,
   seedRoutingWithCandidates,
   advanceProcessRequirements,
 } from "./work-process-routing.js";
@@ -73,7 +73,7 @@ export function handleAdvanceWorkProcess(state, effect, context) {
         ensureProcessRoutingState(process, processDef, routingContext);
         seedRoutingWithCandidates(state, target, process, processDef, routingContext);
         ensureProcessRequirements(process, processDef);
-        ensureProcessBufferInventory(state, process, processDef);
+        ensureProcessDropboxInventory(state, process, processDef);
       }
 
       const durationSec = Math.max(1, Math.floor(process.durationSec ?? 0));
