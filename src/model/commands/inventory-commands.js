@@ -1,6 +1,5 @@
 import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
-import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { runEffect } from "../effects/index.js";
 import { TIER_ASC } from "../effects/core/tiers.js";
 import {
@@ -13,11 +12,20 @@ import {
   Inventory,
 } from "../inventory-model.js";
 import {
-  getDropEndpointId,
-  getProcessDefForInstance,
-} from "../process-framework.js";
+  isAnyDropboxOwnerId,
+  isHubDropboxOwnerId,
+  isProcessDropboxOwnerId,
+  parseHubDropboxOwnerId,
+  parseProcessDropboxOwnerId,
+} from "../owner-id-protocol.js";
 import { applyPrestigeDeposit } from "../prestige-system.js";
 import { canOwnerAcceptItem } from "./owner-acceptance.js";
+import {
+  applyProcessDropboxLoad,
+  applyProcessDropboxLoadFromItem,
+  evaluateProcessDropboxDrop,
+  isInstantDropboxTarget,
+} from "./process-dropbox-logic.js";
 import {
   addItemUnitsToInventoryWithTags,
   ensureInventoryForHubStructure,
@@ -324,39 +332,6 @@ export function cmdMoveItemBetweenOwners(
   return ctx.out || { ok: false, reason: "effectFailed" };
 }
 
-const PROCESS_DROPBOX_OWNER_PREFIX = "inv:dropbox:process:";
-const HUB_DROPBOX_OWNER_PREFIX = "inv:dropbox:hub:";
-
-function isProcessDropboxOwner(ownerId) {
-  return (
-    typeof ownerId === "string" &&
-    ownerId.startsWith(PROCESS_DROPBOX_OWNER_PREFIX)
-  );
-}
-
-function isHubDropboxOwner(ownerId) {
-  return (
-    typeof ownerId === "string" &&
-    ownerId.startsWith(HUB_DROPBOX_OWNER_PREFIX)
-  );
-}
-
-function isAnyDropboxOwner(ownerId) {
-  return isProcessDropboxOwner(ownerId) || isHubDropboxOwner(ownerId);
-}
-
-function parseProcessIdFromDropboxOwner(ownerId) {
-  if (!isProcessDropboxOwner(ownerId)) return null;
-  const processId = ownerId.slice(PROCESS_DROPBOX_OWNER_PREFIX.length);
-  return processId.length ? processId : null;
-}
-
-function parseHubStructureIdFromDropboxOwner(ownerId) {
-  if (!isHubDropboxOwner(ownerId)) return null;
-  const id = ownerId.slice(HUB_DROPBOX_OWNER_PREFIX.length);
-  return id.length ? id : null;
-}
-
 function findProcessInTarget(target, processId) {
   if (!target?.systemState || !processId) return null;
   for (const [systemId, sysState] of Object.entries(target.systemState)) {
@@ -412,123 +387,6 @@ function findHubStructureById(state, structureId) {
     if (String(structure.instanceId) === idStr) return structure;
   }
   return null;
-}
-
-function findTileById(state, tileId) {
-  if (!state || tileId == null) return null;
-  const idStr = String(tileId);
-  const tileAnchors = Array.isArray(state?.board?.layers?.tile?.anchors)
-    ? state.board.layers.tile.anchors
-    : [];
-  for (const anchor of tileAnchors) {
-    if (!anchor) continue;
-    if (String(anchor.instanceId) === idStr) return anchor;
-  }
-  return null;
-}
-
-function parsePreviewProcessReference(processId) {
-  if (typeof processId !== "string" || !processId.startsWith("preview:")) {
-    return null;
-  }
-  const parts = processId.split(":");
-  if (parts.length < 5) return null;
-  const systemId = parts[1] || null;
-  const targetKind = parts[2] || null;
-  const targetId = parts[3] || null;
-  const recipeId = parts.slice(4).join(":") || null;
-  if (!systemId || !targetKind || !targetId || !recipeId) return null;
-  return { systemId, targetKind, targetId, recipeId };
-}
-
-function cloneRequirementEntries(requirements) {
-  const list = Array.isArray(requirements) ? requirements : [];
-  return list
-    .filter((entry) => entry && typeof entry === "object")
-    .map((entry) => ({
-      ...entry,
-      amount: Math.max(0, Math.floor(entry.amount ?? 0)),
-      progress: Math.max(0, Math.floor(entry.progress ?? 0)),
-      consume: entry.consume !== false,
-    }));
-}
-
-function ensureInventoryForProcessDropbox(state, processId) {
-  const ownerId = getDropEndpointId(processId);
-  if (!ownerId) return null;
-  if (!state.ownerInventories || typeof state.ownerInventories !== "object") {
-    state.ownerInventories = {};
-  }
-  if (!state.ownerInventories[ownerId]) {
-    const inv = Inventory.create(8, 8);
-    Inventory.init(inv);
-    inv.version = 0;
-    state.ownerInventories[ownerId] = inv;
-  }
-  return ownerId;
-}
-
-function ensureProcessForPreviewDropbox(state, previewProcessId) {
-  const parsed = parsePreviewProcessReference(previewProcessId);
-  if (!parsed) return null;
-
-  const target =
-    parsed.targetKind === "hub"
-      ? findHubStructureById(state, parsed.targetId)
-      : parsed.targetKind === "tile"
-        ? findTileById(state, parsed.targetId)
-        : null;
-  if (!target) return null;
-
-  const systemState = ensureHubSystemState(target, parsed.systemId);
-  if (!systemState) return null;
-  if (!Array.isArray(systemState.processes)) {
-    systemState.processes = [];
-  }
-  const processes = systemState.processes;
-  if (!Object.prototype.hasOwnProperty.call(systemState, "selectedRecipeId")) {
-    systemState.selectedRecipeId = null;
-  }
-  if (systemState.selectedRecipeId !== parsed.recipeId) {
-    systemState.selectedRecipeId = parsed.recipeId;
-  }
-
-  let process = processes.find((proc) => proc?.type === parsed.recipeId) || null;
-  if (!process) {
-    const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
-    const durationSec = Number.isFinite(recipeDefs?.[parsed.recipeId]?.durationSec)
-      ? Math.max(1, Math.floor(recipeDefs[parsed.recipeId].durationSec))
-      : 1;
-    process = {
-      id: `proc_${target.instanceId}_${parsed.systemId}_${parsed.recipeId}_${nowSec}_${processes.length}`,
-      type: parsed.recipeId,
-      mode: "work",
-      durationSec,
-      progress: 0,
-      startSec: nowSec,
-      ownerId: target.instanceId ?? null,
-      completionPolicy: "none",
-    };
-    const processDef = getProcessDefForInstance(process, target, {
-      target,
-      systemId: parsed.systemId,
-      state,
-      leaderId: process?.leaderId ?? null,
-    });
-    if (
-      Array.isArray(processDef?.transform?.requirements) &&
-      processDef.transform.requirements.length > 0
-    ) {
-      process.requirements = cloneRequirementEntries(
-        processDef.transform.requirements
-      );
-    }
-    processes.push(process);
-  }
-
-  const ownerId = ensureInventoryForProcessDropbox(state, process.id);
-  if (!ownerId) return null;
-  return { process, target, systemId: parsed.systemId, ownerId };
 }
 
 function normalizeStructureDepositConfig(structure) {
@@ -644,178 +502,6 @@ function addUnitsToStructureDepositPool(
   return true;
 }
 
-function ensureProcessRequirementsForDropbox(process, processDef) {
-  if (!process || typeof process !== "object") return [];
-  if (!Array.isArray(process.requirements)) {
-    process.requirements = [];
-  }
-  if (
-    process.requirements.length === 0 &&
-    Array.isArray(processDef?.transform?.requirements) &&
-    processDef.transform.requirements.length > 0
-  ) {
-    process.requirements = cloneRequirementEntries(processDef.transform.requirements);
-  }
-  for (const req of process.requirements) {
-    if (!req || typeof req !== "object") continue;
-    req.amount = Math.max(0, Math.floor(req.amount ?? 0));
-    req.progress = Math.max(0, Math.floor(req.progress ?? 0));
-    if (typeof req.consume !== "boolean") {
-      req.consume = req.consume !== false;
-    }
-  }
-  return process.requirements;
-}
-
-function recordProcessDropboxConsumption(process, item, moved) {
-  const units = Math.max(0, Math.floor(moved ?? 0));
-  if (!process || !item || units <= 0) return;
-  const kind = typeof item.kind === "string" ? item.kind : null;
-  if (!kind) return;
-  const tierRaw =
-    typeof item.tier === "string" && item.tier.length > 0
-      ? item.tier
-      : itemDefs?.[kind]?.defaultTier || "bronze";
-  const tier = TIER_ASC.includes(tierRaw) ? tierRaw : "bronze";
-  if (!process.consumedByKindTier || typeof process.consumedByKindTier !== "object") {
-    process.consumedByKindTier = {};
-  }
-  if (!process.consumedByKindTier[kind]) {
-    process.consumedByKindTier[kind] = {};
-  }
-  const consumedBucket = process.consumedByKindTier[kind];
-  consumedBucket[tier] = Math.max(0, Math.floor(consumedBucket[tier] ?? 0)) + units;
-
-  const tags = Array.isArray(item.tags) ? item.tags : [];
-  if (tags.includes("prestiged")) return;
-  if (
-    !process.prestigeConsumedByKindTier ||
-    typeof process.prestigeConsumedByKindTier !== "object"
-  ) {
-    process.prestigeConsumedByKindTier = {};
-  }
-  if (!process.prestigeConsumedByKindTier[kind]) {
-    process.prestigeConsumedByKindTier[kind] = {};
-  }
-  const prestigeBucket = process.prestigeConsumedByKindTier[kind];
-  prestigeBucket[tier] = Math.max(0, Math.floor(prestigeBucket[tier] ?? 0)) + units;
-}
-
-function applyDropboxUnitsToProcessRequirements(process, processDef, item, maxUnits) {
-  const requested = Math.max(0, Math.floor(maxUnits ?? 0));
-  if (!process || !item || requested <= 0) return 0;
-  const reqs = ensureProcessRequirementsForDropbox(process, processDef);
-  if (!reqs.length) return 0;
-  const itemKind = typeof item.kind === "string" ? item.kind : null;
-  if (!itemKind) return 0;
-
-  let remaining = requested;
-  let applied = 0;
-  for (const req of reqs) {
-    if (!req || typeof req !== "object") continue;
-    if (req.kind !== "item") continue;
-    if (req.consume === false) continue;
-    if (req.itemId !== itemKind) continue;
-    const amount = Math.max(0, Math.floor(req.amount ?? 0));
-    const progress = Math.max(0, Math.floor(req.progress ?? 0));
-    const deficit = Math.max(0, amount - progress);
-    if (deficit <= 0) continue;
-    const take = Math.min(deficit, remaining);
-    if (take <= 0) continue;
-    req.progress = progress + take;
-    remaining -= take;
-    applied += take;
-    if (remaining <= 0) break;
-  }
-
-  if (applied > 0) {
-    recordProcessDropboxConsumption(process, item, applied);
-  }
-  return applied;
-}
-
-function migrateBufferedDropboxItems(state, process, processDef, dropboxInv) {
-  if (!state || !process || !dropboxInv || !Array.isArray(dropboxInv.items)) return false;
-  let changed = false;
-  for (const item of [...dropboxInv.items]) {
-    if (!item) continue;
-    const quantity = Math.max(0, Math.floor(item.quantity ?? 0));
-    if (quantity <= 0) continue;
-    const applied = applyDropboxUnitsToProcessRequirements(
-      process,
-      processDef,
-      item,
-      quantity
-    );
-    if (applied <= 0) continue;
-    item.quantity = Math.max(0, quantity - applied);
-    if (item.quantity <= 0) {
-      Inventory.removeItem(dropboxInv, item.id);
-    }
-    changed = true;
-  }
-  if (changed) {
-    Inventory.rebuildDerived(dropboxInv);
-    bumpInvVersion(dropboxInv);
-  }
-  return changed;
-}
-
-function resolveProcessDropboxCapacity(state, toOwnerId, itemKind) {
-  const processId = parseProcessIdFromDropboxOwner(toOwnerId);
-  if (!processId) return { ok: false, reason: "badProcessOwner" };
-  let found = findProcessById(state, processId);
-  if ((!found?.process || !found?.target) && processId.startsWith("preview:")) {
-    const ensured = ensureProcessForPreviewDropbox(state, processId);
-    if (ensured?.process && ensured?.target) {
-      found = {
-        process: ensured.process,
-        target: ensured.target,
-        systemId: ensured.systemId,
-      };
-      if (ensured.ownerId) {
-        toOwnerId = ensured.ownerId;
-      }
-    }
-  }
-  if (!found?.process || !found?.target) return { ok: false, reason: "noProcess" };
-  const process = found.process;
-  const processDef = getProcessDefForInstance(process, found.target, {
-    target: found.target,
-    systemId: found.systemId,
-    state,
-    leaderId: process?.leaderId ?? null,
-  });
-  const toInv = state?.ownerInventories?.[toOwnerId] ?? null;
-  if (!toInv) return { ok: false, reason: "noInventory" };
-
-  migrateBufferedDropboxItems(state, process, processDef, toInv);
-
-  const reqs = ensureProcessRequirementsForDropbox(process, processDef);
-  let remainingRequired = 0;
-  for (const req of reqs) {
-    if (!req || typeof req !== "object") continue;
-    if (req.kind !== "item") continue;
-    if (req.consume === false) continue;
-    if (req.itemId !== itemKind) continue;
-    const required = Math.max(0, Math.floor(req.amount ?? 0));
-    const progress = Math.max(0, Math.floor(req.progress ?? 0));
-    remainingRequired += Math.max(0, required - progress);
-  }
-
-  const cap = Math.max(0, remainingRequired);
-  return {
-    ok: true,
-    process,
-    processDef,
-    target: found.target,
-    systemId: found.systemId,
-    processId,
-    toInv,
-    cap,
-  };
-}
-
 function cmdInstantDepositFromDropbox(
   state,
   { fromOwnerId, toOwnerId, itemId } = {}
@@ -830,8 +516,8 @@ function cmdInstantDepositFromDropbox(
   let processId = null;
   let structure = null;
   let fallbackLeaderId = null;
-  if (isProcessDropboxOwner(toOwnerId)) {
-    processId = parseProcessIdFromDropboxOwner(toOwnerId);
+  if (isProcessDropboxOwnerId(toOwnerId)) {
+    processId = parseProcessDropboxOwnerId(toOwnerId);
     if (!processId) return { ok: false, reason: "badProcessOwner" };
     const found = findProcessById(state, processId);
     if (!found?.process || !found?.target) return { ok: false, reason: "noProcess" };
@@ -840,8 +526,8 @@ function cmdInstantDepositFromDropbox(
     }
     structure = found.target;
     fallbackLeaderId = found.process?.leaderId ?? null;
-  } else if (isHubDropboxOwner(toOwnerId)) {
-    const structureId = parseHubStructureIdFromDropboxOwner(toOwnerId);
+  } else if (isHubDropboxOwnerId(toOwnerId)) {
+    const structureId = parseHubDropboxOwnerId(toOwnerId);
     if (!structureId) return { ok: false, reason: "badDropboxOwner" };
     structure = findHubStructureById(state, structureId);
     if (!structure) return { ok: false, reason: "noHubStructure" };
@@ -906,64 +592,6 @@ function cmdInstantDepositFromDropbox(
   };
 }
 
-function shouldInstantLoadIntoDropbox(state, toOwnerId) {
-  if (isHubDropboxOwner(toOwnerId)) return true;
-  if (!isProcessDropboxOwner(toOwnerId)) return false;
-  const processId = parseProcessIdFromDropboxOwner(toOwnerId);
-  if (!processId) return false;
-  const found = findProcessById(state, processId);
-  return found?.process?.type === "depositItems";
-}
-
-function cmdMoveItemIntoProcessDropbox(
-  state,
-  { fromOwnerId, toOwnerId, itemId, targetGX, targetGY } = {}
-) {
-  const fromInv = state?.ownerInventories?.[fromOwnerId];
-  if (!fromInv) return { ok: false, reason: "noInventory" };
-  const item = fromInv.itemsById?.[itemId] || fromInv.items?.find((it) => it.id === itemId);
-  if (!item) return { ok: false, reason: "noItem" };
-
-  const capRes = resolveProcessDropboxCapacity(state, toOwnerId, item.kind);
-  if (!capRes.ok) return capRes;
-  if (capRes.process?.type === "depositItems") {
-    return { ok: false, reason: "invalidDropboxRoute" };
-  }
-  if (capRes.cap <= 0) {
-    return { ok: false, reason: "dropboxRequirementCapReached" };
-  }
-
-  const available = Math.max(0, Math.floor(item.quantity ?? 0));
-  const requested = Math.min(available, Math.max(0, Math.floor(capRes.cap ?? 0)));
-  if (requested <= 0) {
-    return { ok: false, reason: "dropboxRequirementCapReached" };
-  }
-  const applied = applyDropboxUnitsToProcessRequirements(
-    capRes.process,
-    capRes.processDef,
-    item,
-    requested
-  );
-  if (applied <= 0) {
-    return { ok: false, reason: "dropboxRequirementCapReached" };
-  }
-
-  item.quantity = Math.max(0, available - applied);
-  if (item.quantity <= 0) {
-    Inventory.removeItem(fromInv, item.id);
-  }
-  Inventory.rebuildDerived(fromInv);
-  bumpInvVersion(fromInv);
-
-  return {
-    ok: true,
-    result: "dropboxLoaded",
-    moved: applied,
-    partial: applied < available,
-    firstItemId: null,
-  };
-}
-
 export function cmdMoveProcessDropboxItem(
   state,
   {
@@ -978,14 +606,14 @@ export function cmdMoveProcessDropboxItem(
   if (fromOwnerId == null || toOwnerId == null) {
     return { ok: false, reason: "badOwner" };
   }
-  if (!isAnyDropboxOwner(fromOwnerId) && !isAnyDropboxOwner(toOwnerId)) {
+  if (!isAnyDropboxOwnerId(fromOwnerId) && !isAnyDropboxOwnerId(toOwnerId)) {
     return { ok: false, reason: "notProcessDropbox" };
   }
   if (
     viaProcessDropbox === true &&
-    isAnyDropboxOwner(toOwnerId) &&
-    !isAnyDropboxOwner(fromOwnerId) &&
-    shouldInstantLoadIntoDropbox(state, toOwnerId)
+    isAnyDropboxOwnerId(toOwnerId) &&
+    !isAnyDropboxOwnerId(fromOwnerId) &&
+    isInstantDropboxTarget(state, toOwnerId)
   ) {
     return cmdInstantDepositFromDropbox(state, {
       fromOwnerId,
@@ -994,10 +622,10 @@ export function cmdMoveProcessDropboxItem(
     });
   }
   if (
-    isProcessDropboxOwner(toOwnerId) &&
-    !isAnyDropboxOwner(fromOwnerId)
+    isProcessDropboxOwnerId(toOwnerId) &&
+    !isAnyDropboxOwnerId(fromOwnerId)
   ) {
-    return cmdMoveItemIntoProcessDropbox(state, {
+    return applyProcessDropboxLoad(state, {
       fromOwnerId,
       toOwnerId,
       itemId,
@@ -1075,39 +703,55 @@ export function cmdMoveLeaderEquipmentToInventory(
   const item = leader.equipment[slotId] ?? null;
   if (!item) return { ok: false, reason: "emptySlot" };
 
+  if (isProcessDropboxOwnerId(toOwnerId)) {
+    if (!canOwnerAcceptItem(state, toOwnerId, item)) {
+      return { ok: false, reason: "rejectedByOwner" };
+    }
+    const qty = Math.max(0, Math.floor(item.quantity ?? 0));
+    const evalRes = evaluateProcessDropboxDrop(state, {
+      toOwnerId,
+      itemKind: item.kind,
+      quantity: qty,
+    });
+    if (evalRes.status !== "valid" || evalRes.instant === true) {
+      return {
+        ok: false,
+        reason: evalRes.reason ?? "dropboxRequirementCapReached",
+      };
+    }
+    if (qty > evalRes.cap) {
+      return {
+        ok: false,
+        reason: "dropboxRequirementCapReached",
+      };
+    }
+    const appliedRes = applyProcessDropboxLoadFromItem(state, {
+      toOwnerId,
+      item,
+      quantity: qty,
+    });
+    if (!appliedRes.ok || appliedRes.moved !== qty) {
+      return {
+        ok: false,
+        reason: appliedRes.reason ?? "dropboxRequirementCapReached",
+      };
+    }
+    leader.equipment[slotId] = null;
+    return {
+      ok: true,
+      result: "dropboxLoaded",
+      fromOwnerId,
+      toOwnerId,
+      itemId: item.id,
+      slotId,
+      moved: appliedRes.moved,
+    };
+  }
+
   const toInv = state?.ownerInventories?.[toOwnerId];
   if (!toInv) return { ok: false, reason: "noInventory" };
   if (!canOwnerAcceptItem(state, toOwnerId, item)) {
     return { ok: false, reason: "rejectedByOwner" };
-  }
-  if (isProcessDropboxOwner(toOwnerId)) {
-    const capRes = resolveProcessDropboxCapacity(state, toOwnerId, item.kind);
-    if (!capRes.ok) return capRes;
-    if (capRes.process?.type !== "depositItems") {
-      const qty = Math.max(0, Math.floor(item.quantity ?? 0));
-      if (capRes.cap <= 0 || qty > capRes.cap) {
-        return { ok: false, reason: "dropboxRequirementCapReached" };
-      }
-      const applied = applyDropboxUnitsToProcessRequirements(
-        capRes.process,
-        capRes.processDef,
-        item,
-        qty
-      );
-      if (applied !== qty) {
-        return { ok: false, reason: "dropboxRequirementCapReached" };
-      }
-      leader.equipment[slotId] = null;
-      return {
-        ok: true,
-        result: "dropboxLoaded",
-        fromOwnerId,
-        toOwnerId,
-        itemId: item.id,
-        slotId,
-        moved: applied,
-      };
-    }
   }
 
   let gx = Number.isFinite(targetGX) ? Math.floor(targetGX) : null;

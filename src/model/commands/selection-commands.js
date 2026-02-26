@@ -1,9 +1,7 @@
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { computeAvailableRecipesAndBuildings, hasEnvTagUnlock } from "../skills.js";
-import { Inventory } from "../inventory-model.js";
 import {
-  getDropEndpointId,
   getProcessDefForInstance,
 } from "../process-framework.js";
 import { ensureLocationNamesState } from "../state.js";
@@ -76,20 +74,6 @@ function cloneRequirementsForProcess(requirements) {
     }));
 }
 
-function ensureProcessDropboxInventory(state, processId) {
-  const ownerId = getDropEndpointId(processId);
-  if (!ownerId) return false;
-  if (!state.ownerInventories || typeof state.ownerInventories !== "object") {
-    state.ownerInventories = {};
-  }
-  if (state.ownerInventories[ownerId]) return false;
-  const inv = Inventory.create(8, 8);
-  Inventory.init(inv);
-  inv.version = 0;
-  state.ownerInventories[ownerId] = inv;
-  return true;
-}
-
 function ensureSelectedRecipeProcess(state, structure, systemId, recipeId) {
   if (!state || !structure || !systemId || !recipeId) {
     return { changed: false, processId: null };
@@ -117,7 +101,6 @@ function ensureSelectedRecipeProcess(state, structure, systemId, recipeId) {
       );
       changed = true;
     }
-    if (ensureProcessDropboxInventory(state, existing.id)) changed = true;
     return { changed, processId: existing.id };
   }
 
@@ -150,7 +133,6 @@ function ensureSelectedRecipeProcess(state, structure, systemId, recipeId) {
     );
   }
   processes.push(process);
-  ensureProcessDropboxInventory(state, process.id);
   return { changed: true, processId: process.id };
 }
 

@@ -21,12 +21,16 @@ import {
   mergeItemSystemStateForStacking,
 } from "./inventory-model.js";
 import { bumpInvVersion } from "./effects/core/inventory-version.js";
+import {
+  PROCESS_DROPBOX_OWNER_PREFIX,
+  buildProcessDropboxOwnerId,
+} from "./owner-id-protocol.js";
 
 const DEFAULT_PROCESS_INPUT_SLOT = "materials";
 const DEFAULT_PROCESS_OUTPUT_SLOT = "output";
 
-const DROP_ENDPOINT_PREFIX = "inv:dropbox:process:";
-const DROP_ENDPOINT_SENTINEL = "inv:dropbox:process";
+const DROP_ENDPOINT_PREFIX = PROCESS_DROPBOX_OWNER_PREFIX;
+const DROP_ENDPOINT_SENTINEL = DROP_ENDPOINT_PREFIX.slice(0, -1);
 const POOL_ENDPOINT_PREFIX = "sys:pool:";
 
 function normalizeString(value) {
@@ -1377,8 +1381,7 @@ export function resolveEndpointTarget(state, endpointId) {
     return { kind: "spawn" };
   }
   if (endpointId.startsWith(DROP_ENDPOINT_PREFIX)) {
-    const inv = state?.ownerInventories?.[endpointId] ?? null;
-    return inv ? { kind: "inventory", target: inv, ownerId: endpointId } : null;
+    return null;
   }
   if (endpointId.startsWith("inv:hub:")) {
     const ownerId = endpointId.slice("inv:hub:".length);
@@ -1640,5 +1643,5 @@ export function isDropEndpoint(endpointId) {
 
 export function getDropEndpointId(processId) {
   if (!processId) return null;
-  return `${DROP_ENDPOINT_PREFIX}${processId}`;
+  return buildProcessDropboxOwnerId(processId);
 }

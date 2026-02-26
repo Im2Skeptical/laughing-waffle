@@ -11,6 +11,12 @@ import {
   resolveEndpointTarget,
   resolveFixedEndpointId,
 } from "../model/process-framework.js";
+import {
+  buildHubDropboxOwnerId,
+  isAnyDropboxOwnerId,
+  isHubDropboxOwnerId,
+  isProcessDropboxOwnerId,
+} from "../model/owner-id-protocol.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
@@ -23,6 +29,10 @@ import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
+import { createSelectionDropdown } from "./components/selection-dropdown-pixi.js";
+import { createDropTargetRegistry } from "./process-widget/drop-target-registry.js";
+import { createWindowManager } from "./process-widget/window-manager.js";
+import { createEndpointHoverUi } from "./process-widget/endpoint-hover-ui.js";
 import {
   VIEW_LAYOUT,
   VIEWPORT_DESIGN_HEIGHT,
@@ -107,6 +117,12 @@ const COLORS = {
   progressFill: MUCHA_UI_COLORS.accents.sage,
   dropboxBg: MUCHA_UI_COLORS.surfaces.panelDeep,
   dropboxBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
+  dropboxValidBg: 0x2a5f40,
+  dropboxValidBorder: 0x73ca95,
+  dropboxInvalidBg: 0x6e2626,
+  dropboxInvalidBorder: 0xff6a6a,
+  dropboxCappedBg: 0x6f4f1f,
+  dropboxCappedBorder: 0xffbf5a,
 };
 
 export function createProcessWidgetView({
@@ -128,7 +144,6 @@ export function createProcessWidgetView({
 }) {
   const processLayout =
     layout && typeof layout === "object" ? layout : VIEW_LAYOUT.processWidget;
-  const windows = new Map();
   const withdrawUiStateByTarget = new Map();
   const drawerExpanded = {
     inputs: new Set(),
@@ -139,10 +154,48 @@ export function createProcessWidgetView({
   let hoverContext = null;
   let externalFocusContext = null;
   let lozengeHoverProcessContext = null;
-  let hoverInventoryOwnersSig = "";
-  let hoverOwnerFocusSig = "";
-  let activeHoveredInventoryOwnerIds = [];
-  let lozengeTooltipVisible = false;
+
+  let dropTargetRegistry = null;
+  let endpointHoverUi = null;
+  const windowManager = createWindowManager({
+    PIXI,
+    layer,
+    coreWidth: CORE_WIDTH,
+    defaultOrigin: position,
+    getTargetAnchorRect,
+    getScreenSize,
+    makeTargetRef,
+    applyWindowScale,
+    onBeforeDestroyWindow: (windowId, win) => {
+      endpointHoverUi?.clearLozengeHoverUi?.();
+      dropTargetRegistry?.pruneAffordanceOwnersForWindow?.(
+        windowId,
+        win?.dropTargets || []
+      );
+    },
+  });
+  const windows = {
+    get: (windowId) => windowManager.get(windowId),
+    values: () => windowManager.values(),
+    entries: () => windowManager.entries(),
+  };
+  dropTargetRegistry = createDropTargetRegistry({
+    getWindowEntries: () => windowManager.entries(),
+    isDropboxOwnerId: isAnyDropboxOwnerId,
+  });
+  endpointHoverUi = createEndpointHoverUi({
+    canShowHoverUI,
+    interaction,
+    tooltipView,
+    inventoryView,
+    setHoverInventoryFocusOwners,
+    setHoverOwnerFocus,
+    getStateSafe,
+    getDisplayObjectWorldScale,
+    getInventoryOwnerAnchorRect,
+    resolveHoverFocusFromOwnerIds,
+    setProcessHoverContext: setLozengeHoverProcessContext,
+  });
 
   const routingDragController = createPillDragController({
     app,
@@ -247,66 +300,18 @@ export function createProcessWidgetView({
     return true;
   }
 
-  function getTypedIdKey(id) {
-    return `${typeof id}:${String(id)}`;
-  }
-
-  function dedupeOwnerIds(ownerIds) {
+  function uniqueOwnerIds(ownerIds) {
     const list = Array.isArray(ownerIds) ? ownerIds : [];
     const seen = new Set();
     const out = [];
     for (const ownerId of list) {
       if (ownerId == null) continue;
-      const key = getTypedIdKey(ownerId);
+      const key = `${typeof ownerId}:${String(ownerId)}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(ownerId);
     }
     return out;
-  }
-
-  function getOwnerIdsSignature(ownerIds) {
-    const keys = dedupeOwnerIds(ownerIds)
-      .map((ownerId) => getTypedIdKey(ownerId))
-      .sort((a, b) => a.localeCompare(b));
-    return keys.join("|");
-  }
-
-  function setHoverInventoryOwners(ownerIds) {
-    if (typeof setHoverInventoryFocusOwners !== "function") return;
-    const normalized = dedupeOwnerIds(ownerIds);
-    const nextSig = getOwnerIdsSignature(normalized);
-    if (nextSig === hoverInventoryOwnersSig) return;
-    hoverInventoryOwnersSig = nextSig;
-    setHoverInventoryFocusOwners(normalized);
-  }
-
-  function getFocusSignature(focus) {
-    if (!focus || typeof focus !== "object") return "";
-    const ownerSig = Array.isArray(focus.ownerIds)
-      ? getOwnerIdsSignature(focus.ownerIds)
-      : "";
-    const kind = String(focus.kind || "");
-    const pawnId = focus.pawnId == null ? "" : String(focus.pawnId);
-    const ownerId = focus.ownerId == null ? "" : String(focus.ownerId);
-    const hubCol = Number.isFinite(focus.hubCol) ? String(Math.floor(focus.hubCol)) : "";
-    const envCol = Number.isFinite(focus.envCol) ? String(Math.floor(focus.envCol)) : "";
-    return `${kind}|${pawnId}|${ownerId}|${hubCol}|${envCol}|${ownerSig}`;
-  }
-
-  function setHoverOwnerFocusSafe(focus) {
-    if (typeof setHoverOwnerFocus !== "function") return;
-    const nextSig = getFocusSignature(focus);
-    if (nextSig === hoverOwnerFocusSig) return;
-    hoverOwnerFocusSig = nextSig;
-    setHoverOwnerFocus(focus || null);
-  }
-
-  function hideHoveredInventoryWindows(ownerIds) {
-    const normalized = dedupeOwnerIds(ownerIds);
-    for (const ownerId of normalized) {
-      inventoryView?.hideOnHoverOut?.(ownerId);
-    }
   }
 
   function getPawnAnchorRect(pawn) {
@@ -346,7 +351,7 @@ export function createProcessWidgetView({
   }
 
   function resolveHoverFocusFromOwnerIds(state, ownerIds) {
-    const normalized = dedupeOwnerIds(ownerIds);
+    const normalized = uniqueOwnerIds(ownerIds);
     for (const ownerId of normalized) {
       const pawn = findPawnById(state, ownerId);
       if (pawn?.id != null) {
@@ -414,58 +419,8 @@ export function createProcessWidgetView({
     lozengeHoverProcessContext = normalized;
   }
 
-  function syncLozengeHoverState(hoverSpec, state) {
-    const spec = hoverSpec && typeof hoverSpec === "object" ? hoverSpec : {};
-    const nextOwners = dedupeOwnerIds(spec.inventoryOwnerIds);
-    const nextKeys = new Set(nextOwners.map((ownerId) => getTypedIdKey(ownerId)));
-    const prevOwners = dedupeOwnerIds(activeHoveredInventoryOwnerIds);
-
-    for (const prevOwnerId of prevOwners) {
-      if (nextKeys.has(getTypedIdKey(prevOwnerId))) continue;
-      inventoryView?.hideOnHoverOut?.(prevOwnerId);
-    }
-    for (const ownerId of nextOwners) {
-      const anchor = getInventoryOwnerAnchorRect(state, ownerId);
-      inventoryView?.showOnHover?.(ownerId, anchor || undefined);
-    }
-
-    activeHoveredInventoryOwnerIds = nextOwners;
-    setHoverInventoryOwners(nextOwners);
-    setLozengeHoverProcessContext(spec.processContext || null);
-    setHoverOwnerFocusSafe(spec.focus || resolveHoverFocusFromOwnerIds(state, nextOwners));
-  }
-
   function clearLozengeHoverUi() {
-    hideHoveredInventoryWindows(activeHoveredInventoryOwnerIds);
-    activeHoveredInventoryOwnerIds = [];
-    setLozengeHoverProcessContext(null);
-    setHoverInventoryOwners([]);
-    setHoverOwnerFocusSafe(null);
-    if (lozengeTooltipVisible) {
-      tooltipView?.hide?.();
-      lozengeTooltipVisible = false;
-    }
-  }
-
-  function canShowLozengeHoverUi() {
-    if (typeof canShowHoverUI === "function") {
-      return canShowHoverUI() !== false;
-    }
-    return interaction?.canShowHoverUI?.() !== false;
-  }
-
-  function showLozengeTooltip(fullLabel, displayObject) {
-    if (!tooltipView || !displayObject || !fullLabel) return;
-    if (!canShowLozengeHoverUi()) return;
-    tooltipView.show(
-      {
-        title: String(fullLabel),
-        lines: [],
-        scale: getDisplayObjectWorldScale(displayObject, 1),
-      },
-      displayObject.getBounds()
-    );
-    lozengeTooltipVisible = true;
+    endpointHoverUi?.clearLozengeHoverUi?.();
   }
 
   function fitTextToWidth(textNode, fullText, maxWidth, suffix = "...") {
@@ -505,16 +460,7 @@ export function createProcessWidgetView({
   }
 
   function attachLozengeHoverHandlers(node, { fullLabel = "", hoverSpec = null } = {}) {
-    if (!node) return;
-    node.on("pointerover", () => {
-      if (!canShowLozengeHoverUi()) return;
-      const state = getStateSafe();
-      showLozengeTooltip(fullLabel, node);
-      syncLozengeHoverState(hoverSpec, state);
-    });
-    node.on("pointerout", () => {
-      clearLozengeHoverUi();
-    });
+    endpointHoverUi?.attachLozengeHoverHandlers?.(node, { fullLabel, hoverSpec });
   }
 
   function getTargetAnchorRect(target) {
@@ -848,7 +794,9 @@ export function createProcessWidgetView({
 
   function getEndpointLabel(state, endpointId) {
     if (!endpointId || typeof endpointId !== "string") return "Endpoint";
-    if (endpointId.startsWith("inv:dropbox:process:")) return "Dropbox";
+    if (isProcessDropboxOwnerId(endpointId) || isHubDropboxOwnerId(endpointId)) {
+      return "Dropbox";
+    }
     if (endpointId.startsWith("res:state")) return "Stockpile";
     if (endpointId.startsWith("spawn:tileOccupants")) return "Spawn";
     if (endpointId.startsWith("sys:pool:")) {
@@ -1000,8 +948,7 @@ export function createProcessWidgetView({
 
   function getEndpointFocusOwnerIds(state, endpointId) {
     if (!endpointId || typeof endpointId !== "string") return [];
-    if (endpointId.startsWith("inv:dropbox:process:")) return [endpointId];
-    if (endpointId.startsWith("inv:dropbox:hub:")) return [endpointId];
+    if (isAnyDropboxOwnerId(endpointId)) return [endpointId];
     if (endpointId.startsWith("inv:hub:")) {
       const id = endpointId.slice("inv:hub:".length);
       const resolved = findStructureById(state, id)?.instanceId ?? id;
@@ -1288,9 +1235,7 @@ export function createProcessWidgetView({
   }
 
   function invalidateAllSignatures() {
-    for (const win of windows.values()) {
-      if (win) win.lastSignature = null;
-    }
+    windowManager.invalidateAllSignatures();
   }
   function drawCardBackground(bg, width, height) {
     bg.clear();
@@ -2449,14 +2394,40 @@ export function createProcessWidgetView({
 
     const size = Math.min(width, height);
     const slot = new PIXI.Graphics();
-    const drawSlot = (isError = false) => {
+    let affordanceLevel = "neutral";
+    const getAffordanceStyle = () => {
+      if (affordanceLevel === "valid") {
+        return {
+          stroke: COLORS.dropboxValidBorder,
+          fill: COLORS.dropboxValidBg,
+        };
+      }
+      if (affordanceLevel === "invalid") {
+        return {
+          stroke: COLORS.dropboxInvalidBorder,
+          fill: COLORS.dropboxInvalidBg,
+        };
+      }
+      if (affordanceLevel === "capped") {
+        return {
+          stroke: COLORS.dropboxCappedBorder,
+          fill: COLORS.dropboxCappedBg,
+        };
+      }
+      return {
+        stroke: COLORS.dropboxBorder,
+        fill: COLORS.drawerBg,
+      };
+    };
+    const drawSlot = () => {
+      const style = getAffordanceStyle();
       slot.clear();
-      slot.lineStyle(1, isError ? 0xff4f5e : COLORS.dropboxBorder, 0.9);
-      slot.beginFill(isError ? 0x8a1f2a : COLORS.drawerBg, 0.95);
+      slot.lineStyle(1, style.stroke, 0.9);
+      slot.beginFill(style.fill, 0.95);
       slot.drawRoundedRect(0, 0, size, size, 8);
       slot.endFill();
     };
-    drawSlot(false);
+    drawSlot();
     slot.x = Math.floor((width - size) / 2);
     slot.y = Math.floor((height - size) / 2) - 6;
     container.addChild(slot);
@@ -2484,7 +2455,7 @@ export function createProcessWidgetView({
     if (canDrop && Array.isArray(dropTargets)) {
       let errorTimeout = null;
       let cachedBounds = null;
-      dropTargets.push({
+      const targetDef = {
         ownerId: dropId,
         kind: "processDropbox",
         getBounds: () => {
@@ -2505,23 +2476,38 @@ export function createProcessWidgetView({
           }
           return cachedBounds || bounds;
         },
+        setAffordance: (level = "neutral") => {
+          affordanceLevel =
+            level === "valid" || level === "invalid" || level === "capped"
+              ? level
+              : "neutral";
+          drawSlot();
+        },
+        clearAffordance: () => {
+          affordanceLevel = "neutral";
+          drawSlot();
+        },
         flashError: () => {
-          drawSlot(true);
+          const prevLevel = affordanceLevel;
+          affordanceLevel = "invalid";
+          drawSlot();
           if (errorTimeout != null) clearTimeout(errorTimeout);
           errorTimeout = setTimeout(() => {
-            drawSlot(false);
+            affordanceLevel = prevLevel;
+            drawSlot();
             errorTimeout = null;
           }, 180);
         },
+      };
+      dropTargets.push({
+        ...targetDef,
       });
+      const initialAffordanceLevel =
+        dropTargetRegistry?.getDropboxDragAffordance?.(dropId) ?? null;
+      if (initialAffordanceLevel) targetDef.setAffordance(initialAffordanceLevel);
 
-      slot.eventMode = "static";
-      slot.cursor = "pointer";
-      slot.on("pointertap", () => {
-        if (dropId.startsWith("inv:dropbox:process:")) {
-          inventoryView?.revealWindow?.(dropId, { pinned: true });
-        }
-      });
+      slot.eventMode = "none";
+      slot.cursor = "default";
     } else {
       slot.alpha = 0.75;
       label.alpha = 0.75;
@@ -3486,7 +3472,7 @@ export function createProcessWidgetView({
     if (!deposit || deposit.instantDropboxLoad !== true) return null;
     const ownerId = target?.instanceId ?? target?.id ?? null;
     if (ownerId == null) return null;
-    return `inv:dropbox:hub:${ownerId}`;
+    return buildHubDropboxOwnerId(ownerId);
   }
 
   function getPoolItemTotals(pool, itemId) {
@@ -4255,128 +4241,35 @@ export function createProcessWidgetView({
     return null;
   }
 
-  function positionWindow(win, origin, offsetIndex, force = false) {
-    if (!win || (!force && win.hasPosition)) return;
-    const baseX = Number.isFinite(origin?.x) ? origin.x : position.x;
-    const baseY = Number.isFinite(origin?.y) ? origin.y : position.y;
-    const idx = Number.isFinite(offsetIndex) ? Math.max(0, Math.floor(offsetIndex)) : 0;
-    const offset = 24 * idx;
-    win.container.x = baseX + offset;
-    win.container.y = baseY + offset;
-    win.hasPosition = true;
-  }
-
   function positionWindowAtAnchor(win) {
-    if (!win || !win.anchorRect || win.hasPosition) return;
-    const bounds = win.container?.getLocalBounds?.() ?? null;
-    const scale = Number.isFinite(win?.uiScale) ? win.uiScale : 1;
-    const width = Math.max(1, Math.floor((bounds?.width ?? CORE_WIDTH) * scale));
-    const height = Math.max(1, Math.floor((bounds?.height ?? 140) * scale));
-    const idx = Number.isFinite(win.offsetIndex)
-      ? Math.max(0, Math.floor(win.offsetIndex))
-      : 0;
-    const offset = 24 * idx;
-
-    let x = win.anchorRect.x + win.anchorRect.width / 2 - width / 2;
-    let y = win.anchorRect.y + win.anchorRect.height + 12;
-    x += offset;
-    y += offset;
-
-    const screen = getScreenSize();
-    const maxX = Math.max(8, screen.width - width - 8);
-    const maxY = Math.max(8, screen.height - height - 8);
-    x = Math.max(8, Math.min(maxX, x));
-    y = Math.max(8, Math.min(maxY, y));
-
-    win.container.x = Math.round(x);
-    win.container.y = Math.round(y);
-    win.hasPosition = true;
+    windowManager.positionWindowAtAnchor(win);
   }
 
   function ensureWindow(windowId, target, systemId, origin, offsetIndex, opts = {}) {
-    if (!windowId) return null;
-    const targetRef = makeTargetRef(target);
-    let win = windows.get(windowId);
-    if (win) {
-      if (targetRef) win.targetRef = targetRef;
-      if (systemId != null) win.systemId = systemId;
-      if (opts.groupKind) win.groupKind = opts.groupKind;
-      applyWindowScale(win);
-      return win;
-    }
-
-    const container = new PIXI.Container();
-    container.zIndex = 130;
-    layer.addChild(container);
-
-    const content = new PIXI.Container();
-    container.addChild(content);
-
-    win = {
+    return windowManager.ensureWindow(
       windowId,
-      processId: opts.processId || null,
-      group: opts.group === true,
-      groupKind: opts.groupKind || null,
-      targetRef,
-      systemId: systemId || null,
-      container,
-      content,
-      dropTargets: [],
-      lastSignature: null,
-      pinned: false,
-      hovered: false,
-      externalFocused: false,
-      hasPosition: false,
-      anchorRect: getTargetAnchorRect(target),
-        offsetIndex: Number.isFinite(offsetIndex) ? Math.floor(offsetIndex) : 0,
-        idleFrames: 0,
-        uiScale: 1,
-        lastBounds: null,
-      };
-      applyWindowScale(win);
-      windows.set(windowId, win);
-    if (!win.anchorRect) {
-      positionWindow(win, origin, offsetIndex, true);
-    } else {
-      win.container.x = win.anchorRect.x;
-      win.container.y = win.anchorRect.y + win.anchorRect.height + 12;
-    }
-    return win;
+      target,
+      systemId,
+      origin,
+      offsetIndex,
+      opts
+    );
   }
 
   function hideWindow(windowId) {
-    const win = windows.get(windowId);
-    if (!win) return;
-    win.pinned = false;
-    win.hovered = false;
-    if (win.container) win.container.visible = false;
+    windowManager.hideWindow(windowId);
   }
 
   function destroyWindow(windowId) {
-    clearLozengeHoverUi();
-    const win = windows.get(windowId);
-    if (!win) return;
-    win.container?.parent?.removeChild?.(win.container);
-    win.container?.destroy?.({ children: true });
-    windows.delete(windowId);
+    windowManager.destroyWindow(windowId);
   }
 
   function setWindowPinned(windowId, pinned) {
-    const win = windows.get(windowId);
-    if (!win) return;
-    win.pinned = !!pinned;
-    if (!win.pinned && !win.hovered && !win.externalFocused) {
-      win.container.visible = false;
-    } else {
-      win.container.visible = true;
-    }
-    win.lastSignature = null;
+    windowManager.setWindowPinned(windowId, pinned);
   }
 
   function togglePinnedWindow(windowId) {
-    const win = windows.get(windowId);
-    if (!win) return;
-    setWindowPinned(windowId, !win.pinned);
+    windowManager.togglePinnedWindow(windowId);
   }
 
   function collectContextWindows(state, context, idSet, flagKey) {
@@ -4671,161 +4564,19 @@ export function createProcessWidgetView({
   }
 
   function getDropTargetOwnerAtGlobalPos(globalPos) {
-    if (!globalPos) return null;
-    let fallbackOwnerId = null;
-    for (const win of windows.values()) {
-      if (!win?.container) continue;
-      const rawBounds =
-        typeof win.container.getBounds === "function"
-          ? win.container.getBounds()
-          : null;
-      const winBounds =
-        rawBounds &&
-        Number.isFinite(rawBounds.width) &&
-        Number.isFinite(rawBounds.height) &&
-        rawBounds.width > 0 &&
-        rawBounds.height > 0
-          ? rawBounds
-          : win.lastBounds || null;
-      const pointerInsideWindow =
-        !!winBounds &&
-        globalPos.x >= winBounds.x &&
-        globalPos.x <= winBounds.x + winBounds.width &&
-        globalPos.y >= winBounds.y &&
-        globalPos.y <= winBounds.y + winBounds.height;
-      for (const target of win.dropTargets || []) {
-        if (!target || !target.getBounds) continue;
-        if (
-          fallbackOwnerId == null &&
-          pointerInsideWindow &&
-          target.kind === "processDropbox" &&
-          target.ownerId != null
-        ) {
-          fallbackOwnerId = target.ownerId;
-        }
-        const bounds = target.getBounds();
-        if (
-          globalPos.x >= bounds.x &&
-          globalPos.x <= bounds.x + bounds.width &&
-          globalPos.y >= bounds.y &&
-          globalPos.y <= bounds.y + bounds.height
-        ) {
-          return target.ownerId;
-        }
-      }
-    }
-    return fallbackOwnerId;
+    return dropTargetRegistry.getDropTargetOwnerAtGlobalPos(globalPos);
   }
 
-  function distanceToRect(px, py, rect) {
-    if (!rect) return Number.POSITIVE_INFINITY;
-    const rx = Number.isFinite(rect.x) ? rect.x : 0;
-    const ry = Number.isFinite(rect.y) ? rect.y : 0;
-    const rw = Number.isFinite(rect.width) ? rect.width : 0;
-    const rh = Number.isFinite(rect.height) ? rect.height : 0;
-    const dx = Math.max(rx - px, 0, px - (rx + rw));
-    const dy = Math.max(ry - py, 0, py - (ry + rh));
-    return Math.sqrt(dx * dx + dy * dy);
+  function setDropboxDragAffordance(ownerId, level = "neutral") {
+    return dropTargetRegistry.setDropboxDragAffordance(ownerId, level);
   }
 
-  function getNearestProcessDropboxOwnerAtGlobalPos(globalPos, maxDistance = 400) {
-    if (!globalPos) return null;
-    const px = Number.isFinite(globalPos.x) ? globalPos.x : null;
-    const py = Number.isFinite(globalPos.y) ? globalPos.y : null;
-    if (px == null || py == null) return null;
-
-    let bestOwnerId = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (const win of windows.values()) {
-      if (!win?.container) continue;
-      const rawBounds =
-        typeof win.container.getBounds === "function"
-          ? win.container.getBounds()
-          : null;
-      const winBounds =
-        rawBounds &&
-        Number.isFinite(rawBounds.width) &&
-        Number.isFinite(rawBounds.height) &&
-        rawBounds.width > 0 &&
-        rawBounds.height > 0
-          ? rawBounds
-          : win.lastBounds || getWindowRect(win);
-
-      let hadProcessDropboxTarget = false;
-      for (const target of win.dropTargets || []) {
-        if (!target || target.kind !== "processDropbox" || target.ownerId == null) {
-          continue;
-        }
-        hadProcessDropboxTarget = true;
-        const rawTargetBounds =
-          typeof target.getBounds === "function" ? target.getBounds() : null;
-        const targetBounds =
-          rawTargetBounds &&
-          Number.isFinite(rawTargetBounds.width) &&
-          Number.isFinite(rawTargetBounds.height) &&
-          rawTargetBounds.width > 0 &&
-          rawTargetBounds.height > 0
-            ? rawTargetBounds
-            : winBounds;
-        const dist = distanceToRect(px, py, targetBounds);
-        if (dist < bestDistance) {
-          bestDistance = dist;
-          bestOwnerId = target.ownerId;
-        }
-      }
-
-      if (!hadProcessDropboxTarget && winBounds) {
-        const state = getStateSafe();
-        const target = resolveTargetFromRef(state, win.targetRef);
-        const systemId = win.groupKind || win.systemId || null;
-        let fallbackOwnerId = null;
-
-        if (target && systemId && isRecipeSystem(systemId)) {
-          const entries = collectProcessEntries(state, target, systemId);
-          if (entries.length > 0) {
-            const processId = entries[0]?.process?.id ?? null;
-            fallbackOwnerId = getDropEndpointId(processId);
-          } else {
-            const recipeId = getSelectedRecipeId(target, systemId);
-            const targetKey = getTargetKey(target) || "target";
-            if (recipeId) {
-              fallbackOwnerId = `inv:dropbox:process:preview:${systemId}:${targetKey}:${recipeId}`;
-            }
-          }
-        }
-
-        if (fallbackOwnerId) {
-          const dist = distanceToRect(px, py, winBounds);
-          if (dist < bestDistance) {
-            bestDistance = dist;
-            bestOwnerId = fallbackOwnerId;
-          }
-        }
-      }
-    }
-
-    if (!Number.isFinite(bestDistance) || bestDistance > Math.max(0, maxDistance)) {
-      return null;
-    }
-    return bestOwnerId;
+  function clearDropboxDragAffordance(ownerId = null) {
+    dropTargetRegistry.clearDropboxDragAffordance(ownerId);
   }
 
   function flashDropTargetError(ownerId) {
-    if (ownerId == null) return false;
-    let flashed = false;
-    for (const win of windows.values()) {
-      if (!win?.container) continue;
-      for (const target of win.dropTargets || []) {
-        if (!target) continue;
-        if (String(target.ownerId) !== String(ownerId)) continue;
-        if (typeof target.flashError === "function") {
-          target.flashError();
-          flashed = true;
-        }
-      }
-    }
-    return flashed;
+    return dropTargetRegistry.flashDropTargetError(ownerId);
   }
 
   function setHoverTarget(target, systemId) {
@@ -4836,6 +4587,7 @@ export function createProcessWidgetView({
   }
 
   function clearHoverTarget() {
+    clearDropboxDragAffordance();
     clearLozengeHoverUi();
     hoverContext = null;
     for (const win of windows.values()) {
@@ -4854,6 +4606,7 @@ export function createProcessWidgetView({
   }
 
   function clearExternalFocusTarget() {
+    clearDropboxDragAffordance();
     clearLozengeHoverUi();
     externalFocusContext = null;
     for (const win of windows.values()) {
@@ -4987,7 +4740,8 @@ export function createProcessWidgetView({
     init,
     update,
     getDropTargetOwnerAtGlobalPos,
-    getNearestProcessDropboxOwnerAtGlobalPos,
+    setDropboxDragAffordance,
+    clearDropboxDragAffordance,
     flashDropTargetError,
     setHoverTarget,
     clearHoverTarget,
@@ -4995,162 +4749,5 @@ export function createProcessWidgetView({
     setExternalFocusTarget,
     clearExternalFocusTarget,
     showBasketWidgetForOwner,
-  };
-}
-
-function createSelectionDropdown(layer, app) {
-  if (!layer || !app?.stage) return null;
-  const container = new PIXI.Container();
-  container.visible = false;
-  container.zIndex = 180;
-  container.eventMode = "static";
-  container.interactiveChildren = true;
-  container.on("pointerdown", (ev) => {
-    ev?.stopPropagation?.();
-  });
-  layer.addChild(container);
-
-  let outsideHandler = null;
-  let onPick = null;
-  let hoverHideTimeout = null;
-
-  function clearHoverHide() {
-    if (hoverHideTimeout == null) return;
-    clearTimeout(hoverHideTimeout);
-    hoverHideTimeout = null;
-  }
-
-  function scheduleHoverHide() {
-    clearHoverHide();
-    hoverHideTimeout = setTimeout(() => {
-      if (container.visible) hide();
-    }, 150);
-  }
-
-  container.on("pointerover", clearHoverHide);
-  container.on("pointerout", scheduleHoverHide);
-
-  function buildRow(entry, y, width, selected) {
-    const hasDetail = !!entry?.detail;
-    const rowHeight = hasDetail ? 36 : 22;
-    const row = new PIXI.Container();
-    row.x = 0;
-    row.y = y;
-    row.eventMode = "static";
-    row.hitArea = new PIXI.Rectangle(0, 0, width, rowHeight);
-    row.cursor = "pointer";
-
-    const bg = new PIXI.Graphics();
-    bg.beginFill(
-      selected ? MUCHA_UI_COLORS.surfaces.panelSoft : MUCHA_UI_COLORS.surfaces.panelRaised,
-      0.95
-    );
-    bg.drawRoundedRect(0, 0, width, rowHeight, 6);
-    bg.endFill();
-    row.addChild(bg);
-
-    const name = new PIXI.Text(String(entry?.label ?? entry?.value ?? ""), {
-      fill: MUCHA_UI_COLORS.ink.primary,
-      fontSize: 11,
-      fontWeight: "bold",
-    });
-    name.x = 8;
-    name.y = 4;
-    row.addChild(name);
-
-    if (hasDetail) {
-      const detail = new PIXI.Text(String(entry.detail), {
-        fill: MUCHA_UI_COLORS.ink.secondary,
-        fontSize: 9,
-        wordWrap: true,
-        wordWrapWidth: width - 12,
-      });
-      detail.x = 8;
-      detail.y = 18;
-      row.addChild(detail);
-    }
-
-    row.on("pointerdown", (ev) => {
-      ev?.stopPropagation?.();
-      onPick?.(entry?.value ?? null);
-    });
-
-    return { row, rowHeight };
-  }
-
-  function show({ options, selectedValue, anchor, onSelect, width = 210 }) {
-    // controlsLayer does not sort children by zIndex; ensure dropdown is topmost.
-    if (container.parent) {
-      container.parent.addChild(container);
-    }
-
-    container.removeChildren();
-    onPick = (value) => {
-      onSelect?.(value);
-      hide();
-    };
-
-    const list = Array.isArray(options) ? options : [];
-    if (!list.length) return;
-
-    let y = 0;
-    const safeWidth = Math.max(160, Math.floor(width));
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    for (const entry of list) {
-      const built = buildRow(entry, y, safeWidth, entry?.value === selectedValue);
-      container.addChild(built.row);
-      y += built.rowHeight + 4;
-    }
-    if (y > 0) y -= 4;
-
-    const height = Math.max(1, y);
-    bg.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.96);
-    bg.drawRoundedRect(0, 0, safeWidth, height, 8);
-    bg.endFill();
-    container.setChildIndex(bg, 0);
-    container.hitArea = new PIXI.Rectangle(0, 0, safeWidth, height);
-
-    const bounds = anchor || { x: 0, y: 0, width: 0, height: 0 };
-    container.x = bounds.x;
-    container.y = bounds.y + bounds.height + 6;
-    container.visible = true;
-    clearHoverHide();
-
-    if (outsideHandler) {
-      app.stage.off("pointerdown", outsideHandler);
-    }
-    outsideHandler = (ev) => {
-      const p = ev?.data?.global;
-      if (!p) return;
-      const b = container.getBounds();
-      if (
-        p.x < b.x ||
-        p.x > b.x + b.width ||
-        p.y < b.y ||
-        p.y > b.y + b.height
-      ) {
-        hide();
-      }
-    };
-    app.stage.on("pointerdown", outsideHandler);
-  }
-
-  function hide() {
-    if (!container.visible) return;
-    clearHoverHide();
-    container.visible = false;
-    container.removeChildren();
-    if (outsideHandler) {
-      app.stage.off("pointerdown", outsideHandler);
-      outsideHandler = null;
-    }
-    onPick = null;
-  }
-
-  return {
-    show,
-    hide,
   };
 }

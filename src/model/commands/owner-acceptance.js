@@ -1,14 +1,17 @@
 import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { isStructureUnderConstruction } from "../build-helpers.js";
+import {
+  isProcessDropboxOwnerId,
+} from "../owner-id-protocol.js";
 
 function getOwnerKindAndDef(state, ownerId) {
   const normalizedOwnerId =
-    typeof ownerId === "string" && !ownerId.startsWith("inv:dropbox:process:")
+    typeof ownerId === "string" && !isProcessDropboxOwnerId(ownerId)
       ? Number.isFinite(Number(ownerId))
         ? Number(ownerId)
         : ownerId
       : ownerId;
-  if (typeof ownerId === "string" && ownerId.startsWith("inv:dropbox:process:")) {
+  if (isProcessDropboxOwnerId(ownerId)) {
     return { kind: "processDropbox", def: null };
   }
   const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];

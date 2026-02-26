@@ -18,6 +18,7 @@ import {
 } from "../inventory-model.js";
 import { TIER_ASC } from "../effects/core/tiers.js";
 import { cloneSerializable } from "./system-state-helpers.js";
+import { isProcessDropboxOwnerId } from "../owner-id-protocol.js";
 
 export function isTierBucket(pool) {
   if (!pool || typeof pool !== "object") return false;
@@ -132,7 +133,7 @@ export function resolvePawnOwnerId(ownerId) {
   if (typeof ownerId === "number") return ownerId;
   if (
     typeof ownerId === "string" &&
-    !ownerId.startsWith("inv:dropbox:process:")
+    !isProcessDropboxOwnerId(ownerId)
   ) {
     const asNum = Number(ownerId);
     if (Number.isFinite(asNum)) return asNum;

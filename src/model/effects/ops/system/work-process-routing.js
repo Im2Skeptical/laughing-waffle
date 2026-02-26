@@ -9,7 +9,6 @@ import {
   isDropEndpoint,
   getDropEndpointId,
 } from "../../../process-framework.js";
-import { Inventory } from "../../../inventory-model.js";
 
 export function normalizeProcessRequirements(requirements) {
   const raw = Array.isArray(requirements) ? requirements : [];
@@ -340,19 +339,6 @@ export function ensureTierBucket(container, itemId = null) {
     if (!Number.isFinite(bucket[tier])) bucket[tier] = 0;
   }
   return bucket;
-}
-
-export function ensureProcessDropboxInventory(state, process, processDef) {
-  if (!state || !process || !processDef?.supportsDropslot) return false;
-  const ownerId = getDropEndpointId(process.id);
-  if (!ownerId) return false;
-  if (!state.ownerInventories) state.ownerInventories = {};
-  if (state.ownerInventories[ownerId]) return false;
-  const inv = Inventory.create(8, 8);
-  Inventory.init(inv);
-  inv.version = 0;
-  state.ownerInventories[ownerId] = inv;
-  return true;
 }
 
 export function seedRoutingWithCandidates(state, target, process, processDef, context) {

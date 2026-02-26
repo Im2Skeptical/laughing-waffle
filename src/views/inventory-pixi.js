@@ -29,6 +29,7 @@ import {
   getUnlockedSkillSet,
 } from "../model/skills.js";
 import { getScrollTimegraphStateFromItem } from "../model/timegraph/edit-policy.js";
+import { isAnyDropboxOwnerId } from "../model/owner-id-protocol.js";
 import {
   GAMEPIECE_HOVER_SCALE,
   HUB_COLS,
@@ -220,6 +221,9 @@ export function createInventoryView({
   moveEquippedItemToSlot,
   getItemTransferAffordability,
   getDropTargetOwnerAt,
+  getProcessDropboxDragStatus,
+  setProcessDropboxDragAffordance,
+  clearProcessDropboxDragAffordance,
   flashDropTargetError,
   setDragGhost,
   resolveDragGhost,
@@ -287,9 +291,35 @@ export function createInventoryView({
     movedDistanceSq: 0,
     pointerType: null,
   };
+  let activeDropboxAffordanceOwnerId = null;
 
   // Active split modal
   let activeSplit = null;
+
+  function clearActiveDropboxAffordance(ownerId = null) {
+    const targetOwner =
+      ownerId != null ? ownerId : activeDropboxAffordanceOwnerId;
+    if (targetOwner == null) return;
+    clearProcessDropboxDragAffordance?.(targetOwner);
+    if (
+      activeDropboxAffordanceOwnerId != null &&
+      String(activeDropboxAffordanceOwnerId) === String(targetOwner)
+    ) {
+      activeDropboxAffordanceOwnerId = null;
+    }
+  }
+
+  function setActiveDropboxAffordance(ownerId, level) {
+    if (ownerId == null) return;
+    if (
+      activeDropboxAffordanceOwnerId != null &&
+      String(activeDropboxAffordanceOwnerId) !== String(ownerId)
+    ) {
+      clearActiveDropboxAffordance(activeDropboxAffordanceOwnerId);
+    }
+    setProcessDropboxDragAffordance?.(ownerId, level);
+    activeDropboxAffordanceOwnerId = ownerId;
+  }
 
   // ---------------------------------------------------------------------------
   // Leader/follower helpers
@@ -3638,6 +3668,7 @@ export function createInventoryView({
     dragItem.view = view;
     dragItem.sourceOwnerOverride = view?.sourceOwnerId ?? null;
     dragItem.sourceEquipmentSlotId = sourceSlotId;
+    clearActiveDropboxAffordance();
 
     grayItemView(view);
 
@@ -3707,6 +3738,50 @@ export function createInventoryView({
     return c;
   }
 
+  function resolveDropTargetOwnerId(globalPos) {
+    if (typeof getDropTargetOwnerAt !== "function") return null;
+    const dropTarget = getDropTargetOwnerAt(globalPos);
+    if (dropTarget && typeof dropTarget === "object") {
+      return dropTarget.ownerId ?? null;
+    }
+    return dropTarget;
+  }
+
+  function updateDropboxDragAffordance(globalPos) {
+    if (!dragItem.active || !dragItem.item) {
+      clearActiveDropboxAffordance();
+      return;
+    }
+    const targetOwner = resolveDropTargetOwnerId(globalPos);
+    if (!isAnyDropboxOwnerId(targetOwner)) {
+      clearActiveDropboxAffordance();
+      return;
+    }
+
+    const sourceOwner =
+      dragItem.sourceOwnerOverride != null
+        ? dragItem.sourceOwnerOverride
+        : dragItem.ownerId;
+    const quantity = Math.max(0, Math.floor(dragItem.item.quantity ?? 0));
+    const statusRes =
+      typeof getProcessDropboxDragStatus === "function"
+        ? getProcessDropboxDragStatus({
+            fromOwnerId: sourceOwner,
+            toOwnerId: targetOwner,
+            itemKind: dragItem.item.kind,
+            quantity,
+            itemId: dragItem.item.id,
+          })
+        : { status: "invalid", reason: "missingDropboxDragStatus" };
+    const level =
+      statusRes?.status === "valid"
+        ? "valid"
+        : statusRes?.status === "capped"
+          ? "capped"
+          : "invalid";
+    setActiveDropboxAffordance(targetOwner, level);
+  }
+
   function onItemDragMove(ev) {
     if (!dragItem.active) return;
 
@@ -3723,6 +3798,7 @@ export function createInventoryView({
     s.x = g.x - dragItem.offsetX;
     s.y = g.y - dragItem.offsetY;
 
+    updateDropboxDragAffordance(g);
     updateItemDragGhost(g);
   }
 
@@ -3731,7 +3807,10 @@ export function createInventoryView({
     stage.off("pointerup", onItemDragEnd);
     stage.off("pointerupoutside", onItemDragEnd);
 
-    if (!dragItem.active) return;
+    if (!dragItem.active) {
+      clearActiveDropboxAffordance();
+      return;
+    }
     dropItem(ev);
   }
 
@@ -3764,6 +3843,7 @@ export function createInventoryView({
     dragItem.pointerType = null;
 
     const finish = (status = null) => {
+      clearActiveDropboxAffordance();
       restoreItemView(view);
       dragItem.view = null;
       dragItem.sourceOwnerOverride = null;
@@ -3934,21 +4014,12 @@ export function createInventoryView({
       return;
     }
 
-    const dropTargetRaw =
-      typeof getDropTargetOwnerAt === "function"
-        ? getDropTargetOwnerAt(g)
-        : null;
-    const dropTargetOwner =
-      dropTargetRaw && typeof dropTargetRaw === "object"
-        ? dropTargetRaw.ownerId ?? null
-        : dropTargetRaw;
+    const dropTargetOwner = resolveDropTargetOwnerId(g);
 
     // Process/widget drop targets should win over inventory window hitboxes.
     if (dropTargetOwner != null) {
       const targetOwner = dropTargetOwner;
-      const isProcessDropbox =
-        typeof targetOwner === "string" &&
-        targetOwner.startsWith("inv:dropbox:");
+      const isProcessDropbox = isAnyDropboxOwnerId(targetOwner);
       if (targetOwner === sourceOwner) {
         revealWindow(targetOwner);
         finish();
@@ -4432,12 +4503,8 @@ export function createInventoryView({
         targetGY = gy;
       }
     }
-    if (targetOwner == null && typeof getDropTargetOwnerAt === "function") {
-      const dropTarget = getDropTargetOwnerAt(globalPos);
-      targetOwner =
-        dropTarget && typeof dropTarget === "object"
-          ? dropTarget.ownerId ?? null
-          : dropTarget;
+    if (targetOwner == null) {
+      targetOwner = resolveDropTargetOwnerId(globalPos);
       if (targetOwner != null) {
         const targetInv = getInventoryForOwner(targetOwner);
         const preview =
@@ -4477,6 +4544,7 @@ export function createInventoryView({
       targetSlotId == null &&
       targetOwner != null &&
       targetOwner !== sourceOwner &&
+      !isAnyDropboxOwnerId(targetOwner) &&
       typeof getItemTransferAffordability === "function"
     ) {
       const aff = getItemTransferAffordability({

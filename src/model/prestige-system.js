@@ -22,6 +22,7 @@ import {
 import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { buildPawnSystemDefaults } from "./state.js";
 import { TIER_ASC } from "./effects/core/tiers.js";
+import { buildProcessDropboxOwnerId } from "./owner-id-protocol.js";
 
 export const PAWN_ROLE_LEADER = "leader";
 export const PAWN_ROLE_FOLLOWER = "follower";
@@ -296,7 +297,8 @@ function scrubProcessReferencesToRemovedPawns(state, removedPawnIds) {
             (processLeaderId != null && removedPawnIdSet.has(processLeaderId));
           if (removeProcess) {
             if (process.id != null && state.ownerInventories) {
-              delete state.ownerInventories[`inv:dropbox:process:${process.id}`];
+              const ownerId = buildProcessDropboxOwnerId(process.id);
+              if (ownerId) delete state.ownerInventories[ownerId];
             }
             continue;
           }

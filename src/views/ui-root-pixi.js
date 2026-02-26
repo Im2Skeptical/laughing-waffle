@@ -8,6 +8,11 @@ const BOOT_SETUP_ID = "devGym01";
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
+import {
+  isAnyDropboxOwnerId,
+  parseProcessDropboxOwnerId,
+} from "../model/owner-id-protocol.js";
+import { evaluateProcessDropboxDragStatus } from "../model/commands/process-dropbox-logic.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
@@ -973,11 +978,8 @@ inventoryView = createInventoryView({
   layout: VIEW_LAYOUT.inventory,
   tooltipView,
   getOwnerLabel(ownerId) {
-    if (
-      typeof ownerId === "string" &&
-      ownerId.startsWith("inv:dropbox:process:")
-    ) {
-      const procId = ownerId.slice("inv:dropbox:process:".length);
+    const procId = parseProcessDropboxOwnerId(ownerId);
+    if (procId) {
       return procId ? `Process ${procId} Dropbox` : "Process Dropbox";
     }
     const state = runner.getState();
@@ -1012,10 +1014,15 @@ inventoryView = createInventoryView({
     },
   getDropTargetOwnerAt: (pos) =>
     processWidgetView?.getDropTargetOwnerAtGlobalPos?.(pos) ??
-    processWidgetView?.getNearestProcessDropboxOwnerAtGlobalPos?.(pos) ??
     pawnsView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     boardView?.getInventoryOwnerAtGlobalPos?.(pos) ??
     null,
+  getProcessDropboxDragStatus: (spec) =>
+    evaluateProcessDropboxDragStatus(runner.getState(), spec),
+  setProcessDropboxDragAffordance: (ownerId, level) =>
+    processWidgetView?.setDropboxDragAffordance?.(ownerId, level),
+  clearProcessDropboxDragAffordance: (ownerId) =>
+    processWidgetView?.clearDropboxDragAffordance?.(ownerId),
   flashDropTargetError: (ownerId) =>
     processWidgetView?.flashDropTargetError?.(ownerId) ?? false,
   setDragGhost: (spec) => actionLogView?.setDragGhost?.(spec),
@@ -1080,11 +1087,9 @@ inventoryView = createInventoryView({
         targetGX: spec?.targetGX,
         targetGY: spec?.targetGY,
       };
-      const isProcessDropbox = (ownerId) =>
-        typeof ownerId === "string" &&
-        ownerId.startsWith("inv:dropbox:");
       if (
-        (isProcessDropbox(payload.fromOwnerId) || isProcessDropbox(payload.toOwnerId)) &&
+        (isAnyDropboxOwnerId(payload.fromOwnerId) ||
+          isAnyDropboxOwnerId(payload.toOwnerId)) &&
         payload.fromOwnerId !== payload.toOwnerId
       ) {
         return runner.dispatchAction(
