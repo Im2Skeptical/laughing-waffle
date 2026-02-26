@@ -33,6 +33,12 @@ import { createSelectionDropdown } from "./components/selection-dropdown-pixi.js
 import { createDropTargetRegistry } from "./process-widget/drop-target-registry.js";
 import { createWindowManager } from "./process-widget/window-manager.js";
 import { createEndpointHoverUi } from "./process-widget/endpoint-hover-ui.js";
+import { createEndpointDescriptorTools } from "./process-widget/endpoint-descriptors.js";
+import { createProcessWidgetSignatures } from "./process-widget/signatures.js";
+import { createProcessWidgetTargetResolver } from "./process-widget/target-resolver.js";
+import { createProcessWidgetSelectionActions } from "./process-widget/selection-actions.js";
+import { createProcessWidgetCardModules } from "./process-widget/card-modules.js";
+import { createProcessWidgetProcessCardBuilder } from "./process-widget/process-card-builder.js";
 import {
   VIEW_LAYOUT,
   VIEWPORT_DESIGN_HEIGHT,
@@ -144,6 +150,10 @@ export function createProcessWidgetView({
 }) {
   const processLayout =
     layout && typeof layout === "object" ? layout : VIEW_LAYOUT.processWidget;
+  const targetResolver = createProcessWidgetTargetResolver({
+    hubStructureDefs,
+    itemDefs,
+  });
   const withdrawUiStateByTarget = new Map();
   const drawerExpanded = {
     inputs: new Set(),
@@ -157,6 +167,7 @@ export function createProcessWidgetView({
 
   let dropTargetRegistry = null;
   let endpointHoverUi = null;
+  let endpointDescriptorTools = null;
   const windowManager = createWindowManager({
     PIXI,
     layer,
@@ -195,6 +206,131 @@ export function createProcessWidgetView({
     getInventoryOwnerAnchorRect,
     resolveHoverFocusFromOwnerIds,
     setProcessHoverContext: setLozengeHoverProcessContext,
+  });
+  endpointDescriptorTools = createEndpointDescriptorTools({
+    isAnyDropboxOwnerId,
+    isProcessDropboxOwnerId,
+    isHubDropboxOwnerId,
+    envTileDefs,
+    hubStructureDefs,
+    findStructureById,
+    findPawnById,
+    findTileById,
+    buildBasketTarget,
+    makeTargetRef,
+    resolveHoverFocusFromOwnerIds,
+  });
+  const signatureTools = createProcessWidgetSignatures({
+    listCandidateEndpoints,
+    getTemplateProcessForSystem,
+    getProcessDefForInstance,
+  });
+  const selectionActions = createProcessWidgetSelectionActions({
+    selectionDropdown,
+    queueActionWhenPaused,
+    dispatchAction,
+    actionPlanner,
+    flashActionGhost,
+    inventoryView,
+    ActionKinds,
+    cropDefs,
+    recipeDefs,
+    envTileDefs,
+    hubStructureDefs,
+    getTilePlanCost,
+    getHubPlanCost,
+    getEnvCol,
+    getHubCol,
+    isRecipeSystem,
+    getSelectedRecipeId,
+    getCropOptions,
+    getRecipeOptions,
+    getDepositPoolTarget,
+    getPoolItemOptions,
+    getWithdrawState,
+    normalizeWithdrawSelection,
+    invalidateAllSignatures,
+  });
+  const cardModules = createProcessWidgetCardModules({
+    PIXI,
+    COLORS,
+    MODULE_PAD,
+    MODULE_RADIUS,
+    itemDefs,
+    getDropEndpointId,
+    dropTargetRegistry,
+    drawModuleBox,
+    drawDropboxBox,
+    fitTextToWidth,
+    attachLozengeHoverHandlers,
+    formatOutputLabel,
+    getPoolItemOptions,
+    normalizeWithdrawSelection,
+    getPoolItemTotals,
+    formatRequirementLabel,
+    resolveFixedEndpointId,
+  });
+  const {
+    formatPoolSummary,
+    resolveLockedOutputEndpoint,
+    buildProgressModule,
+    buildGrowthProgressModule,
+    buildRequirementsModule,
+    buildOutputModule,
+    buildGrowthOutputModule,
+    buildPrestigeModule,
+    buildWithdrawModule,
+    buildDropboxModule,
+  } = cardModules;
+  const { buildProcessCard } = createProcessWidgetProcessCardBuilder({
+    PIXI,
+    app,
+    CORE_WIDTH,
+    CARD_RADIUS,
+    HEADER_HEIGHT,
+    HEADER_PAD_X,
+    HEADER_PAD_Y,
+    BODY_PAD,
+    MIN_BODY_CONTENT_HEIGHT,
+    DRAWER_COLLAPSED,
+    DRAWER_EXPANDED,
+    DROPBOX_SIZE,
+    SEGMENT_GAP,
+    MODULE_GAP,
+    COLORS,
+    drawerExpanded,
+    createWindowHeader,
+    getTargetKey,
+    getTargetLabel,
+    getCardTitle,
+    getProcessVariant,
+    isRecipeSystem,
+    getSelectedRecipeId,
+    formatCropName,
+    formatRecipeName,
+    openGrowthSelectionDropdown,
+    openRecipeSelectionDropdown,
+    resolveEndpointTarget,
+    hasSelectableSlots,
+    buildGrowthProgressModule,
+    buildProgressModule,
+    buildRequirementsModule,
+    buildGrowthOutputModule,
+    resolveLockedOutputEndpoint,
+    formatPoolSummary,
+    buildOutputModule,
+    buildPrestigeModule,
+    getDepositPoolTarget,
+    canWithdrawFromTarget,
+    getWithdrawState,
+    buildWithdrawModule,
+    openWithdrawItemDropdown,
+    requestPoolWithdraw,
+    collectModuleView,
+    stretchModuleViews,
+    buildRoutingDrawer,
+    buildDropboxModule,
+    drawCardBackground,
   });
 
   const routingDragController = createPillDragController({
@@ -793,440 +929,68 @@ export function createProcessWidgetView({
   }
 
   function getEndpointLabel(state, endpointId) {
-    if (!endpointId || typeof endpointId !== "string") return "Endpoint";
-    if (isProcessDropboxOwnerId(endpointId) || isHubDropboxOwnerId(endpointId)) {
-      return "Dropbox";
-    }
-    if (endpointId.startsWith("res:state")) return "Stockpile";
-    if (endpointId.startsWith("spawn:tileOccupants")) return "Spawn";
-    if (endpointId.startsWith("sys:pool:")) {
-      const parsed = parsePoolEndpointId(endpointId);
-      if (!parsed) return "Pool";
-      const ownerLabel = getOwnerLabel(state, parsed.ownerKind, parsed.ownerId);
-      const poolLabel = `${parsed.systemId}.${parsed.poolKey}`;
-      return ownerLabel ? `${ownerLabel} ${poolLabel}` : `Pool ${poolLabel}`;
-    }
-    if (endpointId.startsWith("inv:hub:")) {
-      const id = endpointId.slice("inv:hub:".length);
-      const structure = findStructureById(state, id);
-      const def = structure ? hubStructureDefs[structure.defId] : null;
-      const name = def?.name || structure?.defId || id;
-      return `${name} Inventory`;
-    }
-    if (endpointId.startsWith("inv:pawn:")) {
-      const id = endpointId.slice("inv:pawn:".length);
-      const pawn = findPawnById(state, id);
-      const name = pawn?.name || `Pawn ${id}`;
-      return `${name} Inventory`;
-    }
-    if (endpointId.startsWith("inv:")) {
-      const id = endpointId.slice("inv:".length);
-      const structure = findStructureById(state, id);
-      if (structure) {
-        const def = hubStructureDefs[structure.defId];
-        const name = def?.name || structure.defId || id;
-        return `${name} Inventory`;
-      }
-      const pawn = findPawnById(state, id);
-      if (pawn) {
-        const name = pawn.name || `Pawn ${id}`;
-        return `${name} Inventory`;
-      }
-      return `Inventory ${id}`;
-    }
-    if (endpointId.startsWith("sys:hub:")) {
-      const id = endpointId.slice("sys:hub:".length);
-      const structure = findStructureById(state, id);
-      const def = structure ? hubStructureDefs[structure.defId] : null;
-      const name = def?.name || structure?.defId || id;
-      return `${name} System`;
-    }
-    if (endpointId.startsWith("sys:pawn:")) {
-      const id = endpointId.slice("sys:pawn:".length);
-      const pawn = findPawnById(state, id);
-      return pawn?.name || `Leader ${id}`;
-    }
-    return endpointId;
-  }
-
-  function resolveHoverFocusFromOwnerKind(state, ownerKind, ownerId, systemId = null) {
-    if (!ownerKind || ownerId == null) return null;
-    if (ownerKind === "hub") {
-      const structure = findStructureById(state, ownerId);
-      if (!structure?.instanceId) return null;
-      const hubCol = Number.isFinite(structure.col)
-        ? Math.floor(structure.col)
-        : Number.isFinite(structure.hubCol)
-          ? Math.floor(structure.hubCol)
-          : null;
-      return {
-        kind: "hub",
-        ownerId: structure.instanceId,
-        ownerIds: [structure.instanceId],
-        hubCol,
-        systemId: typeof systemId === "string" && systemId.length > 0 ? systemId : "build",
-      };
-    }
-    if (ownerKind === "env") {
-      const tile = findTileById(state, ownerId);
-      if (!tile) return null;
-      const envCol = Number.isFinite(tile.col)
-        ? Math.floor(tile.col)
-        : Number.isFinite(tile.envCol)
-          ? Math.floor(tile.envCol)
-          : null;
-      if (envCol == null) return null;
-      return {
-        kind: "tile",
-        envCol,
-        ownerIds: [tile.instanceId ?? ownerId],
-        systemId: typeof systemId === "string" && systemId.length > 0 ? systemId : null,
-      };
-    }
-    if (ownerKind === "pawn") {
-      const pawn = findPawnById(state, ownerId);
-      if (!pawn?.id && pawn?.id !== 0) return null;
-      return {
-        kind: "pawn",
-        pawnId: pawn.id,
-        ownerIds: [pawn.id],
-      };
-    }
-    return null;
-  }
-
-  function resolvePoolEndpointWidgetContext(state, endpointId) {
-    const parsed = parsePoolEndpointId(endpointId);
-    if (!parsed) return null;
-
-    let target = null;
-    if (parsed.ownerKind === "hub") {
-      target = findStructureById(state, parsed.ownerId);
-    } else if (parsed.ownerKind === "env") {
-      target = findTileById(state, parsed.ownerId);
-    } else if (parsed.ownerKind === "pawn" && parsed.systemId === "storage") {
-      target = buildBasketTarget(state, parsed.ownerId);
-    }
-
-    if (!target) {
-      return {
-        context: null,
-        focus: resolveHoverFocusFromOwnerKind(
-          state,
-          parsed.ownerKind,
-          parsed.ownerId,
-          parsed.systemId
-        ),
-      };
-    }
-
-    let widgetSystemId = parsed.systemId || null;
-    if (target?.refKind === "basket") {
-      widgetSystemId = "basket";
-    } else {
-      const def = target?.defId ? hubStructureDefs?.[target.defId] : null;
-      const depositSystemId =
-        typeof def?.deposit?.systemId === "string" ? def.deposit.systemId : null;
-      if (depositSystemId && depositSystemId === parsed.systemId) {
-        widgetSystemId = "deposit";
-      }
-    }
-
-    return {
-      context: {
-        targetRef: makeTargetRef(target),
-        systemId: widgetSystemId,
-      },
-      focus: resolveHoverFocusFromOwnerKind(
-        state,
-        parsed.ownerKind,
-        parsed.ownerId,
-        widgetSystemId
-      ),
-    };
-  }
-
-  function getEndpointFocusOwnerIds(state, endpointId) {
-    if (!endpointId || typeof endpointId !== "string") return [];
-    if (isAnyDropboxOwnerId(endpointId)) return [endpointId];
-    if (endpointId.startsWith("inv:hub:")) {
-      const id = endpointId.slice("inv:hub:".length);
-      const resolved = findStructureById(state, id)?.instanceId ?? id;
-      return resolved != null ? [resolved] : [];
-    }
-    if (endpointId.startsWith("inv:pawn:")) {
-      const id = endpointId.slice("inv:pawn:".length);
-      const resolved = findPawnById(state, id)?.id ?? id;
-      return resolved != null ? [resolved] : [];
-    }
-    if (endpointId.startsWith("inv:")) {
-      const id = endpointId.slice("inv:".length);
-      const structure = findStructureById(state, id);
-      if (structure?.instanceId != null) return [structure.instanceId];
-      const pawn = findPawnById(state, id);
-      if (pawn?.id != null) return [pawn.id];
-      return id ? [id] : [];
-    }
-    if (endpointId.startsWith("sys:pool:")) return [];
-    return [];
+    return (
+      endpointDescriptorTools?.getEndpointLabel?.(state, endpointId) || "Endpoint"
+    );
   }
 
   function resolveEndpointHoverSpec(state, endpointId) {
-    const inventoryOwnerIds = getEndpointFocusOwnerIds(state, endpointId);
-    let processContext = null;
-    let focus = resolveHoverFocusFromOwnerIds(state, inventoryOwnerIds);
-
-    if (endpointId && endpointId.startsWith("sys:pool:")) {
-      const pool = resolvePoolEndpointWidgetContext(state, endpointId);
-      processContext = pool?.context || null;
-      if (pool?.focus) focus = pool.focus;
-    }
-
-    return {
-      inventoryOwnerIds,
-      processContext,
-      focus,
-    };
-  }
-
-  function parsePoolEndpointId(endpointId) {
-    if (!endpointId || typeof endpointId !== "string") return null;
-    if (!endpointId.startsWith("sys:pool:")) return null;
-    const raw = endpointId.slice("sys:pool:".length);
-    const parts = raw.split(":");
-    if (parts.length < 4) return null;
-    const [ownerKind, ownerId, systemId, poolKey] = parts;
-    if (!ownerKind || !ownerId || !systemId || !poolKey) return null;
-    return { ownerKind, ownerId, systemId, poolKey };
-  }
-
-  function getOwnerLabel(state, ownerKind, ownerId) {
-    if (!state || !ownerKind || ownerId == null) return null;
-    if (ownerKind === "hub") {
-      const structure = findStructureById(state, ownerId);
-      const def = structure ? hubStructureDefs[structure.defId] : null;
-      return def?.name || structure?.defId || `Hub ${ownerId}`;
-    }
-    if (ownerKind === "env") {
-      const tile = findTileById(state, ownerId);
-      const def = tile ? envTileDefs[tile.defId] : null;
-      return def?.name || tile?.defId || `Tile ${ownerId}`;
-    }
-    if (ownerKind === "pawn") {
-      const pawn = findPawnById(state, ownerId);
-      return pawn?.name || `Pawn ${ownerId}`;
-    }
-    return null;
+    return (
+      endpointDescriptorTools?.resolveEndpointHoverSpec?.(state, endpointId) || {
+        inventoryOwnerIds: [],
+        processContext: null,
+        focus: null,
+      }
+    );
   }
 
   function findStructureById(state, id) {
-    const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
-    for (const anchor of anchors) {
-      if (!anchor) continue;
-      if (String(anchor.instanceId) === String(id)) return anchor;
-    }
-    return null;
+    return targetResolver.findStructureById(state, id);
   }
 
   function findPawnById(state, id) {
-    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
-    for (const pawn of pawns) {
-      if (!pawn) continue;
-      if (String(pawn.id) === String(id)) return pawn;
-    }
-    return null;
-  }
-
-  function itemProvidesPortableStorage(item) {
-    if (!item || typeof item !== "object") return false;
-    const kind =
-      typeof item.kind === "string" && item.kind.length > 0 ? item.kind : null;
-    if (!kind) return false;
-    const def = itemDefs?.[kind];
-    if (!def || typeof def !== "object") return false;
-    const specs = Array.isArray(def.poolProviders)
-      ? def.poolProviders
-      : def.poolProviders && typeof def.poolProviders === "object"
-        ? [def.poolProviders]
-        : [];
-    return specs.some((spec) => {
-      const systemId =
-        typeof spec?.systemId === "string" ? spec.systemId : spec?.system;
-      const poolKey = typeof spec?.poolKey === "string" ? spec.poolKey : null;
-      return systemId === "storage" && poolKey === "byKindTier";
-    });
-  }
-
-  function getEquippedBasketInfoForPawn(pawn) {
-    if (!pawn) return null;
-    const equipment =
-      pawn?.equipment && typeof pawn.equipment === "object" ? pawn.equipment : null;
-    if (!equipment) return null;
-    for (const [slotId, item] of Object.entries(equipment)) {
-      if (!item || typeof item !== "object") continue;
-      if (!itemProvidesPortableStorage(item)) continue;
-      return { slotId, item };
-    }
-    return null;
+    return targetResolver.findPawnById(state, id);
   }
 
   function buildBasketTarget(state, ownerId) {
-    const pawn = findPawnById(state, ownerId);
-    if (!pawn) return null;
-    const basketInfo = getEquippedBasketInfoForPawn(pawn);
-    if (!basketInfo?.item) return null;
-    const store =
-      basketInfo?.item?.systemState?.storage &&
-      typeof basketInfo.item.systemState.storage === "object"
-        ? basketInfo.item.systemState.storage
-        : pawn?.systemState?.basketStore &&
-            typeof pawn.systemState.basketStore === "object"
-          ? pawn.systemState.basketStore
-          : null;
-    const byKindTier =
-      store?.byKindTier && typeof store.byKindTier === "object"
-        ? store.byKindTier
-        : {};
-    const totalByTier =
-      store?.totalByTier && typeof store.totalByTier === "object"
-        ? store.totalByTier
-        : null;
-    return {
-      refKind: "basket",
-      defId: basketInfo.item.kind || "basket",
-      ownerKind: "pawn",
-      ownerId: String(pawn.id),
-      id: `basket:${pawn.id}`,
-      instanceId: `basket:${pawn.id}`,
-      basketSlotId: basketInfo.slotId,
-      basketItemId: basketInfo.item.id ?? null,
-      basketOwnerName: pawn.name || `Pawn ${pawn.id}`,
-      systemState: {
-        storage: {
-          byKindTier,
-          totalByTier,
-        },
-      },
-    };
+    return targetResolver.buildBasketTarget(state, ownerId);
   }
 
   function findTileById(state, id) {
-    const anchors = Array.isArray(state?.board?.layers?.tile?.anchors)
-      ? state.board.layers.tile.anchors
-      : [];
-    for (const anchor of anchors) {
-      if (!anchor) continue;
-      if (String(anchor.instanceId) === String(id)) return anchor;
-    }
-    return null;
+    return targetResolver.findTileById(state, id);
   }
 
   function makeTargetRef(target) {
-    if (!target) return null;
-    if (target?.refKind === "basket") {
-      if (target?.ownerId == null) return null;
-      return { kind: "basket", ownerId: String(target.ownerId) };
-    }
-    const id = target.instanceId ?? target.id ?? null;
-    if (id == null) return null;
-    const isHub = !!hubStructureDefs[target.defId];
-    const kind = isHub ? "hub" : "env";
-    return { kind, id: String(id) };
+    return targetResolver.makeTargetRef(target);
   }
 
   function sameTargetRef(a, b) {
-    if (!a || !b) return false;
-    if (a.kind === "basket" || b.kind === "basket") {
-      return a.kind === "basket" && b.kind === "basket" && String(a.ownerId) === String(b.ownerId);
-    }
-    return a.kind === b.kind && String(a.id) === String(b.id);
+    return targetResolver.sameTargetRef(a, b);
   }
 
   function resolveTargetFromRef(state, ref) {
-    if (!ref || !state) return null;
-    if (ref.kind === "basket") return buildBasketTarget(state, ref.ownerId);
-    if (ref.kind === "hub") return findStructureById(state, ref.id);
-    if (ref.kind === "env") return findTileById(state, ref.id);
-    return null;
+    return targetResolver.resolveTargetFromRef(state, ref);
   }
 
   function buildCandidateSignature(state, target, process, processDef) {
-    if (!state || !target || !process || !processDef) return "none";
-    const parts = [];
-    const context = { leaderId: process?.leaderId ?? null };
-    for (const kind of ["inputs", "outputs"]) {
-      const slots = processDef?.routingSlots?.[kind] || [];
-      for (const slotDef of slots) {
-        if (!slotDef || slotDef.locked) continue;
-        const candidates = listCandidateEndpoints(
-          state,
-          process,
-          slotDef,
-          target,
-          context
-        );
-        const list = candidates.length ? candidates.join(",") : "none";
-        parts.push(`${kind}:${slotDef.slotId}:${list}`);
-      }
-    }
-    return parts.length ? parts.join("|") : "none";
+    return signatureTools.buildCandidateSignature(
+      state,
+      target,
+      process,
+      processDef
+    );
   }
 
   function buildTemplateCandidateSignature(state, target, systemId) {
-    if (!state || !target || !systemId) return "none";
-    const templateProcess = getTemplateProcessForSystem(target, systemId, {
-      state,
-    });
-    if (!templateProcess) return "none";
-    const templateDef = getProcessDefForInstance(templateProcess, target, {});
-    if (!templateDef) return "none";
-    return buildCandidateSignature(state, target, templateProcess, templateDef);
+    return signatureTools.buildTemplateCandidateSignature(state, target, systemId);
   }
 
   function buildProcessSignature(state, targetKey, target, entries) {
-    if (!Array.isArray(entries) || entries.length === 0) return null;
-    const parts = [];
-    for (const entry of entries) {
-      const process = entry?.process;
-      if (!process) continue;
-      const routingSig = process.routing ? JSON.stringify(process.routing) : "";
-      const reqSig = Array.isArray(process.requirements)
-        ? process.requirements
-            .map(
-              (r) =>
-                `${r.kind}:${r.itemId || r.tag || r.resource}:${r.progress ?? 0}:${r.amount ?? 0}`
-            )
-            .join("|")
-        : "";
-      const outSig = Array.isArray(process.outputs)
-        ? process.outputs
-            .map(
-              (o) =>
-                `${o.kind}:${o.itemId || o.resource || o.system || ""}:${o.qty ?? o.amount ?? 0}`
-            )
-          .join("|")
-        : "";
-      const progress = Number.isFinite(process.progress)
-        ? Math.floor(process.progress)
-        : 0;
-      const candidateSig = buildCandidateSignature(
-        state,
-        target,
-        process,
-        entry?.processDef
-      );
-      parts.push(
-        `${process.id}|${progress}|${routingSig}|${reqSig}|${outSig}|${candidateSig}`
-      );
-    }
-    return `${targetKey}|${parts.join("||")}`;
+    return signatureTools.buildProcessSignature(state, targetKey, target, entries);
   }
 
   function buildRoutingTemplateSignature(target, systemId) {
-    if (!target || !systemId) return "none";
-    const template = target?.systemState?.[systemId]?.routingTemplate;
-    if (!template || typeof template !== "object") return "none";
-    return JSON.stringify(template);
+    return signatureTools.buildRoutingTemplateSignature(target, systemId);
   }
 
   function clearContent(content, dropTargets) {
@@ -1446,1076 +1210,10 @@ export function createProcessWidgetView({
 
     return entry;
   }
-
-  function formatPoolSummary(poolTarget) {
-    if (!poolTarget || poolTarget.kind !== "pool") return null;
-    const pool = poolTarget.target;
-    if (!pool || typeof pool !== "object") return null;
-    const totals = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
-    if (
-      pool.bronze != null ||
-      pool.silver != null ||
-      pool.gold != null ||
-      pool.diamond != null
-    ) {
-      totals.bronze = Math.max(0, Math.floor(pool.bronze ?? 0));
-      totals.silver = Math.max(0, Math.floor(pool.silver ?? 0));
-      totals.gold = Math.max(0, Math.floor(pool.gold ?? 0));
-      totals.diamond = Math.max(0, Math.floor(pool.diamond ?? 0));
-    } else {
-      const keys = Object.keys(pool);
-      for (const key of keys) {
-        const bucket = pool[key];
-        if (!bucket || typeof bucket !== "object") continue;
-        totals.bronze += Math.max(0, Math.floor(bucket.bronze ?? 0));
-        totals.silver += Math.max(0, Math.floor(bucket.silver ?? 0));
-        totals.gold += Math.max(0, Math.floor(bucket.gold ?? 0));
-        totals.diamond += Math.max(0, Math.floor(bucket.diamond ?? 0));
-      }
-    }
-    return `B ${totals.bronze}  S ${totals.silver}  G ${totals.gold}  D ${totals.diamond}`;
-  }
-
   function hasSelectableSlots(processDef, slotKind) {
     const slots = processDef?.routingSlots?.[slotKind] || [];
     return slots.some((slot) => slot && slot.locked !== true);
   }
-
-  function getRequirementRows(reqs) {
-    if (!Array.isArray(reqs) || reqs.length === 0) return [];
-    if (reqs.length > 3) {
-      let totalAmount = 0;
-      let totalProgress = 0;
-      for (const req of reqs) {
-        totalAmount += Math.max(0, Math.floor(req.amount ?? 0));
-        totalProgress += Math.max(0, Math.floor(req.progress ?? 0));
-      }
-      return [
-        {
-          label: "Items",
-          progress: totalProgress,
-          amount: totalAmount,
-        },
-      ];
-    }
-    return reqs.map((req) => ({
-      label: formatRequirementLabel(req),
-      progress: Math.max(0, Math.floor(req.progress ?? 0)),
-      amount: Math.max(0, Math.floor(req.amount ?? 0)),
-    }));
-  }
-
-  function getPrestigeTotals(process) {
-    const totals = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
-    const byKind = process?.consumedByKindTier || null;
-    if (!byKind || typeof byKind !== "object") return totals;
-    for (const bucket of Object.values(byKind)) {
-      if (!bucket || typeof bucket !== "object") continue;
-      totals.bronze += Math.max(0, Math.floor(bucket.bronze ?? 0));
-      totals.silver += Math.max(0, Math.floor(bucket.silver ?? 0));
-      totals.gold += Math.max(0, Math.floor(bucket.gold ?? 0));
-      totals.diamond += Math.max(0, Math.floor(bucket.diamond ?? 0));
-    }
-    return totals;
-  }
-
-  function resolveLockedOutputEndpoint(process, processDef, output) {
-    if (!processDef || !output) return null;
-    const slots = processDef.routingSlots?.outputs || [];
-    const slot =
-      output.slotId && slots.find((s) => s?.slotId === output.slotId)
-        ? slots.find((s) => s?.slotId === output.slotId)
-        : slots[0] || null;
-    if (!slot || !slot.locked) return null;
-    const endpointId =
-      resolveFixedEndpointId(slot.candidateRule?.endpointId, process, {
-        leaderId: process?.leaderId ?? null,
-      }) || (Array.isArray(slot.default?.ordered) ? slot.default.ordered[0] : null);
-    return endpointId || null;
-  }
-  function buildProgressModule({
-    container,
-    width,
-    process,
-    processDef,
-    vertical,
-  }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    const labelText = new PIXI.Text(
-      vertical ? "Progress: Time" : "Progress: Work",
-      {
-        fill: COLORS.moduleSub,
-        fontSize: 10,
-      }
-    );
-    labelText.x = MODULE_PAD;
-    labelText.y = MODULE_PAD;
-    container.addChild(labelText);
-
-    const duration = Math.max(1, Math.floor(processDef?.transform?.durationSec ?? 1));
-    const progress = Math.max(0, Math.floor(process?.progress ?? 0));
-    const ratio = Math.min(1, progress / duration);
-
-    if (vertical) {
-      const barWidth = 14;
-      const barHeight = 40;
-      const barX = Math.floor((width - barWidth) / 2);
-      const barY = labelText.y + 14;
-
-      const barBg = new PIXI.Graphics();
-      barBg.beginFill(COLORS.progressBg, 1);
-      barBg.drawRoundedRect(barX, barY, barWidth, barHeight, 6);
-      barBg.endFill();
-      container.addChild(barBg);
-
-      const fillHeight = Math.max(2, barHeight * ratio);
-      const fill = new PIXI.Graphics();
-      fill.beginFill(COLORS.progressFill, 1);
-      fill.drawRoundedRect(
-        barX,
-        barY + (barHeight - fillHeight),
-        barWidth,
-        fillHeight,
-        6
-      );
-      fill.endFill();
-      container.addChild(fill);
-
-      const remain = Math.max(0, duration - progress);
-      const timeText = new PIXI.Text(`${remain}s`, {
-        fill: COLORS.moduleSub,
-        fontSize: 10,
-      });
-      timeText.x = Math.floor((width - timeText.width) / 2);
-      timeText.y = barY + barHeight + 4;
-      container.addChild(timeText);
-    } else {
-      const barWidth = width - MODULE_PAD * 2;
-      const barHeight = 10;
-      const barX = MODULE_PAD;
-      const barY = labelText.y + 16;
-
-      const barBg = new PIXI.Graphics();
-      barBg.beginFill(COLORS.progressBg, 1);
-      barBg.drawRoundedRect(barX, barY, barWidth, barHeight, 6);
-      barBg.endFill();
-      container.addChild(barBg);
-
-      const fillWidth = Math.max(2, barWidth * ratio);
-      const fill = new PIXI.Graphics();
-      fill.beginFill(COLORS.progressFill, 1);
-      fill.drawRoundedRect(barX, barY, fillWidth, barHeight, 6);
-      fill.endFill();
-      container.addChild(fill);
-
-      const remain = Math.max(0, duration - progress);
-      const timeText = new PIXI.Text(`${remain}s`, {
-        fill: COLORS.moduleSub,
-        fontSize: 10,
-      });
-      timeText.x = Math.floor((width - timeText.width) / 2);
-      timeText.y = barY + barHeight + 6;
-      container.addChild(timeText);
-    }
-
-    const height = Math.max(56, container.height + MODULE_PAD);
-    drawModuleBox(bg, width, height);
-    return height;
-  }
-
-  function normalizeGrowthProgressEntry(entry) {
-    const process = entry?.process || null;
-    if (!process) return null;
-    const processDef = entry?.processDef || null;
-    const duration = Math.max(
-      1,
-      Math.floor(processDef?.transform?.durationSec ?? process?.durationSec ?? 1)
-    );
-    const progress = Math.max(0, Math.floor(process?.progress ?? 0));
-    const ratio = Math.min(1, progress / duration);
-    const remain = Math.max(0, duration - progress);
-    return {
-      id: String(process?.id ?? ""),
-      ratio,
-      remain,
-    };
-  }
-
-  function buildGrowthProgressGroups(entries, maxGroups = 5) {
-    const normalized = (Array.isArray(entries) ? entries : [])
-      .map((entry) => normalizeGrowthProgressEntry(entry))
-      .filter((entry) => !!entry)
-      .sort((a, b) => {
-        if (a.remain !== b.remain) return a.remain - b.remain;
-        return a.id.localeCompare(b.id);
-      });
-    if (normalized.length === 0) return [];
-
-    const groups = normalized.map((entry) => ({
-      items: [entry],
-      minRemain: entry.remain,
-      maxRemain: entry.remain,
-    }));
-
-    const limit = Math.max(1, Math.floor(maxGroups));
-    while (groups.length > limit) {
-      let mergeAt = 0;
-      let bestGap = Infinity;
-      for (let i = 0; i < groups.length - 1; i += 1) {
-        const left = groups[i];
-        const right = groups[i + 1];
-        const gap = Math.max(0, right.minRemain - left.maxRemain);
-        if (gap < bestGap) {
-          bestGap = gap;
-          mergeAt = i;
-        }
-      }
-
-      const left = groups[mergeAt];
-      const right = groups[mergeAt + 1];
-      const mergedItems = left.items.concat(right.items).sort((a, b) => {
-        if (a.remain !== b.remain) return a.remain - b.remain;
-        return a.id.localeCompare(b.id);
-      });
-      groups.splice(mergeAt, 2, {
-        items: mergedItems,
-        minRemain: Math.min(left.minRemain, right.minRemain),
-        maxRemain: Math.max(left.maxRemain, right.maxRemain),
-      });
-    }
-
-    return groups.map((group) => ({
-      items: group.items,
-      earliestRemain: group.minRemain,
-      memberCount: group.items.length,
-    }));
-  }
-
-  function buildGrowthProgressModule({ container, width, entries }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    const labelText = new PIXI.Text("Progress: Time", {
-      fill: COLORS.moduleSub,
-      fontSize: 10,
-    });
-    labelText.x = MODULE_PAD;
-    labelText.y = MODULE_PAD;
-    container.addChild(labelText);
-
-    const groups = buildGrowthProgressGroups(entries, 5);
-    if (groups.length === 0) {
-      const none = new PIXI.Text("No crops growing", {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      none.x = MODULE_PAD;
-      none.y = labelText.y + 16;
-      container.addChild(none);
-
-      const height = Math.max(56, none.y + 18);
-      drawModuleBox(bg, width, height);
-      return height;
-    }
-
-    const barHeight = 40;
-    const barGap = 8;
-    const barAreaWidth = width - MODULE_PAD * 2;
-    const count = groups.length;
-    const maxBarWidth = 20;
-    const barWidthRaw = Math.floor(
-      (barAreaWidth - barGap * (count - 1)) / count
-    );
-    const barWidth = Math.max(10, Math.min(maxBarWidth, barWidthRaw));
-    const totalBarsWidth =
-      barWidth * count + barGap * Math.max(0, count - 1);
-    const startX = Math.floor(MODULE_PAD + (barAreaWidth - totalBarsWidth) / 2);
-    const barY = labelText.y + 16;
-
-    groups.forEach((group, index) => {
-      const x = startX + index * (barWidth + barGap);
-      const barBg = new PIXI.Graphics();
-      barBg.beginFill(COLORS.progressBg, 1);
-      barBg.drawRoundedRect(x, barY, barWidth, barHeight, 6);
-      barBg.endFill();
-      container.addChild(barBg);
-
-      const members = group.items
-        .slice()
-        .sort((a, b) => a.ratio - b.ratio || a.id.localeCompare(b.id));
-      for (const member of members) {
-        const fillHeight = Math.max(2, barHeight * member.ratio);
-        const fill = new PIXI.Graphics();
-        fill.beginFill(COLORS.progressFill, 0.24);
-        fill.drawRoundedRect(
-          x,
-          barY + (barHeight - fillHeight),
-          barWidth,
-          fillHeight,
-          6
-        );
-        fill.endFill();
-        container.addChild(fill);
-      }
-
-      const timeText = new PIXI.Text(`${group.earliestRemain}s`, {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      timeText.x = x + Math.max(0, Math.floor((barWidth - timeText.width) / 2));
-      timeText.y = barY + barHeight + 4;
-      container.addChild(timeText);
-
-      if (group.memberCount > 1) {
-        const countText = new PIXI.Text(`x${group.memberCount}`, {
-          fill: COLORS.headerSub,
-          fontSize: 8,
-          fontWeight: "bold",
-        });
-        countText.x = x + Math.max(0, Math.floor((barWidth - countText.width) / 2));
-        countText.y = barY - 10;
-        container.addChild(countText);
-      }
-    });
-
-    const height = Math.max(56, barY + barHeight + 20);
-    drawModuleBox(bg, width, height);
-    return height;
-  }
-
-  function buildRequirementsModule({ container, width, reqs }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    const title = new PIXI.Text("Materials", {
-      fill: COLORS.moduleText,
-      fontSize: 10,
-      fontWeight: "bold",
-    });
-    title.x = MODULE_PAD;
-    title.y = MODULE_PAD;
-    container.addChild(title);
-
-    let y = title.y + 14;
-    const rows = getRequirementRows(reqs);
-    if (rows.length === 0) {
-      const none = new PIXI.Text("None", {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      none.x = MODULE_PAD;
-      none.y = y;
-      container.addChild(none);
-      y += 12;
-    } else {
-      for (const row of rows) {
-        const label = new PIXI.Text(
-          `${row.label} ${row.progress}/${row.amount}`,
-          {
-            fill: COLORS.moduleSub,
-            fontSize: 9,
-          }
-        );
-        label.x = MODULE_PAD;
-        label.y = y;
-        container.addChild(label);
-
-        const barWidth = width - MODULE_PAD * 2;
-        const barHeight = 6;
-        const barY = y + 10;
-        const ratio = row.amount > 0 ? Math.min(1, row.progress / row.amount) : 0;
-
-        const barBg = new PIXI.Graphics();
-        barBg.beginFill(COLORS.progressBg, 1);
-        barBg.drawRoundedRect(MODULE_PAD, barY, barWidth, barHeight, 4);
-        barBg.endFill();
-        container.addChild(barBg);
-
-        const fill = new PIXI.Graphics();
-        fill.beginFill(COLORS.progressFill, 1);
-        fill.drawRoundedRect(
-          MODULE_PAD,
-          barY,
-          Math.max(2, barWidth * ratio),
-          barHeight,
-          4
-        );
-        fill.endFill();
-        container.addChild(fill);
-
-        y += 18;
-      }
-    }
-
-    const height = Math.max(52, y + MODULE_PAD - 2);
-    drawModuleBox(bg, width, height);
-    return height;
-  }
-
-  function buildOutputModule({
-    container,
-    width,
-    outputs,
-    poolSummary,
-    selectionControl = null,
-  }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    const title = new PIXI.Text("Output", {
-      fill: COLORS.moduleText,
-      fontSize: 10,
-      fontWeight: "bold",
-    });
-    title.x = MODULE_PAD;
-    title.y = MODULE_PAD;
-    container.addChild(title);
-
-    if (selectionControl?.label) {
-      const btnPadX = 6;
-      const btnPadY = 2;
-      const btnHeight = 14;
-      const btnWidth = Math.max(64, Math.floor(width * 0.42));
-      const btn = new PIXI.Container();
-      btn.x = Math.max(
-        MODULE_PAD,
-        width - MODULE_PAD - btnWidth
-      );
-      btn.y = MODULE_PAD - 1;
-      btn.eventMode = selectionControl?.enabled === false ? "none" : "static";
-      btn.cursor = selectionControl?.enabled === false ? "default" : "pointer";
-
-      const btnBg = new PIXI.Graphics();
-      btnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      btnBg.beginFill(COLORS.pillEnabled, 0.98);
-      btnBg.drawRoundedRect(0, 0, btnWidth, btnHeight, 6);
-      btnBg.endFill();
-      btn.addChild(btnBg);
-
-      const label = new PIXI.Text(String(selectionControl.label), {
-        fill: COLORS.moduleText,
-        fontSize: 9,
-        fontWeight: "bold",
-      });
-      label.x = btnPadX;
-      label.y = btnPadY;
-      btn.addChild(label);
-
-      const chevron = new PIXI.Text("v", {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      chevron.x = btnWidth - chevron.width - btnPadX;
-      chevron.y = btnPadY;
-      btn.addChild(chevron);
-
-      const fullLabel = String(selectionControl.label);
-      const labelMaxWidth = Math.max(0, chevron.x - btnPadX - 4);
-      fitTextToWidth(label, fullLabel, labelMaxWidth);
-      attachLozengeHoverHandlers(btn, { fullLabel, hoverSpec: null });
-
-      btn.on("pointertap", () => {
-        if (selectionControl?.enabled === false) return;
-        selectionControl?.onOpen?.(btn.getBounds());
-      });
-
-      container.addChild(btn);
-    }
-
-    let y = title.y + 14;
-    if (!Array.isArray(outputs) || outputs.length === 0) {
-      const none = new PIXI.Text("None", {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      none.x = MODULE_PAD;
-      none.y = y;
-      container.addChild(none);
-      y += 12;
-    } else {
-      const primary = outputs[0];
-      const label = formatOutputLabel(primary);
-      const qty = Math.max(0, Math.floor(primary.qty ?? primary.amount ?? 0));
-      const lineText = primary.kind === "pool" && primary.fromLedger
-        ? label
-        : qty > 1
-          ? `${label} x${qty}`
-          : label;
-
-      const line = new PIXI.Text(lineText, {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      line.x = MODULE_PAD;
-      line.y = y;
-      container.addChild(line);
-      y += 12;
-
-      if (poolSummary) {
-        const poolText = new PIXI.Text(poolSummary, {
-          fill: COLORS.moduleSub,
-          fontSize: 9,
-        });
-        poolText.x = MODULE_PAD;
-        poolText.y = y;
-        container.addChild(poolText);
-        y += 12;
-      }
-
-      if (outputs.length > 1) {
-        const more = new PIXI.Text(`+${outputs.length - 1} more`, {
-          fill: COLORS.moduleSub,
-          fontSize: 9,
-        });
-        more.x = MODULE_PAD;
-        more.y = y;
-        container.addChild(more);
-        y += 12;
-      }
-    }
-
-    const height = Math.max(52, y + MODULE_PAD - 2);
-    drawModuleBox(bg, width, height);
-    return height;
-  }
-
-  function buildGrowthOutputModule({
-    container,
-    width,
-    pool,
-    selectionControl = null,
-  }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    const title = new PIXI.Text("Matured Pool", {
-      fill: COLORS.moduleText,
-      fontSize: 10,
-      fontWeight: "bold",
-    });
-    title.x = MODULE_PAD;
-    title.y = MODULE_PAD;
-    container.addChild(title);
-
-    if (selectionControl?.label) {
-      const btnPadX = 6;
-      const btnPadY = 2;
-      const btnHeight = 14;
-      const btnWidth = Math.max(64, Math.floor(width * 0.42));
-      const btn = new PIXI.Container();
-      btn.x = Math.max(
-        MODULE_PAD,
-        width - MODULE_PAD - btnWidth
-      );
-      btn.y = MODULE_PAD - 1;
-      btn.eventMode = selectionControl?.enabled === false ? "none" : "static";
-      btn.cursor = selectionControl?.enabled === false ? "default" : "pointer";
-
-      const btnBg = new PIXI.Graphics();
-      btnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      btnBg.beginFill(COLORS.pillEnabled, 0.98);
-      btnBg.drawRoundedRect(0, 0, btnWidth, btnHeight, 6);
-      btnBg.endFill();
-      btn.addChild(btnBg);
-
-      const label = new PIXI.Text(String(selectionControl.label), {
-        fill: COLORS.moduleText,
-        fontSize: 9,
-        fontWeight: "bold",
-      });
-      label.x = btnPadX;
-      label.y = btnPadY;
-      btn.addChild(label);
-
-      const chevron = new PIXI.Text("v", {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      chevron.x = btnWidth - chevron.width - btnPadX;
-      chevron.y = btnPadY;
-      btn.addChild(chevron);
-
-      const fullLabel = String(selectionControl.label);
-      const labelMaxWidth = Math.max(0, chevron.x - btnPadX - 4);
-      fitTextToWidth(label, fullLabel, labelMaxWidth);
-      attachLozengeHoverHandlers(btn, { fullLabel, hoverSpec: null });
-
-      btn.on("pointertap", () => {
-        if (selectionControl?.enabled === false) return;
-        selectionControl?.onOpen?.(btn.getBounds());
-      });
-
-      container.addChild(btn);
-    }
-
-    let y = title.y + 14;
-    const summary = formatPoolSummary({ kind: "pool", target: pool });
-    if (!summary) {
-      const none = new PIXI.Text("None", {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      none.x = MODULE_PAD;
-      none.y = y;
-      container.addChild(none);
-      y += 12;
-    } else {
-      const poolText = new PIXI.Text(summary, {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      poolText.x = MODULE_PAD;
-      poolText.y = y;
-      container.addChild(poolText);
-      y += 12;
-    }
-
-    const height = Math.max(52, y + MODULE_PAD - 2);
-    drawModuleBox(bg, width, height);
-    return height;
-  }
-
-  function buildPrestigeModule({ container, width, process }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    const title = new PIXI.Text("Prestige", {
-      fill: COLORS.moduleText,
-      fontSize: 10,
-      fontWeight: "bold",
-    });
-    title.x = MODULE_PAD;
-    title.y = MODULE_PAD;
-    container.addChild(title);
-
-    const totals = getPrestigeTotals(process);
-    const rows = [
-      { key: "bronze", label: "B", value: totals.bronze },
-      { key: "silver", label: "S", value: totals.silver },
-      { key: "gold", label: "G", value: totals.gold },
-      { key: "diamond", label: "D", value: totals.diamond },
-    ];
-    const max = Math.max(1, ...rows.map((r) => r.value));
-
-    let y = title.y + 14;
-    const barWidth = width - MODULE_PAD * 2 - 16;
-    for (const row of rows) {
-      const label = new PIXI.Text(row.label, {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      label.x = MODULE_PAD;
-      label.y = y;
-      container.addChild(label);
-
-      const ratio = Math.min(1, row.value / max);
-      const barBg = new PIXI.Graphics();
-      barBg.beginFill(COLORS.progressBg, 1);
-      barBg.drawRoundedRect(MODULE_PAD + 12, y + 2, barWidth, 6, 4);
-      barBg.endFill();
-      container.addChild(barBg);
-
-      const fill = new PIXI.Graphics();
-      fill.beginFill(COLORS.progressFill, 1);
-      fill.drawRoundedRect(
-        MODULE_PAD + 12,
-        y + 2,
-        Math.max(2, barWidth * ratio),
-        6,
-        4
-      );
-      fill.endFill();
-      container.addChild(fill);
-
-      y += 12;
-    }
-
-    const height = Math.max(52, y + MODULE_PAD - 2);
-    drawModuleBox(bg, width, height);
-    return height;
-  }
-
-  function buildWithdrawModule({
-    container,
-    width,
-    pool,
-    withdrawState,
-    onOpenItemDropdown,
-    onWithdraw,
-  }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-
-    const title = new PIXI.Text("Withdraw", {
-      fill: COLORS.moduleText,
-      fontSize: 10,
-      fontWeight: "bold",
-    });
-    title.x = MODULE_PAD;
-    title.y = MODULE_PAD;
-    container.addChild(title);
-
-    const options = getPoolItemOptions(pool);
-    const selectedItemId = normalizeWithdrawSelection(withdrawState, options);
-    const totals = getPoolItemTotals(pool, selectedItemId);
-    const selectedLabel = selectedItemId
-      ? itemDefs?.[selectedItemId]?.name || selectedItemId
-      : "No stored items";
-    const maxAmount = Math.max(1, totals.total);
-    const amount = Math.max(1, Math.min(maxAmount, Math.floor(withdrawState?.amount ?? 1)));
-    if (withdrawState) withdrawState.amount = amount;
-
-    const selectBtnY = title.y + 14;
-    const selectBtnW = width - MODULE_PAD * 2;
-    const selectBtnH = 16;
-    const selectBtn = new PIXI.Container();
-    selectBtn.x = MODULE_PAD;
-    selectBtn.y = selectBtnY;
-    selectBtn.eventMode = options.length > 0 ? "static" : "none";
-    selectBtn.cursor = options.length > 0 ? "pointer" : "default";
-    container.addChild(selectBtn);
-
-    const selectBg = new PIXI.Graphics();
-    selectBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-    selectBg.beginFill(COLORS.pillEnabled, 0.98);
-    selectBg.drawRoundedRect(0, 0, selectBtnW, selectBtnH, 6);
-    selectBg.endFill();
-    selectBtn.addChild(selectBg);
-
-    const selectText = new PIXI.Text(selectedLabel, {
-      fill: options.length > 0 ? COLORS.moduleText : COLORS.moduleSub,
-      fontSize: 9,
-      fontWeight: "bold",
-    });
-    selectText.x = 6;
-    selectText.y = 2;
-    selectBtn.addChild(selectText);
-
-    const selectChevron = new PIXI.Text("v", {
-      fill: COLORS.moduleSub,
-      fontSize: 9,
-    });
-    selectChevron.x = selectBtnW - selectChevron.width - 6;
-    selectChevron.y = 2;
-    selectBtn.addChild(selectChevron);
-
-    const selectLabelMaxWidth = Math.max(0, selectChevron.x - selectText.x - 4);
-    fitTextToWidth(selectText, selectedLabel, selectLabelMaxWidth);
-    attachLozengeHoverHandlers(selectBtn, {
-      fullLabel: selectedLabel,
-      hoverSpec: null,
-    });
-
-    if (options.length > 0) {
-      selectBtn.on("pointertap", () => {
-        onOpenItemDropdown?.(selectBtn.getBounds());
-      });
-    }
-
-    let y = selectBtnY + selectBtnH + 6;
-    const tierRows = [
-      { label: "B", key: "bronze" },
-      { label: "S", key: "silver" },
-      { label: "G", key: "gold" },
-      { label: "D", key: "diamond" },
-    ];
-    for (const row of tierRows) {
-      const value = Math.max(0, Math.floor(totals.byTier?.[row.key] ?? 0));
-      const text = new PIXI.Text(`${row.label} ${value}`, {
-        fill: COLORS.moduleSub,
-        fontSize: 9,
-      });
-      text.x = MODULE_PAD;
-      text.y = y;
-      container.addChild(text);
-      y += 10;
-    }
-
-    const controlsY = y + 2;
-    const controlsW = width - MODULE_PAD * 2;
-    const amountW = 34;
-    const btnW = 16;
-    const btnH = 16;
-    const gap = 4;
-    const amountX = MODULE_PAD + Math.floor((controlsW - (btnW * 2 + amountW + gap * 2)) / 2);
-
-    const minusBtn = new PIXI.Container();
-    minusBtn.x = amountX;
-    minusBtn.y = controlsY;
-    minusBtn.eventMode = "static";
-    minusBtn.cursor = "pointer";
-    container.addChild(minusBtn);
-    const minusBg = new PIXI.Graphics();
-    minusBtn.addChild(minusBg);
-    const minusText = new PIXI.Text("-", {
-      fill: COLORS.moduleText,
-      fontSize: 11,
-      fontWeight: "bold",
-    });
-    minusText.x = 6;
-    minusText.y = 1;
-    minusBtn.addChild(minusText);
-
-    const amountBg = new PIXI.Graphics();
-    amountBg.x = amountX + btnW + gap;
-    amountBg.y = controlsY;
-    container.addChild(amountBg);
-    const amountText = new PIXI.Text(String(amount), {
-      fill: COLORS.moduleText,
-      fontSize: 9,
-      fontWeight: "bold",
-    });
-    container.addChild(amountText);
-
-    const plusBtn = new PIXI.Container();
-    plusBtn.x = amountX + btnW + gap + amountW + gap;
-    plusBtn.y = controlsY;
-    plusBtn.eventMode = "static";
-    plusBtn.cursor = "pointer";
-    container.addChild(plusBtn);
-    const plusBg = new PIXI.Graphics();
-    plusBtn.addChild(plusBg);
-    const plusText = new PIXI.Text("+", {
-      fill: COLORS.moduleText,
-      fontSize: 11,
-      fontWeight: "bold",
-    });
-    plusText.x = 4;
-    plusText.y = 1;
-    plusBtn.addChild(plusText);
-
-    const spawnBtn = new PIXI.Container();
-    spawnBtn.x = MODULE_PAD;
-    spawnBtn.y = controlsY + btnH + 6;
-    spawnBtn.eventMode = "static";
-    spawnBtn.cursor = "pointer";
-    container.addChild(spawnBtn);
-    const spawnBg = new PIXI.Graphics();
-    spawnBtn.addChild(spawnBg);
-    const spawnText = new PIXI.Text("Spawn To Cursor", {
-      fill: COLORS.moduleText,
-      fontSize: 9,
-      fontWeight: "bold",
-    });
-    spawnBtn.addChild(spawnText);
-
-    function drawSmallButton(nodeBg, enabled) {
-      nodeBg.clear();
-      nodeBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      nodeBg.beginFill(enabled ? COLORS.pillEnabled : COLORS.pillDisabled, 0.98);
-      nodeBg.drawRoundedRect(0, 0, btnW, btnH, 5);
-      nodeBg.endFill();
-    }
-
-    function refreshControls() {
-      const current = Math.max(
-        1,
-        Math.min(
-          Math.max(1, Math.floor(totals.total ?? 0)),
-          Math.floor(withdrawState?.amount ?? 1)
-        )
-      );
-      if (withdrawState) withdrawState.amount = current;
-      amountText.text = String(current);
-      amountText.x = amountBg.x + Math.floor((amountW - amountText.width) / 2);
-      amountText.y = amountBg.y + 2;
-      amountBg.clear();
-      amountBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      amountBg.beginFill(COLORS.dropboxBg, 0.98);
-      amountBg.drawRoundedRect(0, 0, amountW, btnH, 5);
-      amountBg.endFill();
-
-      const canMinus = current > 1;
-      const canPlus = totals.total > 0 && current < totals.total;
-      const canSpawn = totals.total > 0 && !!selectedItemId;
-
-      drawSmallButton(minusBg, canMinus);
-      drawSmallButton(plusBg, canPlus);
-      minusBtn.alpha = canMinus ? 1 : 0.55;
-      plusBtn.alpha = canPlus ? 1 : 0.55;
-      minusBtn.cursor = canMinus ? "pointer" : "default";
-      plusBtn.cursor = canPlus ? "pointer" : "default";
-
-      spawnBg.clear();
-      spawnBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      spawnBg.beginFill(canSpawn ? 0x2f5a3d : 0x27303f, 0.98);
-      spawnBg.drawRoundedRect(0, 0, selectBtnW, 18, 6);
-      spawnBg.endFill();
-      spawnText.x = Math.floor((selectBtnW - spawnText.width) / 2);
-      spawnText.y = 3;
-      spawnBtn.alpha = canSpawn ? 1 : 0.65;
-      spawnBtn.cursor = canSpawn ? "pointer" : "default";
-    }
-
-    minusBtn.on("pointertap", () => {
-      if (withdrawState?.amount > 1) {
-        withdrawState.amount -= 1;
-        refreshControls();
-      }
-    });
-
-    plusBtn.on("pointertap", () => {
-      const cur = Math.floor(withdrawState?.amount ?? 1);
-      if (totals.total > 0 && cur < totals.total) {
-        withdrawState.amount = cur + 1;
-        refreshControls();
-      }
-    });
-
-    spawnBtn.on("pointertap", () => {
-      if (!selectedItemId) return;
-      if (totals.total <= 0) return;
-      const qty = Math.max(1, Math.min(totals.total, Math.floor(withdrawState?.amount ?? 1)));
-      onWithdraw?.(selectedItemId, qty);
-    });
-
-    refreshControls();
-
-    const height = Math.max(88, spawnBtn.y + 24);
-    drawModuleBox(bg, width, height);
-    return height;
-  }
-
-  function buildDropboxModule({
-    container,
-    width,
-    height,
-    process,
-    dropTargets,
-    dropOwnerId = null,
-    labelText = "Dropbox",
-    dropEnabled = true,
-  }) {
-    const bg = new PIXI.Graphics();
-    container.addChild(bg);
-    drawDropboxBox(bg, width, height);
-
-    const size = Math.min(width, height);
-    const slot = new PIXI.Graphics();
-    let affordanceLevel = "neutral";
-    const getAffordanceStyle = () => {
-      if (affordanceLevel === "valid") {
-        return {
-          stroke: COLORS.dropboxValidBorder,
-          fill: COLORS.dropboxValidBg,
-        };
-      }
-      if (affordanceLevel === "invalid") {
-        return {
-          stroke: COLORS.dropboxInvalidBorder,
-          fill: COLORS.dropboxInvalidBg,
-        };
-      }
-      if (affordanceLevel === "capped") {
-        return {
-          stroke: COLORS.dropboxCappedBorder,
-          fill: COLORS.dropboxCappedBg,
-        };
-      }
-      return {
-        stroke: COLORS.dropboxBorder,
-        fill: COLORS.drawerBg,
-      };
-    };
-    const drawSlot = () => {
-      const style = getAffordanceStyle();
-      slot.clear();
-      slot.lineStyle(1, style.stroke, 0.9);
-      slot.beginFill(style.fill, 0.95);
-      slot.drawRoundedRect(0, 0, size, size, 8);
-      slot.endFill();
-    };
-    drawSlot();
-    slot.x = Math.floor((width - size) / 2);
-    slot.y = Math.floor((height - size) / 2) - 6;
-    container.addChild(slot);
-
-    const label = new PIXI.Text(labelText, {
-      fill: COLORS.moduleSub,
-      fontSize: 9,
-    });
-    label.x = Math.floor((width - label.width) / 2);
-    label.y = slot.y + size + 4;
-    container.addChild(label);
-
-    // Full-module drop hitbox so drops do not require exact slot-pixel precision.
-    const hitbox = new PIXI.Graphics();
-    hitbox.beginFill(0xffffff, 0.001);
-    hitbox.drawRoundedRect(0, 0, width, height, MODULE_RADIUS);
-    hitbox.endFill();
-    container.addChildAt(hitbox, 0);
-
-    const dropId =
-      typeof dropOwnerId === "string" && dropOwnerId.length > 0
-        ? dropOwnerId
-        : getDropEndpointId(process?.id);
-    const canDrop = dropEnabled === true && !!dropId;
-    if (canDrop && Array.isArray(dropTargets)) {
-      let errorTimeout = null;
-      let cachedBounds = null;
-      const targetDef = {
-        ownerId: dropId,
-        kind: "processDropbox",
-        getBounds: () => {
-          const bounds = hitbox.getBounds();
-          if (
-            Number.isFinite(bounds?.width) &&
-            Number.isFinite(bounds?.height) &&
-            bounds.width > 0 &&
-            bounds.height > 0
-          ) {
-            cachedBounds = {
-              x: bounds.x,
-              y: bounds.y,
-              width: bounds.width,
-              height: bounds.height,
-            };
-            return bounds;
-          }
-          return cachedBounds || bounds;
-        },
-        setAffordance: (level = "neutral") => {
-          affordanceLevel =
-            level === "valid" || level === "invalid" || level === "capped"
-              ? level
-              : "neutral";
-          drawSlot();
-        },
-        clearAffordance: () => {
-          affordanceLevel = "neutral";
-          drawSlot();
-        },
-        flashError: () => {
-          const prevLevel = affordanceLevel;
-          affordanceLevel = "invalid";
-          drawSlot();
-          if (errorTimeout != null) clearTimeout(errorTimeout);
-          errorTimeout = setTimeout(() => {
-            affordanceLevel = prevLevel;
-            drawSlot();
-            errorTimeout = null;
-          }, 180);
-        },
-      };
-      dropTargets.push({
-        ...targetDef,
-      });
-      const initialAffordanceLevel =
-        dropTargetRegistry?.getDropboxDragAffordance?.(dropId) ?? null;
-      if (initialAffordanceLevel) targetDef.setAffordance(initialAffordanceLevel);
-
-      slot.eventMode = "none";
-      slot.cursor = "default";
-    } else {
-      slot.alpha = 0.75;
-      label.alpha = 0.75;
-      slot.eventMode = "none";
-      slot.cursor = "default";
-    }
-  }
-
   function getWindowRect(win) {
     if (!win?.container) return null;
     const localBounds = win.container.getLocalBounds?.() ?? null;
@@ -2705,386 +1403,6 @@ export function createProcessWidgetView({
       },
     };
   }
-  function buildProcessCard(state, target, entry, index, count, opts = {}) {
-    const process = entry.process;
-    const processDef = entry.processDef;
-    const targetLabel = getTargetLabel(target);
-    const isGrowthGroup = opts.groupMode === "growth";
-    const growthEntries = Array.isArray(opts.groupEntries)
-      ? opts.groupEntries
-      : null;
-    const isPreview = opts.preview === true;
-    const variantOverride = opts.variantOverride || null;
-    const routingMode = opts.routingMode || "process";
-    const routingProcess = opts.routingProcess || process;
-    const routingProcessDef = opts.routingProcessDef || processDef;
-    const routingState = opts.routingState || routingProcess?.routing || null;
-    const routingTargetRef = opts.routingTargetRef || null;
-    const routingSystemId = opts.routingSystemId || null;
-    const allowRouting =
-      typeof opts.allowRouting === "boolean"
-        ? opts.allowRouting
-        : routingMode === "template"
-          ? true
-          : !isPreview;
-    const allowDropbox =
-      typeof opts.allowDropbox === "boolean" ? opts.allowDropbox : !isPreview;
-    const drawerKey =
-      opts.drawerKey ||
-      (routingMode === "template"
-        ? `${routingSystemId || "system"}:${getTargetKey(target) || "target"}`
-        : process?.id);
-
-    const card = new PIXI.Container();
-    const bg = new PIXI.Graphics();
-    card.addChild(bg);
-
-    const showDropbox = allowDropbox && !!routingProcessDef?.supportsDropslot;
-    const inputDrawerVisible =
-      allowRouting && hasSelectableSlots(routingProcessDef, "inputs");
-    const outputDrawerVisible =
-      allowRouting && hasSelectableSlots(routingProcessDef, "outputs");
-
-    const leftDrawerWidth = inputDrawerVisible
-      ? drawerExpanded.inputs.has(`${drawerKey}:inputs`)
-        ? DRAWER_EXPANDED
-        : DRAWER_COLLAPSED
-      : 0;
-    const rightDrawerWidth = outputDrawerVisible
-      ? drawerExpanded.outputs.has(`${drawerKey}:outputs`)
-        ? DRAWER_EXPANDED
-        : DRAWER_COLLAPSED
-      : 0;
-
-    const dropboxGap = showDropbox ? SEGMENT_GAP : 0;
-    const centralWidth = Math.max(120, CORE_WIDTH - (showDropbox ? (DROPBOX_SIZE + dropboxGap) : 0));
-
-    const segments = [];
-    if (inputDrawerVisible) segments.push({ key: "left", width: leftDrawerWidth });
-    if (showDropbox) segments.push({ key: "dropbox", width: DROPBOX_SIZE });
-    segments.push({ key: "central", width: centralWidth });
-    if (outputDrawerVisible) segments.push({ key: "right", width: rightDrawerWidth });
-
-    let x = 0;
-    for (let i = 0; i < segments.length; i++) {
-      segments[i].x = x;
-      x += segments[i].width;
-      if (i < segments.length - 1) x += SEGMENT_GAP;
-    }
-    const totalWidth = x;
-
-    const title =
-      opts.titleOverride ||
-      getCardTitle(targetLabel, process, processDef, variantOverride);
-    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
-
-    const headerUi = createWindowHeader({
-      stage: app?.stage,
-      parent: card,
-      width: totalWidth,
-      height: HEADER_HEIGHT,
-      radius: CARD_RADIUS,
-      background: COLORS.headerBg,
-      title,
-      titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
-      paddingX: HEADER_PAD_X,
-      paddingY: HEADER_PAD_Y,
-      pinOffsetX: 40,
-      closeOffsetX: 10,
-      dragTarget: opts.dragTarget,
-      onPinToggle: () => opts.onPinToggle?.(process, target),
-      onClose: () => opts.onClose?.(process, target),
-    });
-    headerUi.setPinned(!!pinned);
-
-    if (isGrowthGroup && growthEntries) {
-      const batchText = new PIXI.Text(`${growthEntries.length} batches`, {
-        fill: COLORS.headerSub,
-        fontSize: 9,
-      });
-      batchText.x = headerUi.titleText.x + headerUi.titleText.width + 6;
-      batchText.y = HEADER_PAD_Y + 1;
-      headerUi.container.addChild(batchText);
-    } else if (count > 1) {
-      const idxText = new PIXI.Text(`${index + 1}/${count}`, {
-        fill: COLORS.headerSub,
-        fontSize: 9,
-      });
-      idxText.x = headerUi.titleText.x + headerUi.titleText.width + 6;
-      idxText.y = HEADER_PAD_Y + 1;
-      headerUi.container.addChild(idxText);
-    }
-
-    const body = new PIXI.Container();
-    body.y = HEADER_HEIGHT + 6;
-    card.addChild(body);
-
-    const bodyHeightTarget = MIN_BODY_CONTENT_HEIGHT;
-
-    const central = new PIXI.Container();
-    central.x = segments.find((s) => s.key === "central").x;
-    central.y = BODY_PAD;
-    body.addChild(central);
-
-    const variant = variantOverride || getProcessVariant(process, processDef);
-    const processSystemId = entry?.systemId || routingSystemId || null;
-    const outputs = Array.isArray(processDef?.transform?.outputs)
-      ? processDef.transform.outputs
-      : [];
-    const reqs = Array.isArray(processDef?.transform?.requirements)
-      ? processDef.transform.requirements
-      : [];
-
-    let outputSelectionControl = null;
-    if (variant === "growing") {
-      const cropId = target?.systemState?.growth?.selectedCropId ?? null;
-      outputSelectionControl = {
-        label: formatCropName(cropId),
-        enabled: true,
-        onOpen: (bounds) => openGrowthSelectionDropdown(target, bounds),
-      };
-    } else if (isRecipeSystem(processSystemId)) {
-      const recipeId = getSelectedRecipeId(target, processSystemId);
-      outputSelectionControl = {
-        label: formatRecipeName(recipeId),
-        enabled: true,
-        onOpen: (bounds) =>
-          openRecipeSelectionDropdown(target, processSystemId, bounds),
-      };
-    }
-
-    const modules = [];
-    if (variant === "growing") {
-      modules.push("progress", "output");
-    } else if (variant === "depositing") {
-      if (canWithdrawFromTarget(target)) modules.push("prestige", "withdraw");
-      else modules.push("prestige", "output");
-    } else if (variant === "building") {
-      modules.push("requirements", "progress");
-    } else if (variant === "cooking" || variant === "crafting") {
-      modules.push("requirements", "progress", "output");
-    } else {
-      modules.push("requirements", "progress", "output");
-    }
-
-    const forceModules =
-      opts.forceModules instanceof Set ? opts.forceModules : null;
-    const filteredModules = modules.filter((id) => {
-      if (forceModules?.has(id)) return true;
-      if (id === "requirements") return reqs.length > 0;
-      if (id === "output") return isGrowthGroup ? true : outputs.length > 0;
-      return true;
-    });
-
-    const moduleCount = filteredModules.length || 1;
-    const moduleWidth = Math.floor((centralWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount);
-
-    let moduleX = 0;
-    let moduleMaxHeight = 0;
-    const moduleViews = [];
-
-    for (const id of filteredModules) {
-      const mod = new PIXI.Container();
-      mod.x = moduleX;
-      mod.y = 0;
-      central.addChild(mod);
-
-      let height = 0;
-      if (id === "progress") {
-        if (isGrowthGroup) {
-          height = buildGrowthProgressModule({
-            container: mod,
-            width: moduleWidth,
-            entries: growthEntries,
-          });
-        } else {
-          const vertical = processDef?.transform?.mode !== "work";
-          height = buildProgressModule({
-            container: mod,
-            width: moduleWidth,
-            process,
-            processDef,
-            vertical,
-          });
-        }
-      } else if (id === "requirements") {
-        height = buildRequirementsModule({
-          container: mod,
-          width: moduleWidth,
-          reqs,
-        });
-      } else if (id === "output") {
-        if (isGrowthGroup) {
-          const pool = target?.systemState?.growth?.maturedPool || null;
-          height = buildGrowthOutputModule({
-            container: mod,
-            width: moduleWidth,
-            pool,
-            selectionControl: outputSelectionControl,
-          });
-        } else {
-          const primaryPool = outputs.find((out) => out?.kind === "pool");
-          let poolSummary = null;
-          if (primaryPool) {
-            const endpointId = resolveLockedOutputEndpoint(
-              process,
-              processDef,
-              primaryPool
-            );
-            if (endpointId) {
-              const poolTarget = resolveEndpointTarget(state, endpointId);
-              poolSummary = formatPoolSummary(poolTarget);
-            }
-          }
-          height = buildOutputModule({
-            container: mod,
-            width: moduleWidth,
-            outputs,
-            poolSummary,
-            selectionControl: outputSelectionControl,
-          });
-        }
-      } else if (id === "prestige") {
-        height = buildPrestigeModule({
-          container: mod,
-          width: moduleWidth,
-          process,
-        });
-      } else if (id === "withdraw") {
-        const depositInfo = getDepositPoolTarget(target);
-        const pool = depositInfo?.pool ?? null;
-        const withdrawState = getWithdrawState(target);
-        height = buildWithdrawModule({
-          container: mod,
-          width: moduleWidth,
-          pool,
-          withdrawState,
-          onOpenItemDropdown: (bounds) =>
-            openWithdrawItemDropdown(target, bounds),
-          onWithdraw: (itemId, qty) => requestPoolWithdraw(target, itemId, qty),
-        });
-      }
-
-      collectModuleView(moduleViews, mod, moduleWidth);
-      moduleMaxHeight = Math.max(moduleMaxHeight, height);
-      moduleX += moduleWidth + MODULE_GAP;
-    }
-
-    central.y = BODY_PAD;
-    central.height = moduleMaxHeight;
-
-    let leftDrawer = null;
-    let rightDrawer = null;
-    const drawerHeightTarget = Math.max(
-      bodyHeightTarget,
-      moduleMaxHeight,
-      showDropbox ? DROPBOX_SIZE + 18 : 0
-    );
-
-    if (inputDrawerVisible) {
-      leftDrawer = buildRoutingDrawer({
-        kind: "inputs",
-        width: leftDrawerWidth,
-        height: drawerHeightTarget,
-        process,
-        processDef,
-        routingProcess,
-        routingProcessDef,
-        routingState,
-        routingMode,
-        targetRef: routingTargetRef,
-        systemId: routingSystemId,
-        drawerKey,
-        target,
-        state,
-        hideDrop: showDropbox,
-      });
-      leftDrawer.container.x = segments.find((s) => s.key === "left").x;
-      leftDrawer.container.y = BODY_PAD;
-      body.addChild(leftDrawer.container);
-    }
-
-    let dropbox = null;
-    if (showDropbox) {
-      dropbox = new PIXI.Container();
-      dropbox.x = segments.find((s) => s.key === "dropbox").x;
-      dropbox.y = BODY_PAD;
-      body.addChild(dropbox);
-    }
-
-    if (outputDrawerVisible) {
-      rightDrawer = buildRoutingDrawer({
-        kind: "outputs",
-        width: rightDrawerWidth,
-        height: drawerHeightTarget,
-        process,
-        processDef,
-        routingProcess,
-        routingProcessDef,
-        routingState,
-        routingMode,
-        targetRef: routingTargetRef,
-        systemId: routingSystemId,
-        drawerKey,
-        target,
-        state,
-        hideDrop: false,
-      });
-      rightDrawer.container.x = segments.find((s) => s.key === "right").x;
-      rightDrawer.container.y = BODY_PAD;
-      body.addChild(rightDrawer.container);
-    }
-
-    const leftHeight = leftDrawer?.container?.height || 0;
-    const rightHeight = rightDrawer?.container?.height || 0;
-    const dropboxHeight = showDropbox ? DROPBOX_SIZE + 18 : 0;
-    const bodyContentHeight = Math.max(
-      moduleMaxHeight,
-      leftHeight,
-      rightHeight,
-      dropboxHeight,
-      bodyHeightTarget
-    );
-    stretchModuleViews(moduleViews, bodyContentHeight);
-    central.height = bodyContentHeight;
-
-    const bodyHeight = bodyContentHeight + BODY_PAD * 2;
-
-    if (leftDrawer) {
-      leftDrawer.setHeight?.(bodyContentHeight);
-    }
-    if (rightDrawer) {
-      rightDrawer.setHeight?.(bodyContentHeight);
-    }
-
-    if (showDropbox && dropbox) {
-      buildDropboxModule({
-        container: dropbox,
-        width: DROPBOX_SIZE,
-        height: bodyContentHeight,
-        process,
-        dropTargets: opts.dropTargets,
-        labelText: "Dropbox",
-        dropEnabled:
-          typeof opts.dropboxInteractive === "boolean"
-            ? opts.dropboxInteractive
-            : true,
-      });
-    }
-
-    central.y = BODY_PAD;
-    const centralBg = new PIXI.Graphics();
-    centralBg.beginFill(0x000000, 0);
-    centralBg.drawRect(0, 0, centralWidth, bodyContentHeight);
-    centralBg.endFill();
-    central.addChildAt(centralBg, 0);
-
-    const totalHeight = HEADER_HEIGHT + 6 + bodyHeight;
-    drawCardBackground(bg, totalWidth, totalHeight);
-
-    return { card, width: totalWidth, height: totalHeight };
-  }
-
   function rebuildWidget(state, target, entries, opts = {}) {
     const content = opts.content;
     const dropTargets = opts.dropTargets;
@@ -3202,16 +1520,7 @@ export function createProcessWidgetView({
   }
 
   function buildGrowthSignature(state, targetKey, target, entries) {
-    const growth = target?.systemState?.growth || {};
-    const cropId = growth.selectedCropId || "";
-    const pool = growth.maturedPool || {};
-    const poolSig = `${
-      pool.bronze ?? 0
-    }:${pool.silver ?? 0}:${pool.gold ?? 0}:${pool.diamond ?? 0}`;
-    const templateSig = buildRoutingTemplateSignature(target, "growth");
-    const candidateSig = buildTemplateCandidateSignature(state, target, "growth");
-    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `growth:${targetKey}:${cropId}:${poolSig}:${templateSig}:${candidateSig}:${baseSig}`;
+    return signatureTools.buildGrowthSignature(state, targetKey, target, entries);
   }
 
   function rebuildGrowthWidget(state, target, entries, opts = {}) {
@@ -3273,10 +1582,7 @@ export function createProcessWidgetView({
   }
 
   function buildBuildSignature(state, targetKey, target, entries) {
-    const templateSig = buildRoutingTemplateSignature(target, "build");
-    const candidateSig = buildTemplateCandidateSignature(state, target, "build");
-    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `build:${targetKey}:${templateSig}:${candidateSig}:${baseSig}`;
+    return signatureTools.buildBuildSignature(state, targetKey, target, entries);
   }
 
   function rebuildBuildWidget(state, target, entries, opts = {}) {
@@ -3331,14 +1637,7 @@ export function createProcessWidgetView({
   }
 
   function buildResidentsSignature(state, targetKey, target, entries) {
-    const population = Math.max(
-      0,
-      Math.floor(state?.resources?.population ?? 0)
-    );
-    const templateSig = buildRoutingTemplateSignature(target, "residents");
-    const candidateSig = buildTemplateCandidateSignature(state, target, "residents");
-    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `residents:${targetKey}:${population}:${templateSig}:${candidateSig}:${baseSig}`;
+    return signatureTools.buildResidentsSignature(state, targetKey, target, entries);
   }
 
   function rebuildResidentsWidget(state, target, entries, opts = {}) {
@@ -3529,219 +1828,29 @@ export function createProcessWidgetView({
     onSelect,
     width,
   }) {
-    selectionDropdown?.show?.({
+    selectionActions.openSelectionDropdown({
       options,
       selectedValue,
-      anchor: anchorBounds,
-      width: Number.isFinite(width) ? width : 210,
+      anchorBounds,
       onSelect,
+      width,
     });
   }
 
   function openGrowthSelectionDropdown(target, anchorBounds) {
-    if (!target) return;
-    const growth = target?.systemState?.growth || {};
-    const selectedId = growth?.selectedCropId ?? null;
-    const envCol = getEnvCol(target);
-    const tileDef = target?.defId ? envTileDefs?.[target.defId] : null;
-    const tileName =
-      tileDef?.name || target?.defId || (Number.isFinite(envCol) ? `Tile ${envCol}` : "Tile");
-    openSelectionDropdown({
-      options: getCropOptions(),
-      selectedValue: selectedId,
-      anchorBounds,
-      width: 196,
-      onSelect: (cropId) => {
-        const nextCrop = cropId ?? null;
-        const cropName =
-          cropId != null ? cropDefs?.[cropId]?.name || cropId : "None";
-        const ghostSpec = {
-          description: `Crop > ${tileName}: ${cropName}`,
-          cost: getTilePlanCost(),
-        };
-        const run = () => {
-          if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
-          if (actionPlanner?.setTileCropSelectionIntent) {
-            const res = actionPlanner.setTileCropSelectionIntent({
-              envCol,
-              cropId: nextCrop,
-            });
-            if (
-              res?.ok === false &&
-              res?.reason === "insufficientAP" &&
-              typeof flashActionGhost === "function"
-            ) {
-              flashActionGhost(ghostSpec, "fail");
-            }
-            return res;
-          }
-          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
-          dispatchAction(
-            ActionKinds.SET_TILE_CROP_SELECTION,
-            { envCol, cropId: nextCrop },
-            { apCost: 10 }
-          );
-          return { ok: true };
-        };
-        if (typeof queueActionWhenPaused === "function") {
-          queueActionWhenPaused(run);
-          return;
-        }
-        run();
-      },
-    });
+    selectionActions.openGrowthSelectionDropdown(target, anchorBounds);
   }
 
   function openRecipeSelectionDropdown(target, systemId, anchorBounds) {
-    if (!target || !isRecipeSystem(systemId)) return;
-    const selectedId = getSelectedRecipeId(target, systemId);
-    const hubCol = getHubCol(target);
-    const def = target?.defId ? hubStructureDefs?.[target.defId] : null;
-    const hubName = def?.name || target?.defId || (Number.isFinite(hubCol) ? `Hub ${hubCol}` : "Hub");
-    openSelectionDropdown({
-      options: getRecipeOptions(systemId),
-      selectedValue: selectedId,
-      anchorBounds,
-      width: 232,
-      onSelect: (recipeId) => {
-        const nextRecipe = recipeId ?? null;
-        const recipeName = recipeId
-          ? recipeDefs?.[recipeId]?.name || recipeId
-          : "None";
-        const ghostSpec = {
-          description: `Recipe > ${hubName}: ${recipeName}`,
-          cost: getHubPlanCost(),
-        };
-        const run = () => {
-          if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
-          const sameSelection = (selectedId ?? null) === (nextRecipe ?? null);
-          if (sameSelection) {
-            if (!dispatchAction) return { ok: false, reason: "noDispatch" };
-            return dispatchAction(
-              ActionKinds.SET_HUB_RECIPE_SELECTION,
-              { hubCol, systemId, recipeId: nextRecipe },
-              { apCost: 0 }
-            );
-          }
-          if (actionPlanner?.setHubRecipeSelectionIntent) {
-            const res = actionPlanner.setHubRecipeSelectionIntent({
-              hubCol,
-              systemId,
-              recipeId: nextRecipe,
-            });
-            if (
-              res?.ok === false &&
-              res?.reason === "insufficientAP" &&
-              typeof flashActionGhost === "function"
-            ) {
-              flashActionGhost(ghostSpec, "fail");
-            }
-            return res;
-          }
-          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
-          dispatchAction(
-            ActionKinds.SET_HUB_RECIPE_SELECTION,
-            { hubCol, systemId, recipeId: nextRecipe },
-            { apCost: getHubPlanCost() }
-          );
-          return { ok: true };
-        };
-        if (typeof queueActionWhenPaused === "function") {
-          queueActionWhenPaused(run);
-          return;
-        }
-        run();
-      },
-    });
+    selectionActions.openRecipeSelectionDropdown(target, systemId, anchorBounds);
   }
 
   function openWithdrawItemDropdown(target, anchorBounds) {
-    const info = getDepositPoolTarget(target);
-    if (!info?.pool || typeof info.pool !== "object") return;
-    const options = getPoolItemOptions(info.pool);
-    const withdrawState = getWithdrawState(target);
-    const selectedId = normalizeWithdrawSelection(withdrawState, options);
-    openSelectionDropdown({
-      options,
-      selectedValue: selectedId,
-      anchorBounds,
-      width: 212,
-      onSelect: (itemId) => {
-        withdrawState.selectedItemId = itemId ?? null;
-        withdrawState.amount = 1;
-        invalidateAllSignatures();
-      },
-    });
+    selectionActions.openWithdrawItemDropdown(target, anchorBounds);
   }
 
   function requestPoolWithdraw(target, itemId, amount) {
-    if (!target || !itemId) return;
-    queueActionWhenPaused?.(() => {
-      if (target?.refKind === "basket") {
-        const result = dispatchAction?.(
-          ActionKinds.WITHDRAW_PAWN_BASKET_POOL_ITEM,
-          {
-            ownerId: target?.ownerId ?? null,
-            itemId,
-            amount,
-            slotId: target?.basketSlotId ?? null,
-          },
-          { apCost: 0 }
-        );
-        if (!result?.ok) {
-          if (target?.ownerId != null) {
-            inventoryView?.flashWindowError?.(target.ownerId);
-          }
-          return result;
-        }
-        const ownerId = result.ownerId ?? target?.ownerId ?? null;
-        if (ownerId != null) {
-          inventoryView?.revealWindow?.(ownerId, { pinned: true });
-          inventoryView?.rebuildWindow?.(ownerId);
-        }
-        if (
-          ownerId != null &&
-          result.spawnItemId != null &&
-          typeof inventoryView?.beginDragItemFromOwner === "function"
-        ) {
-          inventoryView.beginDragItemFromOwner(ownerId, result.spawnItemId, {
-            pinned: true,
-          });
-        }
-        return result;
-      }
-
-      const hubCol = getHubCol(target);
-      if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
-      const result = dispatchAction?.(
-        ActionKinds.WITHDRAW_HUB_POOL_ITEM,
-        {
-          hubCol,
-          itemId,
-          amount,
-        },
-        { apCost: 0 }
-      );
-      if (!result?.ok) {
-        inventoryView?.flashWindowError?.(target.instanceId);
-        return result;
-      }
-      const ownerId = result.ownerId ?? target.instanceId;
-      if (ownerId != null) {
-        inventoryView?.revealWindow?.(ownerId, { pinned: true });
-        inventoryView?.rebuildWindow?.(ownerId);
-      }
-      if (
-        ownerId != null &&
-        result.spawnItemId != null &&
-        typeof inventoryView?.beginDragItemFromOwner === "function"
-      ) {
-        inventoryView.beginDragItemFromOwner(ownerId, result.spawnItemId, {
-          pinned: true,
-        });
-      }
-      return result;
-    });
+    selectionActions.requestPoolWithdraw(target, itemId, amount);
   }
 
   function buildPoolSignature(pool) {
@@ -3946,9 +2055,13 @@ export function createProcessWidgetView({
   function buildDepositSignature(state, targetKey, target, entries) {
     const depositInfo = getDepositPoolTarget(target);
     const poolSig = buildPoolSignature(depositInfo?.pool);
-    const templateSig = buildRoutingTemplateSignature(target, "deposit");
-    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `deposit:${targetKey}:${poolSig}:${templateSig}:${baseSig}`;
+    return signatureTools.buildDepositSignature(
+      state,
+      targetKey,
+      target,
+      entries,
+      poolSig
+    );
   }
 
   function buildBasketCard(state, target, opts = {}) {
@@ -4071,7 +2184,7 @@ export function createProcessWidgetView({
     const depositInfo = getDepositPoolTarget(target);
     const poolSig = buildPoolSignature(depositInfo?.pool);
     const itemSig = target?.basketItemId != null ? String(target.basketItemId) : "none";
-    return `basket:${targetKey}:${itemSig}:${poolSig}`;
+    return signatureTools.buildBasketSignature(targetKey, itemSig, poolSig);
   }
 
   function getSelectedRecipeId(target, systemId) {
@@ -4209,10 +2322,14 @@ export function createProcessWidgetView({
 
   function buildRecipeSystemSignature(state, targetKey, target, entries, systemId) {
     const recipeId = getSelectedRecipeId(target, systemId) || "none";
-    const templateSig = buildRoutingTemplateSignature(target, systemId);
-    const candidateSig = buildTemplateCandidateSignature(state, target, systemId);
-    const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `recipe:${systemId}:${targetKey}:${recipeId}:${templateSig}:${candidateSig}:${baseSig}`;
+    return signatureTools.buildRecipeSystemSignature(
+      state,
+      targetKey,
+      target,
+      entries,
+      systemId,
+      recipeId
+    );
   }
 
   function collectProcessEntries(state, target, systemIdFilter) {
@@ -4751,3 +2868,7 @@ export function createProcessWidgetView({
     showBasketWidgetForOwner,
   };
 }
+
+
+
+
