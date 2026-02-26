@@ -12,9 +12,9 @@ export const MUCHA_UI_COLORS = Object.freeze({
   surfaces: Object.freeze({
     panelDeep: 0x2f2a1e,
     panel: 0x362b17,
-    panelRaised: 0x482d18,
+    panelRaised: 0x5d4523,
     panelSoft: 0xcc7d32,
-    header: 0x3e4323,
+    header: 0x5f7348,
     border: 0x8b7856,
     borderSoft: 0x6f6248,
   }),

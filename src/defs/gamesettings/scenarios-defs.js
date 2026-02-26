@@ -82,7 +82,7 @@ export const setupDefs = {
     pawns: [
       { name: "Pawn 1", 
         color: 0xff9999, 
-        hubCol: 4, 
+        hubCol: 3, 
         role: "leader", 
         skillPoints: 3,
         unlockedSkillNodeIds: ["Memory","Astronomy", "Crafting", "RitualShrine", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]

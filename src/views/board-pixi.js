@@ -125,6 +125,7 @@ export function createBoardView(opts) {
   const AP_OVERLAY_STROKE = 0xff4f5e;
   const PAWN_LANDING_OVERLAY_FILL = 0x2d7daa;
   const PAWN_LANDING_OVERLAY_STROKE = 0xd5f3ff;
+  const OCCUPANT_HOVER_GRACE_SEC = 0.16;
   const DISTRIBUTOR_RANGE_OVERLAY_FILL = 0x2d6b95;
   const DISTRIBUTOR_RANGE_OVERLAY_STROKE = 0x84cbff;
   const DISTRIBUTOR_BASE_RANGE = 1;
@@ -1583,6 +1584,20 @@ export function createBoardView(opts) {
     );
   }
 
+  function isPointerInsideAnchor(anchor, globalPos, pad = 0) {
+    if (!anchor || !globalPos) return false;
+    const minX = anchor.x - pad;
+    const minY = anchor.y - pad;
+    const maxX = anchor.x + anchor.width + pad;
+    const maxY = anchor.y + anchor.height + pad;
+    return (
+      globalPos.x >= minX &&
+      globalPos.x <= maxX &&
+      globalPos.y >= minY &&
+      globalPos.y <= maxY
+    );
+  }
+
   function clearTileHover(view) {
     if (!view) return;
     if (view.hoverHoldMove) {
@@ -1591,6 +1606,7 @@ export function createBoardView(opts) {
     }
     view.holdHover = false;
     view.holdHoverForOccupant = false;
+    view.occupantHoverHoldSec = 0;
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
     view.isHovered = false;
@@ -1621,7 +1637,9 @@ export function createBoardView(opts) {
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
     view.holdHoverForOccupant = false;
+    view.occupantHoverHoldSec = 0;
     view.isHovered = false;
+    view.hoverAnchor = null;
     clearHoverContext();
     tooltipView?.hide?.();
     if (inventoryView && view.structureHasInventory?.()) {
@@ -1696,6 +1714,7 @@ export function createBoardView(opts) {
   function holdHoverForOccupantIfNeeded(view) {
     if (!view?.pawnCount || view.pawnCount <= 0) return false;
     view.holdHoverForOccupant = true;
+    view.occupantHoverHoldSec = OCCUPANT_HOVER_GRACE_SEC;
     return true;
   }
 
@@ -1869,6 +1888,7 @@ export function createBoardView(opts) {
       ? Math.floor(view.col)
       : 0;
     view.isHovered = true;
+    view.hoverAnchor = anchor;
     setHoverContext("hub", anchorCol, span, anchor);
 
     tooltipView?.show?.(
@@ -3015,6 +3035,7 @@ export function createBoardView(opts) {
         holdHover: false,
         hoverHoldMove: null,
         holdHoverForOccupant: false,
+        occupantHoverHoldSec: 0,
       contentPaint,
       pawnBadge,
       pawnText,
@@ -3688,6 +3709,8 @@ export function createBoardView(opts) {
       ignoreNextTagTap: false,
       tagDrag: null,
       holdHoverForOccupant: false,
+      occupantHoverHoldSec: 0,
+      hoverAnchor: null,
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
@@ -4424,12 +4447,23 @@ export function createBoardView(opts) {
     if (activeHover?.view?.holdHoverForOccupant) {
       const view = activeHover.view;
       const kind = activeHover.kind;
+      if (Number.isFinite(view.occupantHoverHoldSec) && view.occupantHoverHoldSec > 0) {
+        const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+        view.occupantHoverHoldSec = Math.max(0, view.occupantHoverHoldSec - step);
+      }
       const hoverMatches = isPawnHoveringForView(view, kind);
       if (!hoverMatches) {
-        const pos = lastPointerPos;
-        if (!pos || !isPointerInsideView(view, pos, TAG_DRAG_RELEASE_PAD)) {
-          view.holdHoverForOccupant = false;
-          clearActiveHover(view);
+        if ((view.occupantHoverHoldSec ?? 0) <= 0) {
+          const pos = lastPointerPos;
+          const insideHoldBounds =
+            pos &&
+            (isPointerInsideAnchor(view.hoverAnchor, pos, TAG_DRAG_RELEASE_PAD) ||
+              isPointerInsideView(view, pos, TAG_DRAG_RELEASE_PAD));
+          if (!insideHoldBounds) {
+            view.holdHoverForOccupant = false;
+            view.occupantHoverHoldSec = 0;
+            clearActiveHover(view);
+          }
         }
       }
     }
