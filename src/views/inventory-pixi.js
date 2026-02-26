@@ -87,14 +87,14 @@ const EQUIP_SLOT_STROKE = MUCHA_UI_COLORS.surfaces.borderSoft;
 const EQUIP_SLOT_STROKE_ACTIVE = MUCHA_UI_COLORS.accents.gold;
 const LEADER_PANEL_HEIGHT = 86;
 const LEADER_PANEL_PADDING = 6;
-const LEADER_SYSTEMS_ROW_HEIGHT = 18;
-const LEADER_SYSTEMS_ROW_GAP = 4;
-const LEADER_SYSTEMS_ICON_SIZE = 12;
-const LEADER_SYSTEMS_BAR_HEIGHT = 8;
+const LEADER_SYSTEMS_ROW_HEIGHT = 34;
+const LEADER_SYSTEMS_ROW_GAP = 6;
+const LEADER_SYSTEMS_ICON_SIZE = 22;
+const LEADER_SYSTEMS_BAR_HEIGHT = 16;
 const LEADER_SYSTEMS_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
 const LEADER_SYSTEMS_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const LEADER_SYSTEMS_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
-const LEADER_SYSTEMS_BAR_RADIUS = 4;
+const LEADER_SYSTEMS_BAR_RADIUS = 7;
 const LEADER_SYSTEMS_ICON_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const LEADER_SYSTEMS_FALLBACK_COLOR = MUCHA_UI_COLORS.surfaces.border;
 const LEADER_FAITH_SYSTEM_ID = "leaderFaith";
@@ -1018,15 +1018,16 @@ export function createInventoryView({
 
     const iconText = new PIXI.Text(ui.icon, {
       fill: 0xffffff,
-      fontSize: 8,
+      fontSize: 13,
       fontWeight: "bold",
     });
+    applyTextResolution(iconText, Math.max(1, uiScale * 1.5));
     iconText.anchor.set(0.5, 0.5);
     iconText.x = LEADER_SYSTEMS_ICON_SIZE / 2;
     iconText.y = LEADER_SYSTEMS_ROW_HEIGHT / 2;
     icon.addChild(iconText);
 
-    const barX = LEADER_SYSTEMS_ICON_SIZE + 6;
+    const barX = LEADER_SYSTEMS_ICON_SIZE + 8;
     const barY = Math.floor((LEADER_SYSTEMS_ROW_HEIGHT - LEADER_SYSTEMS_BAR_HEIGHT) / 2);
     const barWidth = Math.max(12, contentWidth - barX - 2);
 
@@ -1046,10 +1047,12 @@ export function createInventoryView({
 
     const labelText = new PIXI.Text("", {
       fill: LEADER_SYSTEMS_BAR_TEXT,
-      fontSize: 9,
+      fontSize: 11,
     });
+    applyTextResolution(labelText, uiScale);
+    labelText.anchor.set(0, 0.5);
     labelText.x = barX + 4;
-    labelText.y = barY - 2;
+    labelText.y = barY + LEADER_SYSTEMS_BAR_HEIGHT / 2;
     container.addChild(labelText);
 
     return {

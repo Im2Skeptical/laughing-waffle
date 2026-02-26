@@ -11,6 +11,7 @@ import { TIER_ASC } from "../../model/effects/core/tiers.js";
 import { hasHubTagUnlock } from "../../model/skills.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
+import { applyTextResolution } from "../ui-helpers/text-resolution.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -424,6 +425,7 @@ export function createHubTagUi(opts) {
       fontSize: 8,
       fontWeight: "bold",
     });
+    applyTextResolution(iconText, 1.5);
     iconText.anchor.set(0.5, 0.5);
     iconText.x = SYSTEM_ICON_SIZE / 2;
     iconText.y = SYSTEM_ROW_HEIGHT / 2;
@@ -476,6 +478,7 @@ export function createHubTagUi(opts) {
       barWidth,
       barY,
       labelText,
+      iconText,
       uiColor: ui.color,
       buildKind: opts?.kind ?? null,
       buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
@@ -929,6 +932,7 @@ export function createHubTagUi(opts) {
         if (entry?.expandText) view.hoverTextNodes.push(entry.expandText);
         for (const row of entry?.systemRows || []) {
           if (row?.labelText) view.hoverTextNodes.push(row.labelText);
+          if (row?.iconText) view.hoverTextNodes.push(row.iconText);
         }
       }
       setTextResolution?.(

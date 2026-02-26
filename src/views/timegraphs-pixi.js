@@ -15,6 +15,7 @@ import {
 } from "./layout-pixi.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
+import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 
 const HISTORY_ZONE_KIND_ORDER = {
   fixedHistory: 0,
@@ -180,7 +181,7 @@ export function createMetricGraphView({
   layer.addChild(root);
 
   const WIN_W = 1200;
-  const WIN_H = 150;
+  const WIN_H = 176;
   const HEADER_H = 38;
 
   const body = new PIXI.Graphics();
@@ -195,11 +196,11 @@ export function createMetricGraphView({
 
   root.addChild(body, legendContainer, plotG, scrubG);
 
-  const LEGEND_GUTTER_W = 34;
+  const LEGEND_GUTTER_W = 46;
   const LEGEND_GUTTER_GAP = 4;
-  const LEGEND_ICON_SIZE = 14;
+  const LEGEND_ICON_SIZE = 22;
   const LEGEND_ICON_GAP = 6;
-  const LEGEND_ICON_TEXT_SIZE = 8;
+  const LEGEND_ICON_TEXT_SIZE = 11;
 
   const plot = {
     x: 16 + LEGEND_GUTTER_W + LEGEND_GUTTER_GAP,
@@ -568,6 +569,7 @@ export function createMetricGraphView({
           fontSize: LEGEND_ICON_TEXT_SIZE,
           fontWeight: "bold",
         });
+        applyTextResolution(iconText, 1.5);
         iconText.anchor.set(0.5);
         iconText.x = LEGEND_ICON_SIZE / 2;
         iconText.y = LEGEND_ICON_SIZE / 2;

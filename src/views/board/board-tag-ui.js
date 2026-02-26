@@ -14,6 +14,7 @@ import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
+import { applyTextResolution } from "../ui-helpers/text-resolution.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -569,6 +570,7 @@ export function createTagUi(opts) {
       fontSize: 8,
       fontWeight: "bold",
     });
+    applyTextResolution(iconText, 1.5);
     iconText.anchor.set(0.5, 0.5);
     iconText.x = SYSTEM_ICON_SIZE / 2;
     iconText.y = SYSTEM_ROW_HEIGHT / 2;
@@ -636,6 +638,7 @@ export function createTagUi(opts) {
       barWidth,
       barY,
       labelText,
+      iconText,
       uiColor: ui.color,
       lastCropId: null,
       lastMaturedMax: 0,
@@ -1179,6 +1182,7 @@ export function createTagUi(opts) {
         if (entry?.expandText) view.hoverTextNodes.push(entry.expandText);
         for (const row of entry?.systemRows || []) {
           if (row?.labelText) view.hoverTextNodes.push(row.labelText);
+          if (row?.iconText) view.hoverTextNodes.push(row.iconText);
         }
       }
       setTextResolution(
