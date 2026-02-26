@@ -1069,18 +1069,27 @@ export function stepEnvSecond(state, tSec) {
           ) {
             continue;
           }
+          let resolvedIntentCost = null;
+          let intentContext = null;
           if (intent.cost) {
-            const intentContext = {
+            intentContext = {
               ...pawnContext,
               intentId: intent.id ?? null,
             };
             const resolved = resolveCosts(intent.cost, intentContext);
             if (!resolved) continue;
             if (!canAffordCosts(resolved, intentContext)) continue;
-            applyCosts(resolved, intentContext);
+            resolvedIntentCost = resolved;
           }
+          let effectSucceeded = true;
           if (intent.effect) {
-            runEffect(state, intent.effect, { ...pawnContext });
+            effectSucceeded = runEffect(state, intent.effect, { ...pawnContext });
+          }
+          if (!effectSucceeded) {
+            continue;
+          }
+          if (resolvedIntentCost && intentContext) {
+            applyCosts(resolvedIntentCost, intentContext);
           }
           executed = true;
           break;

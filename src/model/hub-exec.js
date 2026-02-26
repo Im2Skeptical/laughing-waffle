@@ -1387,18 +1387,27 @@ export function stepHubSecond(state, tSec) {
           if (!canExecuteIntentEffect(state, structure, resolvedEffect)) {
             continue;
           }
+          let resolvedIntentCost = null;
+          let intentContext = null;
           if (intent.cost) {
-            const intentContext = {
+            intentContext = {
               ...pawnContext,
               intentId: intent.id ?? null,
             };
             const resolved = resolveCosts(intent.cost, intentContext);
             if (!resolved) continue;
             if (!canAffordCosts(resolved, intentContext)) continue;
-            applyCosts(resolved, intentContext);
+            resolvedIntentCost = resolved;
           }
+          let effectSucceeded = true;
           if (resolvedEffect) {
-            runEffect(state, resolvedEffect, { ...pawnContext });
+            effectSucceeded = runEffect(state, resolvedEffect, { ...pawnContext });
+          }
+          if (!effectSucceeded) {
+            continue;
+          }
+          if (resolvedIntentCost && intentContext) {
+            applyCosts(resolvedIntentCost, intentContext);
           }
           executed = true;
           break;

@@ -73,7 +73,7 @@ export const setupDefs = {
         { defId: "itemzoo", hubCol: 0 },
         { defId: "mudHouses", hubCol: 3 },
         { defId: "hearth", hubCol: 5 },
-        { defId: "granary", hubCol: 6 },
+        { defId: "storehouse", hubCol: 6 },
 
       ],
     },

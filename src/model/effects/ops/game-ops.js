@@ -17,6 +17,7 @@ import { TIER_ASC, TIER_DESC, getTierRank } from "../core/tiers.js";
 import { resolveOwnerTargets } from "../core/targets-owner.js";
 import { pushGameEvent } from "../../event-feed.js";
 import { rememberDroppedItemKind } from "../../persistent-memory.js";
+import { findEquippedPoolProviderEntry } from "../../item-def-rules.js";
 
 export function handleAddResource(state, effect) {
   const key = effect.resource;
@@ -456,32 +457,73 @@ function sortItemsForConsumption(items, order) {
 function consumeFromInventory(state, ownerId, kind, amount, tierOrder) {
   if (!Number.isFinite(amount) || amount <= 0) return 0;
   const inv = state?.ownerInventories?.[ownerId];
-  if (!inv || !Array.isArray(inv.items)) return 0;
-
-  const candidates = inv.items.filter(
-    (it) => it && it.kind === kind && Math.floor(it.quantity ?? 0) > 0
-  );
-  if (!candidates.length) return 0;
-
-  sortItemsForConsumption(candidates, tierOrder);
+  const orderedTiers = Array.isArray(tierOrder) && tierOrder.length > 0
+    ? tierOrder.filter((tier) => TIER_ASC.includes(tier))
+    : TIER_ASC.slice();
+  if (!orderedTiers.length) orderedTiers.push(...TIER_ASC);
 
   let remaining = Math.floor(amount);
   let consumed = 0;
 
-  for (const item of candidates) {
-    if (remaining <= 0) break;
-    const qty = Math.floor(item.quantity ?? 0);
-    if (qty <= 0) continue;
-    const take = Math.min(qty, remaining);
-    item.quantity = qty - take;
-    consumed += take;
-    remaining -= take;
-    if (item.quantity <= 0) {
-      Inventory.removeItem(inv, item.id);
+  if (inv && Array.isArray(inv.items)) {
+    const candidates = inv.items.filter(
+      (it) => it && it.kind === kind && Math.floor(it.quantity ?? 0) > 0
+    );
+    if (candidates.length) {
+      sortItemsForConsumption(candidates, orderedTiers);
+
+      for (const item of candidates) {
+        if (remaining <= 0) break;
+        const qty = Math.floor(item.quantity ?? 0);
+        if (qty <= 0) continue;
+        const take = Math.min(qty, remaining);
+        item.quantity = qty - take;
+        consumed += take;
+        remaining -= take;
+        if (item.quantity <= 0) {
+          Inventory.removeItem(inv, item.id);
+        }
+      }
+
+      if (consumed > 0) bumpInvVersion(inv);
     }
   }
 
-  if (consumed > 0) bumpInvVersion(inv);
+  if (remaining <= 0) return consumed;
+
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  const owner = pawns.find((pawn) => pawn && String(pawn.id) === String(ownerId)) || null;
+  if (!owner) return consumed;
+
+  const provider = findEquippedPoolProviderEntry(owner, "storage", "byKindTier");
+  const storage = provider?.item?.systemState?.storage;
+  const pool = storage?.byKindTier;
+  if (!pool || typeof pool !== "object") return consumed;
+  const bucket = pool[kind];
+  if (!bucket || typeof bucket !== "object") return consumed;
+
+  for (const tier of orderedTiers) {
+    if (remaining <= 0) break;
+    const available = Math.max(0, Math.floor(bucket[tier] ?? 0));
+    if (available <= 0) continue;
+    const take = Math.min(available, remaining);
+    bucket[tier] = available - take;
+    if (storage?.totalByTier && typeof storage.totalByTier === "object") {
+      const total = Math.max(0, Math.floor(storage.totalByTier[tier] ?? 0));
+      storage.totalByTier[tier] = Math.max(0, total - take);
+    }
+    consumed += take;
+    remaining -= take;
+  }
+
+  const bucketEmpty = TIER_ASC.every((tier) => Math.max(0, Math.floor(bucket[tier] ?? 0)) <= 0);
+  if (bucketEmpty) delete pool[kind];
+
+  if (consumed > 0 && inv && Array.isArray(inv.items)) {
+    // Basket storage lives on equipped items; bump inventory version so owner-facing UI refreshes.
+    bumpInvVersion(inv);
+  }
+
   return consumed;
 }
 
