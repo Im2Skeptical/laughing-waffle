@@ -17,6 +17,7 @@ export const setupDefs = {
     // - openSkillTreeEditor: false | true | { treeId: "..." }
 
     devUi: {
+      openInventories: [{ type: "leaderPawn", pawnIndex: 1 }],
       //openInventories: [{ type: "hubStructure", hubCol: 0 }],
       //openSkillTree: true,
     },
