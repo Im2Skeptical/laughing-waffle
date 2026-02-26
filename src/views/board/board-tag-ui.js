@@ -12,6 +12,7 @@ import {
 } from "../../model/skills.js";
 import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
+import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -499,18 +500,18 @@ export function createTagUi(opts) {
     return lines;
   }
 
-  function showTooltipForTag(tileInst, tagId, bounds) {
+  function showTooltipForTag(tileInst, tagId, bounds, scale = 1) {
     if (!tooltipView || !interaction?.canShowHoverUI?.()) return;
     const label = getTagLabel(tagId);
     const lines = buildTagTooltipLines(tileInst, tagId);
-    tooltipView.show({ title: label, lines }, bounds);
+    tooltipView.show({ title: label, lines, scale }, bounds);
   }
 
-  function showTooltipForSystem(tileInst, systemId, bounds) {
+  function showTooltipForSystem(tileInst, systemId, bounds, scale = 1) {
     if (!tooltipView || !interaction?.canShowHoverUI?.()) return;
     const label = getSystemUi(systemId).label;
     const lines = buildSystemTooltipLines(tileInst, systemId);
-    tooltipView.show({ title: label, lines }, bounds);
+    tooltipView.show({ title: label, lines, scale }, bounds);
   }
 
   function flashSystemRow(row) {
@@ -605,7 +606,12 @@ export function createTagUi(opts) {
 
     icon.on("pointerover", () => {
       onSystemIconHover?.(view, systemId);
-      showTooltipForSystem(view.tile, systemId, icon.getBounds());
+      showTooltipForSystem(
+        view.tile,
+        systemId,
+        icon.getBounds(),
+        getDisplayObjectWorldScale(icon, 1)
+      );
     });
     icon.on("pointerout", () => {
       onSystemIconOut?.(view, systemId);
@@ -773,7 +779,12 @@ export function createTagUi(opts) {
     });
 
     row.on("pointerover", () => {
-      showTooltipForTag(view.tile, tagId, row.getBounds());
+      showTooltipForTag(
+        view.tile,
+        tagId,
+        row.getBounds(),
+        getDisplayObjectWorldScale(row, 1)
+      );
     });
     row.on("pointerout", () => {
       tooltipView?.hide?.();

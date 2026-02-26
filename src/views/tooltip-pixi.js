@@ -3,6 +3,7 @@ import {
   VIEWPORT_DESIGN_WIDTH,
   VIEW_LAYOUT,
 } from "./layout-pixi.js";
+import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 
 export function createTooltipView({ layer, interaction, app, layout = null }) {
   const container = new PIXI.Container();
@@ -66,6 +67,7 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
       wordWrap: true,
       wordWrapWidth: maxWidth,
     });
+    applyTextResolution(titleText, scale);
     titleText.x = padding;
     titleText.y = padding;
     container.addChild(titleText);
@@ -80,6 +82,7 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
         wordWrap: true,
         wordWrapWidth: maxWidth,
       });
+      applyTextResolution(lt, scale);
       lt.x = padding;
       lt.y = cy;
       container.addChild(lt);

@@ -30,6 +30,7 @@ import {
 } from "../model/skills.js";
 import { getScrollTimegraphStateFromItem } from "../model/timegraph/edit-policy.js";
 import {
+  GAMEPIECE_HOVER_SCALE,
   HUB_COLS,
   HUB_COL_GAP,
   HUB_STRUCTURE_WIDTH,
@@ -41,6 +42,8 @@ import {
   getHubColumnCenterX,
 } from "./layout-pixi.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
+import { applyTextResolution } from "./ui-helpers/text-resolution.js";
+import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 
 
 
@@ -50,7 +53,7 @@ const INNER_PADDING = 8;
 const DEFAULT_COLS = 5;
 const DEFAULT_ROWS = 3;
 const DEFAULT_CELL_SIZE = 40;
-const BIN_CELL_SIZE = 2;
+const BIN_CELL_SIZE = 1;
 const BIN_PAD = 6;
 const ITEM_TIER_BORDER_WIDTH = 2;
 const ITEM_TIER_BORDER_COLORS = {
@@ -135,6 +138,15 @@ const ITEM_TAP_MAX_DRAG_TOUCH_PX = 20;
 const CONSUME_PROMPT_HOLD_SEC = 0.9;
 const CONSUME_PROMPT_FADE_SEC = 0.45;
 const CONSUME_PROMPT_TEXT = "Consume?";
+const INVENTORY_TOOLTIP_MIN_SCALE = Number.isFinite(GAMEPIECE_HOVER_SCALE)
+  ? Math.max(1, GAMEPIECE_HOVER_SCALE)
+  : 2;
+
+function getInventoryTooltipScale(uiScale = null, displayObject = null) {
+  const windowScale = Number.isFinite(uiScale) ? Math.max(1, uiScale) : 1;
+  const worldScale = getDisplayObjectWorldScale(displayObject, 1);
+  return Math.max(INVENTORY_TOOLTIP_MIN_SCALE, windowScale, worldScale);
+}
 
 function getItemTierBorderColor(item, def) {
   const tier = item?.tier ?? def?.defaultTier ?? null;
@@ -950,7 +962,7 @@ export function createInventoryView({
     return lines;
   }
 
-  function createLeaderSystemsRow(contentWidth, ownerId, systemId) {
+  function createLeaderSystemsRow(contentWidth, ownerId, systemId, uiScale = 1) {
     const ui = getLeaderSystemUi(systemId);
     const container = new PIXI.Container();
     container.eventMode = "passive";
@@ -969,6 +981,7 @@ export function createInventoryView({
         {
           title: ui.label,
           lines: buildLeaderSystemTooltipLines(leader, systemId),
+          scale: getInventoryTooltipScale(uiScale, icon),
         },
         icon.getBounds()
       );
@@ -1095,7 +1108,12 @@ export function createInventoryView({
     const systemIds = getLeaderSystemIds(leader);
     let y = 0;
     for (const systemId of systemIds) {
-      const row = createLeaderSystemsRow(contentWidth, win.ownerId, systemId);
+      const row = createLeaderSystemsRow(
+        contentWidth,
+        win.ownerId,
+        systemId,
+        win.uiScale
+      );
       row.container.y = y;
       panel.systemsRowsContainer.addChild(row.container);
       panel.systemRows.push(row);
@@ -1899,7 +1917,7 @@ export function createInventoryView({
       paddingX: 8,
       paddingY: 4,
       pinOffsetX: 40,
-      closeOffsetX: 20,
+      closeOffsetX: 10,
       hitAreaTopPadding: 32,
       dragTarget: c,
       canDrag: () => !uiBlocked,
@@ -2426,6 +2444,9 @@ export function createInventoryView({
 
     const win = ensureWindow(ownerId);
     const scaleChanged = applyWindowScale(win);
+    if (scaleChanged) {
+      rebuildWindow(ownerId);
+    }
     win.hovered = true;
 
     if (!win.pinned && anchor) {
@@ -2754,7 +2775,13 @@ export function createInventoryView({
         if (dragItem.active) return;
         if (!tooltipView) return;
         const bounds = c.getBounds();
-        tooltipView.show(makeItemTooltipSpec(item, ownerId), bounds);
+        tooltipView.show(
+          {
+            ...makeItemTooltipSpec(item, ownerId),
+            scale: getInventoryTooltipScale(win?.uiScale, c),
+          },
+          bounds
+        );
       });
 
       c.on("pointerout", () => {
@@ -2766,6 +2793,7 @@ export function createInventoryView({
     const def = itemDefs[item.kind];
     const color = def?.color ?? 0x999999;
     const borderColor = getItemTierBorderColor(item, def);
+    const textScale = Number.isFinite(win?.uiScale) ? win.uiScale : 1;
 
     const box = new PIXI.Graphics();
     box.beginFill(color);
@@ -2802,6 +2830,7 @@ export function createInventoryView({
         fontSize: 16,
         fontWeight: "bold",
       });
+      applyTextResolution(glyph, textScale);
       glyph.anchor.set(0.5);
       glyph.x = (item.width * cellSize - 2) / 2;
       glyph.y = (item.height * cellSize - 2) / 2;
@@ -2814,6 +2843,7 @@ export function createInventoryView({
         fontSize: 16,
         fontWeight: "bold",
       });
+      applyTextResolution(glyphShadow, textScale);
       glyphShadow.anchor.set(0.5);
       glyphShadow.x = glyph.x + 1;
       glyphShadow.y = glyph.y + 1;
@@ -2828,6 +2858,7 @@ export function createInventoryView({
         fill: 0xffffff,
         fontSize: 14,
       });
+      applyTextResolution(t, textScale);
       t.x = item.width * cellSize - t.width - 6;
       t.y = item.height * cellSize - t.height - 4;
       c.addChild(t);
@@ -4657,6 +4688,7 @@ export function createInventoryView({
     for (const [ownerId, win] of windows.entries()) {
       const scaleChanged = applyWindowScale(win);
       if (scaleChanged) {
+        rebuildWindow(ownerId);
         const displaySize = getWindowDisplaySize(win);
         const { width: screenWidth, height: screenHeight } = getScreenSize();
         win.container.x = Math.max(

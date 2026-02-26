@@ -30,6 +30,7 @@ import {
   GAMEPIECE_SHADOW_OFFSET_Y,
 } from "./layout-pixi.js";
 import { bindTouchLongPress } from "./ui-helpers/touch-long-press.js";
+import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
@@ -219,6 +220,7 @@ export function createPawnsView(opts) {
   function applyPawnScale(view) {
     const scale = getEffectiveScale(view);
     view.container.scale.set(scale);
+    applyTextResolution(view.label, scale);
     view.shadow.visible = scale > 1 && GAMEPIECE_SHADOW_ALPHA > 0;
     view.container.zIndex = scale > 1 ? 20 : 0;
     if (scale > 1) {
@@ -754,6 +756,7 @@ export function createPawnsView(opts) {
       fontSize: 16,
       fontWeight: "bold",
     });
+    applyTextResolution(label, 1);
     label.anchor.set(0.5);
     inkLayer.addChild(label);
 

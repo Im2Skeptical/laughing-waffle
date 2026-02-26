@@ -9,6 +9,7 @@ import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import { TIER_ASC } from "../../model/effects/core/tiers.js";
 import { hasHubTagUnlock } from "../../model/skills.js";
+import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -228,7 +229,7 @@ export function createHubTagUi(opts) {
     return maxTotal;
   }
 
-  function showStorageTooltip(structure, row, bounds) {
+  function showStorageTooltip(structure, row, bounds, scale = 1) {
     if (!tooltipView) return;
     const info = getDepositPoolInfo(structure);
     const pool = info?.pool;
@@ -243,7 +244,7 @@ export function createHubTagUi(opts) {
       `Gold: ${totals.byTier.gold}`,
       `Diamond: ${totals.byTier.diamond}`,
     ];
-    tooltipView.show({ title, lines }, bounds);
+    tooltipView.show({ title, lines, scale }, bounds);
   }
 
   function getBuildProcess(structure) {
@@ -485,7 +486,12 @@ export function createHubTagUi(opts) {
     icon.on("pointerover", () => {
       onSystemIconHover?.(view, row.processSystemId || systemId);
       if (systemId === "storage") {
-        showStorageTooltip(view.structure, row, icon.getBounds());
+        showStorageTooltip(
+          view.structure,
+          row,
+          icon.getBounds(),
+          getDisplayObjectWorldScale(icon, 1)
+        );
       }
     });
     icon.on("pointerout", () => {
@@ -663,7 +669,14 @@ export function createHubTagUi(opts) {
     row.on("pointerover", () => {
       const lines = getTagTooltipLines(tagId);
       if (lines.length && tooltipView) {
-        tooltipView.show({ title: getTagLabel(tagId), lines }, row.getBounds());
+        tooltipView.show(
+          {
+            title: getTagLabel(tagId),
+            lines,
+            scale: getDisplayObjectWorldScale(row, 1),
+          },
+          row.getBounds()
+        );
       }
     });
     row.on("pointerout", () => {
