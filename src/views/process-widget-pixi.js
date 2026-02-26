@@ -2220,7 +2220,7 @@ export function createProcessWidgetView({
       paddingX: HEADER_PAD_X,
       paddingY: HEADER_PAD_Y,
       pinOffsetX: 40,
-      closeOffsetX: 20,
+      closeOffsetX: 10,
       dragTarget: opts.dragTarget,
       onPinToggle: () => opts.onPinToggle?.(process, target),
       onClose: () => opts.onClose?.(process, target),
