@@ -14,6 +14,7 @@ import {
   TIME_STATE_GRAPH_BG_ALPHA,
 } from "./layout-pixi.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { createWindowHeader } from "./ui-helpers/window-header.js";
 
 const HISTORY_ZONE_KIND_ORDER = {
   fixedHistory: 0,
@@ -26,9 +27,8 @@ const TIMEGRAPH_THEME = Object.freeze({
   panelBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
   textPrimary: MUCHA_UI_COLORS.ink.primary,
   textMuted: MUCHA_UI_COLORS.ink.secondary,
-  buttonBg: MUCHA_UI_COLORS.surfaces.panelSoft,
-  buttonBgActive: MUCHA_UI_COLORS.surfaces.panelRaised,
-  buttonCloseBg: 0x6e4f46,
+  buttonBg: MUCHA_UI_COLORS.intent.softPop,
+  buttonBgActive: MUCHA_UI_COLORS.intent.softPop,
   legendStroke: MUCHA_UI_COLORS.surfaces.borderSoft,
   legendStrokeHover: MUCHA_UI_COLORS.ink.primary,
   gridMajor: 0x6d6248,
@@ -183,7 +183,6 @@ export function createMetricGraphView({
   const WIN_H = 150;
   const HEADER_H = 38;
 
-  const header = new PIXI.Graphics();
   const body = new PIXI.Graphics();
   const plotG = new PIXI.Graphics();
   const scrubG = new PIXI.Graphics();
@@ -194,7 +193,7 @@ export function createMetricGraphView({
     fill: TIMEGRAPH_THEME.textPrimary,
   });
 
-  root.addChild(header, body, legendContainer, plotG, scrubG, text);
+  root.addChild(body, legendContainer, plotG, scrubG);
 
   const LEGEND_GUTTER_W = 34;
   const LEGEND_GUTTER_GAP = 4;
@@ -215,14 +214,24 @@ export function createMetricGraphView({
   plotHit.cursor = "pointer";
   root.addChild(plotHit);
 
-  const headerHit = new PIXI.Graphics();
-  headerHit.alpha = 0;
-  headerHit.eventMode = "static";
-  headerHit.cursor = "move";
-  root.addChild(headerHit);
+  const headerUi = createWindowHeader({
+    stage: app?.stage,
+    parent: root,
+    width: WIN_W,
+    height: HEADER_H,
+    radius: 14,
+    background: TIMEGRAPH_THEME.panelHeaderBg,
+    showPin: false,
+    closeOffsetX: 20,
+    dragTarget: root,
+    onClose: () => close(),
+  });
 
   const ZOOM_BTN_W = 70;
   const ZOOM_BTN_H = 22;
+  const HEADER_LEFT_X = 16;
+  const HEADER_CONTENT_GAP = 14;
+  const HEADER_TEXT_X = HEADER_LEFT_X + ZOOM_BTN_W + HEADER_CONTENT_GAP;
   const zoomBtn = new PIXI.Container();
   const zoomBg = new PIXI.Graphics();
   const zoomText = new PIXI.Text("", {
@@ -234,39 +243,7 @@ export function createMetricGraphView({
   zoomBtn.eventMode = "static";
   zoomBtn.cursor = "pointer";
   root.addChild(zoomBtn);
-
-  const CLOSE_BTN_W = 64;
-  const CLOSE_BTN_H = 22;
-  const closeBtn = new PIXI.Container();
-  const closeBg = new PIXI.Graphics();
-  const closeText = new PIXI.Text("Close", {
-    fontFamily: "Arial",
-    fontSize: 12,
-    fill: TIMEGRAPH_THEME.textPrimary,
-  });
-  closeBtn.addChild(closeBg, closeText);
-  closeBtn.eventMode = "static";
-  closeBtn.cursor = "pointer";
-  root.addChild(closeBtn);
-
-  let draggingWindow = false;
-  let dragWindowOffset = { x: 0, y: 0 };
-
-  headerHit.on("pointerdown", (e) => {
-    draggingWindow = true;
-    const p = e.global;
-    dragWindowOffset.x = p.x - root.x;
-    dragWindowOffset.y = p.y - root.y;
-  });
-
-  app.stage.on("pointerup", () => (draggingWindow = false));
-  app.stage.on("pointerupoutside", () => (draggingWindow = false));
-  app.stage.on("pointermove", (e) => {
-    if (!draggingWindow) return;
-    const p = e.global;
-    root.x = p.x - dragWindowOffset.x;
-    root.y = p.y - dragWindowOffset.y;
-  });
+  root.addChild(text);
 
   let isScrubbing = false;
   let scrubSec = 0;
@@ -621,10 +598,11 @@ export function createMetricGraphView({
   }
 
   function updateHeaderButtons() {
-    const zoomX = 16;
+    const zoomX = HEADER_LEFT_X;
     const y = Math.floor((HEADER_H - ZOOM_BTN_H) / 2);
 
     zoomBg.clear();
+    zoomBg.lineStyle(1, TIMEGRAPH_THEME.panelBorder, 0.92);
     zoomBg.beginFill(
       zoomed ? TIMEGRAPH_THEME.buttonBgActive : TIMEGRAPH_THEME.buttonBg
     );
@@ -637,24 +615,12 @@ export function createMetricGraphView({
 
     zoomBtn.x = zoomX;
     zoomBtn.y = y;
-
-    closeBg.clear();
-    closeBg.beginFill(TIMEGRAPH_THEME.buttonCloseBg);
-    closeBg.drawRoundedRect(0, 0, CLOSE_BTN_W, CLOSE_BTN_H, 6);
-    closeBg.endFill();
-
-    closeText.x = (CLOSE_BTN_W - closeText.width) / 2;
-    closeText.y = (CLOSE_BTN_H - closeText.height) / 2;
-    closeBtn.x = WIN_W - 16 - CLOSE_BTN_W;
-    closeBtn.y = y;
+    text.x = HEADER_TEXT_X;
+    text.y = 10;
   }
 
   function drawWindow() {
-    header.clear();
-    header.lineStyle(1, TIMEGRAPH_THEME.panelBorder, 0.8);
-    header.beginFill(TIMEGRAPH_THEME.panelHeaderBg, 0.95);
-    header.drawRoundedRect(0, 0, WIN_W, HEADER_H, 14);
-    header.endFill();
+    headerUi.setWidth(WIN_W);
 
     body.clear();
     body.lineStyle(1, TIMEGRAPH_THEME.panelBorder, 0.72);
@@ -666,14 +632,6 @@ export function createMetricGraphView({
     plotHit.beginFill(0xffffff);
     plotHit.drawRect(plot.x, plot.y, plot.w, plot.h);
     plotHit.endFill();
-
-    headerHit.clear();
-    headerHit.beginFill(0xffffff);
-    headerHit.drawRect(0, 0, WIN_W, HEADER_H);
-    headerHit.endFill();
-
-    text.x = 100;
-    text.y = 10;
 
     updateHeaderButtons();
   }
@@ -1124,13 +1082,6 @@ export function createMetricGraphView({
     zoomed = !zoomed;
     statusNote = "";
     render();
-  });
-  closeBtn.on("pointerdown", (e) => {
-    e.stopPropagation();
-  });
-  closeBtn.on("pointertap", (e) => {
-    e.stopPropagation();
-    close();
   });
 
   function open() {

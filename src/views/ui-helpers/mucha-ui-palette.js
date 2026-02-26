@@ -25,11 +25,12 @@ export const MUCHA_UI_COLORS = Object.freeze({
     cream: 0xe8dbc2,
     clay: 0xa56d60,
     glow: 0xdac18d,
+    base: 0x403b1d,
+    inkDark: 0x362b17,
+  }),
+  intent: Object.freeze({
     warnPop: 0xed6557,
     softPop: 0xcc7d32,
     dangerPop: 0xc51f1f,
-    base: 0x403b1d,
-    inkdark: 0x362b17
   }),
 });
-

@@ -145,8 +145,9 @@ const INVENTORY_SUBPANEL_BG = MUCHA_UI_COLORS.surfaces.panelRaised;
 const INVENTORY_HEADER_BG = MUCHA_UI_COLORS.surfaces.header;
 const INVENTORY_HEADER_TEXT = MUCHA_UI_COLORS.ink.primary;
 const INVENTORY_FOCUS_STROKE = MUCHA_UI_COLORS.accents.glow;
-const INVENTORY_BIN_FILL = MUCHA_UI_COLORS.surfaces.panel;
-const INVENTORY_BIN_STROKE = MUCHA_UI_COLORS.surfaces.borderSoft;
+const INVENTORY_BIN_FILL = MUCHA_UI_COLORS.intent.warnPop;
+const INVENTORY_BIN_STROKE = MUCHA_UI_COLORS.intent.dangerPop;
+const INVENTORY_BIN_ICON = MUCHA_UI_COLORS.ink.primary;
 const INVENTORY_GRID_LINE = MUCHA_UI_COLORS.surfaces.borderSoft;
 const INVENTORY_BUTTON_BG = MUCHA_UI_COLORS.surfaces.header;
 const INVENTORY_PROMPT_BG = MUCHA_UI_COLORS.surfaces.panelSoft;
@@ -1981,7 +1982,7 @@ export function createInventoryView({
 
     const binIcon = new PIXI.Graphics();
     binIcon
-      .lineStyle(2, 0xd6d6e0, 1)
+      .lineStyle(2, INVENTORY_BIN_ICON, 1)
       .drawRoundedRect(binSize * 0.35, binSize * 0.35, binSize * 0.3, binSize * 0.4, 2)
       .moveTo(binSize * 0.3, binSize * 0.32)
       .lineTo(binSize * 0.7, binSize * 0.32)
