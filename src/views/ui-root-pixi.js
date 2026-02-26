@@ -169,6 +169,8 @@ let yearEndPerformanceView = null;
 let runCompleteView = null;
 let backdropView = null;
 let externalUiFocus = null;
+let processWidgetHoverFocusOwners = [];
+let processWidgetHoverUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
@@ -461,10 +463,10 @@ function refreshOpenInventoryWindows() {
 }
 
 function getExternalUiFocus() {
-  return externalUiFocus;
+  return externalUiFocus || processWidgetHoverUiFocus;
 }
 
-function getExternalFocusOwners() {
+function getFocusOwnersFromExternalUiFocus() {
   const focus = externalUiFocus;
   if (!focus) return [];
   if (Array.isArray(focus.ownerIds)) {
@@ -477,6 +479,34 @@ function getExternalFocusOwners() {
     return [focus.ownerId];
   }
   return [];
+}
+
+function setProcessWidgetHoverFocusOwners(ownerIds) {
+  processWidgetHoverFocusOwners = Array.isArray(ownerIds)
+    ? ownerIds.filter((ownerId) => ownerId != null)
+    : [];
+}
+
+function setProcessWidgetHoverUiFocus(focus) {
+  processWidgetHoverUiFocus = focus && typeof focus === "object" ? focus : null;
+}
+
+function getExternalFocusOwners() {
+  const merged = [];
+  const seen = new Set();
+  for (const ownerId of getFocusOwnersFromExternalUiFocus()) {
+    const key = `${typeof ownerId}:${String(ownerId)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(ownerId);
+  }
+  for (const ownerId of processWidgetHoverFocusOwners) {
+    const key = `${typeof ownerId}:${String(ownerId)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(ownerId);
+  }
+  return merged;
 }
 
 function resolveHubFocusTarget(state, focus) {
@@ -1325,6 +1355,11 @@ processWidgetView = createProcessWidgetView({
   layout: VIEW_LAYOUT.processWidget,
   getGameState: () => runner.getState(),
   interaction: interactionController,
+  tooltipView,
+  canShowHoverUI: () => interactionController.canShowHoverUI(),
+  setHoverInventoryFocusOwners: (ownerIds) =>
+    setProcessWidgetHoverFocusOwners(ownerIds),
+  setHoverOwnerFocus: (focus) => setProcessWidgetHoverUiFocus(focus),
   actionPlanner,
   dispatchAction: (kind, payload, opts) =>
     runner.dispatchAction(kind, payload, opts),
@@ -1616,6 +1651,8 @@ const debugView = createDebugOverlay({
     const res = runner.resetToSetup?.(setupId);
     if (!res?.ok) return res;
     externalUiFocus = null;
+    processWidgetHoverFocusOwners = [];
+    processWidgetHoverUiFocus = null;
     applyScenarioDevUiBootstrap();
     return res;
   },

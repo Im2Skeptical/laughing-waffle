@@ -22,6 +22,7 @@ import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 import {
   VIEW_LAYOUT,
   VIEWPORT_DESIGN_HEIGHT,
@@ -33,17 +34,19 @@ import {
   HUB_COL_GAP,
   TILE_ROW_Y,
   HUB_STRUCTURE_ROW_Y,
+  CHARACTER_ROW_OFFSET_Y,
   layoutBoardColPos,
   layoutHubColPos,
 } from "./layout-pixi.js";
 
-const CORE_WIDTH = 280;
+const CORE_WIDTH = 420;
 const CARD_RADIUS = 12;
 const CARD_GAP = 10;
 const HEADER_HEIGHT = 22;
 const HEADER_PAD_X = 10;
 const HEADER_PAD_Y = 6;
 const BODY_PAD = 8;
+const MIN_BODY_CONTENT_HEIGHT = 140;
 const SEGMENT_GAP = 6;
 
 const DRAWER_COLLAPSED = 60;
@@ -111,6 +114,10 @@ export function createProcessWidgetView({
   layer,
   getGameState,
   interaction,
+  tooltipView = null,
+  canShowHoverUI = null,
+  setHoverInventoryFocusOwners = null,
+  setHoverOwnerFocus = null,
   actionPlanner,
   dispatchAction,
   queueActionWhenPaused,
@@ -131,6 +138,11 @@ export function createProcessWidgetView({
 
   let hoverContext = null;
   let externalFocusContext = null;
+  let lozengeHoverProcessContext = null;
+  let hoverInventoryOwnersSig = "";
+  let hoverOwnerFocusSig = "";
+  let activeHoveredInventoryOwnerIds = [];
+  let lozengeTooltipVisible = false;
 
   const routingDragController = createPillDragController({
     app,
@@ -233,6 +245,276 @@ export function createProcessWidgetView({
     win.container.scale.set(nextScale);
     win.hasPosition = false;
     return true;
+  }
+
+  function getTypedIdKey(id) {
+    return `${typeof id}:${String(id)}`;
+  }
+
+  function dedupeOwnerIds(ownerIds) {
+    const list = Array.isArray(ownerIds) ? ownerIds : [];
+    const seen = new Set();
+    const out = [];
+    for (const ownerId of list) {
+      if (ownerId == null) continue;
+      const key = getTypedIdKey(ownerId);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(ownerId);
+    }
+    return out;
+  }
+
+  function getOwnerIdsSignature(ownerIds) {
+    const keys = dedupeOwnerIds(ownerIds)
+      .map((ownerId) => getTypedIdKey(ownerId))
+      .sort((a, b) => a.localeCompare(b));
+    return keys.join("|");
+  }
+
+  function setHoverInventoryOwners(ownerIds) {
+    if (typeof setHoverInventoryFocusOwners !== "function") return;
+    const normalized = dedupeOwnerIds(ownerIds);
+    const nextSig = getOwnerIdsSignature(normalized);
+    if (nextSig === hoverInventoryOwnersSig) return;
+    hoverInventoryOwnersSig = nextSig;
+    setHoverInventoryFocusOwners(normalized);
+  }
+
+  function getFocusSignature(focus) {
+    if (!focus || typeof focus !== "object") return "";
+    const ownerSig = Array.isArray(focus.ownerIds)
+      ? getOwnerIdsSignature(focus.ownerIds)
+      : "";
+    const kind = String(focus.kind || "");
+    const pawnId = focus.pawnId == null ? "" : String(focus.pawnId);
+    const ownerId = focus.ownerId == null ? "" : String(focus.ownerId);
+    const hubCol = Number.isFinite(focus.hubCol) ? String(Math.floor(focus.hubCol)) : "";
+    const envCol = Number.isFinite(focus.envCol) ? String(Math.floor(focus.envCol)) : "";
+    return `${kind}|${pawnId}|${ownerId}|${hubCol}|${envCol}|${ownerSig}`;
+  }
+
+  function setHoverOwnerFocusSafe(focus) {
+    if (typeof setHoverOwnerFocus !== "function") return;
+    const nextSig = getFocusSignature(focus);
+    if (nextSig === hoverOwnerFocusSig) return;
+    hoverOwnerFocusSig = nextSig;
+    setHoverOwnerFocus(focus || null);
+  }
+
+  function hideHoveredInventoryWindows(ownerIds) {
+    const normalized = dedupeOwnerIds(ownerIds);
+    for (const ownerId of normalized) {
+      inventoryView?.hideOnHoverOut?.(ownerId);
+    }
+  }
+
+  function getPawnAnchorRect(pawn) {
+    if (!pawn) return null;
+    const { width: screenWidth } = getScreenSize();
+    if (Number.isFinite(pawn.hubCol)) {
+      const col = Math.floor(pawn.hubCol);
+      const pos = layoutHubColPos(
+        screenWidth,
+        col,
+        HUB_STRUCTURE_WIDTH,
+        HUB_STRUCTURE_ROW_Y
+      );
+      const centerX = pos.x + HUB_STRUCTURE_WIDTH / 2;
+      const centerY = pos.y - CHARACTER_ROW_OFFSET_Y;
+      return { x: centerX - 20, y: centerY - 20, width: 40, height: 40 };
+    }
+    if (Number.isFinite(pawn.envCol)) {
+      const col = Math.floor(pawn.envCol);
+      const pos = layoutBoardColPos(screenWidth, col, TILE_WIDTH, TILE_ROW_Y);
+      const centerX = pos.x + TILE_WIDTH / 2;
+      const centerY = pos.y - CHARACTER_ROW_OFFSET_Y;
+      return { x: centerX - 20, y: centerY - 20, width: 40, height: 40 };
+    }
+    return null;
+  }
+
+  function getInventoryOwnerAnchorRect(state, ownerId) {
+    if (ownerId == null) return null;
+    const structure = findStructureById(state, ownerId);
+    if (structure) return getTargetAnchorRect(structure);
+    const tile = findTileById(state, ownerId);
+    if (tile) return getTargetAnchorRect(tile);
+    const pawn = findPawnById(state, ownerId);
+    if (pawn) return getPawnAnchorRect(pawn);
+    return null;
+  }
+
+  function resolveHoverFocusFromOwnerIds(state, ownerIds) {
+    const normalized = dedupeOwnerIds(ownerIds);
+    for (const ownerId of normalized) {
+      const pawn = findPawnById(state, ownerId);
+      if (pawn?.id != null) {
+        return {
+          kind: "pawn",
+          pawnId: pawn.id,
+          ownerIds: [pawn.id],
+        };
+      }
+
+      const structure = findStructureById(state, ownerId);
+      if (structure?.instanceId != null) {
+        const hubCol = Number.isFinite(structure.col)
+          ? Math.floor(structure.col)
+          : Number.isFinite(structure.hubCol)
+            ? Math.floor(structure.hubCol)
+            : null;
+        return {
+          kind: "hub",
+          ownerId: structure.instanceId,
+          ownerIds: [structure.instanceId],
+          hubCol,
+          systemId: "build",
+        };
+      }
+
+      const tile = findTileById(state, ownerId);
+      if (tile) {
+        const envCol = Number.isFinite(tile.col)
+          ? Math.floor(tile.col)
+          : Number.isFinite(tile.envCol)
+            ? Math.floor(tile.envCol)
+            : null;
+        if (envCol != null) {
+          return {
+            kind: "tile",
+            envCol,
+            ownerIds: [tile.instanceId ?? ownerId],
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  function sameContextRef(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (!a.targetRef || !b.targetRef) return false;
+    return (
+      sameTargetRef(a.targetRef, b.targetRef) &&
+      String(a.systemId || "") === String(b.systemId || "")
+    );
+  }
+
+  function setLozengeHoverProcessContext(nextContext) {
+    const normalized =
+      nextContext?.targetRef != null
+        ? {
+            targetRef: nextContext.targetRef,
+            systemId: nextContext.systemId ?? null,
+          }
+        : null;
+    if (sameContextRef(lozengeHoverProcessContext, normalized)) return;
+    lozengeHoverProcessContext = normalized;
+  }
+
+  function syncLozengeHoverState(hoverSpec, state) {
+    const spec = hoverSpec && typeof hoverSpec === "object" ? hoverSpec : {};
+    const nextOwners = dedupeOwnerIds(spec.inventoryOwnerIds);
+    const nextKeys = new Set(nextOwners.map((ownerId) => getTypedIdKey(ownerId)));
+    const prevOwners = dedupeOwnerIds(activeHoveredInventoryOwnerIds);
+
+    for (const prevOwnerId of prevOwners) {
+      if (nextKeys.has(getTypedIdKey(prevOwnerId))) continue;
+      inventoryView?.hideOnHoverOut?.(prevOwnerId);
+    }
+    for (const ownerId of nextOwners) {
+      const anchor = getInventoryOwnerAnchorRect(state, ownerId);
+      inventoryView?.showOnHover?.(ownerId, anchor || undefined);
+    }
+
+    activeHoveredInventoryOwnerIds = nextOwners;
+    setHoverInventoryOwners(nextOwners);
+    setLozengeHoverProcessContext(spec.processContext || null);
+    setHoverOwnerFocusSafe(spec.focus || resolveHoverFocusFromOwnerIds(state, nextOwners));
+  }
+
+  function clearLozengeHoverUi() {
+    hideHoveredInventoryWindows(activeHoveredInventoryOwnerIds);
+    activeHoveredInventoryOwnerIds = [];
+    setLozengeHoverProcessContext(null);
+    setHoverInventoryOwners([]);
+    setHoverOwnerFocusSafe(null);
+    if (lozengeTooltipVisible) {
+      tooltipView?.hide?.();
+      lozengeTooltipVisible = false;
+    }
+  }
+
+  function canShowLozengeHoverUi() {
+    if (typeof canShowHoverUI === "function") {
+      return canShowHoverUI() !== false;
+    }
+    return interaction?.canShowHoverUI?.() !== false;
+  }
+
+  function showLozengeTooltip(fullLabel, displayObject) {
+    if (!tooltipView || !displayObject || !fullLabel) return;
+    if (!canShowLozengeHoverUi()) return;
+    tooltipView.show(
+      {
+        title: String(fullLabel),
+        lines: [],
+        scale: getDisplayObjectWorldScale(displayObject, 1),
+      },
+      displayObject.getBounds()
+    );
+    lozengeTooltipVisible = true;
+  }
+
+  function fitTextToWidth(textNode, fullText, maxWidth, suffix = "...") {
+    if (!textNode) return "";
+    const safeText = String(fullText ?? "");
+    const limit = Number.isFinite(maxWidth) ? Math.max(0, Math.floor(maxWidth)) : 0;
+    if (limit <= 0) {
+      textNode.text = "";
+      return "";
+    }
+
+    textNode.text = safeText;
+    if (textNode.width <= limit) return safeText;
+
+    textNode.text = suffix;
+    if (textNode.width > limit) {
+      textNode.text = "";
+      return "";
+    }
+
+    let lo = 0;
+    let hi = safeText.length;
+    let best = suffix;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const candidate = `${safeText.slice(0, mid)}${suffix}`;
+      textNode.text = candidate;
+      if (textNode.width <= limit) {
+        best = candidate;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    textNode.text = best;
+    return best;
+  }
+
+  function attachLozengeHoverHandlers(node, { fullLabel = "", hoverSpec = null } = {}) {
+    if (!node) return;
+    node.on("pointerover", () => {
+      if (!canShowLozengeHoverUi()) return;
+      const state = getStateSafe();
+      showLozengeTooltip(fullLabel, node);
+      syncLozengeHoverState(hoverSpec, state);
+    });
+    node.on("pointerout", () => {
+      clearLozengeHoverUi();
+    });
   }
 
   function getTargetAnchorRect(target) {
@@ -619,6 +901,147 @@ export function createProcessWidgetView({
     return endpointId;
   }
 
+  function resolveHoverFocusFromOwnerKind(state, ownerKind, ownerId, systemId = null) {
+    if (!ownerKind || ownerId == null) return null;
+    if (ownerKind === "hub") {
+      const structure = findStructureById(state, ownerId);
+      if (!structure?.instanceId) return null;
+      const hubCol = Number.isFinite(structure.col)
+        ? Math.floor(structure.col)
+        : Number.isFinite(structure.hubCol)
+          ? Math.floor(structure.hubCol)
+          : null;
+      return {
+        kind: "hub",
+        ownerId: structure.instanceId,
+        ownerIds: [structure.instanceId],
+        hubCol,
+        systemId: typeof systemId === "string" && systemId.length > 0 ? systemId : "build",
+      };
+    }
+    if (ownerKind === "env") {
+      const tile = findTileById(state, ownerId);
+      if (!tile) return null;
+      const envCol = Number.isFinite(tile.col)
+        ? Math.floor(tile.col)
+        : Number.isFinite(tile.envCol)
+          ? Math.floor(tile.envCol)
+          : null;
+      if (envCol == null) return null;
+      return {
+        kind: "tile",
+        envCol,
+        ownerIds: [tile.instanceId ?? ownerId],
+        systemId: typeof systemId === "string" && systemId.length > 0 ? systemId : null,
+      };
+    }
+    if (ownerKind === "pawn") {
+      const pawn = findPawnById(state, ownerId);
+      if (!pawn?.id && pawn?.id !== 0) return null;
+      return {
+        kind: "pawn",
+        pawnId: pawn.id,
+        ownerIds: [pawn.id],
+      };
+    }
+    return null;
+  }
+
+  function resolvePoolEndpointWidgetContext(state, endpointId) {
+    const parsed = parsePoolEndpointId(endpointId);
+    if (!parsed) return null;
+
+    let target = null;
+    if (parsed.ownerKind === "hub") {
+      target = findStructureById(state, parsed.ownerId);
+    } else if (parsed.ownerKind === "env") {
+      target = findTileById(state, parsed.ownerId);
+    } else if (parsed.ownerKind === "pawn" && parsed.systemId === "storage") {
+      target = buildBasketTarget(state, parsed.ownerId);
+    }
+
+    if (!target) {
+      return {
+        context: null,
+        focus: resolveHoverFocusFromOwnerKind(
+          state,
+          parsed.ownerKind,
+          parsed.ownerId,
+          parsed.systemId
+        ),
+      };
+    }
+
+    let widgetSystemId = parsed.systemId || null;
+    if (target?.refKind === "basket") {
+      widgetSystemId = "basket";
+    } else {
+      const def = target?.defId ? hubStructureDefs?.[target.defId] : null;
+      const depositSystemId =
+        typeof def?.deposit?.systemId === "string" ? def.deposit.systemId : null;
+      if (depositSystemId && depositSystemId === parsed.systemId) {
+        widgetSystemId = "deposit";
+      }
+    }
+
+    return {
+      context: {
+        targetRef: makeTargetRef(target),
+        systemId: widgetSystemId,
+      },
+      focus: resolveHoverFocusFromOwnerKind(
+        state,
+        parsed.ownerKind,
+        parsed.ownerId,
+        widgetSystemId
+      ),
+    };
+  }
+
+  function getEndpointFocusOwnerIds(state, endpointId) {
+    if (!endpointId || typeof endpointId !== "string") return [];
+    if (endpointId.startsWith("inv:process:")) return [endpointId];
+    if (endpointId.startsWith("inv:dropbox:hub:")) return [endpointId];
+    if (endpointId.startsWith("inv:hub:")) {
+      const id = endpointId.slice("inv:hub:".length);
+      const resolved = findStructureById(state, id)?.instanceId ?? id;
+      return resolved != null ? [resolved] : [];
+    }
+    if (endpointId.startsWith("inv:pawn:")) {
+      const id = endpointId.slice("inv:pawn:".length);
+      const resolved = findPawnById(state, id)?.id ?? id;
+      return resolved != null ? [resolved] : [];
+    }
+    if (endpointId.startsWith("inv:")) {
+      const id = endpointId.slice("inv:".length);
+      const structure = findStructureById(state, id);
+      if (structure?.instanceId != null) return [structure.instanceId];
+      const pawn = findPawnById(state, id);
+      if (pawn?.id != null) return [pawn.id];
+      return id ? [id] : [];
+    }
+    if (endpointId.startsWith("sys:pool:")) return [];
+    return [];
+  }
+
+  function resolveEndpointHoverSpec(state, endpointId) {
+    const inventoryOwnerIds = getEndpointFocusOwnerIds(state, endpointId);
+    let processContext = null;
+    let focus = resolveHoverFocusFromOwnerIds(state, inventoryOwnerIds);
+
+    if (endpointId && endpointId.startsWith("sys:pool:")) {
+      const pool = resolvePoolEndpointWidgetContext(state, endpointId);
+      processContext = pool?.context || null;
+      if (pool?.focus) focus = pool.focus;
+    }
+
+    return {
+      inventoryOwnerIds,
+      processContext,
+      focus,
+    };
+  }
+
   function parsePoolEndpointId(endpointId) {
     if (!endpointId || typeof endpointId !== "string") return null;
     if (!endpointId.startsWith("sys:pool:")) return null;
@@ -901,6 +1324,23 @@ export function createProcessWidgetView({
     bg.endFill();
   }
 
+  function collectModuleView(moduleViews, container, width) {
+    if (!Array.isArray(moduleViews) || !container) return;
+    const bg = container.children?.[0];
+    if (!bg || typeof bg.clear !== "function") return;
+    moduleViews.push({ bg, width });
+  }
+
+  function stretchModuleViews(moduleViews, targetHeight) {
+    if (!Array.isArray(moduleViews) || !Number.isFinite(targetHeight)) return;
+    const height = Math.max(1, Math.floor(targetHeight));
+    for (const view of moduleViews) {
+      if (!view?.bg || typeof view.bg.clear !== "function") continue;
+      const width = Number.isFinite(view.width) ? Math.max(1, Math.floor(view.width)) : 1;
+      drawModuleBox(view.bg, width, height);
+    }
+  }
+
   function layoutPillEntries(slotView) {
     const entries = slotView.pillEntries || [];
     let y = 0;
@@ -953,6 +1393,7 @@ export function createProcessWidgetView({
       container: new PIXI.Container(),
       bg: new PIXI.Graphics(),
       labelText: null,
+      fullLabel: "",
       width: entryWidth,
     };
 
@@ -969,8 +1410,11 @@ export function createProcessWidgetView({
     });
     labelText.x = PILL_PAD_X + TOGGLE_SIZE + TOGGLE_PAD;
     labelText.y = Math.round((PILL_HEIGHT - labelText.height) / 2);
+    const labelMaxWidth = Math.max(0, entryWidth - labelText.x - PILL_PAD_X);
+    fitTextToWidth(labelText, label, labelMaxWidth);
     row.addChild(labelText);
     entry.labelText = labelText;
+    entry.fullLabel = label;
 
     const toggle = new PIXI.Graphics();
     toggle.x = PILL_PAD_X;
@@ -994,6 +1438,15 @@ export function createProcessWidgetView({
     }
 
     applyPillStyle(entry);
+
+    const hoverSpec = resolveEndpointHoverSpec(
+      state,
+      resolvedId || rawEndpointId
+    );
+    attachLozengeHoverHandlers(row, {
+      fullLabel: label,
+      hoverSpec,
+    });
 
     if (entry.draggable) {
       row.on("pointerdown", (ev) => {
@@ -1227,6 +1680,74 @@ export function createProcessWidgetView({
     return height;
   }
 
+  function normalizeGrowthProgressEntry(entry) {
+    const process = entry?.process || null;
+    if (!process) return null;
+    const processDef = entry?.processDef || null;
+    const duration = Math.max(
+      1,
+      Math.floor(processDef?.transform?.durationSec ?? process?.durationSec ?? 1)
+    );
+    const progress = Math.max(0, Math.floor(process?.progress ?? 0));
+    const ratio = Math.min(1, progress / duration);
+    const remain = Math.max(0, duration - progress);
+    return {
+      id: String(process?.id ?? ""),
+      ratio,
+      remain,
+    };
+  }
+
+  function buildGrowthProgressGroups(entries, maxGroups = 5) {
+    const normalized = (Array.isArray(entries) ? entries : [])
+      .map((entry) => normalizeGrowthProgressEntry(entry))
+      .filter((entry) => !!entry)
+      .sort((a, b) => {
+        if (a.remain !== b.remain) return a.remain - b.remain;
+        return a.id.localeCompare(b.id);
+      });
+    if (normalized.length === 0) return [];
+
+    const groups = normalized.map((entry) => ({
+      items: [entry],
+      minRemain: entry.remain,
+      maxRemain: entry.remain,
+    }));
+
+    const limit = Math.max(1, Math.floor(maxGroups));
+    while (groups.length > limit) {
+      let mergeAt = 0;
+      let bestGap = Infinity;
+      for (let i = 0; i < groups.length - 1; i += 1) {
+        const left = groups[i];
+        const right = groups[i + 1];
+        const gap = Math.max(0, right.minRemain - left.maxRemain);
+        if (gap < bestGap) {
+          bestGap = gap;
+          mergeAt = i;
+        }
+      }
+
+      const left = groups[mergeAt];
+      const right = groups[mergeAt + 1];
+      const mergedItems = left.items.concat(right.items).sort((a, b) => {
+        if (a.remain !== b.remain) return a.remain - b.remain;
+        return a.id.localeCompare(b.id);
+      });
+      groups.splice(mergeAt, 2, {
+        items: mergedItems,
+        minRemain: Math.min(left.minRemain, right.minRemain),
+        maxRemain: Math.max(left.maxRemain, right.maxRemain),
+      });
+    }
+
+    return groups.map((group) => ({
+      items: group.items,
+      earliestRemain: group.minRemain,
+      memberCount: group.items.length,
+    }));
+  }
+
   function buildGrowthProgressModule({ container, width, entries }) {
     const bg = new PIXI.Graphics();
     container.addChild(bg);
@@ -1239,8 +1760,8 @@ export function createProcessWidgetView({
     labelText.y = MODULE_PAD;
     container.addChild(labelText);
 
-    const list = Array.isArray(entries) ? entries : [];
-    if (list.length === 0) {
+    const groups = buildGrowthProgressGroups(entries, 5);
+    if (groups.length === 0) {
       const none = new PIXI.Text("No crops growing", {
         fill: COLORS.moduleSub,
         fontSize: 9,
@@ -1257,30 +1778,18 @@ export function createProcessWidgetView({
     const barHeight = 40;
     const barGap = 8;
     const barAreaWidth = width - MODULE_PAD * 2;
-    const count = list.length;
-    const maxBarWidth = 12;
+    const count = groups.length;
+    const maxBarWidth = 20;
     const barWidthRaw = Math.floor(
       (barAreaWidth - barGap * (count - 1)) / count
     );
-    const barWidth = Math.max(6, Math.min(maxBarWidth, barWidthRaw));
+    const barWidth = Math.max(10, Math.min(maxBarWidth, barWidthRaw));
     const totalBarsWidth =
       barWidth * count + barGap * Math.max(0, count - 1);
     const startX = Math.floor(MODULE_PAD + (barAreaWidth - totalBarsWidth) / 2);
     const barY = labelText.y + 16;
 
-    list.forEach((entry, index) => {
-      const process = entry?.process || null;
-      const processDef = entry?.processDef || null;
-      const duration = Math.max(
-        1,
-        Math.floor(
-          processDef?.transform?.durationSec ?? process?.durationSec ?? 1
-        )
-      );
-      const progress = Math.max(0, Math.floor(process?.progress ?? 0));
-      const ratio = Math.min(1, progress / duration);
-      const remain = Math.max(0, duration - progress);
-
+    groups.forEach((group, index) => {
       const x = startX + index * (barWidth + barGap);
       const barBg = new PIXI.Graphics();
       barBg.beginFill(COLORS.progressBg, 1);
@@ -1288,29 +1797,45 @@ export function createProcessWidgetView({
       barBg.endFill();
       container.addChild(barBg);
 
-      const fillHeight = Math.max(2, barHeight * ratio);
-      const fill = new PIXI.Graphics();
-      fill.beginFill(COLORS.progressFill, 1);
-      fill.drawRoundedRect(
-        x,
-        barY + (barHeight - fillHeight),
-        barWidth,
-        fillHeight,
-        6
-      );
-      fill.endFill();
-      container.addChild(fill);
+      const members = group.items
+        .slice()
+        .sort((a, b) => a.ratio - b.ratio || a.id.localeCompare(b.id));
+      for (const member of members) {
+        const fillHeight = Math.max(2, barHeight * member.ratio);
+        const fill = new PIXI.Graphics();
+        fill.beginFill(COLORS.progressFill, 0.24);
+        fill.drawRoundedRect(
+          x,
+          barY + (barHeight - fillHeight),
+          barWidth,
+          fillHeight,
+          6
+        );
+        fill.endFill();
+        container.addChild(fill);
+      }
 
-      const timeText = new PIXI.Text(`${remain}s`, {
+      const timeText = new PIXI.Text(`${group.earliestRemain}s`, {
         fill: COLORS.moduleSub,
         fontSize: 9,
       });
       timeText.x = x + Math.max(0, Math.floor((barWidth - timeText.width) / 2));
       timeText.y = barY + barHeight + 4;
       container.addChild(timeText);
+
+      if (group.memberCount > 1) {
+        const countText = new PIXI.Text(`x${group.memberCount}`, {
+          fill: COLORS.headerSub,
+          fontSize: 8,
+          fontWeight: "bold",
+        });
+        countText.x = x + Math.max(0, Math.floor((barWidth - countText.width) / 2));
+        countText.y = barY - 10;
+        container.addChild(countText);
+      }
     });
 
-    const height = Math.max(56, barY + barHeight + 18);
+    const height = Math.max(56, barY + barHeight + 20);
     drawModuleBox(bg, width, height);
     return height;
   }
@@ -1441,6 +1966,11 @@ export function createProcessWidgetView({
       chevron.y = btnPadY;
       btn.addChild(chevron);
 
+      const fullLabel = String(selectionControl.label);
+      const labelMaxWidth = Math.max(0, chevron.x - btnPadX - 4);
+      fitTextToWidth(label, fullLabel, labelMaxWidth);
+      attachLozengeHoverHandlers(btn, { fullLabel, hoverSpec: null });
+
       btn.on("pointertap", () => {
         if (selectionControl?.enabled === false) return;
         selectionControl?.onOpen?.(btn.getBounds());
@@ -1561,6 +2091,11 @@ export function createProcessWidgetView({
       chevron.x = btnWidth - chevron.width - btnPadX;
       chevron.y = btnPadY;
       btn.addChild(chevron);
+
+      const fullLabel = String(selectionControl.label);
+      const labelMaxWidth = Math.max(0, chevron.x - btnPadX - 4);
+      fitTextToWidth(label, fullLabel, labelMaxWidth);
+      attachLozengeHoverHandlers(btn, { fullLabel, hoverSpec: null });
 
       btn.on("pointertap", () => {
         if (selectionControl?.enabled === false) return;
@@ -1720,6 +2255,13 @@ export function createProcessWidgetView({
     selectChevron.x = selectBtnW - selectChevron.width - 6;
     selectChevron.y = 2;
     selectBtn.addChild(selectChevron);
+
+    const selectLabelMaxWidth = Math.max(0, selectChevron.x - selectText.x - 4);
+    fitTextToWidth(selectText, selectedLabel, selectLabelMaxWidth);
+    attachLozengeHoverHandlers(selectBtn, {
+      fullLabel: selectedLabel,
+      hoverSpec: null,
+    });
 
     if (options.length > 0) {
       selectBtn.on("pointertap", () => {
@@ -2249,7 +2791,7 @@ export function createProcessWidgetView({
     body.y = HEADER_HEIGHT + 6;
     card.addChild(body);
 
-    const bodyHeightTarget = 70;
+    const bodyHeightTarget = MIN_BODY_CONTENT_HEIGHT;
 
     const central = new PIXI.Container();
     central.x = segments.find((s) => s.key === "central").x;
@@ -2311,6 +2853,7 @@ export function createProcessWidgetView({
 
     let moduleX = 0;
     let moduleMaxHeight = 0;
+    const moduleViews = [];
 
     for (const id of filteredModules) {
       const mod = new PIXI.Container();
@@ -2394,6 +2937,7 @@ export function createProcessWidgetView({
         });
       }
 
+      collectModuleView(moduleViews, mod, moduleWidth);
       moduleMaxHeight = Math.max(moduleMaxHeight, height);
       moduleX += moduleWidth + MODULE_GAP;
     }
@@ -2473,6 +3017,8 @@ export function createProcessWidgetView({
       bufferHeight,
       bodyHeightTarget
     );
+    stretchModuleViews(moduleViews, bodyContentHeight);
+    central.height = bodyContentHeight;
 
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
 
@@ -2570,6 +3116,7 @@ export function createProcessWidgetView({
 
     let moduleX = 0;
     let moduleMaxHeight = 0;
+    const moduleViews = [];
 
     const progressMod = new PIXI.Container();
     progressMod.x = moduleX;
@@ -2583,6 +3130,7 @@ export function createProcessWidgetView({
         entries: [],
       })
     );
+    collectModuleView(moduleViews, progressMod, moduleWidth);
     moduleX += moduleWidth + MODULE_GAP;
 
     const outputMod = new PIXI.Container();
@@ -2597,10 +3145,13 @@ export function createProcessWidgetView({
         pool: target?.systemState?.growth?.maturedPool || null,
       })
     );
+    collectModuleView(moduleViews, outputMod, moduleWidth);
 
     central.height = moduleMaxHeight;
 
-    const bodyContentHeight = Math.max(moduleMaxHeight, 70);
+    const bodyContentHeight = Math.max(moduleMaxHeight, MIN_BODY_CONTENT_HEIGHT);
+    stretchModuleViews(moduleViews, bodyContentHeight);
+    central.height = bodyContentHeight;
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
 
     const centralBg = new PIXI.Graphics();
@@ -3231,6 +3782,7 @@ export function createProcessWidgetView({
 
     let moduleX = 0;
     let moduleMaxHeight = 0;
+    const moduleViews = [];
 
     const prestigeMod = new PIXI.Container();
     prestigeMod.x = moduleX;
@@ -3244,6 +3796,7 @@ export function createProcessWidgetView({
         process: {},
       })
     );
+    collectModuleView(moduleViews, prestigeMod, moduleWidth);
     moduleX += moduleWidth + MODULE_GAP;
 
     const outputMod = new PIXI.Container();
@@ -3265,6 +3818,7 @@ export function createProcessWidgetView({
           onWithdraw: (itemId, qty) => requestPoolWithdraw(target, itemId, qty),
         })
       );
+      collectModuleView(moduleViews, outputMod, moduleWidth);
     } else {
       const poolSummary = formatPoolSummary({
         kind: "pool",
@@ -3279,12 +3833,19 @@ export function createProcessWidgetView({
           poolSummary,
         })
       );
+      collectModuleView(moduleViews, outputMod, moduleWidth);
     }
 
     central.height = moduleMaxHeight;
 
     const bufferHeight = showDropbox ? BUFFER_SIZE + 18 : 0;
-    const bodyContentHeight = Math.max(moduleMaxHeight, bufferHeight, 70);
+    const bodyContentHeight = Math.max(
+      moduleMaxHeight,
+      bufferHeight,
+      MIN_BODY_CONTENT_HEIGHT
+    );
+    stretchModuleViews(moduleViews, bodyContentHeight);
+    central.height = bodyContentHeight;
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
 
     if (showDropbox && buffer) {
@@ -3387,6 +3948,7 @@ export function createProcessWidgetView({
 
     let moduleX = 0;
     let moduleMaxHeight = 0;
+    const moduleViews = [];
 
     const storageMod = new PIXI.Container();
     storageMod.x = moduleX;
@@ -3406,6 +3968,7 @@ export function createProcessWidgetView({
         poolSummary,
       })
     );
+    collectModuleView(moduleViews, storageMod, moduleWidth);
     moduleX += moduleWidth + MODULE_GAP;
 
     const withdrawMod = new PIXI.Container();
@@ -3424,10 +3987,13 @@ export function createProcessWidgetView({
         onWithdraw: (itemId, qty) => requestPoolWithdraw(target, itemId, qty),
       })
     );
+    collectModuleView(moduleViews, withdrawMod, moduleWidth);
 
     central.height = moduleMaxHeight;
 
-    const bodyContentHeight = Math.max(moduleMaxHeight, 70);
+    const bodyContentHeight = Math.max(moduleMaxHeight, MIN_BODY_CONTENT_HEIGHT);
+    stretchModuleViews(moduleViews, bodyContentHeight);
+    central.height = bodyContentHeight;
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
 
     const centralBg = new PIXI.Graphics();
@@ -3726,6 +4292,7 @@ export function createProcessWidgetView({
   }
 
   function destroyWindow(windowId) {
+    clearLozengeHoverUi();
     const win = windows.get(windowId);
     if (!win) return;
     win.container?.parent?.removeChild?.(win.container);
@@ -3798,6 +4365,7 @@ export function createProcessWidgetView({
     const hoverIds = new Set();
     const externalIds = new Set();
     collectContextWindows(state, hoverContext, hoverIds, "hovered");
+    collectContextWindows(state, lozengeHoverProcessContext, hoverIds, "hovered");
     collectContextWindows(
       state,
       externalFocusContext,
@@ -3828,6 +4396,7 @@ export function createProcessWidgetView({
   function update() {
     const state = getStateSafe();
     if (!state) {
+      clearLozengeHoverUi();
       for (const win of windows.values()) {
         if (win?.container) win.container.visible = false;
       }
@@ -4083,6 +4652,7 @@ export function createProcessWidgetView({
   }
 
   function clearHoverTarget() {
+    clearLozengeHoverUi();
     hoverContext = null;
     for (const win of windows.values()) {
       if (!win.hovered) continue;
@@ -4100,6 +4670,7 @@ export function createProcessWidgetView({
   }
 
   function clearExternalFocusTarget() {
+    clearLozengeHoverUi();
     externalFocusContext = null;
     for (const win of windows.values()) {
       if (!win.externalFocused) continue;
