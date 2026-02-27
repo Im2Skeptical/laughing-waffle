@@ -92,6 +92,7 @@ export const hubSystemDefs = {
     defaultTier: "bronze",
     stateDefaults: {
       selectedRecipeId: null,
+      recipePriority: { ordered: [], enabled: {} },
       processes: [], // same queueKey pattern as crops
     },
   },
@@ -102,6 +103,7 @@ export const hubSystemDefs = {
     defaultTier: "bronze",
     stateDefaults: {
       selectedRecipeId: null,
+      recipePriority: { ordered: [], enabled: {} },
       processes: [], // same queueKey pattern as crops
     },
   },

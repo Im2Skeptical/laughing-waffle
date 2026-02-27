@@ -25,6 +25,11 @@ import {
 import { placementEquals } from "./action-placement-utils.js";
 import { validateHubConstructionPlacement } from "../../model/build-helpers.js";
 import {
+  buildRecipePriorityFromSelectedRecipe,
+  normalizeRecipePriority,
+  recipePrioritiesEqual,
+} from "../../model/recipe-priority.js";
+import {
   computeAvailableRecipesAndBuildings,
   hasEnvTagUnlock,
   hasHubTagUnlock,
@@ -43,11 +48,25 @@ function cloneIntent(intent) {
     baselinePlacement: clonePlacement(intent.baselinePlacement),
     tagIds: cloneTagList(intent.tagIds),
     baselineTags: cloneTagList(intent.baselineTags),
+    recipePriority: cloneRecipePriority(intent.recipePriority),
+    baselineRecipePriority: cloneRecipePriority(intent.baselineRecipePriority),
   };
 }
 
 function cloneTagList(tags) {
   return Array.isArray(tags) ? tags.slice() : null;
+}
+
+function cloneRecipePriority(recipePriority) {
+  const ordered = Array.isArray(recipePriority?.ordered)
+    ? recipePriority.ordered.slice()
+    : [];
+  const enabled = {};
+  for (const recipeId of ordered) {
+    enabled[recipeId] =
+      recipePriority?.enabled?.[recipeId] === false ? false : true;
+  }
+  return { ordered, enabled };
 }
 
 function normalizeTagList(tags) {
@@ -175,6 +194,7 @@ function normalizeCommittedIntentBaseline(intent) {
   }
 
   if (next.kind === IntentKinds.HUB_RECIPE_SELECT) {
+    next.baselineRecipePriority = cloneRecipePriority(next.recipePriority);
     next.baselineRecipeId = next.recipeId ?? null;
     return next;
   }
@@ -190,6 +210,45 @@ function normalizeCropId(value) {
 function normalizeRecipeId(value) {
   if (value == null || value === "") return null;
   return String(value);
+}
+
+function normalizeRecipePriorityPayload(
+  { recipePriority, recipeId },
+  { systemId, state }
+) {
+  if (recipePriority && typeof recipePriority === "object") {
+    return normalizeRecipePriority(recipePriority, {
+      systemId,
+      state,
+      includeLocked: false,
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call({ recipeId }, "recipeId")) {
+    return buildRecipePriorityFromSelectedRecipe(recipeId, {
+      systemId,
+      state,
+      includeLocked: false,
+    });
+  }
+  return { ordered: [], enabled: {} };
+}
+
+function getCurrentRecipePriority(structure, systemId, state) {
+  const fromState = normalizeRecipePriority(
+    structure?.systemState?.[systemId]?.recipePriority,
+    {
+      systemId,
+      state,
+      includeLocked: false,
+    }
+  );
+  if (fromState.ordered.length > 0) return fromState;
+  const selected = structure?.systemState?.[systemId]?.selectedRecipeId ?? null;
+  return buildRecipePriorityFromSelectedRecipe(selected, {
+    systemId,
+    state,
+    includeLocked: false,
+  });
 }
 
 function getRecipeKindForHubSystem(systemId) {
@@ -596,14 +655,20 @@ export function createActionPlanner({
         if (!Number.isFinite(hubCol) || !systemId) continue;
         const col = Math.floor(hubCol);
         const subjectKey = `hubRecipe:${col}:${systemId}`;
-        const recipeId = normalizeRecipeId(payload.recipeId);
+        const recipePriority = normalizeRecipePriorityPayload(
+          {
+            recipePriority: payload.recipePriority,
+            recipeId: normalizeRecipeId(payload.recipeId),
+          },
+          { systemId, state: getStateSafe() }
+        );
         const intent = makeHubRecipeSelectIntent({
           id: subjectKey,
           subjectKey,
           hubCol: col,
           systemId,
-          recipeId,
-          baselineRecipeId: recipeId,
+          recipePriority,
+          baselineRecipePriority: recipePriority,
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
           source: "timeline",
         });
@@ -1603,7 +1668,12 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
-  function setHubRecipeSelectionIntent({ hubCol, systemId, recipeId }) {
+  function setHubRecipeSelectionIntent({
+    hubCol,
+    systemId,
+    recipePriority,
+    recipeId,
+  }) {
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
@@ -1620,44 +1690,55 @@ export function createActionPlanner({
       Object.prototype.hasOwnProperty.call(structure.systemTiers || {}, systemId);
     if (!hasSystem) return { ok: false, reason: "missingSystem" };
 
-    const nextRecipeId = normalizeRecipeId(recipeId);
-    if (nextRecipeId && !recipeDefs[nextRecipeId]) {
-      return { ok: false, reason: "badRecipeId" };
-    }
-    if (nextRecipeId) {
-      const availability = computeAvailableRecipesAndBuildings(state);
-      if (!availability.recipeIds?.has(nextRecipeId)) {
-        return { ok: false, reason: "recipeLocked" };
-      }
-    }
-    if (nextRecipeId) {
-      const expectedKind = getRecipeKindForHubSystem(systemId);
-      const actualKind = recipeDefs[nextRecipeId]?.kind ?? null;
-      if (expectedKind && actualKind && expectedKind !== actualKind) {
-        return { ok: false, reason: "badRecipeKind" };
+    const expectedKind = getRecipeKindForHubSystem(systemId);
+    const availability = computeAvailableRecipesAndBuildings(state);
+    if (recipePriority && typeof recipePriority === "object") {
+      const orderedRaw = Array.isArray(recipePriority.ordered)
+        ? recipePriority.ordered
+        : [];
+      for (const rawId of orderedRaw) {
+        const nextRecipeId = normalizeRecipeId(rawId);
+        if (!nextRecipeId) continue;
+        if (!recipeDefs[nextRecipeId]) {
+          return { ok: false, reason: "badRecipeId" };
+        }
+        if (!availability.recipeIds?.has(nextRecipeId)) {
+          return { ok: false, reason: "recipeLocked" };
+        }
+        const actualKind = recipeDefs[nextRecipeId]?.kind ?? null;
+        if (expectedKind && actualKind && expectedKind !== actualKind) {
+          return { ok: false, reason: "badRecipeKind" };
+        }
       }
     }
 
+    const nextRecipePriority = normalizeRecipePriorityPayload(
+      {
+        recipePriority,
+        recipeId: normalizeRecipeId(recipeId),
+      },
+      { systemId, state }
+    );
+
     const subjectKey = `hubRecipe:${anchorCol}:${systemId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
-    const currentRecipeId =
-      structure.systemState?.[systemId]?.selectedRecipeId ?? null;
-    const baselineRecipeId =
-      existing?.baselineRecipeId ?? existing?.recipeId ?? currentRecipeId;
+    const currentRecipePriority = getCurrentRecipePriority(structure, systemId, state);
+    const baselineRecipePriority =
+      existing?.baselineRecipePriority ?? existing?.recipePriority ?? currentRecipePriority;
 
     const intent = makeHubRecipeSelectIntent({
       id: subjectKey,
       subjectKey,
       hubCol: anchorCol,
       systemId,
-      recipeId: nextRecipeId,
-      baselineRecipeId,
+      recipePriority: nextRecipePriority,
+      baselineRecipePriority,
       apCostOverride:
         existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
       source: existing?.source ?? "planner",
     });
 
-    if ((intent.recipeId ?? null) === (intent.baselineRecipeId ?? null)) {
+    if (recipePrioritiesEqual(intent.recipePriority, intent.baselineRecipePriority)) {
       return removeIntentByKey(subjectKey);
     }
 
@@ -1826,7 +1907,7 @@ export function createActionPlanner({
           payload: {
             hubCol: Math.floor(intent.hubCol),
             systemId: intent.systemId,
-            recipeId: intent.recipeId ?? null,
+            recipePriority: cloneRecipePriority(intent.recipePriority),
           },
           apCost,
         });

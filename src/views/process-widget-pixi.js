@@ -22,9 +22,18 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { skillNodes } from "../defs/gamepieces/skill-tree-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
+import {
+  buildRecipePrioritySignature,
+  buildRecipePriorityFromSelectedRecipe,
+  getEnabledRecipeIds,
+  getRecipeKindForHubSystem,
+  getTopEnabledRecipeId,
+  normalizeRecipePriority,
+} from "../model/recipe-priority.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
@@ -131,6 +140,50 @@ const COLORS = {
   dropboxCappedBorder: 0xffbf5a,
 };
 
+function addRecipeGateEntry(map, recipeId, nodeName) {
+  if (!recipeId || !nodeName) return;
+  let list = map.get(recipeId);
+  if (!list) {
+    list = [];
+    map.set(recipeId, list);
+  }
+  if (!list.includes(nodeName)) list.push(nodeName);
+}
+
+function scanRecipeGateEffects(map, nodeName, effects) {
+  const list = Array.isArray(effects) ? effects : [];
+  for (const effect of list) {
+    if (!effect || typeof effect !== "object") continue;
+    const op = typeof effect.op === "string" ? effect.op : null;
+    if (op !== "GrantUnlock") continue;
+    const unlockType = typeof effect.unlockType === "string" ? effect.unlockType : null;
+    if (unlockType !== "recipe") continue;
+    const recipeId =
+      typeof effect.recipeId === "string" && effect.recipeId.length > 0
+        ? effect.recipeId
+        : typeof effect.unlockId === "string" && effect.unlockId.length > 0
+          ? effect.unlockId
+          : null;
+    addRecipeGateEntry(map, recipeId, nodeName);
+  }
+}
+
+function buildRecipeSkillGateIndex() {
+  const out = new Map();
+  const nodes = skillNodes && typeof skillNodes === "object" ? skillNodes : {};
+  for (const [nodeId, node] of Object.entries(nodes)) {
+    if (!node || typeof node !== "object") continue;
+    const nodeName =
+      typeof node.name === "string" && node.name.length > 0 ? node.name : nodeId;
+    scanRecipeGateEffects(out, nodeName, node.onUnlock);
+    scanRecipeGateEffects(out, nodeName, node.unlockEffects);
+    scanRecipeGateEffects(out, nodeName, node.effects);
+  }
+  return out;
+}
+
+const RECIPE_SKILL_GATE_INDEX = buildRecipeSkillGateIndex();
+
 export function createProcessWidgetView({
   app,
   layer,
@@ -234,7 +287,6 @@ export function createProcessWidgetView({
     inventoryView,
     ActionKinds,
     cropDefs,
-    recipeDefs,
     envTileDefs,
     hubStructureDefs,
     getTilePlanCost,
@@ -242,14 +294,14 @@ export function createProcessWidgetView({
     getEnvCol,
     getHubCol,
     isRecipeSystem,
-    getSelectedRecipeId,
+    getRecipePriorityForTarget,
     getCropOptions,
-    getRecipeOptions,
     getDepositPoolTarget,
     getPoolItemOptions,
     getWithdrawState,
     normalizeWithdrawSelection,
     invalidateAllSignatures,
+    openRecipeCatalogPopup,
   });
   const cardModules = createProcessWidgetCardModules({
     PIXI,
@@ -390,6 +442,37 @@ export function createProcessWidgetView({
     onDragEnd: (view, drag) => {
       view.ignoreNextTap = !!drag?.moved;
       layoutPillEntries(view);
+    },
+  });
+
+  const recipePriorityDragController = createPillDragController({
+    app,
+    dragStateKey: "recipePriorityDrag",
+    dragScale: 1.04,
+    dragAlpha: 0.95,
+    dragZIndex: 10,
+    dragCursor: "grabbing",
+    idleCursor: "grab",
+    getEntries: (view) => view.pillEntries || [],
+    getContainer: (view) => view.pillContainer,
+    getRowHeight: () => PILL_HEIGHT,
+    getRowStep: () => PILL_HEIGHT + PILL_GAP,
+    layoutEntries: (view) => layoutRecipePriorityPills(view),
+    onCommit: (view, fromIndex, toIndex) => {
+      if (!view || view.slotLocked) return;
+      const target = view.target;
+      const systemId = view.systemId;
+      if (!target || !systemId) return;
+      selectionActions.reorderHubRecipePriority?.(
+        target,
+        systemId,
+        fromIndex,
+        toIndex
+      );
+    },
+    onDragEnd: (view, drag) => {
+      view.ignoreNextTap = !!drag?.moved;
+      layoutRecipePriorityPills(view);
     },
   });
 
@@ -816,6 +899,111 @@ export function createProcessWidgetView({
         };
       }),
     ];
+  }
+
+  function getRecipePriorityForTarget(target, systemId, stateOverride = null) {
+    const state = stateOverride || getStateSafe();
+    const priority = normalizeRecipePriority(
+      target?.systemState?.[systemId]?.recipePriority,
+      { systemId, state, includeLocked: false }
+    );
+    if (priority.ordered.length > 0) return priority;
+    const selected = target?.systemState?.[systemId]?.selectedRecipeId ?? null;
+    return buildRecipePriorityFromSelectedRecipe(selected, {
+      systemId,
+      state,
+      includeLocked: false,
+    });
+  }
+
+  function buildRecipeEntryMap(entries) {
+    const map = new Map();
+    const list = Array.isArray(entries) ? entries : [];
+    for (const entry of list) {
+      const recipeId =
+        typeof entry?.process?.type === "string" ? entry.process.type : null;
+      if (!recipeId) continue;
+      if (map.has(recipeId)) continue;
+      map.set(recipeId, entry);
+    }
+    return map;
+  }
+
+  function formatRecipeProcessSnapshot(entry) {
+    const process = entry?.process || null;
+    if (!process) return "Queued: no active process";
+    const duration = Number.isFinite(process.durationSec)
+      ? Math.max(1, Math.floor(process.durationSec))
+      : 1;
+    const progress = Number.isFinite(process.progress)
+      ? Math.max(0, Math.floor(process.progress))
+      : 0;
+    const reqs = Array.isArray(process.requirements) ? process.requirements : [];
+    let reqParts = [];
+    if (reqs.length > 0) {
+      reqParts = reqs
+        .slice(0, 2)
+        .map((req) => {
+          const label = formatRequirementLabel(req);
+          const amount = Math.max(0, Math.floor(req?.amount ?? 0));
+          const current = Math.max(0, Math.floor(req?.progress ?? 0));
+          return `${label} ${current}/${amount}`;
+        });
+    }
+    const reqText = reqParts.length > 0 ? ` | ${reqParts.join(", ")}` : "";
+    return `Progress ${progress}/${duration}${reqText}`;
+  }
+
+  function getRecipeSkillGateText(recipeId, unlocked) {
+    if (unlocked) return "Unlocked";
+    const skillNames = RECIPE_SKILL_GATE_INDEX.get(recipeId) || [];
+    if (skillNames.length > 0) {
+      return `Locked: requires ${skillNames.join(", ")}`;
+    }
+    return "Locked: requires skill unlock";
+  }
+
+  function getRecipeCatalogOptions(target, systemId) {
+    const kind = getRecipeKindForHubSystem(systemId);
+    if (!kind) return [];
+    const state = getStateSafe();
+    const availability = computeAvailableRecipesAndBuildings(state);
+    const priority = getRecipePriorityForTarget(target, systemId, state);
+    const entries = collectProcessEntries(state, target, systemId);
+    const entryByRecipe = buildRecipeEntryMap(entries);
+
+    const list = Object.entries(recipeDefs || {})
+      .map(([key, recipe]) => ({ key, recipe }))
+      .filter((entry) => !!entry.recipe)
+      .filter((entry) => entry.recipe.kind === kind)
+      .sort((a, b) =>
+        String(a?.recipe?.name || a?.recipe?.id || a?.key || "").localeCompare(
+          String(b?.recipe?.name || b?.recipe?.id || b?.key || "")
+        )
+      );
+
+    return list.map(({ key, recipe }) => {
+      const recipeId =
+        (typeof recipe?.id === "string" && recipe.id.length > 0
+          ? recipe.id
+          : key) || null;
+      const inList = recipeId ? priority.ordered.includes(recipeId) : false;
+      const enabled = recipeId ? priority.enabled?.[recipeId] !== false : false;
+      const unlocked = recipeId ? availability.recipeIds?.has(recipeId) === true : false;
+      const gateText = getRecipeSkillGateText(recipeId, unlocked);
+      const actionLabel = inList ? "Remove" : "Add";
+      const stateLabel = inList ? (enabled ? "On" : "Off") : "Not listed";
+      const processEntry = recipeId ? entryByRecipe.get(recipeId) : null;
+      const progressText = formatRecipeProcessSnapshot(processEntry);
+      return {
+        value: recipeId,
+        locked: !unlocked,
+        label: `${actionLabel}: ${recipe?.name || recipeId}`,
+        detail: `${stateLabel} | ${gateText} | ${progressText} | ${formatRecipeDetails(
+          recipe
+        )}`,
+      };
+    });
   }
 
   function getHubCol(target) {
@@ -1841,6 +2029,36 @@ export function createProcessWidgetView({
     selectionActions.openGrowthSelectionDropdown(target, anchorBounds);
   }
 
+  function openRecipeCatalogPopup(target, systemId, anchorBounds) {
+    if (!target || !isRecipeSystem(systemId)) return;
+    const options = getRecipeCatalogOptions(target, systemId);
+    if (!options.length) return;
+    const byRecipeId = new Map();
+    for (const option of options) {
+      const recipeId =
+        typeof option?.value === "string" && option.value.length > 0
+          ? option.value
+          : null;
+      if (!recipeId) continue;
+      byRecipeId.set(recipeId, option);
+    }
+    const priority = getRecipePriorityForTarget(target, systemId);
+    const selectedValue = getTopEnabledRecipeId(priority);
+
+    openSelectionDropdown({
+      options,
+      selectedValue,
+      anchorBounds,
+      width: 340,
+      onSelect: (recipeId) => {
+        if (!recipeId) return;
+        const option = byRecipeId.get(recipeId);
+        if (option?.locked) return;
+        selectionActions.toggleRecipePresence?.(target, systemId, recipeId);
+      },
+    });
+  }
+
   function openRecipeSelectionDropdown(target, systemId, anchorBounds) {
     selectionActions.openRecipeSelectionDropdown(target, systemId, anchorBounds);
   }
@@ -2189,8 +2407,8 @@ export function createProcessWidgetView({
 
   function getSelectedRecipeId(target, systemId) {
     if (!target || !systemId) return null;
-    const sys = target.systemState?.[systemId];
-    const selected = sys?.selectedRecipeId ?? null;
+    const priority = getRecipePriorityForTarget(target, systemId);
+    const selected = getTopEnabledRecipeId(priority);
     return typeof selected === "string" && selected.length > 0 ? selected : null;
   }
 
@@ -2234,48 +2452,310 @@ export function createProcessWidgetView({
     };
   }
 
+  function resolveRecipeFocusId(win, priority, recipeEntryMap) {
+    const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
+    const enabled = getEnabledRecipeIds(priority);
+    const currentFocus =
+      typeof win?.recipeFocusId === "string" && win.recipeFocusId.length > 0
+        ? win.recipeFocusId
+        : null;
+
+    if (currentFocus && ordered.includes(currentFocus)) {
+      return currentFocus;
+    }
+    if (enabled.length > 0) return enabled[0];
+    for (const recipeId of ordered) {
+      if (recipeEntryMap.has(recipeId)) return recipeId;
+    }
+    return ordered[0] || null;
+  }
+
+  function layoutRecipePriorityPills(view) {
+    if (!view) return;
+    const entries = Array.isArray(view.pillEntries) ? view.pillEntries : [];
+    const dragState = view.recipePriorityDrag || null;
+    let y = 0;
+    for (let i = 0; i < entries.length; i += 1) {
+      const entry = entries[i];
+      if (!entry?.container) continue;
+      if (dragState && dragState.entry === entry) {
+        entry.container.y = dragState.entry.container.y;
+        continue;
+      }
+      let visualIndex = i;
+      if (dragState) {
+        if (i > dragState.startIndex && i <= dragState.targetIndex) {
+          visualIndex = i - 1;
+        } else if (i < dragState.startIndex && i >= dragState.targetIndex) {
+          visualIndex = i + 1;
+        }
+      }
+      y = visualIndex * (PILL_HEIGHT + PILL_GAP);
+      entry.container.y = y;
+    }
+  }
+
+  function buildRecipePriorityModule({
+    container,
+    width,
+    target,
+    systemId,
+    win,
+    priority,
+    recipeEntryMap,
+  }) {
+    if (!container || !target || !systemId || !win) return 0;
+    const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
+    const enabledMap =
+      priority?.enabled && typeof priority.enabled === "object" ? priority.enabled : {};
+
+    const bg = new PIXI.Graphics();
+    container.addChild(bg);
+
+    const title = new PIXI.Text("Recipe Priority", {
+      fill: COLORS.moduleText,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    title.x = MODULE_PAD;
+    title.y = MODULE_PAD;
+    container.addChild(title);
+
+    const manageButton = new PIXI.Container();
+    const manageLabel = new PIXI.Text("Catalog", {
+      fill: COLORS.moduleText,
+      fontSize: 9,
+      fontWeight: "bold",
+    });
+    const managePadX = 6;
+    const managePadY = 2;
+    const manageBgWidth = Math.max(56, Math.ceil(manageLabel.width + managePadX * 2));
+    const manageBg = new PIXI.Graphics();
+    manageBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+    manageBg.beginFill(COLORS.pillEnabled, 0.98);
+    manageBg.drawRoundedRect(0, 0, manageBgWidth, 14, 6);
+    manageBg.endFill();
+    manageButton.addChild(manageBg);
+    manageLabel.x = managePadX;
+    manageLabel.y = managePadY;
+    manageButton.addChild(manageLabel);
+    manageButton.x = Math.max(MODULE_PAD, width - MODULE_PAD - manageBgWidth);
+    manageButton.y = MODULE_PAD - 1;
+    manageButton.eventMode = "static";
+    manageButton.cursor = "pointer";
+    manageButton.on("pointertap", () => {
+      openRecipeCatalogPopup(target, systemId, manageButton.getBounds());
+    });
+    container.addChild(manageButton);
+
+    const pillContainer = new PIXI.Container();
+    pillContainer.x = MODULE_PAD;
+    pillContainer.y = title.y + 16;
+    container.addChild(pillContainer);
+    const pillWidth = Math.max(24, width - MODULE_PAD * 2);
+
+    const pillView = {
+      target,
+      systemId,
+      slotLocked: false,
+      pillContainer,
+      pillEntries: [],
+      ignoreNextTap: false,
+      recipePriorityDrag: null,
+    };
+
+    for (const recipeId of ordered) {
+      const enabled = enabledMap[recipeId] !== false;
+      const isFocused = win.recipeFocusId === recipeId;
+      const row = new PIXI.Container();
+      row.eventMode = "static";
+      row.cursor = "grab";
+      row.hitArea = new PIXI.Rectangle(0, 0, pillWidth, PILL_HEIGHT);
+
+      const rowBg = new PIXI.Graphics();
+      const bgColor = !enabled
+        ? COLORS.pillDisabled
+        : isFocused
+          ? COLORS.pillEnabled
+          : COLORS.moduleBg;
+      const borderColor = isFocused ? COLORS.progressFill : COLORS.moduleBorder;
+      rowBg.lineStyle(1, borderColor, 0.95);
+      rowBg.beginFill(bgColor, 0.98);
+      rowBg.drawRoundedRect(0, 0, pillWidth, PILL_HEIGHT, PILL_RADIUS);
+      rowBg.endFill();
+      row.addChild(rowBg);
+
+      const toggle = new PIXI.Container();
+      toggle.x = 4;
+      toggle.y = Math.floor((PILL_HEIGHT - TOGGLE_SIZE) / 2);
+      toggle.eventMode = "static";
+      toggle.cursor = "pointer";
+      const toggleBg = new PIXI.Graphics();
+      const toggleFill = enabled ? COLORS.progressFill : COLORS.panelBorder;
+      toggleBg.lineStyle(1, COLORS.moduleBorder, 0.95);
+      toggleBg.beginFill(toggleFill, 0.95);
+      toggleBg.drawRoundedRect(0, 0, TOGGLE_SIZE, TOGGLE_SIZE, 3);
+      toggleBg.endFill();
+      toggle.addChild(toggleBg);
+      row.addChild(toggle);
+
+      const recipeName = formatRecipeName(recipeId);
+      const processEntry = recipeEntryMap.get(recipeId);
+      const snapshot = formatRecipeProcessSnapshot(processEntry);
+      const fullLabel = `${recipeName} - ${snapshot}`;
+      const textColor = enabled ? COLORS.pillText : COLORS.pillTextDisabled;
+
+      const labelText = new PIXI.Text(recipeName, {
+        fill: textColor,
+        fontSize: 9,
+        fontWeight: isFocused ? "bold" : "normal",
+      });
+      const labelStartX = TOGGLE_SIZE + TOGGLE_PAD + PILL_PAD_X;
+      labelText.x = labelStartX;
+      labelText.y = Math.round((PILL_HEIGHT - labelText.height) / 2);
+      const labelWidth = Math.max(24, pillWidth - labelStartX - 6);
+      fitTextToWidth(labelText, recipeName, labelWidth);
+      row.addChild(labelText);
+      attachLozengeHoverHandlers(row, { fullLabel, hoverSpec: null });
+
+      toggle.on("pointerdown", (ev) => {
+        ev?.stopPropagation?.();
+      });
+      toggle.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        selectionActions.toggleHubRecipeEnabled?.(target, systemId, recipeId);
+      });
+
+      const pillEntry = {
+        recipeId,
+        container: row,
+      };
+      pillView.pillEntries.push(pillEntry);
+
+      row.on("pointerdown", (ev) => {
+        recipePriorityDragController.startDrag(pillView, pillEntry, ev);
+      });
+      row.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        if (pillView.ignoreNextTap) {
+          pillView.ignoreNextTap = false;
+          return;
+        }
+        if (win.recipeFocusId === recipeId) return;
+        win.recipeFocusId = recipeId;
+        invalidateAllSignatures();
+      });
+
+      pillContainer.addChild(row);
+    }
+
+    let contentY = pillContainer.y;
+    if (ordered.length <= 0) {
+      const emptyText = new PIXI.Text("No recipes listed. Use Catalog to add.", {
+        fill: COLORS.moduleSub,
+        fontSize: 9,
+      });
+      emptyText.x = MODULE_PAD;
+      emptyText.y = contentY;
+      container.addChild(emptyText);
+      contentY = emptyText.y + emptyText.height;
+    } else {
+      layoutRecipePriorityPills(pillView);
+      const pillsHeight = ordered.length * (PILL_HEIGHT + PILL_GAP) - PILL_GAP;
+      contentY += Math.max(PILL_HEIGHT, pillsHeight);
+    }
+
+    const height = Math.max(52, contentY + MODULE_PAD);
+    drawModuleBox(bg, width, height);
+    return height;
+  }
+
+  function buildRecipeCardEntry({
+    target,
+    systemId,
+    focusRecipeId,
+    recipeEntryMap,
+  }) {
+    if (focusRecipeId && recipeEntryMap.has(focusRecipeId)) {
+      return recipeEntryMap.get(focusRecipeId);
+    }
+    if (focusRecipeId) {
+      return buildRecipePreviewEntry(target, systemId, focusRecipeId);
+    }
+    return null;
+  }
+
   function rebuildRecipeSystemWidget(state, target, systemId, entries, opts = {}) {
     const content = opts.content;
     const dropTargets = opts.dropTargets;
     const cardOpts = opts.cardOpts || {};
+    const win = opts.win || null;
     clearContent(content, dropTargets);
 
-    const recipeId = getSelectedRecipeId(target, systemId);
-    if (Array.isArray(entries) && entries.length > 0) {
-      rebuildWidget(state, target, entries, {
-        content,
-        dropTargets,
-        cardOpts,
-      });
-      return;
+    const priority = getRecipePriorityForTarget(target, systemId, state);
+    const recipeEntryMap = buildRecipeEntryMap(entries);
+    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap);
+    if (win) {
+      win.recipeFocusId = resolvedFocus;
     }
-
-    if (recipeId) {
-      const previewEntry = buildRecipePreviewEntry(target, systemId, recipeId);
-      if (previewEntry) {
-        const forceModules = new Set(["requirements", "progress", "output"]);
-        const routingState =
-          target?.systemState?.[systemId]?.routingTemplate || { inputs: {}, outputs: {} };
-        const built = buildProcessCard(state, target, previewEntry, 0, 1, {
+    const selectedEntry = buildRecipeCardEntry({
+      target,
+      systemId,
+      focusRecipeId: resolvedFocus,
+      recipeEntryMap,
+    });
+    if (selectedEntry) {
+      const forceModules = new Set(["requirements", "progress", "recipePriority"]);
+      const hiddenModuleIds = new Set(["output"]);
+      const routingState =
+        target?.systemState?.[systemId]?.routingTemplate || { inputs: {}, outputs: {} };
+      const routingProcess = selectedEntry.process;
+      const routingProcessDef = selectedEntry.processDef;
+      const isPreview =
+        !recipeEntryMap.has(resolvedFocus) ||
+        selectedEntry?.preview === true;
+      const built = buildProcessCard(
+        state,
+        target,
+        selectedEntry,
+        0,
+        1,
+        {
           ...cardOpts,
           dropTargets,
-          preview: true,
+          preview: isPreview,
           forceModules,
-          routingMode: "template",
-          routingState,
-          routingProcess: previewEntry.process,
-          routingProcessDef: previewEntry.processDef,
+          hiddenModuleIds,
+          routingMode: isPreview ? "template" : "process",
+          routingState: isPreview ? routingState : routingProcess?.routing,
+          routingProcess,
+          routingProcessDef,
           routingTargetRef: makeTargetRef(target),
           routingSystemId: systemId,
-          drawerKey: `template:${systemId}:${getTargetKey(target) || "target"}`,
+          drawerKey: isPreview
+            ? `template:${systemId}:${getTargetKey(target) || "target"}`
+            : routingProcess?.id,
           allowRouting: true,
           allowDropbox: true,
           dropboxInteractive: true,
-        });
-        built.card.y = 0;
-        content.addChild(built.card);
-        return;
-      }
+          disableOutputSelectionControl: true,
+          customModuleBuilders: {
+            recipePriority: ({ container, width }) =>
+              buildRecipePriorityModule({
+                container,
+                width,
+                target,
+                systemId,
+                win,
+                priority,
+                recipeEntryMap,
+              }),
+          },
+        }
+      );
+      built.card.y = 0;
+      content.addChild(built.card);
+      return;
     }
 
     const targetKey = getTargetKey(target) || "target";
@@ -2290,7 +2770,8 @@ export function createProcessWidgetView({
     const processDef = buildIdleProcessDef(systemId);
     const routingState =
       target?.systemState?.[systemId]?.routingTemplate || { inputs: {}, outputs: {} };
-    const forceModules = new Set(["requirements", "progress", "output"]);
+    const forceModules = new Set(["requirements", "progress", "recipePriority"]);
+    const hiddenModuleIds = new Set(["output"]);
     const variantOverride = systemId === "workspace" ? "crafting" : "cooking";
     const built = buildProcessCard(
       state,
@@ -2303,6 +2784,7 @@ export function createProcessWidgetView({
         dropTargets,
         preview: true,
         forceModules,
+        hiddenModuleIds,
         variantOverride,
         routingMode: "template",
         routingState,
@@ -2314,21 +2796,47 @@ export function createProcessWidgetView({
         allowRouting: true,
         allowDropbox: true,
         dropboxInteractive: false,
+        disableOutputSelectionControl: true,
+        customModuleBuilders: {
+          recipePriority: ({ container, width }) =>
+            buildRecipePriorityModule({
+              container,
+              width,
+              target,
+              systemId,
+              win,
+              priority,
+              recipeEntryMap,
+            }),
+        },
       }
     );
     built.card.y = 0;
     content.addChild(built.card);
   }
 
-  function buildRecipeSystemSignature(state, targetKey, target, entries, systemId) {
-    const recipeId = getSelectedRecipeId(target, systemId) || "none";
+  function buildRecipeSystemSignature(
+    state,
+    targetKey,
+    target,
+    entries,
+    systemId,
+    recipeFocusId = "none"
+  ) {
+    const priority = getRecipePriorityForTarget(target, systemId, state);
+    const prioritySig = buildRecipePrioritySignature(priority);
+    const focusId =
+      typeof recipeFocusId === "string" && recipeFocusId.length > 0
+        ? recipeFocusId
+        : "none";
     return signatureTools.buildRecipeSystemSignature(
       state,
       targetKey,
       target,
       entries,
       systemId,
-      recipeId
+      prioritySig,
+      focusId
     );
   }
 
@@ -2532,7 +3040,8 @@ export function createProcessWidgetView({
             signatureKey,
             target,
             entries,
-            win.groupKind
+            win.groupKind,
+            win.recipeFocusId ?? "none"
           );
         } else {
           signature = buildProcessSignature(state, signatureKey, target, entries);
@@ -2599,6 +3108,7 @@ export function createProcessWidgetView({
             rebuildRecipeSystemWidget(state, target, win.groupKind, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
+              win,
               cardOpts: {
                 dragTarget: win.container,
                 pinned: win.pinned,

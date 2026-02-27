@@ -10,6 +10,12 @@ import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { envSystemDefs } from "../../defs/gamesystems/env-systems-defs.js";
 import { hubSystemDefs } from "../../defs/gamesystems/hub-system-defs.js";
 import { pawnSystemDefs } from "../../defs/gamesystems/pawn-systems-defs.js";
+import {
+  buildRecipePriorityFromSelectedRecipe,
+  getEnabledRecipeIds,
+  getTopEnabledRecipeId,
+  normalizeRecipePriority,
+} from "../../model/recipe-priority.js";
 
 const SYSTEM_GRAPH_COLORS = [
   0x7fd0ff,
@@ -434,11 +440,30 @@ function buildHubSystemLegendTooltipSpec(cursorState, col, systemId) {
   }
 
   if (systemId === "fireplace" || systemId === "workspace") {
-    const recipeId = typeof sysState?.selectedRecipeId === "string" ? sysState.selectedRecipeId : null;
-    const recipeName = recipeId ? recipeDefs?.[recipeId]?.name || recipeId : "None";
+    const normalizedPriority = normalizeRecipePriority(sysState?.recipePriority, {
+      systemId,
+      state: null,
+      includeLocked: true,
+    });
+    const fallbackSelected =
+      typeof sysState?.selectedRecipeId === "string" ? sysState.selectedRecipeId : null;
+    const priority =
+      normalizedPriority.ordered.length > 0
+        ? normalizedPriority
+        : buildRecipePriorityFromSelectedRecipe(fallbackSelected, {
+            systemId,
+            state: null,
+            includeLocked: true,
+          });
+    const enabled = getEnabledRecipeIds(priority);
+    const topRecipeId = getTopEnabledRecipeId(priority);
+    const topRecipeName = topRecipeId
+      ? recipeDefs?.[topRecipeId]?.name || topRecipeId
+      : "None";
     const processes = Array.isArray(sysState?.processes) ? sysState.processes.length : 0;
     lines.push(`Tier: ${tier}`);
-    lines.push(`Recipe: ${recipeName}`);
+    lines.push(`Recipes enabled: ${enabled.length}`);
+    lines.push(`Top priority: ${topRecipeName}`);
     lines.push(`Active processes: ${processes}`);
     return { title, lines };
   }

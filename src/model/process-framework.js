@@ -7,7 +7,12 @@ import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { TIER_ASC, getTierRank } from "./effects/core/tiers.js";
-import { computeAvailableRecipesAndBuildings } from "./skills.js";
+import {
+  ensureRecipePriorityState,
+  getEnabledRecipeIds,
+  getTopEnabledRecipeId,
+  isRecipeSystem,
+} from "./recipe-priority.js";
 import {
   findEquippedPoolProviderEntry,
   ownerHasEquippedPoolProvider,
@@ -204,30 +209,22 @@ function getProcessDisplayName(process, recipeDef) {
   return kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
-function listRecipeIdsByKind(kind, state = null) {
-  const ids = Object.keys(recipeDefs || {});
-  ids.sort((a, b) => a.localeCompare(b));
-  const availability = state ? computeAvailableRecipesAndBuildings(state) : null;
-  return ids
-    .filter((id) => recipeDefs?.[id]?.kind === kind)
-    .filter((id) => !availability || availability.recipeIds?.has(id));
-}
-
 function getRecipeIdForSystem(target, systemId, state = null) {
   if (!target || !systemId) return null;
-  if (systemId !== "fireplace" && systemId !== "workspace") return null;
-  const desiredKind = systemId === "fireplace" ? "cook" : "craft";
-  const selected = target?.systemState?.[systemId]?.selectedRecipeId;
-  const availability = state ? computeAvailableRecipesAndBuildings(state) : null;
-  if (
-    selected &&
-    recipeDefs?.[selected]?.kind === desiredKind &&
-    (!availability || availability.recipeIds?.has(selected))
-  ) {
+  if (!isRecipeSystem(systemId)) return null;
+  const systemState = target?.systemState?.[systemId];
+  const priority = ensureRecipePriorityState(systemState, {
+    systemId,
+    state,
+    includeLocked: false,
+  });
+  const topEnabled = getTopEnabledRecipeId(priority);
+  if (topEnabled) return topEnabled;
+  const selected = systemState?.selectedRecipeId;
+  if (selected && getEnabledRecipeIds(priority).includes(selected)) {
     return selected;
   }
-  const ids = listRecipeIdsByKind(desiredKind, state);
-  return ids.length > 0 ? ids[0] : null;
+  return null;
 }
 
 function buildInputSlotsForProcess(kind, opts = {}) {

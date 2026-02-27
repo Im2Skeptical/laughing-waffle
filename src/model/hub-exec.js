@@ -7,6 +7,11 @@ import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import {
+  ensureRecipePriorityState,
+  getEnabledRecipeIds,
+  isRecipeSystem,
+} from "./recipe-priority.js";
+import {
   INITIAL_POPULATION_DEFAULT,
   POPULATION_GROWTH_FULL_FEED_RATE,
   POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER,
@@ -48,6 +53,35 @@ function hasProcess(structure, systemId, type) {
   const processes = Array.isArray(sys?.processes) ? sys.processes : [];
   if (!type) return processes.length > 0;
   return processes.some((p) => p && p.type === type);
+}
+
+function resolveProcessTypesFromPriorityState(structure, systemId, key) {
+  if (!structure || !systemId || !key) return [];
+  const systemState = structure?.systemState?.[systemId];
+  if (!systemState || typeof systemState !== "object") return [];
+  const raw = systemState[key];
+  if (!raw || typeof raw !== "object") return [];
+  if (isRecipeSystem(systemId) && key === "recipePriority") {
+    const priority = ensureRecipePriorityState(systemState, {
+      systemId,
+      state: null,
+      includeLocked: true,
+    });
+    return getEnabledRecipeIds(priority);
+  }
+  const ordered = Array.isArray(raw.ordered) ? raw.ordered : [];
+  const enabled =
+    raw.enabled && typeof raw.enabled === "object" ? raw.enabled : {};
+  const out = [];
+  for (const entry of ordered) {
+    const processType =
+      typeof entry === "string" && entry.length > 0 ? entry : null;
+    if (!processType) continue;
+    if (enabled[processType] === false) continue;
+    if (out.includes(processType)) continue;
+    out.push(processType);
+  }
+  return out;
 }
 
 function requirementsPass(requires, seasonKey, structure, hasPawn, isTagUnlocked = null) {
@@ -97,16 +131,29 @@ function requirementsPass(requires, seasonKey, structure, hasPawn, isTagUnlocked
 
   const processSystem =
     typeof requires.processSystem === "string" ? requires.processSystem : null;
-  const recipeKey =
+  const processTypePriorityKey =
+    typeof requires.processTypeFromSystemPriorityKey === "string"
+      ? requires.processTypeFromSystemPriorityKey
+      : null;
+  const processTypeKey =
     typeof requires.processTypeFromSystemKey === "string"
       ? requires.processTypeFromSystemKey
       : "selectedRecipeId";
-  const selectedRecipeId =
-    processSystem && structure?.systemState?.[processSystem]
-      ? structure.systemState[processSystem][recipeKey]
-      : null;
+  const selectedProcessTypes = processTypePriorityKey
+    ? resolveProcessTypesFromPriorityState(
+        structure,
+        processSystem,
+        processTypePriorityKey
+      )
+    : [];
+  const selectedProcessType =
+    selectedProcessTypes.length > 0
+      ? selectedProcessTypes[0]
+      : processSystem && structure?.systemState?.[processSystem]
+        ? structure.systemState[processSystem][processTypeKey]
+        : null;
   const hasSelectedRecipe =
-    typeof selectedRecipeId === "string" && selectedRecipeId.length > 0;
+    typeof selectedProcessType === "string" && selectedProcessType.length > 0;
 
   if (typeof requires.hasSelectedRecipe === "boolean") {
     if (requires.hasSelectedRecipe !== hasSelectedRecipe) return false;
@@ -114,11 +161,29 @@ function requirementsPass(requires, seasonKey, structure, hasPawn, isTagUnlocked
 
   if (requires.hasSelectedProcessType === true) {
     if (!hasSelectedRecipe) return false;
-    if (!hasProcess(structure, processSystem, selectedRecipeId)) return false;
+    if (selectedProcessTypes.length > 0) {
+      let hasAny = false;
+      for (const type of selectedProcessTypes) {
+        if (hasProcess(structure, processSystem, type)) {
+          hasAny = true;
+          break;
+        }
+      }
+      if (!hasAny) return false;
+    } else if (!hasProcess(structure, processSystem, selectedProcessType)) {
+      return false;
+    }
   }
 
   if (requires.noSelectedProcessType === true) {
-    if (hasSelectedRecipe && hasProcess(structure, processSystem, selectedRecipeId)) {
+    if (selectedProcessTypes.length > 0) {
+      for (const type of selectedProcessTypes) {
+        if (hasProcess(structure, processSystem, type)) return false;
+      }
+    } else if (
+      hasSelectedRecipe &&
+      hasProcess(structure, processSystem, selectedProcessType)
+    ) {
       return false;
     }
   }
@@ -1201,6 +1266,17 @@ function resolveProcessTypeFromSystem(structure, effect) {
   return typeof selected === "string" && selected.length > 0 ? selected : null;
 }
 
+function resolveProcessTypeListFromSystem(structure, effect) {
+  if (!effect || typeof effect !== "object") return [];
+  const systemId = typeof effect.system === "string" ? effect.system : null;
+  if (!systemId) return [];
+  const key =
+    typeof effect.processTypeFromSystemPriorityKey === "string"
+      ? effect.processTypeFromSystemPriorityKey
+      : "recipePriority";
+  return resolveProcessTypesFromPriorityState(structure, systemId, key);
+}
+
 function resolveIntentEffect(effect, structure) {
   if (!effect) return null;
   if (Array.isArray(effect)) {
@@ -1211,15 +1287,52 @@ function resolveIntentEffect(effect, structure) {
   }
   if (typeof effect !== "object") return effect;
 
-  if (!effect.processTypeFromSystemKey) return effect;
+  const hasPrioritySource = !!effect.processTypeFromSystemPriorityKey;
+  const hasSingleSource = !!effect.processTypeFromSystemKey;
+  if (!hasPrioritySource && !hasSingleSource) return effect;
 
-  const processType = resolveProcessTypeFromSystem(structure, effect);
-  if (!processType) return null;
+  const resolved = { ...effect };
+  if (hasPrioritySource) {
+    const processTypeList = resolveProcessTypeListFromSystem(structure, effect);
+    if (processTypeList.length === 0) return null;
+    resolved.processTypeList = processTypeList;
+    if (resolved.op === "CreateWorkProcess") {
+      const systemId = typeof resolved.system === "string" ? resolved.system : null;
+      const queueKey = resolved.queueKey || "processes";
+      const existingProcesses = Array.isArray(
+        structure?.systemState?.[systemId]?.[queueKey]
+      )
+        ? structure.systemState[systemId][queueKey]
+        : [];
+      const existingTypes = new Set(
+        existingProcesses
+          .map((proc) =>
+            typeof proc?.type === "string" && proc.type.length > 0
+              ? proc.type
+              : null
+          )
+          .filter(Boolean)
+      );
+      const chosen =
+        resolved.uniqueType === true
+          ? processTypeList.find((type) => !existingTypes.has(type)) || null
+          : processTypeList[0] || null;
+      if (!chosen) return null;
+      resolved.processType = chosen;
+    }
+  }
 
-  const resolved = { ...effect, processType };
+  if (!resolved.processType && hasSingleSource) {
+    const processType = resolveProcessTypeFromSystem(structure, effect);
+    if (!processType) return null;
+    resolved.processType = processType;
+  }
+
   if (resolved.op === "CreateWorkProcess") {
+    const processType =
+      typeof resolved.processType === "string" ? resolved.processType : null;
     const durationMissing = !Number.isFinite(resolved.durationSec);
-    if (durationMissing) {
+    if (durationMissing && processType) {
       const recipe = recipeDefs?.[processType] || null;
       if (recipe && Number.isFinite(recipe.durationSec)) {
         resolved.durationSec = recipe.durationSec;
@@ -1240,9 +1353,18 @@ function canAdvanceWorkEffect(state, structure, effect) {
     ? structure.systemState[systemId][queueKey]
     : [];
   if (processes.length === 0) return true;
-  const matches = effect.processType
-    ? processes.filter((proc) => proc?.type === effect.processType)
-    : processes.slice();
+  const processTypeList = Array.isArray(effect.processTypeList)
+    ? effect.processTypeList
+        .filter((type) => typeof type === "string" && type.length > 0)
+        .filter((type, idx, arr) => arr.indexOf(type) === idx)
+    : [];
+  const matches = processTypeList.length > 0
+    ? processTypeList
+        .map((type) => processes.find((proc) => proc?.type === type))
+        .filter(Boolean)
+    : effect.processType
+      ? processes.filter((proc) => proc?.type === effect.processType)
+      : processes.slice();
   if (matches.length === 0) return true;
   for (const proc of matches) {
     if (canProcessOutputsProceed(state, structure, proc, systemId)) return true;

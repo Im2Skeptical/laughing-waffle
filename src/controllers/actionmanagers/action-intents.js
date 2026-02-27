@@ -100,15 +100,49 @@ export function makeHubTagOrderIntent(spec = {}) {
   };
 }
 
+function cloneRecipePriority(value) {
+  if (!value || typeof value !== "object") {
+    return { ordered: [], enabled: {} };
+  }
+  const ordered = Array.isArray(value.ordered)
+    ? value.ordered.filter((id) => typeof id === "string" && id.length > 0)
+    : [];
+  const enabled = {};
+  for (const recipeId of ordered) {
+    enabled[recipeId] = value?.enabled?.[recipeId] === false ? false : true;
+  }
+  return { ordered, enabled };
+}
+
+function getTopRecipeId(recipePriority) {
+  const ordered = Array.isArray(recipePriority?.ordered)
+    ? recipePriority.ordered
+    : [];
+  const enabled =
+    recipePriority?.enabled && typeof recipePriority.enabled === "object"
+      ? recipePriority.enabled
+      : {};
+  for (const recipeId of ordered) {
+    if (!recipeId) continue;
+    if (enabled[recipeId] === false) continue;
+    return recipeId;
+  }
+  return null;
+}
+
 export function makeHubRecipeSelectIntent(spec = {}) {
+  const recipePriority = cloneRecipePriority(spec.recipePriority);
+  const baselineRecipePriority = cloneRecipePriority(spec.baselineRecipePriority);
   return {
     kind: IntentKinds.HUB_RECIPE_SELECT,
     id: spec.id ?? null,
     subjectKey: spec.subjectKey ?? null,
     hubCol: spec.hubCol ?? null,
     systemId: spec.systemId ?? null,
-    recipeId: spec.recipeId ?? null,
-    baselineRecipeId: spec.baselineRecipeId ?? null,
+    recipePriority,
+    baselineRecipePriority,
+    recipeId: getTopRecipeId(recipePriority),
+    baselineRecipeId: getTopRecipeId(baselineRecipePriority),
     apCostOverride: spec.apCostOverride ?? null,
     source: spec.source ?? "planner",
   };

@@ -296,6 +296,7 @@ export function createBoardView(opts) {
     dropdownLayer: cropDropdownLayer,
     flashActionGhost,
     getGameState,
+    onOpenRecipeWidget: (view, systemId) => handleSystemIconClick(view, systemId),
   });
   let tagUi = null;
   let tileTagDragController = null;

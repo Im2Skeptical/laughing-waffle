@@ -23,6 +23,7 @@ export function createHubPanels(opts) {
     dropdownLayer,
     flashActionGhost,
     getGameState,
+    onOpenRecipeWidget,
   } = opts;
 
   const recipeDropdown = createRecipeDropdown(dropdownLayer, app);
@@ -64,6 +65,10 @@ export function createHubPanels(opts) {
   }
 
   function openRecipeDropdown(view, systemId, anchorRect) {
+    if (typeof onOpenRecipeWidget === "function") {
+      onOpenRecipeWidget(view, systemId, anchorRect);
+      return;
+    }
     if (!recipeDropdown || !view?.structure || !systemId) return;
     const structure = view.structure;
     const options = getRecipeList(systemId);

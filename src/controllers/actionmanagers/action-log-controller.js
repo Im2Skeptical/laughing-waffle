@@ -10,6 +10,14 @@ import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
 import { skillNodes } from "../../defs/gamepieces/skill-tree-defs.js";
 import { ActionKinds } from "../../model/actions.js";
+import {
+  buildRecipePriorityFromSelectedRecipe,
+  buildRecipePrioritySignature,
+  getEnabledRecipeIds,
+  getRecipeKindForHubSystem,
+  getTopEnabledRecipeId,
+  normalizeRecipePriority,
+} from "../../model/recipe-priority.js";
 import { IntentKinds } from "./action-intents.js";
 import {
   getCurrencyGroupInfo,
@@ -29,6 +37,32 @@ function formatCropName(cropId) {
 function formatRecipeName(recipeId) {
   if (!recipeId) return "None";
   return recipeDefs[recipeId]?.name || recipeDefs[recipeId]?.id || recipeId;
+}
+
+function normalizeRecipePriorityForLog(systemId, value, fallbackRecipeId = null) {
+  if (value && typeof value === "object") {
+    return normalizeRecipePriority(value, {
+      systemId,
+      state: null,
+      includeLocked: true,
+    });
+  }
+  return buildRecipePriorityFromSelectedRecipe(fallbackRecipeId, {
+    systemId,
+    state: null,
+    includeLocked: true,
+  });
+}
+
+function formatRecipePriorityLabel(systemId, recipePriority) {
+  const enabled = getEnabledRecipeIds(recipePriority);
+  const topRecipeId = getTopEnabledRecipeId(recipePriority);
+  const topLabel = formatRecipeName(topRecipeId);
+  if (enabled.length <= 0) {
+    const kind = getRecipeKindForHubSystem(systemId);
+    return kind === "cook" ? "0 enabled (Cooking paused)" : "0 enabled (Crafting paused)";
+  }
+  return `${enabled.length} enabled (Top: ${topLabel})`;
 }
 
 function formatEnvTagName(tagId) {
@@ -146,8 +180,13 @@ function getHubPlanIntentSignature(intent) {
     return `toggle:${intent.tagId ?? ""}:${intent.disabled === true}`;
   }
   if (intent.kind === IntentKinds.HUB_RECIPE_SELECT) {
-    const recipe = intent.recipeId ?? "none";
-    return `recipe:${intent.systemId ?? ""}:${recipe}`;
+    const priority = normalizeRecipePriorityForLog(
+      intent.systemId ?? null,
+      intent.recipePriority,
+      intent.recipeId ?? null
+    );
+    const sig = buildRecipePrioritySignature(priority);
+    return `recipe:${intent.systemId ?? ""}:${sig}`;
   }
   return intent.kind || "";
 }
@@ -228,8 +267,13 @@ function describeIntent(intent, state, getOwnerLabel) {
     }
     case IntentKinds.HUB_RECIPE_SELECT: {
       const hubName = formatHubName(intent.hubCol, state);
-      const recipeName = formatRecipeName(intent.recipeId);
-      return `Recipe > ${hubName}: ${recipeName}`;
+      const priority = normalizeRecipePriorityForLog(
+        intent.systemId ?? null,
+        intent.recipePriority,
+        intent.recipeId ?? null
+      );
+      const summary = formatRecipePriorityLabel(intent.systemId ?? null, priority);
+      return `Recipes > ${hubName}: ${summary}`;
     }
     default:
       return intent.kind || "Action";
@@ -649,8 +693,13 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       desc = `Crop > ${tileName}: ${cropName}`;
     } else if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) {
       const hubName = formatHubName(payload.hubCol, state);
-      const recipeName = formatRecipeName(payload.recipeId);
-      desc = `Recipe > ${hubName}: ${recipeName}`;
+      const priority = normalizeRecipePriorityForLog(
+        payload.systemId ?? null,
+        payload.recipePriority,
+        payload.recipeId ?? null
+      );
+      const summary = formatRecipePriorityLabel(payload.systemId ?? null, priority);
+      desc = `Recipes > ${hubName}: ${summary}`;
     } else if (kind === ActionKinds.UNLOCK_SKILL_NODE) {
       const leaderPawnId =
         payload.leaderPawnId != null

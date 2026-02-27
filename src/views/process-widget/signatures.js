@@ -124,12 +124,13 @@ export function createProcessWidgetSignatures({
     target,
     entries,
     systemId,
-    recipeId = "none"
+    recipePrioritySignature = "none",
+    recipeFocusId = "none"
   ) {
     const templateSig = buildRoutingTemplateSignature(target, systemId);
     const candidateSig = buildTemplateCandidateSignature(state, target, systemId);
     const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `recipe:${systemId}:${targetKey}:${recipeId}:${templateSig}:${candidateSig}:${baseSig}`;
+    return `recipe:${systemId}:${targetKey}:${recipePrioritySignature}:${recipeFocusId}:${templateSig}:${candidateSig}:${baseSig}`;
   }
 
   return {

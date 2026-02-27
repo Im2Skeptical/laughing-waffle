@@ -182,6 +182,7 @@ export function createProcessWidgetProcessCardBuilder({
       : [];
 
     let outputSelectionControl = null;
+    const disableOutputSelectionControl = opts.disableOutputSelectionControl === true;
     if (variant === "growing") {
       const cropId = target?.systemState?.growth?.selectedCropId ?? null;
       outputSelectionControl = {
@@ -189,7 +190,7 @@ export function createProcessWidgetProcessCardBuilder({
         enabled: true,
         onOpen: (bounds) => openGrowthSelectionDropdown(target, bounds),
       };
-    } else if (isRecipeSystem(processSystemId)) {
+    } else if (!disableOutputSelectionControl && isRecipeSystem(processSystemId)) {
       const recipeId = getSelectedRecipeId(target, processSystemId);
       outputSelectionControl = {
         label: formatRecipeName(recipeId),
@@ -215,12 +216,41 @@ export function createProcessWidgetProcessCardBuilder({
 
     const forceModules =
       opts.forceModules instanceof Set ? opts.forceModules : null;
+    const hiddenModuleIds =
+      opts.hiddenModuleIds instanceof Set ? opts.hiddenModuleIds : null;
+    const customModuleBuilders =
+      opts.customModuleBuilders && typeof opts.customModuleBuilders === "object"
+        ? opts.customModuleBuilders
+        : null;
+    if (forceModules) {
+      for (const moduleId of forceModules) {
+        if (typeof moduleId !== "string" || moduleId.length <= 0) continue;
+        if (!modules.includes(moduleId)) modules.push(moduleId);
+      }
+    }
     const filteredModules = modules.filter((id) => {
+      if (hiddenModuleIds?.has(id)) return false;
       if (forceModules?.has(id)) return true;
       if (id === "requirements") return reqs.length > 0;
       if (id === "output") return isGrowthGroup ? true : outputs.length > 0;
       return true;
     });
+
+    let preModuleHeight = 0;
+    if (typeof opts.preModuleBuilder === "function") {
+      const preModuleContainer = new PIXI.Container();
+      preModuleContainer.x = 0;
+      preModuleContainer.y = 0;
+      central.addChild(preModuleContainer);
+      const builtHeight = opts.preModuleBuilder({
+        container: preModuleContainer,
+        width: centralWidth,
+      });
+      preModuleHeight = Number.isFinite(builtHeight)
+        ? Math.max(0, Math.floor(builtHeight))
+        : Math.max(0, Math.ceil(preModuleContainer.height || 0));
+    }
+    const moduleStartY = preModuleHeight > 0 ? preModuleHeight + MODULE_GAP : 0;
 
     const moduleCount = filteredModules.length || 1;
     const moduleWidth = Math.floor(
@@ -234,11 +264,26 @@ export function createProcessWidgetProcessCardBuilder({
     for (const id of filteredModules) {
       const mod = new PIXI.Container();
       mod.x = moduleX;
-      mod.y = 0;
+      mod.y = moduleStartY;
       central.addChild(mod);
 
       let height = 0;
-      if (id === "progress") {
+      if (typeof customModuleBuilders?.[id] === "function") {
+        const customHeight = customModuleBuilders[id]({
+          container: mod,
+          width: moduleWidth,
+          state,
+          target,
+          entry,
+          process,
+          processDef,
+          outputs,
+          reqs,
+          variant,
+          isPreview,
+        });
+        height = Number.isFinite(customHeight) ? Math.max(0, Math.floor(customHeight)) : 0;
+      } else if (id === "progress") {
         if (isGrowthGroup) {
           height = buildGrowthProgressModule({
             container: mod,
@@ -318,14 +363,15 @@ export function createProcessWidgetProcessCardBuilder({
       moduleX += moduleWidth + MODULE_GAP;
     }
 
+    const moduleTotalHeight = moduleStartY + moduleMaxHeight;
     central.y = BODY_PAD;
-    central.height = moduleMaxHeight;
+    central.height = moduleTotalHeight;
 
     let leftDrawer = null;
     let rightDrawer = null;
     const drawerHeightTarget = Math.max(
       bodyHeightTarget,
-      moduleMaxHeight,
+      moduleTotalHeight,
       showDropbox ? DROPBOX_SIZE + 18 : 0
     );
 
@@ -387,7 +433,7 @@ export function createProcessWidgetProcessCardBuilder({
     const rightHeight = rightDrawer?.container?.height || 0;
     const dropboxHeight = showDropbox ? DROPBOX_SIZE + 18 : 0;
     const bodyContentHeight = Math.max(
-      moduleMaxHeight,
+      moduleTotalHeight,
       leftHeight,
       rightHeight,
       dropboxHeight,

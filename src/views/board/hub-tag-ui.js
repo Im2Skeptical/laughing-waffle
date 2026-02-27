@@ -9,6 +9,12 @@ import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import { TIER_ASC } from "../../model/effects/core/tiers.js";
 import { hasHubTagUnlock } from "../../model/skills.js";
+import {
+  buildRecipePriorityFromSelectedRecipe,
+  getEnabledRecipeIds,
+  getTopEnabledRecipeId,
+  normalizeRecipePriority,
+} from "../../model/recipe-priority.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
@@ -129,6 +135,29 @@ export function createHubTagUi(opts) {
   function formatRecipeName(recipeId) {
     if (!recipeId) return "select recipe";
     return recipeDefs?.[recipeId]?.name || recipeId;
+  }
+
+  function getRecipePrioritySummary(systemId, systemState) {
+    const normalized = normalizeRecipePriority(systemState?.recipePriority, {
+      systemId,
+      state: null,
+      includeLocked: true,
+    });
+    const fallbackSelected =
+      typeof systemState?.selectedRecipeId === "string" && systemState.selectedRecipeId.length > 0
+        ? systemState.selectedRecipeId
+        : null;
+    const priority =
+      normalized.ordered.length > 0
+        ? normalized
+        : buildRecipePriorityFromSelectedRecipe(fallbackSelected, {
+            systemId,
+            state: null,
+            includeLocked: true,
+          });
+    const enabled = getEnabledRecipeIds(priority);
+    const topId = getTopEnabledRecipeId(priority);
+    return { enabledCount: enabled.length, topId };
   }
 
   function getTagTooltipLines(tagId) {
@@ -801,10 +830,15 @@ export function createHubTagUi(opts) {
     }
 
     if (isRecipeSystem(systemId)) {
-      const selected =
-        structure?.systemState?.[systemId]?.selectedRecipeId ?? null;
-      row.labelText.text = formatRecipeName(selected);
-      drawSystemBar(row, selected ? 1 : 0, row.uiColor);
+      const systemState = structure?.systemState?.[systemId] || {};
+      const summary = getRecipePrioritySummary(systemId, systemState);
+      if (summary.enabledCount <= 0) {
+        row.labelText.text = "No recipes";
+        drawSystemBar(row, 0, row.uiColor);
+        return;
+      }
+      row.labelText.text = `${summary.enabledCount} on: ${formatRecipeName(summary.topId)}`;
+      drawSystemBar(row, 1, row.uiColor);
       return;
     }
 

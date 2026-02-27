@@ -2,6 +2,7 @@
 // Pure AP cost estimation helpers for planner intents.
 
 import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
+import { recipePrioritiesEqual } from "../../model/recipe-priority.js";
 import {
   getCurrencyGroupInfo,
   getItemQuantity,
@@ -135,7 +136,9 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
       return INTENT_AP_COSTS.tileCropSelect ?? 0;
     }
     case "hubRecipeSelect": {
-      if ((intent.recipeId ?? null) === (intent.baselineRecipeId ?? null)) return 0;
+      if (recipePrioritiesEqual(intent.recipePriority, intent.baselineRecipePriority)) {
+        return 0;
+      }
       return INTENT_AP_COSTS.hubRecipeSelect ?? INTENT_AP_COSTS.hubPlan ?? 0;
     }
     default:

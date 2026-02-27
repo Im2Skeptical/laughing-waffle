@@ -12,6 +12,10 @@ import {
   parseProcessDropboxOwnerId,
 } from "../owner-id-protocol.js";
 import { ensureHubSystemState } from "./system-state-helpers.js";
+import {
+  ensureRecipePriorityState,
+  getTopEnabledRecipeId,
+} from "../recipe-priority.js";
 
 function cloneRequirementEntries(requirements) {
   const list = Array.isArray(requirements) ? requirements : [];
@@ -167,7 +171,19 @@ function getRequirementsViewForProcess(state, process, target, systemId) {
 function isRecipeSystemIdleProcess(process, target, systemId) {
   if (!process || !target || !systemId) return false;
   if (systemId !== "fireplace" && systemId !== "workspace") return false;
-  const selectedRecipeId = target?.systemState?.[systemId]?.selectedRecipeId ?? null;
+  const systemState = target?.systemState?.[systemId] ?? null;
+  const selectedRecipeIdRaw =
+    typeof systemState?.selectedRecipeId === "string" &&
+    systemState.selectedRecipeId.length > 0
+      ? systemState.selectedRecipeId
+      : null;
+  if (selectedRecipeIdRaw) return false;
+  const priority = ensureRecipePriorityState(systemState, {
+    systemId,
+    state: null,
+    includeLocked: true,
+  });
+  const selectedRecipeId = getTopEnabledRecipeId(priority);
   return !selectedRecipeId;
 }
 

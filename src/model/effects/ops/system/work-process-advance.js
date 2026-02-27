@@ -23,6 +23,215 @@ import {
   rollQualityTier,
 } from "./work-process-completion.js";
 
+function getProcessTypePriorityList(effect) {
+  const raw = Array.isArray(effect?.processTypeList) ? effect.processTypeList : [];
+  const out = [];
+  for (const entry of raw) {
+    const processType =
+      typeof entry === "string" && entry.length > 0 ? entry : null;
+    if (!processType) continue;
+    if (out.includes(processType)) continue;
+    out.push(processType);
+  }
+  return out;
+}
+
+function resetProcessForRepeat(process) {
+  if (!process || typeof process !== "object") return false;
+  let changed = false;
+  if ((process.progress ?? 0) !== 0) {
+    process.progress = 0;
+    changed = true;
+  }
+  const requirements = Array.isArray(process.requirements) ? process.requirements : [];
+  for (const req of requirements) {
+    if (!req || typeof req !== "object") continue;
+    if ((req.progress ?? 0) !== 0) {
+      req.progress = 0;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function advanceSingleProcess({
+  state,
+  effect,
+  context,
+  target,
+  systemState,
+  systemId,
+  process,
+  deltaTime,
+  poolKey,
+} = {}) {
+  if (!process) return { changed: false, keep: true, progressed: false };
+
+  let changed = false;
+  let progressed = false;
+
+  const processDef = getProcessDefForInstance(process, target, context);
+  if (processDef) {
+    const routingContext = { ...(context || {}), target, systemId };
+    ensureProcessRoutingState(process, processDef, routingContext);
+    seedRoutingWithCandidates(state, target, process, processDef, routingContext);
+    ensureProcessRequirements(process, processDef);
+  }
+
+  const durationSec = Math.max(1, Math.floor(process.durationSec ?? 0));
+  const mode = process.mode === "work" ? "work" : "time";
+
+  let inc = deltaTime;
+  let hubWorkers = null;
+  if (mode === "work") {
+    if (typeof effect.workersFrom === "string") {
+      const workersFrom = effect.workersFrom;
+      let workers = 0;
+      if (workersFrom === "envCol") {
+        workers = countEnvWorkers(state, context?.envCol);
+      } else if (workersFrom === "hubAnchor") {
+        hubWorkers = resolveHubWorkers(state, target, context);
+        workers = hubWorkers.length;
+      } else {
+        workers = 1;
+      }
+      inc = Math.max(0, Math.floor(workers));
+    } else {
+      const amtRaw = Number.isFinite(effect.amount) ? effect.amount : 1;
+      inc = Math.max(0, Math.floor(amtRaw));
+    }
+  }
+
+  if (!processDef && !areRequirementsComplete(process)) {
+    return { changed, keep: true, progressed: false };
+  }
+
+  if (processDef && !areRequirementsComplete(process)) {
+    const reqRes = advanceProcessRequirements(
+      state,
+      target,
+      process,
+      processDef,
+      inc,
+      context
+    );
+    if (reqRes.changed) {
+      changed = true;
+      progressed = true;
+    }
+    if (!reqRes.done) {
+      return { changed, keep: true, progressed };
+    }
+  }
+
+  const cur = Number.isFinite(process.progress) ? process.progress : 0;
+  const next = cur + inc;
+  if (next !== cur) {
+    process.progress = next;
+    changed = true;
+    progressed = true;
+  }
+
+  if (next !== cur && hubWorkers && effect.workerCost) {
+    if (applyWorkerCost(hubWorkers, effect.workerCost)) {
+      changed = true;
+    }
+  }
+
+  if (next < durationSec) {
+    return { changed, keep: true, progressed };
+  }
+
+  const policy = process.completionPolicy || "none";
+  if (policy === "cropGrowth") {
+    const { def } = resolveEffectDef(
+      { defRegistry: process.defRegistry, defId: process.defId },
+      target,
+      context
+    );
+    if (def) {
+      const hydrationTier = getTierValueForSystem(target, "hydration");
+      const fertilityTier = getTierValueForSystem(target, "fertility");
+      const hydrationState = target.systemState?.hydration || {};
+      const sumRatio = Number.isFinite(hydrationState.sumRatio)
+        ? hydrationState.sumRatio
+        : 0;
+      const sumAtStart = Number.isFinite(process.sumAtStart)
+        ? process.sumAtStart
+        : 0;
+      const rAvg = clamp((sumRatio - sumAtStart) / durationSec, 0, 1);
+
+      const curveSource = envSystemDefs[systemId];
+      const curveByTier = curveSource?.hydrationCurveByTier || null;
+      const curve =
+        curveByTier?.[hydrationTier] ||
+        curveByTier?.silver ||
+        { A: 1, P: 1 };
+      const factor =
+        (Number.isFinite(curve?.A) ? curve.A : 1) *
+        Math.pow(rAvg, Number.isFinite(curve?.P) ? curve.P : 1);
+
+      const inputAmount = Math.max(0, Math.floor(process.inputAmount ?? 0));
+      const baseYield = Number.isFinite(def.baseYieldMultiplier)
+        ? def.baseYieldMultiplier
+        : 1;
+      const maturedUnits = Math.floor(inputAmount * baseYield * factor);
+      if (maturedUnits > 0) {
+        const table =
+          def?.qualityTablesByFertilityTier?.[fertilityTier] ??
+          def?.qualityTablesByFertilityTier?.silver ??
+          [];
+        const pool = systemState[process.poolKey || poolKey];
+        for (let i = 0; i < maturedUnits; i++) {
+          const tier = rollQualityTier(state, table);
+          pool[tier] = (pool[tier] ?? 0) + 1;
+        }
+      }
+    }
+    changed = true;
+    return { changed, keep: false, progressed: true };
+  }
+
+  if (policy === "build") {
+    if (finalizeBuildProcess(state, target, process)) {
+      changed = true;
+    }
+    return { changed, keep: false, progressed: true };
+  }
+
+  if (processDef) {
+    if (applyProcessOutputs(state, target, process, processDef, context)) {
+      changed = true;
+    }
+  } else if (Array.isArray(process.outputs)) {
+    for (const out of process.outputs) {
+      if (!out?.kind) continue;
+      handleSpawnItem(
+        state,
+        {
+          op: "SpawnItem",
+          itemKind: out.kind,
+          amount: Number.isFinite(out.qty) ? out.qty : 1,
+          perOwner: true,
+          target: { kind: "tileOccupants" },
+        },
+        context
+      );
+    }
+    changed = true;
+  }
+
+  const shouldRepeat = policy === "repeat" || process.repeat === true;
+  if (shouldRepeat) {
+    if (resetProcessForRepeat(process)) {
+      changed = true;
+    }
+    return { changed, keep: true, progressed: true };
+  }
+
+  return { changed, keep: false, progressed: true };
+}
+
 export function handleAdvanceWorkProcess(state, effect, context) {
   const systemId = effect.system;
   if (!systemId || typeof systemId !== "string") return false;
@@ -33,6 +242,7 @@ export function handleAdvanceWorkProcess(state, effect, context) {
   const deltaTime = Number.isFinite(effect.deltaSec)
     ? Math.max(1, Math.floor(effect.deltaSec))
     : 1;
+  const processTypePriority = getProcessTypePriorityList(effect);
 
   let changed = false;
   for (const target of targets) {
@@ -47,7 +257,6 @@ export function handleAdvanceWorkProcess(state, effect, context) {
     }
     if (processes.length === 0) continue;
 
-    // ensure pool exists for cropGrowth completion
     const poolKey = effect.poolKey || "maturedPool";
     if (!systemState[poolKey] || typeof systemState[poolKey] !== "object") {
       systemState[poolKey] = {
@@ -58,6 +267,43 @@ export function handleAdvanceWorkProcess(state, effect, context) {
       };
     }
 
+    if (processTypePriority.length > 0) {
+      const removedProcessIds = new Set();
+      for (const processType of processTypePriority) {
+        const process = processes.find(
+          (entry) =>
+            entry &&
+            entry.type === processType &&
+            !removedProcessIds.has(entry.id)
+        );
+        if (!process) continue;
+        const res = advanceSingleProcess({
+          state,
+          effect,
+          context,
+          target,
+          systemState,
+          systemId,
+          process,
+          deltaTime,
+          poolKey,
+        });
+        if (res.changed) changed = true;
+        if (!res.keep && process?.id != null) {
+          removedProcessIds.add(process.id);
+        }
+        if (res.progressed) break;
+      }
+
+      if (removedProcessIds.size > 0) {
+        systemState[queueKey] = processes.filter(
+          (proc) => !removedProcessIds.has(proc?.id)
+        );
+        changed = true;
+      }
+      continue;
+    }
+
     const nextQueue = [];
     for (const process of processes) {
       if (!process) continue;
@@ -65,154 +311,20 @@ export function handleAdvanceWorkProcess(state, effect, context) {
         nextQueue.push(process);
         continue;
       }
-
-      const processDef = getProcessDefForInstance(process, target, context);
-      if (processDef) {
-        const routingContext = { ...(context || {}), target, systemId };
-        ensureProcessRoutingState(process, processDef, routingContext);
-        seedRoutingWithCandidates(state, target, process, processDef, routingContext);
-        ensureProcessRequirements(process, processDef);
-      }
-
-      const durationSec = Math.max(1, Math.floor(process.durationSec ?? 0));
-      const mode = process.mode === "work" ? "work" : "time";
-
-      let inc = deltaTime;
-      let hubWorkers = null;
-      if (mode === "work") {
-        // If workersFrom is explicitly provided, use worker counting.
-        // Otherwise, treat this as a per-pawn contribution call and use effect.amount.
-        if (typeof effect.workersFrom === "string") {
-          const workersFrom = effect.workersFrom;
-          let workers = 0;
-          if (workersFrom === "envCol") {
-            workers = countEnvWorkers(state, context?.envCol);
-          } else if (workersFrom === "hubAnchor") {
-            hubWorkers = resolveHubWorkers(state, target, context);
-            workers = hubWorkers.length;
-          } else {
-            workers = 1;
-          }
-          inc = Math.max(0, Math.floor(workers));
-        } else {
-          const amtRaw = Number.isFinite(effect.amount) ? effect.amount : 1;
-          inc = Math.max(0, Math.floor(amtRaw));
-        }
-      }
-
-      if (!processDef && !areRequirementsComplete(process)) {
+      const res = advanceSingleProcess({
+        state,
+        effect,
+        context,
+        target,
+        systemState,
+        systemId,
+        process,
+        deltaTime,
+        poolKey,
+      });
+      if (res.changed) changed = true;
+      if (res.keep) {
         nextQueue.push(process);
-        continue;
-      }
-      if (processDef && !areRequirementsComplete(process)) {
-        const reqRes = advanceProcessRequirements(
-          state,
-          target,
-          process,
-          processDef,
-          inc,
-          context
-        );
-        if (reqRes.changed) changed = true;
-        if (!reqRes.done) {
-          nextQueue.push(process);
-          continue;
-        }
-      }
-
-      const cur = Number.isFinite(process.progress) ? process.progress : 0;
-      const next = cur + inc;
-      if (next !== cur) {
-        process.progress = next;
-        changed = true;
-      }
-
-      if (next !== cur && hubWorkers && effect.workerCost) {
-        if (applyWorkerCost(hubWorkers, effect.workerCost)) {
-          changed = true;
-        }
-      }
-
-      if (next < durationSec) {
-        nextQueue.push(process);
-        continue;
-      }
-
-      // complete
-      const policy = process.completionPolicy || "none";
-      if (policy === "cropGrowth") {
-        const { def } = resolveEffectDef(
-          { defRegistry: process.defRegistry, defId: process.defId },
-          target,
-          context
-        );
-        if (def) {
-          const hydrationTier = getTierValueForSystem(target, "hydration");
-          const fertilityTier = getTierValueForSystem(target, "fertility");
-          const hydrationState = target.systemState?.hydration || {};
-          const sumRatio = Number.isFinite(hydrationState.sumRatio)
-            ? hydrationState.sumRatio
-            : 0;
-          const sumAtStart = Number.isFinite(process.sumAtStart)
-            ? process.sumAtStart
-            : 0;
-          const rAvg = clamp((sumRatio - sumAtStart) / durationSec, 0, 1);
-
-          const curveSource = envSystemDefs[systemId];
-          const curveByTier = curveSource?.hydrationCurveByTier || null;
-          const curve =
-            curveByTier?.[hydrationTier] ||
-            curveByTier?.silver ||
-            { A: 1, P: 1 };
-          const factor =
-            (Number.isFinite(curve?.A) ? curve.A : 1) *
-            Math.pow(rAvg, Number.isFinite(curve?.P) ? curve.P : 1);
-
-          const inputAmount = Math.max(0, Math.floor(process.inputAmount ?? 0));
-          const baseYield = Number.isFinite(def.baseYieldMultiplier)
-            ? def.baseYieldMultiplier
-            : 1;
-          const maturedUnits = Math.floor(inputAmount * baseYield * factor);
-          if (maturedUnits > 0) {
-            const table =
-              def?.qualityTablesByFertilityTier?.[fertilityTier] ??
-              def?.qualityTablesByFertilityTier?.silver ??
-              [];
-            const pool = systemState[process.poolKey || poolKey];
-            for (let i = 0; i < maturedUnits; i++) {
-              const tier = rollQualityTier(state, table);
-              pool[tier] = (pool[tier] ?? 0) + 1;
-            }
-          }
-        }
-        changed = true;
-      } else if (policy === "build") {
-        if (finalizeBuildProcess(state, target, process)) {
-          changed = true;
-        }
-      } else {
-        // policy === "none": apply outputs via routing
-        if (processDef) {
-          if (applyProcessOutputs(state, target, process, processDef, context)) {
-            changed = true;
-          }
-        } else if (Array.isArray(process.outputs)) {
-          for (const out of process.outputs) {
-            if (!out?.kind) continue;
-            handleSpawnItem(
-              state,
-              {
-                op: "SpawnItem",
-                itemKind: out.kind,
-                amount: Number.isFinite(out.qty) ? out.qty : 1,
-                perOwner: true,
-                target: { kind: "tileOccupants" },
-              },
-              context
-            );
-          }
-          changed = true;
-        }
       }
     }
 
