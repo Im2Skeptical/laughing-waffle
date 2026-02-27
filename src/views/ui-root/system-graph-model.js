@@ -65,12 +65,69 @@ function getTierValue(defs, systemId, tier) {
 }
 
 function sumMaturedPool(pool) {
-  return (
-    (pool?.bronze ?? 0) +
-    (pool?.silver ?? 0) +
-    (pool?.gold ?? 0) +
-    (pool?.diamond ?? 0)
-  );
+  if (!pool || typeof pool !== "object") return 0;
+  const hasTierKeys =
+    Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+    Object.prototype.hasOwnProperty.call(pool, "silver") ||
+    Object.prototype.hasOwnProperty.call(pool, "gold") ||
+    Object.prototype.hasOwnProperty.call(pool, "diamond");
+  if (hasTierKeys) {
+    return (
+      (pool?.bronze ?? 0) +
+      (pool?.silver ?? 0) +
+      (pool?.gold ?? 0) +
+      (pool?.diamond ?? 0)
+    );
+  }
+  let total = 0;
+  for (const bucket of Object.values(pool)) {
+    if (!bucket || typeof bucket !== "object") continue;
+    total +=
+      (bucket?.bronze ?? 0) +
+      (bucket?.silver ?? 0) +
+      (bucket?.gold ?? 0) +
+      (bucket?.diamond ?? 0);
+  }
+  return total;
+}
+
+function getMaturedPoolBucketForCrop(pool, cropId) {
+  if (!pool || typeof pool !== "object") return null;
+  const hasTierKeys =
+    Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+    Object.prototype.hasOwnProperty.call(pool, "silver") ||
+    Object.prototype.hasOwnProperty.call(pool, "gold") ||
+    Object.prototype.hasOwnProperty.call(pool, "diamond");
+  if (hasTierKeys) return pool;
+  if (typeof cropId !== "string" || cropId.length <= 0) return null;
+  const bucket = pool[cropId];
+  return bucket && typeof bucket === "object" ? bucket : null;
+}
+
+function getMaturedPoolBreakdown(pool, cropId = null) {
+  const bucket = getMaturedPoolBucketForCrop(pool, cropId);
+  if (!bucket || typeof bucket !== "object") {
+    if (!pool || typeof pool !== "object") {
+      return { bronze: 0, silver: 0, gold: 0, diamond: 0, total: 0 };
+    }
+    let bronze = 0;
+    let silver = 0;
+    let gold = 0;
+    let diamond = 0;
+    for (const value of Object.values(pool)) {
+      if (!value || typeof value !== "object") continue;
+      bronze += clampNonNegativeInt(value?.bronze);
+      silver += clampNonNegativeInt(value?.silver);
+      gold += clampNonNegativeInt(value?.gold);
+      diamond += clampNonNegativeInt(value?.diamond);
+    }
+    return { bronze, silver, gold, diamond, total: bronze + silver + gold + diamond };
+  }
+  const bronze = clampNonNegativeInt(bucket?.bronze);
+  const silver = clampNonNegativeInt(bucket?.silver);
+  const gold = clampNonNegativeInt(bucket?.gold);
+  const diamond = clampNonNegativeInt(bucket?.diamond);
+  return { bronze, silver, gold, diamond, total: bronze + silver + gold + diamond };
 }
 
 function clampNonNegativeInt(value) {
@@ -250,19 +307,19 @@ function resolveHubStructureForTooltip(snapshot, col) {
 function buildMaturedLegendTooltipSpec(cursorState, col) {
   const tile = resolveTileForTooltip(cursorState, col);
   const growth = tile?.systemState?.growth || {};
-  const pool = growth?.maturedPool || {};
-  const total = sumMaturedPool(pool);
   const cropId = growth?.selectedCropId ?? null;
   const cropName = cropId ? cropDefs?.[cropId]?.name || cropId : "None";
+  const pool = growth?.maturedPool || {};
+  const breakdown = getMaturedPoolBreakdown(pool, cropId);
   return {
     title: "Matured",
     lines: [
       `Crop: ${cropName}`,
-      `Total: ${total}`,
-      `Diamond: ${clampNonNegativeInt(pool?.diamond)}`,
-      `Gold: ${clampNonNegativeInt(pool?.gold)}`,
-      `Silver: ${clampNonNegativeInt(pool?.silver)}`,
-      `Bronze: ${clampNonNegativeInt(pool?.bronze)}`,
+      `Total: ${breakdown.total}`,
+      `Diamond: ${breakdown.diamond}`,
+      `Gold: ${breakdown.gold}`,
+      `Silver: ${breakdown.silver}`,
+      `Bronze: ${breakdown.bronze}`,
     ],
   };
 }
@@ -347,10 +404,9 @@ function buildEnvSystemLegendTooltipSpec(cursorState, col, systemId) {
       lines.push("Planting: none");
     }
     const pool = growth?.maturedPool || {};
+    const breakdown = getMaturedPoolBreakdown(pool, cropId);
     lines.push(
-      `Matured: ${sumMaturedPool(pool)} (D${clampNonNegativeInt(pool?.diamond)} G${clampNonNegativeInt(
-        pool?.gold
-      )} S${clampNonNegativeInt(pool?.silver)} B${clampNonNegativeInt(pool?.bronze)})`
+      `Matured: ${breakdown.total} (D${breakdown.diamond} G${breakdown.gold} S${breakdown.silver} B${breakdown.bronze})`
     );
     return { title, lines };
   }

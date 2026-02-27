@@ -28,6 +28,9 @@ export function resolveEffectDef(effect, tile, context) {
   if (defId == null && effect.defIdFromVar && context?.vars) {
     defId = context.vars[effect.defIdFromVar];
   }
+  if (defId == null && effect.defIdFromContextKey && context) {
+    defId = context[effect.defIdFromContextKey];
+  }
   if (defId == null && effect.defIdFromSystemKey) {
     const systemId = effect.system || effect.systemId || null;
     const systemState = systemId ? tile?.systemState?.[systemId] : null;

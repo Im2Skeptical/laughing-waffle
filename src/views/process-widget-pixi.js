@@ -110,6 +110,7 @@ const WITHDRAWABLE_POOL_SYSTEM_IDS = new Set([
   "storehouseStore",
   "storage",
 ]);
+const TIER_KEYS = ["bronze", "silver", "gold", "diamond"];
 
 const COLORS = {
   panel: MUCHA_UI_COLORS.surfaces.panelDeep,
@@ -186,6 +187,45 @@ function buildRecipeSkillGateIndex() {
 }
 
 const RECIPE_SKILL_GATE_INDEX = buildRecipeSkillGateIndex();
+
+function isTierBucketPool(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  for (const tier of TIER_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(pool, tier)) return true;
+  }
+  return false;
+}
+
+function getGrowthPoolBucket(pool, cropId = null) {
+  if (!pool || typeof pool !== "object") return null;
+  if (isTierBucketPool(pool)) return pool;
+  if (typeof cropId === "string" && cropId.length > 0) {
+    const bucket = pool[cropId];
+    if (bucket && typeof bucket === "object") return bucket;
+    return null;
+  }
+  return pool;
+}
+
+function getGrowthEntryCropId(entry) {
+  const process = entry?.process || null;
+  if (!process) return null;
+  if (typeof process?.defId === "string" && process.defId.length > 0) {
+    return process.defId;
+  }
+  if (typeof process?.cropId === "string" && process.cropId.length > 0) {
+    return process.cropId;
+  }
+  return null;
+}
+
+function filterGrowthEntriesByCrop(entries, cropId) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (typeof cropId !== "string" || cropId.length <= 0) {
+    return list.slice();
+  }
+  return list.filter((entry) => getGrowthEntryCropId(entry) === cropId);
+}
 
 export function createProcessWidgetView({
   app,
@@ -290,7 +330,6 @@ export function createProcessWidgetView({
     flashActionGhost,
     inventoryView,
     ActionKinds,
-    cropDefs,
     envTileDefs,
     hubStructureDefs,
     getTilePlanCost,
@@ -299,7 +338,6 @@ export function createProcessWidgetView({
     getHubCol,
     isRecipeSystem,
     getRecipePriorityForTarget,
-    getCropOptions,
     getDepositPoolTarget,
     getPoolItemOptions,
     getWithdrawState,
@@ -484,12 +522,11 @@ export function createProcessWidgetView({
       const target = view.target;
       const systemId = view.systemId;
       if (!target || !systemId) return;
-      selectionActions.reorderHubRecipePriority?.(
-        target,
-        systemId,
-        fromIndex,
-        toIndex
-      );
+      if (systemId === "growth") {
+        selectionActions.reorderGrowthSeedPriority?.(target, fromIndex, toIndex);
+        return;
+      }
+      selectionActions.reorderHubRecipePriority?.(target, systemId, fromIndex, toIndex);
     },
     onDragEnd: (view, drag) => {
       view.ignoreNextTap = !!drag?.moved;
@@ -922,7 +959,11 @@ export function createProcessWidgetView({
   }
 
   function isRecipeSystem(systemId) {
-    return systemId === "fireplace" || systemId === "workspace";
+    return (
+      systemId === "fireplace" ||
+      systemId === "workspace" ||
+      systemId === "growth"
+    );
   }
 
   function getTilePlanCost() {
@@ -954,69 +995,6 @@ export function createProcessWidgetView({
     return recipeDefs?.[recipeId]?.name || recipeId;
   }
 
-  function getCropOptions() {
-    const crops = Object.entries(cropDefs || {})
-      .map(([key, crop]) => ({ key, crop }))
-      .filter((entry) => !!entry.crop);
-    return [
-      { value: null, label: "Pause planting", detail: "Planting paused" },
-      ...crops.map(({ key, crop }) => {
-        const cropId =
-          (typeof crop?.cropId === "string" && crop.cropId.length > 0
-            ? crop.cropId
-            : typeof crop?.id === "string" && crop.id.length > 0
-              ? crop.id
-              : key) || null;
-        const seasons = Array.isArray(crop?.plantSeasons)
-          ? crop.plantSeasons.join(", ")
-          : "any";
-        const maturity = Number.isFinite(crop?.maturitySec)
-          ? `${Math.floor(crop.maturitySec)}s`
-          : "?";
-        return {
-          value: cropId,
-          label: crop.name || cropId,
-          detail: `Seasons: ${seasons} | ${maturity}`,
-        };
-      }),
-    ];
-  }
-
-  function getRecipeOptions(systemId) {
-    const kind = systemId === "workspace" ? "craft" : systemId === "fireplace" ? "cook" : null;
-    if (!kind) return [];
-    const state = getStateSafe();
-    const availability = computeAvailableRecipesAndBuildings(state);
-    const list = Object.entries(recipeDefs || {})
-      .map(([key, recipe]) => ({ key, recipe }))
-      .filter((entry) => !!entry.recipe)
-      .filter((entry) => entry.recipe.kind === kind)
-      .filter((entry) => availability.recipeIds?.has(entry.recipe.id))
-      .sort((a, b) =>
-        String(a?.recipe?.name || a?.recipe?.id || a?.key || "").localeCompare(
-          String(b?.recipe?.name || b?.recipe?.id || b?.key || "")
-        )
-      );
-    return [
-      {
-        value: null,
-        label: kind === "craft" ? "Pause crafting" : "Pause cooking",
-        detail: "No recipe selected",
-      },
-      ...list.map(({ key, recipe }) => {
-        const recipeId =
-          (typeof recipe?.id === "string" && recipe.id.length > 0
-            ? recipe.id
-            : key) || null;
-        return {
-          value: recipeId,
-          label: recipe.name || recipeId,
-          detail: formatRecipeDetails(recipe),
-        };
-      }),
-    ];
-  }
-
   function getRecipePriorityForTarget(target, systemId, stateOverride = null) {
     const state = stateOverride || getStateSafe();
     const priority = normalizeRecipePriority(
@@ -1024,7 +1002,10 @@ export function createProcessWidgetView({
       { systemId, state, includeLocked: false }
     );
     if (priority.ordered.length > 0) return priority;
-    const selected = target?.systemState?.[systemId]?.selectedRecipeId ?? null;
+    const selected =
+      systemId === "growth"
+        ? target?.systemState?.growth?.selectedCropId ?? null
+        : target?.systemState?.[systemId]?.selectedRecipeId ?? null;
     return buildRecipePriorityFromSelectedRecipe(selected, {
       systemId,
       state,
@@ -1032,28 +1013,40 @@ export function createProcessWidgetView({
     });
   }
 
-  function buildRecipeEntryMap(entries) {
+  function buildRecipeEntryMap(entries, { systemId = null } = {}) {
     const map = new Map();
     const list = Array.isArray(entries) ? entries : [];
     for (const entry of list) {
-      const recipeId =
-        typeof entry?.process?.type === "string" ? entry.process.type : null;
-      if (!recipeId) continue;
-      if (map.has(recipeId)) continue;
-      map.set(recipeId, entry);
+      const process = entry?.process || null;
+      if (!process) continue;
+      const entryId =
+        systemId === "growth"
+          ? getGrowthEntryCropId(entry)
+          : typeof process?.type === "string" && process.type.length > 0
+            ? process.type
+            : null;
+      if (!entryId) continue;
+      if (map.has(entryId)) continue;
+      map.set(entryId, entry);
     }
     return map;
   }
 
-  function formatRecipeProcessSnapshot(entry) {
+  function formatRecipeProcessSnapshot(entry, { systemId = null } = {}) {
     const process = entry?.process || null;
     if (!process) return "Queued: no active process";
-    const duration = Number.isFinite(process.durationSec)
-      ? Math.max(1, Math.floor(process.durationSec))
-      : 1;
+    const processDef = entry?.processDef || null;
+    const duration = Number.isFinite(processDef?.transform?.durationSec)
+      ? Math.max(1, Math.floor(processDef.transform.durationSec))
+      : Number.isFinite(process.durationSec)
+        ? Math.max(1, Math.floor(process.durationSec))
+        : 1;
     const progress = Number.isFinite(process.progress)
       ? Math.max(0, Math.floor(process.progress))
       : 0;
+    if (systemId === "growth") {
+      return `Progress ${progress}/${duration}`;
+    }
     const reqs = Array.isArray(process.requirements) ? process.requirements : [];
     let reqParts = [];
     if (reqs.length > 0) {
@@ -1070,7 +1063,10 @@ export function createProcessWidgetView({
     return `Progress ${progress}/${duration}${reqText}`;
   }
 
-  function getRecipeSkillGateText(recipeId, unlocked) {
+  function getRecipeSkillGateText(recipeId, unlocked, { systemId = null } = {}) {
+    if (systemId === "growth") {
+      return unlocked ? "Available seed" : "Unavailable seed";
+    }
     const skillNames = RECIPE_SKILL_GATE_INDEX.get(recipeId) || [];
     if (unlocked) {
       if (skillNames.length > 0) return `Unlocked by ${skillNames.join(", ")}`;
@@ -1082,8 +1078,34 @@ export function createProcessWidgetView({
     return "Locked: requires skill unlock";
   }
 
-  function buildRecipeDetailLines(recipe) {
-    if (!recipe) return [];
+  function buildRecipeDetailLines(entryDef, { systemId = null } = {}) {
+    if (!entryDef) return [];
+    if (systemId === "growth") {
+      const crop = entryDef;
+      const seasons = Array.isArray(crop.plantSeasons)
+        ? crop.plantSeasons.join(", ")
+        : "Any";
+      const maturity = Number.isFinite(crop.maturitySec)
+        ? `${Math.floor(crop.maturitySec)}s`
+        : "?";
+      const plantRate = Number.isFinite(crop.plantSeedPerSec)
+        ? `${Math.floor(crop.plantSeedPerSec)}/s`
+        : "?";
+      const harvestRate = Number.isFinite(crop.harvestUnitsPerSec)
+        ? `${Math.floor(crop.harvestUnitsPerSec)}/s`
+        : "?";
+      const baseYield = Number.isFinite(crop.baseYieldMultiplier)
+        ? `${crop.baseYieldMultiplier}x`
+        : "?";
+      return [
+        `Plant seasons: ${seasons}`,
+        `Maturity: ${maturity}`,
+        `Plant rate: ${plantRate}`,
+        `Harvest rate: ${harvestRate}`,
+        `Base yield: ${baseYield}`,
+      ];
+    }
+    const recipe = entryDef;
     const inputs = formatRecipeItemList(recipe.inputs);
     const tools = formatRecipeItemList(recipe.toolRequirements);
     const outputs = formatRecipeItemList(recipe.outputs);
@@ -1105,9 +1127,50 @@ export function createProcessWidgetView({
     kind,
     priority,
     recipeEntryMap,
+    systemId = null,
   } = {}) {
     const listedRows = [];
     const unlistedRows = [];
+    if (systemId === "growth") {
+      const crops = Object.entries(cropDefs || {})
+        .map(([key, crop]) => ({ key, crop }))
+        .filter((entry) => !!entry?.crop);
+      for (const { key, crop } of crops) {
+        const cropId =
+          (typeof crop?.cropId === "string" && crop.cropId.length > 0
+            ? crop.cropId
+            : typeof crop?.id === "string" && crop.id.length > 0
+              ? crop.id
+              : key) || null;
+        if (!cropId) continue;
+        const inList = priority.ordered.includes(cropId);
+        const enabled = priority.enabled?.[cropId] !== false;
+        const processEntry = recipeEntryMap.get(cropId) || null;
+        const row = {
+          id: cropId,
+          name: crop?.name || cropId,
+          kindLabel: "Crop Seed",
+          inList,
+          enabled,
+          actionLabel: inList ? "Remove" : "Add",
+          statusText: inList
+            ? enabled
+              ? "In planting list (enabled)"
+              : "In planting list (disabled)"
+            : "Not listed in planting list",
+          snapshotText: formatRecipeProcessSnapshot(processEntry, { systemId }),
+          gateText: getRecipeSkillGateText(cropId, true, { systemId }),
+          detailLines: buildRecipeDetailLines(crop, { systemId }),
+        };
+        if (inList) listedRows.push(row);
+        else unlistedRows.push(row);
+      }
+      const alphaSort = (a, b) =>
+        String(a?.name || "").localeCompare(String(b?.name || ""));
+      listedRows.sort(alphaSort);
+      unlistedRows.sort(alphaSort);
+      return listedRows.concat(unlistedRows);
+    }
 
     const recipes = Object.entries(recipeDefs || {})
       .map(([key, recipe]) => ({ key, recipe }))
@@ -1137,9 +1200,9 @@ export function createProcessWidgetView({
             ? "In output list (enabled)"
             : "In output list (disabled)"
           : "Not listed in output list",
-        snapshotText: formatRecipeProcessSnapshot(processEntry),
-        gateText: getRecipeSkillGateText(recipeId, true),
-        detailLines: buildRecipeDetailLines(recipe),
+        snapshotText: formatRecipeProcessSnapshot(processEntry, { systemId }),
+        gateText: getRecipeSkillGateText(recipeId, true, { systemId }),
+        detailLines: buildRecipeDetailLines(recipe, { systemId }),
       };
       if (inList) listedRows.push(row);
       else unlistedRows.push(row);
@@ -1161,18 +1224,20 @@ export function createProcessWidgetView({
     const target = resolveTargetFromRef(state, targetRef);
     if (!target) return null;
 
-    const kind = getRecipeKindForHubSystem(systemId);
+    const kind = systemId === "growth" ? "crop" : getRecipeKindForHubSystem(systemId);
     if (!kind) return null;
 
-    const availability = computeAvailableRecipesAndBuildings(state);
+    const availability =
+      systemId === "growth" ? null : computeAvailableRecipesAndBuildings(state);
     const priority = getRecipePriorityForTarget(target, systemId, state);
     const entries = collectProcessEntries(state, target, systemId);
-    const recipeEntryMap = buildRecipeEntryMap(entries);
+    const recipeEntryMap = buildRecipeEntryMap(entries, { systemId });
     const rows = buildRecipeManualRows({
       availability,
       kind,
       priority,
       recipeEntryMap,
+      systemId,
     });
 
     const topEnabledListedId = getTopEnabledRecipeId(priority);
@@ -1187,10 +1252,16 @@ export function createProcessWidgetView({
     }
 
     return {
-      title: `${getTargetLabel(target)} - Recipies`,
+      title:
+        systemId === "growth"
+          ? `${getTargetLabel(target)} - Seeds`
+          : `${getTargetLabel(target)} - Recipies`,
       rows,
       defaultRecipeId,
-      emptyDetailText: "No unlocked recipes are available for this system yet.",
+      emptyDetailText:
+        systemId === "growth"
+          ? "No seeds are available for this system yet."
+          : "No unlocked recipes are available for this system yet.",
     };
   }
 
@@ -1284,24 +1355,6 @@ export function createProcessWidgetView({
         return `${name} x${qty}`;
       })
       .join(", ");
-  }
-
-  function formatRecipeDetails(recipe) {
-    if (!recipe) return "";
-    const inputs = formatRecipeItemList(recipe.inputs);
-    const tools = formatRecipeItemList(recipe.toolRequirements);
-    const outputs = formatRecipeItemList(recipe.outputs);
-    const duration = Number.isFinite(recipe.durationSec)
-      ? recipe.durationSec <= 0
-        ? "Instant"
-        : `${Math.floor(recipe.durationSec)}s`
-      : "?";
-    const parts = [];
-    if (inputs) parts.push(`Inputs: ${inputs}`);
-    if (tools) parts.push(`Tools: ${tools}`);
-    if (outputs) parts.push(`Output: ${outputs}`);
-    parts.push(`Time: ${duration}`);
-    return parts.join(" | ");
   }
 
   function getEndpointLabel(state, endpointId) {
@@ -1871,7 +1924,7 @@ export function createProcessWidgetView({
       buildGrowthOutputModule({
         container: outputMod,
         width: moduleWidth,
-        pool: target?.systemState?.growth?.maturedPool || null,
+        pool: opts.pool ?? target?.systemState?.growth?.maturedPool ?? null,
       })
     );
     collectModuleView(moduleViews, outputMod, moduleWidth);
@@ -1903,7 +1956,46 @@ export function createProcessWidgetView({
     const content = opts.content;
     const dropTargets = opts.dropTargets;
     const cardOpts = opts.cardOpts || {};
+    const win = opts.win || null;
     clearContent(content, dropTargets);
+
+    const priority = getRecipePriorityForTarget(target, "growth", state);
+    const recipeEntryMap = buildRecipeEntryMap(entries, { systemId: "growth" });
+    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap);
+    if (win) {
+      win.recipeFocusId = resolvedFocus;
+    }
+    const recipeViewState = win || { recipeFocusId: resolvedFocus ?? null };
+    const focusedPool = getGrowthPoolBucket(
+      target?.systemState?.growth?.maturedPool || null,
+      resolvedFocus
+    );
+    const focusedEntries = filterGrowthEntriesByCrop(entries, resolvedFocus);
+    const displayedEntries =
+      typeof resolvedFocus === "string" && resolvedFocus.length > 0
+        ? focusedEntries
+        : Array.isArray(entries)
+          ? entries
+          : [];
+    const forceModules = new Set(["progress", "output", "recipePriority"]);
+    const customModuleBuilders = {
+      recipePriority: ({ container, width }) =>
+        buildRecipePriorityModule({
+          container,
+          width,
+          target,
+          systemId: "growth",
+          win: recipeViewState,
+          priority,
+          recipeEntryMap,
+        }),
+      output: ({ container, width }) =>
+        buildGrowthOutputModule({
+          container,
+          width,
+          pool: focusedPool,
+        }),
+    };
 
     if (!Array.isArray(entries) || entries.length === 0) {
       const templateProcess = getTemplateProcessForSystem(target, "growth", {
@@ -1913,7 +2005,10 @@ export function createProcessWidgetView({
         ? getProcessDefForInstance(templateProcess, target, {})
         : null;
       if (!templateDef) {
-        const built = buildGrowthEmptyCard(state, target, cardOpts);
+        const built = buildGrowthEmptyCard(state, target, {
+          ...cardOpts,
+          pool: focusedPool,
+        });
         built.card.y = 0;
         content.addChild(built.card);
         return;
@@ -1930,7 +2025,7 @@ export function createProcessWidgetView({
           ...cardOpts,
           dropTargets,
           groupMode: "growth",
-          groupEntries: [],
+          groupEntries: displayedEntries,
           routingMode: "template",
           routingState,
           routingProcess: templateProcess,
@@ -1939,6 +2034,8 @@ export function createProcessWidgetView({
           routingSystemId: "growth",
           drawerKey: `template:growth:${getTargetKey(target) || "target"}`,
           allowDropbox: false,
+          forceModules,
+          customModuleBuilders,
         }
       );
       built.card.y = 0;
@@ -1946,12 +2043,14 @@ export function createProcessWidgetView({
       return;
     }
 
-    const primary = entries[0];
+    const primary = displayedEntries[0] || entries[0];
     const built = buildProcessCard(state, target, primary, 0, 1, {
       ...cardOpts,
       dropTargets,
       groupMode: "growth",
-      groupEntries: entries,
+      groupEntries: displayedEntries,
+      forceModules,
+      customModuleBuilders,
     });
     built.card.y = 0;
     content.addChild(built.card);
@@ -2237,6 +2336,10 @@ export function createProcessWidgetView({
     if (!state) return;
     const target = resolveTargetFromRef(state, targetRef);
     if (!target) return;
+    if (systemId === "growth") {
+      selectionActions.toggleGrowthSeedPresence?.(target, recipeId);
+      return;
+    }
     selectionActions.toggleRecipePresence?.(target, systemId, recipeId);
   }
 
@@ -2685,7 +2788,14 @@ export function createProcessWidgetView({
     priority,
     recipeEntryMap,
   }) {
-    if (!container || !target || !systemId || !win) return 0;
+    if (!container || !target || !systemId) return 0;
+    const viewState =
+      win && typeof win === "object" ? win : { recipeFocusId: null };
+    const moduleLabel = systemId === "growth" ? "Seeds" : "Recipies";
+    const emptyListLabel =
+      systemId === "growth"
+        ? "No seeds listed. Use Seeds to add."
+        : "No recipes listed. Use Recipies to add.";
     const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
     const enabledMap =
       priority?.enabled && typeof priority.enabled === "object" ? priority.enabled : {};
@@ -2694,7 +2804,7 @@ export function createProcessWidgetView({
     container.addChild(bg);
 
     const manageButton = new PIXI.Container();
-    const manageLabel = new PIXI.Text("Recipies", {
+    const manageLabel = new PIXI.Text(moduleLabel, {
       fill: COLORS.moduleText,
       fontSize: 11,
       fontWeight: "bold",
@@ -2713,7 +2823,11 @@ export function createProcessWidgetView({
     manageButton.addChild(manageBg);
     manageLabel.x = managePadX;
     manageLabel.y = Math.max(0, Math.round((manageBgHeight - manageLabel.height) / 2));
-    fitTextToWidth(manageLabel, "Recipies", Math.max(12, manageBgWidth - managePadX * 2));
+    fitTextToWidth(
+      manageLabel,
+      moduleLabel,
+      Math.max(12, manageBgWidth - managePadX * 2)
+    );
     manageButton.addChild(manageLabel);
     manageButton.eventMode = "static";
     manageButton.cursor = "pointer";
@@ -2745,7 +2859,7 @@ export function createProcessWidgetView({
 
     for (const recipeId of ordered) {
       const enabled = enabledMap[recipeId] !== false;
-      const isFocused = win.recipeFocusId === recipeId;
+      const isFocused = viewState.recipeFocusId === recipeId;
       const row = new PIXI.Container();
       row.eventMode = "static";
       row.cursor = "grab";
@@ -2764,9 +2878,10 @@ export function createProcessWidgetView({
       rowBg.endFill();
       row.addChild(rowBg);
 
-      const recipeName = formatRecipeName(recipeId);
+      const recipeName =
+        systemId === "growth" ? formatCropName(recipeId) : formatRecipeName(recipeId);
       const processEntry = recipeEntryMap.get(recipeId);
-      const snapshot = formatRecipeProcessSnapshot(processEntry);
+      const snapshot = formatRecipeProcessSnapshot(processEntry, { systemId });
       const fullLabel = `${recipeName} - ${snapshot}`;
       const textColor = enabled ? COLORS.pillText : COLORS.pillTextDisabled;
 
@@ -2798,8 +2913,8 @@ export function createProcessWidgetView({
           pillView.ignoreNextTap = false;
           return;
         }
-        if (win.recipeFocusId === recipeId) return;
-        win.recipeFocusId = recipeId;
+        if (viewState.recipeFocusId === recipeId) return;
+        viewState.recipeFocusId = recipeId;
         invalidateAllSignatures();
       });
 
@@ -2808,7 +2923,7 @@ export function createProcessWidgetView({
 
     let contentY = pillContainer.y;
     if (ordered.length <= 0) {
-      const emptyText = new PIXI.Text("No recipes listed. Use Recipies to add.", {
+      const emptyText = new PIXI.Text(emptyListLabel, {
         fill: COLORS.moduleSub,
         fontSize: 10,
         wordWrap: true,
@@ -2853,7 +2968,7 @@ export function createProcessWidgetView({
     clearContent(content, dropTargets);
 
     const priority = getRecipePriorityForTarget(target, systemId, state);
-    const recipeEntryMap = buildRecipeEntryMap(entries);
+    const recipeEntryMap = buildRecipeEntryMap(entries, { systemId });
     const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap);
     if (win) {
       win.recipeFocusId = resolvedFocus;
@@ -3214,6 +3329,7 @@ export function createProcessWidgetView({
             rebuildGrowthWidget(state, target, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
+              win,
               cardOpts: {
                 dragTarget: win.container,
                 pinned: win.pinned,

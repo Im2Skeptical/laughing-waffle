@@ -189,6 +189,7 @@ function normalizeCommittedIntentBaseline(intent) {
   }
 
   if (next.kind === IntentKinds.TILE_CROP_SELECT) {
+    next.baselineRecipePriority = cloneRecipePriority(next.recipePriority);
     next.baselineCropId = next.cropId ?? null;
     return next;
   }
@@ -246,6 +247,21 @@ function getCurrentRecipePriority(structure, systemId, state) {
   const selected = structure?.systemState?.[systemId]?.selectedRecipeId ?? null;
   return buildRecipePriorityFromSelectedRecipe(selected, {
     systemId,
+    state,
+    includeLocked: false,
+  });
+}
+
+function getCurrentTileCropPriority(tile, state) {
+  const fromState = normalizeRecipePriority(tile?.systemState?.growth?.recipePriority, {
+    systemId: "growth",
+    state,
+    includeLocked: false,
+  });
+  if (fromState.ordered.length > 0) return fromState;
+  const selected = tile?.systemState?.growth?.selectedCropId ?? null;
+  return buildRecipePriorityFromSelectedRecipe(selected, {
+    systemId: "growth",
     state,
     includeLocked: false,
   });
@@ -632,13 +648,19 @@ export function createActionPlanner({
         if (!Number.isFinite(envCol)) continue;
         const col = Math.floor(envCol);
         const subjectKey = `tileCrop:${col}`;
-        const cropId = normalizeCropId(payload.cropId);
+        const recipePriority = normalizeRecipePriorityPayload(
+          {
+            recipePriority: payload.recipePriority,
+            recipeId: normalizeCropId(payload.cropId),
+          },
+          { systemId: "growth", state: getStateSafe() }
+        );
         const intent = makeTileCropSelectIntent({
           id: subjectKey,
           subjectKey,
           envCol: col,
-          cropId,
-          baselineCropId: cropId,
+          recipePriority,
+          baselineRecipePriority: recipePriority,
           apCostOverride: normalizeApCost(action.apCost ?? payload.apCost),
           source: "timeline",
         });
@@ -1619,7 +1641,7 @@ export function createActionPlanner({
     return structure?.tagStates?.[tagId]?.disabled === true;
   }
 
-  function setTileCropSelectionIntent({ envCol, cropId }) {
+  function setTileCropSelectionIntent({ envCol, cropId, recipePriority }) {
     ensureActive();
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
@@ -1640,25 +1662,52 @@ export function createActionPlanner({
     if (nextCropId && !cropDefs[nextCropId]) {
       return { ok: false, reason: "badCropId" };
     }
+    if (recipePriority && typeof recipePriority === "object") {
+      const orderedRaw = Array.isArray(recipePriority.ordered)
+        ? recipePriority.ordered
+        : [];
+      for (const rawId of orderedRaw) {
+        const cropIdFromPriority = normalizeCropId(rawId);
+        if (!cropIdFromPriority) continue;
+        if (!cropDefs[cropIdFromPriority]) {
+          return { ok: false, reason: "badCropId" };
+        }
+      }
+    }
+
+    const nextCropPriority = normalizeRecipePriorityPayload(
+      {
+        recipePriority,
+        recipeId: nextCropId,
+      },
+      { systemId: "growth", state }
+    );
 
     const subjectKey = `tileCrop:${col}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
-    const tileCropId = tile.systemState?.growth?.selectedCropId ?? null;
-    const baselineCropId =
-      existing?.baselineCropId ?? existing?.cropId ?? tileCropId;
+    const currentCropPriority = getCurrentTileCropPriority(tile, state);
+    const baselineCropPriority =
+      existing?.baselineRecipePriority ??
+      existing?.recipePriority ??
+      currentCropPriority;
 
     const intent = makeTileCropSelectIntent({
       id: subjectKey,
       subjectKey,
       envCol: col,
-      cropId: nextCropId,
-      baselineCropId,
+      recipePriority: nextCropPriority,
+      baselineRecipePriority: baselineCropPriority,
       apCostOverride:
         existing?.source === "timeline" ? null : existing?.apCostOverride ?? null,
       source: existing?.source ?? "planner",
     });
 
-    if ((intent.cropId ?? null) === (intent.baselineCropId ?? null)) {
+    if (
+      recipePrioritiesEqual(
+        intent.recipePriority,
+        intent.baselineRecipePriority
+      )
+    ) {
       return removeIntentByKey(subjectKey);
     }
 
@@ -1893,6 +1942,7 @@ export function createActionPlanner({
           payload: {
             envCol: Math.floor(intent.envCol),
             cropId: intent.cropId ?? null,
+            recipePriority: cloneRecipePriority(intent.recipePriority),
           },
           apCost,
         });

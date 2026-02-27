@@ -219,7 +219,7 @@ export const envEventDefs = {
         merge: true,
         value: {
           processes: [],
-          maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+          maturedPool: {},
         },
       },
       { op: "DisableTag", target: { ref: "self", layer: "tile" }, tag: "farmable" },
@@ -253,7 +253,7 @@ export const envEventDefs = {
         merge: true,
         value: {
           processes: [],
-          maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+          maturedPool: {},
         },
       },
     ],

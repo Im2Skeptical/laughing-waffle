@@ -1,4 +1,5 @@
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
+import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { computeAvailableRecipesAndBuildings } from "./skills.js";
 
 export function getRecipeKindForHubSystem(systemId) {
@@ -7,8 +8,15 @@ export function getRecipeKindForHubSystem(systemId) {
   return null;
 }
 
+export function getRecipeKindForSystem(systemId) {
+  const hubKind = getRecipeKindForHubSystem(systemId);
+  if (hubKind) return hubKind;
+  if (systemId === "growth") return "crop";
+  return null;
+}
+
 export function isRecipeSystem(systemId) {
-  return getRecipeKindForHubSystem(systemId) != null;
+  return getRecipeKindForSystem(systemId) != null;
 }
 
 function normalizeRecipeId(value) {
@@ -17,8 +25,23 @@ function normalizeRecipeId(value) {
 }
 
 function buildAllowedRecipeIdSet(systemId, state = null, opts = {}) {
-  const kind = getRecipeKindForHubSystem(systemId);
+  const kind = getRecipeKindForSystem(systemId);
   if (!kind) return new Set();
+  if (kind === "crop") {
+    const out = new Set();
+    for (const [key, def] of Object.entries(cropDefs || {})) {
+      if (!def || typeof def !== "object") continue;
+      const cropId =
+        (typeof def.cropId === "string" && def.cropId.length > 0
+          ? def.cropId
+          : typeof def.id === "string" && def.id.length > 0
+            ? def.id
+            : key) || null;
+      if (!cropId) continue;
+      out.add(cropId);
+    }
+    return out;
+  }
   const includeLocked = opts?.includeLocked === true;
   const availability =
     state && !includeLocked ? computeAvailableRecipesAndBuildings(state) : null;
@@ -143,7 +166,8 @@ export function ensureRecipePriorityState(
     includeLocked,
   });
   if (normalized.ordered.length === 0) {
-    const selectedRecipeId = normalizeRecipeId(systemState.selectedRecipeId);
+    const selectedKey = systemId === "growth" ? "selectedCropId" : "selectedRecipeId";
+    const selectedRecipeId = normalizeRecipeId(systemState[selectedKey]);
     if (selectedRecipeId) {
       const fromSelected = buildRecipePriorityFromSelectedRecipe(selectedRecipeId, {
         systemId,

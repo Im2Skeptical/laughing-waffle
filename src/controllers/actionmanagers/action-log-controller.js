@@ -65,6 +65,16 @@ function formatRecipePriorityLabel(systemId, recipePriority) {
   return `${enabled.length} enabled (Top: ${topLabel})`;
 }
 
+function formatCropPriorityLabel(recipePriority) {
+  const enabled = getEnabledRecipeIds(recipePriority);
+  const topCropId = getTopEnabledRecipeId(recipePriority);
+  const topLabel = formatCropName(topCropId);
+  if (enabled.length <= 0) {
+    return "0 enabled (Planting paused)";
+  }
+  return `${enabled.length} enabled (Top: ${topLabel})`;
+}
+
 function formatEnvTagName(tagId) {
   if (!tagId) return "Tag";
   return envTagDefs[tagId]?.ui?.name || tagId;
@@ -164,8 +174,13 @@ function getTilePlanIntentSignature(intent) {
     return `toggle:${intent.tagId ?? ""}:${intent.disabled === true}`;
   }
   if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
-    const crop = intent.cropId ?? "none";
-    return `crop:${crop}`;
+    const priority = normalizeRecipePriorityForLog(
+      "growth",
+      intent.recipePriority,
+      intent.cropId ?? null
+    );
+    const sig = buildRecipePrioritySignature(priority);
+    return `crop:${sig}`;
   }
   return intent.kind || "";
 }
@@ -262,8 +277,13 @@ function describeIntent(intent, state, getOwnerLabel) {
     }
     case IntentKinds.TILE_CROP_SELECT: {
       const tileName = formatTileName(intent.envCol, state);
-      const cropName = formatCropName(intent.cropId);
-      return `Crop > ${tileName}: ${cropName}`;
+      const priority = normalizeRecipePriorityForLog(
+        "growth",
+        intent.recipePriority,
+        intent.cropId ?? null
+      );
+      const summary = formatCropPriorityLabel(priority);
+      return `Seeds > ${tileName}: ${summary}`;
     }
     case IntentKinds.HUB_RECIPE_SELECT: {
       const hubName = formatHubName(intent.hubCol, state);
@@ -689,8 +709,13 @@ function buildActionRowSpecs(actions, state, getOwnerLabel) {
       desc = `Tag ${tagName} > ${hubName}: ${status}`;
     } else if (kind === ActionKinds.SET_TILE_CROP_SELECTION) {
       const tileName = formatTileName(payload.envCol, state);
-      const cropName = formatCropName(payload.cropId);
-      desc = `Crop > ${tileName}: ${cropName}`;
+      const priority = normalizeRecipePriorityForLog(
+        "growth",
+        payload.recipePriority,
+        payload.cropId ?? null
+      );
+      const summary = formatCropPriorityLabel(priority);
+      desc = `Seeds > ${tileName}: ${summary}`;
     } else if (kind === ActionKinds.SET_HUB_RECIPE_SELECTION) {
       const hubName = formatHubName(payload.hubCol, state);
       const priority = normalizeRecipePriorityForLog(

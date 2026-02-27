@@ -1,5 +1,9 @@
 import { envSystemDefs } from "../../defs/gamesystems/env-systems-defs.js";
 import { hubSystemDefs } from "../../defs/gamesystems/hub-system-defs.js";
+import {
+  ensureRecipePriorityState,
+  getTopEnabledRecipeId,
+} from "../recipe-priority.js";
 
 export function cloneSerializable(value) {
   if (value == null || typeof value !== "object") return value;
@@ -24,12 +28,16 @@ export function ensureSystemState(tile, systemId) {
 
 export function ensureGrowthState(tile) {
   const growth = ensureSystemState(tile, "growth");
-  if (!Object.prototype.hasOwnProperty.call(growth, "selectedCropId")) {
-    growth.selectedCropId = null;
-  }
+  const priority = ensureRecipePriorityState(growth, {
+    systemId: "growth",
+    state: null,
+    includeLocked: true,
+  });
+  const topCropId = getTopEnabledRecipeId(priority);
+  growth.selectedCropId = topCropId ?? null;
   if (!Array.isArray(growth.processes)) growth.processes = [];
   if (!growth.maturedPool || typeof growth.maturedPool !== "object") {
-    growth.maturedPool = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
+    growth.maturedPool = {};
   }
   return growth;
 }

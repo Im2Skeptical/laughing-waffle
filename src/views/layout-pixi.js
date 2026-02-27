@@ -257,7 +257,7 @@ export const VIEW_LAYOUT = {
       envStructureWidth: 90,
       envStructureHeight: 74,
       tileWidth: 90,
-      tileHeight: 128,
+      tileHeight: 150,
       eventToEnvGap: 14,
       envToTileGap: 14,
     },

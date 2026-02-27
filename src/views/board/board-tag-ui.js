@@ -77,6 +77,10 @@ const SYSTEM_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
 const SYSTEM_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
+const SYSTEM_BUTTON_BG = MUCHA_UI_COLORS.surfaces.panel;
+const SYSTEM_BUTTON_BORDER = MUCHA_UI_COLORS.surfaces.border;
+const SYSTEM_BUTTON_FILL = MUCHA_UI_COLORS.accents.sageDark;
+const SYSTEM_BUTTON_TEXT = MUCHA_UI_COLORS.ink.primary;
 
 const TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 const TIER_METAL_GRADIENTS = Object.freeze({
@@ -139,7 +143,6 @@ export function createTagUi(opts) {
   const {
     interaction,
     tooltipView,
-    openCropDropdown,
     getGameState,
     startTagDrag,
     setTextResolution,
@@ -219,6 +222,10 @@ export function createTagUi(opts) {
     return def?.ui?.name || tagId;
   }
 
+  function isOrdersButtonSystem(tagId, systemId) {
+    return tagId === "farmable" && systemId === "growth";
+  }
+
   function isTagUnlocked(tagId) {
     if (typeof tagId !== "string" || !tagId.length) return false;
     const state = getGameState?.();
@@ -246,12 +253,58 @@ export function createTagUi(opts) {
   }
 
   function sumMaturedPool(pool) {
-    return (
-      (pool?.bronze ?? 0) +
-      (pool?.silver ?? 0) +
-      (pool?.gold ?? 0) +
-      (pool?.diamond ?? 0)
-    );
+    if (!pool || typeof pool !== "object") return 0;
+    if (
+      Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+      Object.prototype.hasOwnProperty.call(pool, "silver") ||
+      Object.prototype.hasOwnProperty.call(pool, "gold") ||
+      Object.prototype.hasOwnProperty.call(pool, "diamond")
+    ) {
+      return (
+        (pool?.bronze ?? 0) +
+        (pool?.silver ?? 0) +
+        (pool?.gold ?? 0) +
+        (pool?.diamond ?? 0)
+      );
+    }
+    let total = 0;
+    for (const bucket of Object.values(pool)) {
+      if (!bucket || typeof bucket !== "object") continue;
+      total +=
+        (bucket?.bronze ?? 0) +
+        (bucket?.silver ?? 0) +
+        (bucket?.gold ?? 0) +
+        (bucket?.diamond ?? 0);
+    }
+    return total;
+  }
+
+  function getMaturedPoolBucketForCrop(pool, cropId) {
+    if (!pool || typeof pool !== "object") return null;
+    if (
+      Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+      Object.prototype.hasOwnProperty.call(pool, "silver") ||
+      Object.prototype.hasOwnProperty.call(pool, "gold") ||
+      Object.prototype.hasOwnProperty.call(pool, "diamond")
+    ) {
+      return pool;
+    }
+    if (typeof cropId === "string" && cropId.length > 0) {
+      const bucket = pool[cropId];
+      if (bucket && typeof bucket === "object") return bucket;
+    }
+    return null;
+  }
+
+  function getGrowthProcessCropId(process) {
+    if (!process || typeof process !== "object") return null;
+    if (typeof process.defId === "string" && process.defId.length > 0) {
+      return process.defId;
+    }
+    if (typeof process.cropId === "string" && process.cropId.length > 0) {
+      return process.cropId;
+    }
+    return null;
   }
 
   function formatCompactCount(value) {
@@ -488,9 +541,11 @@ export function createTagUi(opts) {
           lines.push(`Quality odds: ${odds}`);
         }
       }
-      const processes = Array.isArray(growth.processes)
-        ? growth.processes
-        : [];
+      const processesRaw = Array.isArray(growth.processes) ? growth.processes : [];
+      const processes =
+        typeof cropId === "string" && cropId.length > 0
+          ? processesRaw.filter((proc) => getGrowthProcessCropId(proc) === cropId)
+          : processesRaw;
       if (processes.length) {
         const oldest = processes.reduce(
           (acc, p) =>
@@ -518,7 +573,7 @@ export function createTagUi(opts) {
       } else {
         lines.push("Planting: none");
       }
-      const pool = growth.maturedPool || {};
+      const pool = getMaturedPoolBucketForCrop(growth.maturedPool, cropId) || {};
       const total =
         (pool.bronze ?? 0) +
         (pool.silver ?? 0) +
@@ -595,8 +650,34 @@ export function createTagUi(opts) {
     }, 160);
   }
 
+  function drawOrdersButton(row) {
+    if (!row) return;
+    row.barFill.clear();
+    const inset = 1;
+    const width = Math.max(0, row.barWidth - inset * 2);
+    const height = Math.max(0, row.barHeight - inset * 2);
+    if (width <= 0 || height <= 0) return;
+    row.barFill.beginFill(SYSTEM_BUTTON_FILL, 0.96);
+    row.barFill.drawRoundedRect(
+      row.barX + inset,
+      row.barY + inset,
+      width,
+      height,
+      Math.max(2, row.barRadius - 1)
+    );
+    row.barFill.endFill();
+    row.barFill.beginFill(0xffffff, 0.12);
+    row.barFill.drawRect(row.barX + inset, row.barY + inset, width, 1);
+    row.barFill.endFill();
+  }
+
   function buildSystemRow(view, systemId, opts = null) {
     const ui = getSystemUi(systemId);
+    const isOrdersButton = opts?.openProcessWidgetButton === true;
+    const processWidgetSystemId =
+      typeof opts?.processSystemId === "string" && opts.processSystemId.length > 0
+        ? opts.processSystemId
+        : systemId;
     const container = new PIXI.Container();
     container.eventMode = "static";
     container.hitArea = new PIXI.Rectangle(
@@ -608,88 +689,77 @@ export function createTagUi(opts) {
     container.on("pointerdown", (ev) => {
       ev?.stopPropagation?.();
     });
-    const icon = new PIXI.Container();
-    icon.eventMode = "static";
-    icon.cursor =
-      onSystemIconClick || onSystemIconHover || onSystemIconOut
-        ? "pointer"
-        : "help";
 
-    const iconBg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
-      .beginFill(ui.color, 1)
-      .drawCircle(
-        SYSTEM_ICON_SIZE / 2,
-        SYSTEM_ROW_HEIGHT / 2,
-        SYSTEM_ICON_SIZE / 2
-      )
-      .endFill();
-    const iconText = new PIXI.Text(ui.icon, {
-      fill: 0xffffff,
-      fontSize: 8,
-      fontWeight: "bold",
-    });
-    applyTextResolution(iconText, 1.5);
-    iconText.anchor.set(0.5, 0.5);
-    iconText.x = SYSTEM_ICON_SIZE / 2;
-    iconText.y = SYSTEM_ROW_HEIGHT / 2;
-    icon.addChild(iconBg, iconText);
-    container.addChild(icon);
+    let icon = null;
+    let iconText = null;
+    if (!isOrdersButton) {
+      icon = new PIXI.Container();
+      icon.eventMode = "static";
+      icon.cursor =
+        onSystemIconClick || onSystemIconHover || onSystemIconOut
+          ? "pointer"
+          : "help";
 
-    const barX = SYSTEM_ICON_SIZE + 6;
-    const barWidth = TAG_PILL_WIDTH - barX - 6;
-    const barY = Math.floor((SYSTEM_ROW_HEIGHT - SYSTEM_BAR_HEIGHT) / 2);
+      const iconBg = new PIXI.Graphics()
+        .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
+        .beginFill(ui.color, 1)
+        .drawCircle(
+          SYSTEM_ICON_SIZE / 2,
+          SYSTEM_ROW_HEIGHT / 2,
+          SYSTEM_ICON_SIZE / 2
+        )
+        .endFill();
+      iconText = new PIXI.Text(ui.icon, {
+        fill: 0xffffff,
+        fontSize: 8,
+        fontWeight: "bold",
+      });
+      applyTextResolution(iconText, 1.5);
+      iconText.anchor.set(0.5, 0.5);
+      iconText.x = SYSTEM_ICON_SIZE / 2;
+      iconText.y = SYSTEM_ROW_HEIGHT / 2;
+      icon.addChild(iconBg, iconText);
+      container.addChild(icon);
+    }
+
+    const barX = isOrdersButton ? 0 : SYSTEM_ICON_SIZE + 6;
+    const barWidth = isOrdersButton ? TAG_PILL_WIDTH : TAG_PILL_WIDTH - barX - 6;
+    const barHeight = isOrdersButton ? SYSTEM_ROW_HEIGHT - 2 : SYSTEM_BAR_HEIGHT;
+    const barY = isOrdersButton
+      ? 1
+      : Math.floor((SYSTEM_ROW_HEIGHT - barHeight) / 2);
+    const barRadius = isOrdersButton ? 5 : SYSTEM_BAR_RADIUS;
 
     const barBg = new PIXI.Graphics()
-      .lineStyle(1, SYSTEM_BAR_BORDER, 0.9)
-      .beginFill(SYSTEM_BAR_BG, 0.95)
+      .lineStyle(1, isOrdersButton ? SYSTEM_BUTTON_BORDER : SYSTEM_BAR_BORDER, 0.9)
+      .beginFill(isOrdersButton ? SYSTEM_BUTTON_BG : SYSTEM_BAR_BG, 0.95)
       .drawRoundedRect(
         barX,
         barY,
         barWidth,
-        SYSTEM_BAR_HEIGHT,
-        SYSTEM_BAR_RADIUS
+        barHeight,
+        barRadius
       )
       .endFill();
     const barFill = new PIXI.Graphics();
     container.addChild(barBg, barFill);
 
     const labelText = new PIXI.Text("", {
-      fill: SYSTEM_BAR_TEXT,
+      fill: isOrdersButton ? SYSTEM_BUTTON_TEXT : SYSTEM_BAR_TEXT,
       fontSize: 9,
     });
     labelText.anchor.set(0.5, 0.5);
     labelText.x = barX + Math.floor(barWidth / 2);
-    labelText.y = barY + Math.floor(SYSTEM_BAR_HEIGHT / 2);
+    labelText.y = barY + Math.floor(barHeight / 2);
     container.addChild(labelText);
 
     const flashOverlay = new PIXI.Graphics();
     flashOverlay.visible = false;
     container.addChild(flashOverlay);
 
-    icon.on("pointerover", () => {
-      onSystemIconHover?.(view, systemId);
-      showTooltipForSystem(
-        view.tile,
-        systemId,
-        icon.getBounds(),
-        getDisplayObjectWorldScale(icon, 1)
-      );
-    });
-    icon.on("pointerout", () => {
-      onSystemIconOut?.(view, systemId);
-      tooltipView?.hide?.();
-    });
-    icon.on("pointerdown", (ev) => {
-      ev?.stopPropagation?.();
-    });
-    icon.on("pointertap", (ev) => {
-      ev?.stopPropagation?.();
-      onSystemIconClick?.(view, systemId);
-    });
-
     const row = {
       systemId,
+      processWidgetSystemId,
       container,
       icon,
       barBg,
@@ -697,6 +767,8 @@ export function createTagUi(opts) {
       barX,
       barWidth,
       barY,
+      barHeight,
+      barRadius,
       labelText,
       iconText,
       uiColor: ui.color,
@@ -707,16 +779,44 @@ export function createTagUi(opts) {
       buildKind: opts?.kind ?? null,
       buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
       buildLabel: opts?.label ?? null,
+      isOrdersButton,
     };
 
-    if (systemId === "growth") {
+    if (isOrdersButton) {
       container.cursor = "pointer";
-      container.on("pointerdown", (ev) => {
-        ev?.stopPropagation?.();
-        requestPauseForAction?.();
-        openCropDropdown?.(view, container.getBounds());
+      container.on("pointerover", () => {
+        onSystemIconHover?.(view, processWidgetSystemId);
       });
+      container.on("pointerout", () => {
+        onSystemIconOut?.(view, processWidgetSystemId);
+      });
+      container.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        onSystemIconClick?.(view, processWidgetSystemId);
+      });
+      return row;
     }
+
+    icon.on("pointerover", () => {
+      onSystemIconHover?.(view, processWidgetSystemId);
+      showTooltipForSystem(
+        view.tile,
+        systemId,
+        icon.getBounds(),
+        getDisplayObjectWorldScale(icon, 1)
+      );
+    });
+    icon.on("pointerout", () => {
+      onSystemIconOut?.(view, processWidgetSystemId);
+      tooltipView?.hide?.();
+    });
+    icon.on("pointerdown", (ev) => {
+      ev?.stopPropagation?.();
+    });
+    icon.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onSystemIconClick?.(view, processWidgetSystemId);
+    });
 
     return row;
   }
@@ -787,6 +887,19 @@ export function createTagUi(opts) {
         sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
       }
     } else {
+      const ordersSystems = systems.filter((systemId) =>
+        isOrdersButtonSystem(tagId, systemId)
+      );
+      for (const systemId of ordersSystems) {
+        const ordersRow = buildSystemRow(view, systemId, {
+          openProcessWidgetButton: true,
+          processSystemId: systemId,
+        });
+        ordersRow.container.y = sysY;
+        systemContainer.addChild(ordersRow.container);
+        systemRows.push(ordersRow);
+        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      }
       for (const systemId of systems) {
         const rowEntry = buildSystemRow(view, systemId);
         rowEntry.container.y = sysY;
@@ -1051,7 +1164,16 @@ export function createTagUi(opts) {
   }
 
   function updateSystemRow(view, row, tileInst) {
+    if (!row) return;
     const systemId = row.systemId;
+    if (!systemId) return;
+
+    if (row.isOrdersButton) {
+      row.labelText.text = "Orders";
+      drawOrdersButton(row);
+      return;
+    }
+
     if (systemId === "build") {
       const process = getBuildProcess(tileInst);
       if (!process) {
@@ -1101,14 +1223,14 @@ export function createTagUi(opts) {
     }
 
     if (systemId === "growth") {
-      row.container.cursor = "pointer";
+      row.container.cursor = "default";
       row.container.alpha = 1;
 
       const growth = tileInst?.systemState?.growth || {};
       const cropId = growth.selectedCropId ?? null;
       const cropDef = cropId ? cropDefs[cropId] : null;
       const cropName = cropDef?.name || cropId || "Crop";
-      const pool = growth.maturedPool || {};
+      const pool = getMaturedPoolBucketForCrop(growth.maturedPool, cropId) || {};
       const maturedTotal = sumMaturedPool(pool);
 
       if (row.lastCropId !== cropId) {
@@ -1135,9 +1257,11 @@ export function createTagUi(opts) {
       }
 
       row.lastMaturedMax = 0;
-      const processes = Array.isArray(growth.processes)
-        ? growth.processes
-        : [];
+      const processesRaw = Array.isArray(growth.processes) ? growth.processes : [];
+      const processes =
+        typeof cropId === "string" && cropId.length > 0
+          ? processesRaw.filter((proc) => getGrowthProcessCropId(proc) === cropId)
+          : processesRaw;
       if (processes.length > 0) {
         const oldest = processes.reduce(
           (acc, p) =>

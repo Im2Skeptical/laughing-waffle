@@ -56,8 +56,9 @@ export const envSystemDefs = {
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
     stateDefaults: {
       selectedCropId: null,
+      recipePriority: { ordered: [], enabled: {} },
       processes: [],
-      maturedPool: { bronze: 0, silver: 0, gold: 0, diamond: 0 },
+      maturedPool: {},
     },
     hydrationCurveByTier: {
       bronze: { A: 0.85, P: 1.8 },

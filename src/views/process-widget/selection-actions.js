@@ -44,7 +44,6 @@ export function createProcessWidgetSelectionActions({
   flashActionGhost,
   inventoryView,
   ActionKinds,
-  cropDefs,
   envTileDefs,
   hubStructureDefs,
   getTilePlanCost,
@@ -53,7 +52,6 @@ export function createProcessWidgetSelectionActions({
   getHubCol,
   isRecipeSystem,
   getRecipePriorityForTarget,
-  getCropOptions,
   getDepositPoolTarget,
   getPoolItemOptions,
   getWithdrawState,
@@ -79,56 +77,125 @@ export function createProcessWidgetSelectionActions({
 
   function openGrowthSelectionDropdown(target, anchorBounds) {
     if (!target) return;
-    const growth = target?.systemState?.growth || {};
-    const selectedId = growth?.selectedCropId ?? null;
-    const envCol = getEnvCol?.(target);
+    if (typeof openRecipeManualWindow === "function") {
+      openRecipeManualWindow(target, "growth", anchorBounds);
+    }
+  }
+
+  function getTopEnabledPriorityId(priority) {
+    const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
+    const enabled = priority?.enabled && typeof priority.enabled === "object"
+      ? priority.enabled
+      : {};
+    for (const id of ordered) {
+      if (!id) continue;
+      if (enabled[id] === false) continue;
+      return id;
+    }
+    return null;
+  }
+
+  function getTileName(target, envCol) {
     const tileDef = target?.defId ? envTileDefs?.[target.defId] : null;
-    const tileName =
+    return (
       tileDef?.name ||
       target?.defId ||
-      (Number.isFinite(envCol) ? `Tile ${envCol}` : "Tile");
-    openSelectionDropdown({
-      options: getCropOptions?.() || [],
-      selectedValue: selectedId,
-      anchorBounds,
-      width: 196,
-      onSelect: (cropId) => {
-        const nextCrop = cropId ?? null;
-        const cropName = cropId != null ? cropDefs?.[cropId]?.name || cropId : "None";
-        const ghostSpec = {
-          description: `Crop > ${tileName}: ${cropName}`,
-          cost: getTilePlanCost?.() ?? 0,
-        };
-        const run = () => {
-          if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
-          if (actionPlanner?.setTileCropSelectionIntent) {
-            const res = actionPlanner.setTileCropSelectionIntent({
-              envCol,
-              cropId: nextCrop,
-            });
-            if (
-              res?.ok === false &&
-              res?.reason === "insufficientAP" &&
-              typeof flashActionGhost === "function"
-            ) {
-              flashActionGhost(ghostSpec, "fail");
-            }
-            return res;
-          }
-          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
-          dispatchAction(
-            ActionKinds.SET_TILE_CROP_SELECTION,
-            { envCol, cropId: nextCrop },
-            { apCost: 10 }
-          );
-          return { ok: true };
-        };
-        if (typeof queueActionWhenPaused === "function") {
-          queueActionWhenPaused(run);
-          return;
+      (Number.isFinite(envCol) ? `Tile ${envCol}` : "Tile")
+    );
+  }
+
+  function getTileCropPriority(target) {
+    const resolved = getRecipePriorityForTarget?.(target, "growth");
+    if (resolved && typeof resolved === "object") {
+      return cloneRecipePriority(resolved);
+    }
+    return cloneRecipePriority(target?.systemState?.growth?.recipePriority);
+  }
+
+  function dispatchTileCropPriorityChange(
+    target,
+    nextPriority,
+    { forceFree = false } = {}
+  ) {
+    if (!target) return { ok: false, reason: "badTarget" };
+    const envCol = getEnvCol?.(target);
+    if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+
+    const currentPriority = getTileCropPriority(target);
+    const normalizedNext = cloneRecipePriority(nextPriority);
+    const unchanged =
+      buildRecipePrioritySignature(currentPriority) ===
+      buildRecipePrioritySignature(normalizedNext);
+    const topCropId = getTopEnabledPriorityId(normalizedNext);
+    const tileName = getTileName(target, envCol);
+    const enabledCount = normalizedNext.ordered.filter(
+      (cropId) => normalizedNext.enabled?.[cropId] !== false
+    ).length;
+    const ghostSpec = {
+      description: `Seeds > ${tileName}: ${enabledCount} enabled`,
+      cost: getTilePlanCost?.() ?? 0,
+    };
+
+    const run = () => {
+      if (actionPlanner?.setTileCropSelectionIntent) {
+        const res = actionPlanner.setTileCropSelectionIntent({
+          envCol,
+          recipePriority: normalizedNext,
+        });
+        if (
+          res?.ok === false &&
+          res?.reason === "insufficientAP" &&
+          typeof flashActionGhost === "function"
+        ) {
+          flashActionGhost(ghostSpec, "fail");
         }
-        run();
-      },
+        return res;
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      dispatchAction(
+        ActionKinds.SET_TILE_CROP_SELECTION,
+        {
+          envCol,
+          cropId: topCropId,
+          recipePriority: normalizedNext,
+        },
+        { apCost: unchanged || forceFree ? 0 : getTilePlanCost?.() ?? 0 }
+      );
+      return { ok: true };
+    };
+
+    if (typeof queueActionWhenPaused === "function") {
+      queueActionWhenPaused(run);
+      return { ok: true, queued: true };
+    }
+    return run();
+  }
+
+  function setTileCropPriority(target, nextPriority, opts = {}) {
+    return dispatchTileCropPriorityChange(target, nextPriority, opts);
+  }
+
+  function toggleGrowthSeedPresence(target, cropId) {
+    if (!cropId) return { ok: false, reason: "badCropId" };
+    const current = getTileCropPriority(target);
+    const next = cloneRecipePriority(current);
+    const hasCrop = next.ordered.includes(cropId);
+    if (hasCrop) {
+      next.ordered = next.ordered.filter((id) => id !== cropId);
+      delete next.enabled[cropId];
+    } else {
+      next.ordered.push(cropId);
+      next.enabled[cropId] = true;
+    }
+    return dispatchTileCropPriorityChange(target, next);
+  }
+
+  function reorderGrowthSeedPriority(target, fromIndex, toIndex) {
+    const current = getTileCropPriority(target);
+    const next = cloneRecipePriority(current);
+    next.ordered = moveArrayEntry(next.ordered, fromIndex, toIndex);
+    return dispatchTileCropPriorityChange(target, next, {
+      forceFree: false,
     });
   }
 
@@ -352,6 +419,10 @@ export function createProcessWidgetSelectionActions({
     openRecipeSelectionDropdown,
     openWithdrawItemDropdown,
     requestPoolWithdraw,
+    setTileCropPriority,
+    toggleGrowthSeedPresence,
+    reorderGrowthSeedPriority,
+    getTileCropPriority,
     setHubRecipePriority,
     toggleHubRecipeEnabled,
     toggleRecipePresence,

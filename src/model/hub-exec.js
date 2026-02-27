@@ -119,13 +119,8 @@ function requirementsPass(requires, seasonKey, structure, hasPawn, isTagUnlocked
 
   if (typeof requires.hasMaturedPool === "boolean") {
     const pool = structure?.systemState?.growth?.maturedPool;
-    const hasPool =
-      pool &&
-      typeof pool === "object" &&
-      ((pool.bronze ?? 0) > 0 ||
-        (pool.silver ?? 0) > 0 ||
-        (pool.gold ?? 0) > 0 ||
-        (pool.diamond ?? 0) > 0);
+    const selectedCropId = structure?.systemState?.growth?.selectedCropId ?? null;
+    const hasPool = hasMaturedPoolForCrop(pool, selectedCropId);
     if (requires.hasMaturedPool !== hasPool) return false;
   }
 
@@ -224,6 +219,40 @@ function requirementsPass(requires, seasonKey, structure, hasPawn, isTagUnlocked
   }
 
   return true;
+}
+
+function hasTieredUnits(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  return (
+    (pool.bronze ?? 0) > 0 ||
+    (pool.silver ?? 0) > 0 ||
+    (pool.gold ?? 0) > 0 ||
+    (pool.diamond ?? 0) > 0
+  );
+}
+
+function resolveMaturedPoolBucket(pool, cropId) {
+  if (!pool || typeof pool !== "object") return null;
+  const hasTierKeys =
+    Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+    Object.prototype.hasOwnProperty.call(pool, "silver") ||
+    Object.prototype.hasOwnProperty.call(pool, "gold") ||
+    Object.prototype.hasOwnProperty.call(pool, "diamond");
+  if (hasTierKeys) return pool;
+  if (typeof cropId !== "string" || cropId.length <= 0) return null;
+  const bucket = pool[cropId];
+  return bucket && typeof bucket === "object" ? bucket : null;
+}
+
+function hasMaturedPoolForCrop(pool, cropId) {
+  const bucket = resolveMaturedPoolBucket(pool, cropId);
+  if (bucket) return hasTieredUnits(bucket);
+  if (!pool || typeof pool !== "object") return false;
+  for (const value of Object.values(pool)) {
+    if (!value || typeof value !== "object") continue;
+    if (hasTieredUnits(value)) return true;
+  }
+  return false;
 }
 
 function isTagDisabled(structure, tagId, isTagUnlocked = null) {

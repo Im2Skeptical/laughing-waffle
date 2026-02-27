@@ -16,6 +16,7 @@ import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
+import { ensureRecipePriorityState, getEnabledRecipeIds } from "./recipe-priority.js";
 import { computeGlobalSkillMods } from "./skills.js";
 
 function chooseArticle(noun) {
@@ -121,13 +122,8 @@ function requirementsPass(requires, seasonKey, tile, hasPawn, isTagUnlocked = nu
 
   if (typeof requires.hasMaturedPool === "boolean") {
     const pool = tile?.systemState?.growth?.maturedPool;
-    const hasPool =
-      pool &&
-      typeof pool === "object" &&
-      ((pool.bronze ?? 0) > 0 ||
-        (pool.silver ?? 0) > 0 ||
-        (pool.gold ?? 0) > 0 ||
-        (pool.diamond ?? 0) > 0);
+    const selectedCropId = tile?.systemState?.growth?.selectedCropId ?? null;
+    const hasPool = hasMaturedPoolForCrop(pool, selectedCropId);
     if (requires.hasMaturedPool !== hasPool) return false;
   }
 
@@ -147,6 +143,83 @@ function requirementsPass(requires, seasonKey, tile, hasPawn, isTagUnlocked = nu
   }
 
   return true;
+}
+
+function hasTieredUnits(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  return (
+    (pool.bronze ?? 0) > 0 ||
+    (pool.silver ?? 0) > 0 ||
+    (pool.gold ?? 0) > 0 ||
+    (pool.diamond ?? 0) > 0
+  );
+}
+
+function resolveMaturedPoolBucket(pool, cropId) {
+  if (!pool || typeof pool !== "object") return null;
+  const hasTierKeys =
+    Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+    Object.prototype.hasOwnProperty.call(pool, "silver") ||
+    Object.prototype.hasOwnProperty.call(pool, "gold") ||
+    Object.prototype.hasOwnProperty.call(pool, "diamond");
+  if (hasTierKeys) return pool;
+  if (typeof cropId !== "string" || cropId.length <= 0) return null;
+  const bucket = pool[cropId];
+  return bucket && typeof bucket === "object" ? bucket : null;
+}
+
+function hasMaturedPoolForCrop(pool, cropId) {
+  const bucket = resolveMaturedPoolBucket(pool, cropId);
+  if (bucket) return hasTieredUnits(bucket);
+  if (!pool || typeof pool !== "object") return false;
+  for (const value of Object.values(pool)) {
+    if (!value || typeof value !== "object") continue;
+    if (hasTieredUnits(value)) return true;
+  }
+  return false;
+}
+
+function resolveIntentSelectedCropCandidates(intent, tile, state, selectedCropId) {
+  const out = [];
+  const seen = new Set();
+  function pushCandidate(cropId) {
+    if (typeof cropId !== "string" || cropId.length <= 0) return;
+    if (seen.has(cropId)) return;
+    seen.add(cropId);
+    out.push(cropId);
+  }
+
+  pushCandidate(selectedCropId);
+  pushCandidate(tile?.systemState?.growth?.selectedCropId ?? null);
+
+  if (intent?.selectedCropFromPriority !== true) {
+    return out;
+  }
+
+  const growth = tile?.systemState?.growth;
+  if (!growth || typeof growth !== "object") return out;
+  const priority = ensureRecipePriorityState(growth, {
+    systemId: "growth",
+    state,
+    includeLocked: true,
+  });
+  const enabled = getEnabledRecipeIds(priority);
+  for (const cropId of enabled) pushCandidate(cropId);
+  return out;
+}
+
+function buildIntentExecutionContexts(intent, baseContext, tile, state) {
+  if (!intent || intent.selectedCropFromPriority !== true) {
+    return [baseContext];
+  }
+  const candidates = resolveIntentSelectedCropCandidates(
+    intent,
+    tile,
+    state,
+    baseContext?.selectedCropId ?? null
+  );
+  if (candidates.length <= 0) return [baseContext];
+  return candidates.map((cropId) => ({ ...baseContext, selectedCropId: cropId }));
 }
 
 function isTagDisabled(tile, tagId, isTagUnlocked = null) {
@@ -1069,30 +1142,41 @@ export function stepEnvSecond(state, tSec) {
           ) {
             continue;
           }
-          let resolvedIntentCost = null;
-          let intentContext = null;
-          if (intent.cost) {
-            intentContext = {
-              ...pawnContext,
-              intentId: intent.id ?? null,
-            };
-            const resolved = resolveCosts(intent.cost, intentContext);
-            if (!resolved) continue;
-            if (!canAffordCosts(resolved, intentContext)) continue;
-            resolvedIntentCost = resolved;
+          const executionContexts = buildIntentExecutionContexts(
+            intent,
+            pawnContext,
+            tile,
+            state
+          );
+          for (const executionContext of executionContexts) {
+            let resolvedIntentCost = null;
+            let intentContext = null;
+            if (intent.cost) {
+              intentContext = {
+                ...executionContext,
+                intentId: intent.id ?? null,
+              };
+              const resolved = resolveCosts(intent.cost, intentContext);
+              if (!resolved) continue;
+              if (!canAffordCosts(resolved, intentContext)) continue;
+              resolvedIntentCost = resolved;
+            }
+            let effectSucceeded = true;
+            if (intent.effect) {
+              effectSucceeded = runEffect(state, intent.effect, {
+                ...executionContext,
+              });
+            }
+            if (!effectSucceeded) {
+              continue;
+            }
+            if (resolvedIntentCost && intentContext) {
+              applyCosts(resolvedIntentCost, intentContext);
+            }
+            executed = true;
+            break;
           }
-          let effectSucceeded = true;
-          if (intent.effect) {
-            effectSucceeded = runEffect(state, intent.effect, { ...pawnContext });
-          }
-          if (!effectSucceeded) {
-            continue;
-          }
-          if (resolvedIntentCost && intentContext) {
-            applyCosts(resolvedIntentCost, intentContext);
-          }
-          executed = true;
-          break;
+          if (executed) break;
         }
         if (executed) break;
       }

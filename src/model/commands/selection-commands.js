@@ -29,7 +29,8 @@ function sanitizeAreaNameInput(name) {
   return trimmed.slice(0, MAX_AREA_NAME_LENGTH);
 }
 
-export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {
+export function cmdSetTileCropSelection(state, payload = {}) {
+  const { envCol, cropId } = payload || {};
   if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
   const col = Math.floor(envCol);
   const tile = state.board?.occ?.tile?.[col];
@@ -42,18 +43,71 @@ export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {
     return { ok: false, reason: "tagLocked" };
   }
 
-  const nextCropId = cropId == null || cropId === "" ? null : String(cropId);
+  const hasPriorityPayload = payload.recipePriority != null;
+  const hasCropIdPayload = Object.prototype.hasOwnProperty.call(payload, "cropId");
+  if (!hasPriorityPayload && !hasCropIdPayload) {
+    return { ok: false, reason: "missingSelectionPayload" };
+  }
+
+  if (hasPriorityPayload) {
+    const recipePriorityRaw = payload.recipePriority;
+    if (recipePriorityRaw && typeof recipePriorityRaw === "object") {
+      const orderedRaw = Array.isArray(recipePriorityRaw.ordered)
+        ? recipePriorityRaw.ordered
+        : [];
+      for (const rawId of orderedRaw) {
+        const cropIdFromPriority =
+          rawId == null || rawId === "" ? null : String(rawId);
+        if (!cropIdFromPriority) continue;
+        if (!cropDefs[cropIdFromPriority]) {
+          return { ok: false, reason: "badCropId", cropId: cropIdFromPriority };
+        }
+      }
+    }
+  }
+
+  const cropIdRaw = hasCropIdPayload ? payload.cropId : cropId;
+  const nextCropId = cropIdRaw == null || cropIdRaw === "" ? null : String(cropIdRaw);
   if (nextCropId && !cropDefs[nextCropId]) {
-    return { ok: false, reason: "badCropId" };
+    return { ok: false, reason: "badCropId", cropId: nextCropId };
   }
 
   const growth = ensureGrowthState(tile);
-  if (growth.selectedCropId === nextCropId) {
-    return { ok: true, result: "cropUnchanged", envCol: col };
+  const currentPriority = ensureRecipePriorityState(growth, {
+    systemId: "growth",
+    state,
+    includeLocked: false,
+  });
+  let nextPriority = { ordered: [], enabled: {} };
+  if (hasPriorityPayload) {
+    nextPriority = normalizeRecipePriority(payload.recipePriority, {
+      systemId: "growth",
+      state,
+      includeLocked: false,
+    });
+  } else {
+    nextPriority = buildRecipePriorityFromSelectedRecipe(nextCropId, {
+      systemId: "growth",
+      state,
+      includeLocked: false,
+    });
+  }
+  const priorityChanged = !recipePrioritiesEqual(currentPriority, nextPriority);
+  if (!priorityChanged) {
+    const cropIdUnchanged = getTopEnabledRecipeId(currentPriority);
+    return {
+      ok: true,
+      result: "cropUnchanged",
+      envCol: col,
+      cropId: cropIdUnchanged,
+      recipePriority: currentPriority,
+    };
   }
 
-  growth.selectedCropId = nextCropId;
-  if (nextCropId) {
+  growth.recipePriority = nextPriority;
+  const topCropId = getTopEnabledRecipeId(nextPriority);
+  growth.selectedCropId = topCropId;
+  if (topCropId) {
     ensureHydrationState(tile);
   }
 
@@ -61,7 +115,8 @@ export function cmdSetTileCropSelection(state, { envCol, cropId } = {}) {
     ok: true,
     result: "cropSelected",
     envCol: col,
-    cropId: nextCropId,
+    cropId: topCropId,
+    recipePriority: nextPriority,
   };
 }
 

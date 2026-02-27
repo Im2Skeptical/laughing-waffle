@@ -132,7 +132,14 @@ export function estimateIntentApCost(intent, { stateStart } = {}) {
       return INTENT_AP_COSTS.hubTagToggle ?? INTENT_AP_COSTS.hubTagOrder ?? 0;
     }
     case "tileCropSelect": {
-      if ((intent.cropId ?? null) === (intent.baselineCropId ?? null)) return 0;
+      if (
+        recipePrioritiesEqual(
+          intent.recipePriority,
+          intent.baselineRecipePriority
+        )
+      ) {
+        return 0;
+      }
       return INTENT_AP_COSTS.tileCropSelect ?? 0;
     }
     case "hubRecipeSelect": {

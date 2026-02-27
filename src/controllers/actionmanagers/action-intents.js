@@ -73,13 +73,36 @@ export function makeTileTagOrderIntent(spec = {}) {
 }
 
 export function makeTileCropSelectIntent(spec = {}) {
+  const recipePriority =
+    spec?.recipePriority && typeof spec.recipePriority === "object"
+      ? cloneRecipePriority(spec.recipePriority)
+      : cloneRecipePriority(
+          spec?.cropId
+            ? { ordered: [spec.cropId], enabled: { [spec.cropId]: true } }
+            : { ordered: [], enabled: {} }
+        );
+  const baselineRecipePriority =
+    spec?.baselineRecipePriority && typeof spec.baselineRecipePriority === "object"
+      ? cloneRecipePriority(spec.baselineRecipePriority)
+      : cloneRecipePriority(
+          spec?.baselineCropId
+            ? {
+                ordered: [spec.baselineCropId],
+                enabled: { [spec.baselineCropId]: true },
+              }
+            : { ordered: [], enabled: {} }
+        );
+  const cropId = getTopRecipeId(recipePriority);
+  const baselineCropId = getTopRecipeId(baselineRecipePriority);
   return {
     kind: IntentKinds.TILE_CROP_SELECT,
     id: spec.id ?? null,
     subjectKey: spec.subjectKey ?? null,
     envCol: spec.envCol ?? null,
-    cropId: spec.cropId ?? null,
-    baselineCropId: spec.baselineCropId ?? null,
+    cropId,
+    baselineCropId,
+    recipePriority,
+    baselineRecipePriority,
     apCostOverride: spec.apCostOverride ?? null,
     source: spec.source ?? "planner",
   };

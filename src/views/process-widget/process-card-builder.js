@@ -183,14 +183,11 @@ export function createProcessWidgetProcessCardBuilder({
 
     let outputSelectionControl = null;
     const disableOutputSelectionControl = opts.disableOutputSelectionControl === true;
-    if (variant === "growing") {
-      const cropId = target?.systemState?.growth?.selectedCropId ?? null;
-      outputSelectionControl = {
-        label: formatCropName(cropId),
-        enabled: true,
-        onOpen: (bounds) => openGrowthSelectionDropdown(target, bounds),
-      };
-    } else if (!disableOutputSelectionControl && isRecipeSystem(processSystemId)) {
+    if (
+      !disableOutputSelectionControl &&
+      isRecipeSystem(processSystemId) &&
+      processSystemId !== "growth"
+    ) {
       const recipeId = getSelectedRecipeId(target, processSystemId);
       outputSelectionControl = {
         label: formatRecipeName(recipeId),

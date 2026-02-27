@@ -23,6 +23,41 @@ import {
   rollQualityTier,
 } from "./work-process-completion.js";
 
+const TIER_KEYS = ["bronze", "silver", "gold", "diamond"];
+
+function isTierBucket(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  for (const tier of TIER_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(pool, tier)) return true;
+  }
+  return false;
+}
+
+function createTierBucket() {
+  return { bronze: 0, silver: 0, gold: 0, diamond: 0 };
+}
+
+function ensureGrowthMaturedPoolBucket(pool, cropId) {
+  if (!pool || typeof pool !== "object") return createTierBucket();
+  if (typeof cropId !== "string" || cropId.length <= 0) {
+    if (isTierBucket(pool)) {
+      return pool;
+    }
+    if (!pool._unknown || typeof pool._unknown !== "object") {
+      pool._unknown = createTierBucket();
+    } else if (!isTierBucket(pool._unknown)) {
+      pool._unknown = createTierBucket();
+    }
+    return pool._unknown;
+  }
+  if (!pool[cropId] || typeof pool[cropId] !== "object") {
+    pool[cropId] = createTierBucket();
+  } else if (!isTierBucket(pool[cropId])) {
+    pool[cropId] = createTierBucket();
+  }
+  return pool[cropId];
+}
+
 function getProcessTypePriorityList(effect) {
   const raw = Array.isArray(effect?.processTypeList) ? effect.processTypeList : [];
   const out = [];
@@ -181,10 +216,26 @@ function advanceSingleProcess({
           def?.qualityTablesByFertilityTier?.[fertilityTier] ??
           def?.qualityTablesByFertilityTier?.silver ??
           [];
-        const pool = systemState[process.poolKey || poolKey];
+        const poolKeyResolved = process.poolKey || poolKey;
+        const pool =
+          systemState[poolKeyResolved] &&
+          typeof systemState[poolKeyResolved] === "object"
+            ? systemState[poolKeyResolved]
+            : {};
+        if (systemState[poolKeyResolved] !== pool) {
+          systemState[poolKeyResolved] = pool;
+          changed = true;
+        }
+        const cropId =
+          typeof process?.defId === "string" && process.defId.length > 0
+            ? process.defId
+            : typeof process?.cropId === "string" && process.cropId.length > 0
+              ? process.cropId
+              : null;
+        const bucket = ensureGrowthMaturedPoolBucket(pool, cropId);
         for (let i = 0; i < maturedUnits; i++) {
           const tier = rollQualityTier(state, table);
-          pool[tier] = (pool[tier] ?? 0) + 1;
+          bucket[tier] = (bucket[tier] ?? 0) + 1;
         }
       }
     }
@@ -259,12 +310,10 @@ export function handleAdvanceWorkProcess(state, effect, context) {
 
     const poolKey = effect.poolKey || "maturedPool";
     if (!systemState[poolKey] || typeof systemState[poolKey] !== "object") {
-      systemState[poolKey] = {
-        bronze: 0,
-        silver: 0,
-        gold: 0,
-        diamond: 0,
-      };
+      const useGrowthMaturedPool =
+        systemId === "growth" && String(poolKey) === "maturedPool";
+      systemState[poolKey] = useGrowthMaturedPool ? {} : createTierBucket();
+      changed = true;
     }
 
     if (processTypePriority.length > 0) {

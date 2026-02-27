@@ -82,15 +82,52 @@ export function createProcessWidgetSignatures({
     return JSON.stringify(template);
   }
 
+  function buildGrowthPoolSignature(pool) {
+    if (!pool || typeof pool !== "object") return "none";
+    const hasTierKeys =
+      Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+      Object.prototype.hasOwnProperty.call(pool, "silver") ||
+      Object.prototype.hasOwnProperty.call(pool, "gold") ||
+      Object.prototype.hasOwnProperty.call(pool, "diamond");
+    if (hasTierKeys) {
+      return `${pool.bronze ?? 0}:${pool.silver ?? 0}:${pool.gold ?? 0}:${pool.diamond ?? 0}`;
+    }
+    const cropIds = Object.keys(pool).sort((a, b) => a.localeCompare(b));
+    if (cropIds.length <= 0) return "empty";
+    const parts = [];
+    for (const cropId of cropIds) {
+      const bucket = pool[cropId];
+      if (!bucket || typeof bucket !== "object") continue;
+      parts.push(
+        `${cropId}:${bucket.bronze ?? 0},${bucket.silver ?? 0},${bucket.gold ?? 0},${bucket.diamond ?? 0}`
+      );
+    }
+    return parts.length > 0 ? parts.join("|") : "empty";
+  }
+
   function buildGrowthSignature(state, targetKey, target, entries) {
     const growth = target?.systemState?.growth || {};
     const cropId = growth.selectedCropId || "";
+    const recipePriority = growth.recipePriority || null;
+    const ordered = Array.isArray(recipePriority?.ordered)
+      ? recipePriority.ordered
+      : [];
+    const enabled =
+      recipePriority?.enabled && typeof recipePriority.enabled === "object"
+        ? recipePriority.enabled
+        : {};
+    const prioritySig =
+      ordered.length > 0
+        ? ordered
+            .map((seedId) => `${seedId}:${enabled[seedId] === false ? 0 : 1}`)
+            .join("|")
+        : "none";
     const pool = growth.maturedPool || {};
-    const poolSig = `${pool.bronze ?? 0}:${pool.silver ?? 0}:${pool.gold ?? 0}:${pool.diamond ?? 0}`;
+    const poolSig = buildGrowthPoolSignature(pool);
     const templateSig = buildRoutingTemplateSignature(target, "growth");
     const candidateSig = buildTemplateCandidateSignature(state, target, "growth");
     const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `growth:${targetKey}:${cropId}:${poolSig}:${templateSig}:${candidateSig}:${baseSig}`;
+    return `growth:${targetKey}:${cropId}:${prioritySig}:${poolSig}:${templateSig}:${candidateSig}:${baseSig}`;
   }
 
   function buildBuildSignature(state, targetKey, target, entries) {

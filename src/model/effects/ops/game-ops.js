@@ -121,15 +121,16 @@ export function handleTransferUnits(state, effect, context) {
   const systemState = ensureSystemState(tile, systemId);
   const poolKey = effect.poolKey || "maturedPool";
   if (!systemState[poolKey] || typeof systemState[poolKey] !== "object") {
-    systemState[poolKey] = { bronze: 0, silver: 0, gold: 0, diamond: 0 };
+    systemState[poolKey] = {};
   }
-  const pool = systemState[poolKey];
-  if (!maturedPoolHasAny(pool)) return false;
+  const poolRoot = systemState[poolKey];
 
   const { defId, def } = resolveEffectDef(effect, tile, context);
   const itemKind =
     effect.itemKind || effect.kind || defId || def?.id || def?.cropId || null;
   if (!itemKind) return false;
+  const pool = resolveMaturedPoolBucket(poolRoot, itemKind);
+  if (!pool || !maturedPoolHasAny(pool)) return false;
 
   const amountRaw = resolveAmount(effect, systemState, def, context);
   const perOwner = effect.perOwner === true;
@@ -593,6 +594,25 @@ function addTieredUnits(state, ownerId, kind, tier, amount, placement = null) {
 
   if (added > 0) bumpInvVersion(inv);
   return added;
+}
+
+function isTierBucket(pool) {
+  if (!pool || typeof pool !== "object") return false;
+  return (
+    Object.prototype.hasOwnProperty.call(pool, "bronze") ||
+    Object.prototype.hasOwnProperty.call(pool, "silver") ||
+    Object.prototype.hasOwnProperty.call(pool, "gold") ||
+    Object.prototype.hasOwnProperty.call(pool, "diamond")
+  );
+}
+
+function resolveMaturedPoolBucket(pool, itemKind = null) {
+  if (!pool || typeof pool !== "object") return null;
+  if (isTierBucket(pool)) return pool;
+  if (typeof itemKind !== "string" || itemKind.length <= 0) return null;
+  const bucket = pool[itemKind];
+  if (!bucket || typeof bucket !== "object") return null;
+  return bucket;
 }
 
 function maturedPoolHasAny(pool) {

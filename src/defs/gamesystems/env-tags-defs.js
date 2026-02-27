@@ -60,6 +60,7 @@ export const envTagDefs = {
       {
         id: "farmPlant",
         verb: "plant",
+        selectedCropFromPriority: true,
         requires: {
           hasSelectedCrop: true,
           hasMaturedPool: false,
@@ -83,7 +84,7 @@ export const envTagDefs = {
             system: "growth",
             target: { kind: "tileOccupants", scope: "all" },
             defRegistry: "crops",
-            defIdFromSystemKey: "selectedCropId",
+            defIdFromContextKey: "selectedCropId",
             amountFromDefKey: "plantSeedPerSec",
             tierOrder: "asc",
             outVar: "seedSpent",
@@ -92,7 +93,7 @@ export const envTagDefs = {
             op: "CreateWorkProcess",
             system: "growth",
             defRegistry: "crops",
-            defIdFromSystemKey: "selectedCropId",
+            defIdFromContextKey: "selectedCropId",
             amountVar: "seedSpent",
             durationFromDefKey: "maturitySec",
             processType: "cropGrowth",
