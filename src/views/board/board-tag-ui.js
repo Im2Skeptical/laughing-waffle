@@ -79,6 +79,36 @@ const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
 
 const TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
+const TIER_METAL_GRADIENTS = Object.freeze({
+  bronze: Object.freeze([
+    Object.freeze({ at: 0, color: 0x5d3620 }),
+    Object.freeze({ at: 0.25, color: 0x9e6842 }),
+    Object.freeze({ at: 0.5, color: 0xc58a56 }),
+    Object.freeze({ at: 0.75, color: 0x9b643f }),
+    Object.freeze({ at: 1, color: 0x69402a }),
+  ]),
+  silver: Object.freeze([
+    Object.freeze({ at: 0, color: 0x6a7079 }),
+    Object.freeze({ at: 0.25, color: 0xa7afb8 }),
+    Object.freeze({ at: 0.5, color: 0xdbe2e8 }),
+    Object.freeze({ at: 0.75, color: 0x9ca5af }),
+    Object.freeze({ at: 1, color: 0x626a73 }),
+  ]),
+  gold: Object.freeze([
+    Object.freeze({ at: 0, color: 0x7a5b16 }),
+    Object.freeze({ at: 0.25, color: 0xb88b1f }),
+    Object.freeze({ at: 0.5, color: 0xe0be4c }),
+    Object.freeze({ at: 0.75, color: 0xaf8220 }),
+    Object.freeze({ at: 1, color: 0x735516 }),
+  ]),
+  diamond: Object.freeze([
+    Object.freeze({ at: 0, color: 0x345060 }),
+    Object.freeze({ at: 0.25, color: 0x6a8ea5 }),
+    Object.freeze({ at: 0.5, color: 0xb8d4e8 }),
+    Object.freeze({ at: 0.75, color: 0x5e8298 }),
+    Object.freeze({ at: 1, color: 0x2e4959 }),
+  ]),
+});
 
 const GROWTH_BAR_COLORS = {
   idle: 0x6f6651,
@@ -127,14 +157,37 @@ export function createTagUi(opts) {
     return Math.max(0, Math.min(1, value));
   }
 
-  function getTierIndex(tier) {
-    const idx = TIER_ORDER.indexOf(tier);
-    return idx >= 0 ? idx : 0;
+  function lerpChannel(from, to, ratio) {
+    return Math.round(from + (to - from) * clamp01(ratio));
   }
 
-  function getTierRatio(tier) {
-    const maxIndex = Math.max(1, TIER_ORDER.length - 1);
-    return clamp01(getTierIndex(tier) / maxIndex);
+  function lerpHexColor(fromColor, toColor, ratio) {
+    const from = Number.isFinite(fromColor) ? Math.floor(fromColor) : 0;
+    const to = Number.isFinite(toColor) ? Math.floor(toColor) : 0;
+    const r = lerpChannel((from >> 16) & 0xff, (to >> 16) & 0xff, ratio);
+    const g = lerpChannel((from >> 8) & 0xff, (to >> 8) & 0xff, ratio);
+    const b = lerpChannel(from & 0xff, to & 0xff, ratio);
+    return (r << 16) | (g << 8) | b;
+  }
+
+  function sampleGradientStops(stops, ratio) {
+    if (!Array.isArray(stops) || stops.length === 0) return 0x8a7b64;
+    if (stops.length === 1) return stops[0]?.color ?? 0x8a7b64;
+
+    const t = clamp01(ratio);
+    let prev = stops[0];
+    for (let i = 1; i < stops.length; i += 1) {
+      const next = stops[i];
+      if (t <= (next?.at ?? 1)) {
+        const startAt = Number.isFinite(prev?.at) ? prev.at : 0;
+        const endAt = Number.isFinite(next?.at) ? next.at : 1;
+        const span = Math.max(0.0001, endAt - startAt);
+        const localT = clamp01((t - startAt) / span);
+        return lerpHexColor(prev?.color ?? 0x8a7b64, next?.color ?? 0x8a7b64, localT);
+      }
+      prev = next;
+    }
+    return prev?.color ?? 0x8a7b64;
   }
 
   function getSystemTier(tileInst, systemId) {
@@ -145,6 +198,12 @@ export function createTagUi(opts) {
       return def.defaultTier;
     }
     return "bronze";
+  }
+
+  function formatTierLabel(tier) {
+    const raw = typeof tier === "string" ? tier : "";
+    if (!raw.length) return "Bronze";
+    return raw[0].toUpperCase() + raw.slice(1);
   }
 
   function getSystemUi(systemId) {
@@ -599,8 +658,9 @@ export function createTagUi(opts) {
       fill: SYSTEM_BAR_TEXT,
       fontSize: 9,
     });
-    labelText.x = barX + 4;
-    labelText.y = barY - 2;
+    labelText.anchor.set(0.5, 0.5);
+    labelText.x = barX + Math.floor(barWidth / 2);
+    labelText.y = barY + Math.floor(SYSTEM_BAR_HEIGHT / 2);
     container.addChild(labelText);
 
     const flashOverlay = new PIXI.Graphics();
@@ -951,6 +1011,45 @@ export function createTagUi(opts) {
     row.barFill.endFill();
   }
 
+  function drawTierMetalBar(row, tier) {
+    const gradientStops = TIER_METAL_GRADIENTS[tier] || TIER_METAL_GRADIENTS.bronze;
+    const width = Math.max(0, Math.floor(row.barWidth));
+    const height = SYSTEM_BAR_HEIGHT;
+    row.barFill.clear();
+    if (width <= 0 || height <= 0) return;
+
+    row.barFill.beginFill(gradientStops[0]?.color ?? 0x8a7b64, 0.98);
+    row.barFill.drawRoundedRect(row.barX, row.barY, width, height, SYSTEM_BAR_RADIUS);
+    row.barFill.endFill();
+
+    const innerX = row.barX + 1;
+    const innerY = row.barY + 1;
+    const innerWidth = Math.max(0, width - 2);
+    const innerHeight = Math.max(0, height - 2);
+    if (innerWidth <= 0 || innerHeight <= 0) return;
+
+    const sliceCount = Math.max(10, innerWidth);
+    for (let i = 0; i < sliceCount; i += 1) {
+      const t = sliceCount > 1 ? i / (sliceCount - 1) : 0;
+      const color = sampleGradientStops(gradientStops, t);
+      const x0 = innerX + Math.floor((i * innerWidth) / sliceCount);
+      const x1 = innerX + Math.floor(((i + 1) * innerWidth) / sliceCount);
+      const sliceWidth = Math.max(1, x1 - x0);
+      row.barFill.beginFill(color, 0.97);
+      row.barFill.drawRect(x0, innerY, sliceWidth, innerHeight);
+      row.barFill.endFill();
+    }
+
+    row.barFill.beginFill(0xffffff, 0.16);
+    row.barFill.drawRect(innerX, innerY, innerWidth, 1);
+    row.barFill.endFill();
+    if (innerHeight > 1) {
+      row.barFill.beginFill(0x000000, 0.12);
+      row.barFill.drawRect(innerX, innerY + innerHeight - 1, innerWidth, 1);
+      row.barFill.endFill();
+    }
+  }
+
   function updateSystemRow(view, row, tileInst) {
     const systemId = row.systemId;
     if (systemId === "build") {
@@ -996,8 +1095,8 @@ export function createTagUi(opts) {
 
     if (systemId === "fertility") {
       const tier = getSystemTier(tileInst, systemId);
-      row.labelText.text = tier;
-      drawSystemBar(row, getTierRatio(tier), row.uiColor);
+      row.labelText.text = formatTierLabel(tier);
+      drawTierMetalBar(row, tier);
       return;
     }
 
@@ -1018,7 +1117,7 @@ export function createTagUi(opts) {
       }
 
       if (!cropId) {
-        row.labelText.text = "select crop";
+        row.labelText.text = "Select Crop";
         drawSystemBar(row, 0, GROWTH_BAR_COLORS.idle);
         row.lastMaturedMax = 0;
         return;
@@ -1070,8 +1169,8 @@ export function createTagUi(opts) {
     }
 
     const tier = getSystemTier(tileInst, systemId);
-    row.labelText.text = tier;
-    drawSystemBar(row, getTierRatio(tier), row.uiColor);
+    row.labelText.text = formatTierLabel(tier);
+    drawTierMetalBar(row, tier);
   }
 
   function updateTagEntry(view, entry, tileInst, topTagId, hasPawn, activeTagIds) {

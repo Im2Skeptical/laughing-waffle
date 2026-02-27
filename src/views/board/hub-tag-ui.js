@@ -49,6 +49,10 @@ const SYSTEM_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
 const SYSTEM_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
+const SYSTEM_BUTTON_BG = MUCHA_UI_COLORS.surfaces.panel;
+const SYSTEM_BUTTON_BORDER = MUCHA_UI_COLORS.surfaces.border;
+const SYSTEM_BUTTON_FILL = MUCHA_UI_COLORS.accents.sageDark;
+const SYSTEM_BUTTON_TEXT = MUCHA_UI_COLORS.ink.primary;
 
 const HUB_SYSTEM_UI_MAP = {
   build: { label: "Build", icon: "B", color: 0x8f7a58 },
@@ -130,6 +134,10 @@ export function createHubTagUi(opts) {
 
   function isRecipeSystem(systemId) {
     return systemId === "fireplace" || systemId === "workspace";
+  }
+
+  function isOrdersButtonSystem(systemId) {
+    return isRecipeSystem(systemId);
   }
 
   function formatRecipeName(recipeId) {
@@ -412,15 +420,41 @@ export function createHubTagUi(opts) {
       row.barX,
       row.barY,
       width,
-      SYSTEM_BAR_HEIGHT,
-      SYSTEM_BAR_RADIUS
+      row.barHeight,
+      row.barRadius
     );
+    row.barFill.endFill();
+  }
+
+  function drawOrdersButton(row) {
+    if (!row) return;
+    row.barFill.clear();
+    const inset = 1;
+    const width = Math.max(0, row.barWidth - inset * 2);
+    const height = Math.max(0, row.barHeight - inset * 2);
+    if (width <= 0 || height <= 0) return;
+    row.barFill.beginFill(SYSTEM_BUTTON_FILL, 0.96);
+    row.barFill.drawRoundedRect(
+      row.barX + inset,
+      row.barY + inset,
+      width,
+      height,
+      Math.max(2, row.barRadius - 1)
+    );
+    row.barFill.endFill();
+    row.barFill.beginFill(0xffffff, 0.12);
+    row.barFill.drawRect(row.barX + inset, row.barY + inset, width, 1);
     row.barFill.endFill();
   }
 
   function buildSystemRow(view, systemId, opts = null) {
     const uiOverride = opts?.uiOverride ?? null;
     const ui = uiOverride || getSystemUi(systemId);
+    const isOrdersButton = opts?.openProcessWidgetButton === true;
+    const processWidgetSystemId =
+      typeof opts?.processSystemId === "string" && opts.processSystemId.length > 0
+        ? opts.processSystemId
+        : systemId;
     const container = new PIXI.Container();
     container.eventMode = "static";
     container.hitArea = new PIXI.Rectangle(
@@ -433,61 +467,70 @@ export function createHubTagUi(opts) {
       ev?.stopPropagation?.();
     });
 
-    const icon = new PIXI.Container();
-    icon.eventMode = "static";
-    icon.cursor =
-      onSystemIconClick || onSystemIconHover || onSystemIconOut
-        ? "pointer"
-        : "help";
+    let icon = null;
+    let iconText = null;
+    if (!isOrdersButton) {
+      icon = new PIXI.Container();
+      icon.eventMode = "static";
+      icon.cursor =
+        onSystemIconClick || onSystemIconHover || onSystemIconOut
+          ? "pointer"
+          : "help";
 
-    const iconBg = new PIXI.Graphics()
-      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
-      .beginFill(ui.color, 1)
-      .drawCircle(
-        SYSTEM_ICON_SIZE / 2,
-        SYSTEM_ROW_HEIGHT / 2,
-        SYSTEM_ICON_SIZE / 2
-      )
-      .endFill();
-    const iconText = new PIXI.Text(ui.icon, {
-      fill: 0xffffff,
-      fontSize: 8,
-      fontWeight: "bold",
-    });
-    applyTextResolution(iconText, 1.5);
-    iconText.anchor.set(0.5, 0.5);
-    iconText.x = SYSTEM_ICON_SIZE / 2;
-    iconText.y = SYSTEM_ROW_HEIGHT / 2;
-    icon.addChild(iconBg, iconText);
-    container.addChild(icon);
+      const iconBg = new PIXI.Graphics()
+        .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
+        .beginFill(ui.color, 1)
+        .drawCircle(
+          SYSTEM_ICON_SIZE / 2,
+          SYSTEM_ROW_HEIGHT / 2,
+          SYSTEM_ICON_SIZE / 2
+        )
+        .endFill();
+      iconText = new PIXI.Text(ui.icon, {
+        fill: 0xffffff,
+        fontSize: 8,
+        fontWeight: "bold",
+      });
+      applyTextResolution(iconText, 1.5);
+      iconText.anchor.set(0.5, 0.5);
+      iconText.x = SYSTEM_ICON_SIZE / 2;
+      iconText.y = SYSTEM_ROW_HEIGHT / 2;
+      icon.addChild(iconBg, iconText);
+      container.addChild(icon);
+    }
 
-    const barX = SYSTEM_ICON_SIZE + 6;
-    const barWidth = TAG_PILL_WIDTH - barX - 6;
-    const barY = Math.floor((SYSTEM_ROW_HEIGHT - SYSTEM_BAR_HEIGHT) / 2);
+    const barX = isOrdersButton ? 0 : SYSTEM_ICON_SIZE + 6;
+    const barWidth = isOrdersButton ? TAG_PILL_WIDTH : TAG_PILL_WIDTH - barX - 6;
+    const barHeight = isOrdersButton ? SYSTEM_ROW_HEIGHT - 2 : SYSTEM_BAR_HEIGHT;
+    const barY = isOrdersButton
+      ? 1
+      : Math.floor((SYSTEM_ROW_HEIGHT - barHeight) / 2);
+    const barRadius = isOrdersButton ? 5 : SYSTEM_BAR_RADIUS;
 
     const barBg = new PIXI.Graphics()
-      .lineStyle(1, SYSTEM_BAR_BORDER, 0.9)
-      .beginFill(SYSTEM_BAR_BG, 0.95)
+      .lineStyle(1, isOrdersButton ? SYSTEM_BUTTON_BORDER : SYSTEM_BAR_BORDER, 0.9)
+      .beginFill(isOrdersButton ? SYSTEM_BUTTON_BG : SYSTEM_BAR_BG, 0.95)
       .drawRoundedRect(
         barX,
         barY,
         barWidth,
-        SYSTEM_BAR_HEIGHT,
-        SYSTEM_BAR_RADIUS
+        barHeight,
+        barRadius
       )
       .endFill();
     const barFill = new PIXI.Graphics();
     container.addChild(barBg, barFill);
 
     const labelText = new PIXI.Text("", {
-      fill: SYSTEM_BAR_TEXT,
+      fill: isOrdersButton ? SYSTEM_BUTTON_TEXT : SYSTEM_BAR_TEXT,
       fontSize: 9,
     });
-    labelText.x = barX + 4;
-    labelText.y = barY - 2;
+    labelText.anchor.set(0.5, 0.5);
+    labelText.x = barX + Math.floor(barWidth / 2);
+    labelText.y = barY + Math.floor(barHeight / 2);
     container.addChild(labelText);
 
-    if (isRecipeSystem(systemId)) {
+    if (isRecipeSystem(systemId) && !isOrdersButton) {
       container.cursor = "pointer";
       container.on("pointerdown", (ev) => {
         ev?.stopPropagation?.();
@@ -506,6 +549,8 @@ export function createHubTagUi(opts) {
       barX,
       barWidth,
       barY,
+      barHeight,
+      barRadius,
       labelText,
       iconText,
       uiColor: ui.color,
@@ -514,10 +559,27 @@ export function createHubTagUi(opts) {
       buildLabel: opts?.label ?? null,
       storageItemId: opts?.storageItemId ?? null,
       storageLabel: opts?.storageLabel ?? null,
+      isOrdersButton,
+      processWidgetSystemId,
     };
 
+    if (isOrdersButton) {
+      container.cursor = "pointer";
+      container.on("pointerover", () => {
+        onSystemIconHover?.(view, processWidgetSystemId);
+      });
+      container.on("pointerout", () => {
+        onSystemIconOut?.(view, processWidgetSystemId);
+      });
+      container.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        onSystemIconClick?.(view, processWidgetSystemId);
+      });
+      return row;
+    }
+
     icon.on("pointerover", () => {
-      onSystemIconHover?.(view, row.processSystemId || systemId);
+      onSystemIconHover?.(view, processWidgetSystemId);
       if (systemId === "storage") {
         showStorageTooltip(
           view.structure,
@@ -528,7 +590,7 @@ export function createHubTagUi(opts) {
       }
     });
     icon.on("pointerout", () => {
-      onSystemIconOut?.(view, row.processSystemId || systemId);
+      onSystemIconOut?.(view, processWidgetSystemId);
       if (systemId === "storage") {
         tooltipView?.hide?.();
       }
@@ -538,7 +600,7 @@ export function createHubTagUi(opts) {
     });
     icon.on("pointertap", (ev) => {
       ev?.stopPropagation?.();
-      onSystemIconClick?.(view, row.processSystemId || systemId);
+      onSystemIconClick?.(view, processWidgetSystemId);
     });
 
     return row;
@@ -645,7 +707,9 @@ export function createHubTagUi(opts) {
           }
           continue;
         }
-        const rowEntry = buildSystemRow(view, systemId);
+        const rowEntry = buildSystemRow(view, systemId, {
+          openProcessWidgetButton: isOrdersButtonSystem(systemId),
+        });
         rowEntry.container.y = sysY;
         systemContainer.addChild(rowEntry.container);
         systemRows.push(rowEntry);
@@ -796,6 +860,12 @@ export function createHubTagUi(opts) {
     if (!row) return;
     const systemId = row.systemId;
     if (!systemId) return;
+
+    if (row.isOrdersButton) {
+      row.labelText.text = "Orders";
+      drawOrdersButton(row);
+      return;
+    }
 
     if (systemId === "build") {
       const process = getBuildProcess(structure);
