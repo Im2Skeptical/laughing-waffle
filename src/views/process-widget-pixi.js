@@ -2628,8 +2628,7 @@ export function createProcessWidgetView({
       Math.min(manageBgWidthRaw, Math.max(48, width - MODULE_PAD * 2))
     );
     const manageBg = new PIXI.Graphics();
-    manageBg.lineStyle(1, COLORS.panelBorder, 0.92);
-    manageBg.beginFill(MUCHA_UI_COLORS.intent.softPop, 1);
+    manageBg.beginFill(MUCHA_UI_COLORS.surfaces.borderSoft, 0.98);
     manageBg.drawRoundedRect(0, 0, manageBgWidth, manageBgHeight, 8);
     manageBg.endFill();
     manageButton.addChild(manageBg);
