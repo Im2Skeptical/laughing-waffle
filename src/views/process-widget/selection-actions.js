@@ -59,7 +59,7 @@ export function createProcessWidgetSelectionActions({
   getWithdrawState,
   normalizeWithdrawSelection,
   invalidateAllSignatures,
-  openRecipeCatalogPopup,
+  openRecipeManualWindow,
 } = {}) {
   function openSelectionDropdown({
     options,
@@ -251,8 +251,8 @@ export function createProcessWidgetSelectionActions({
 
   function openRecipeSelectionDropdown(target, systemId, anchorBounds) {
     if (!target || !isRecipeSystem?.(systemId)) return;
-    if (typeof openRecipeCatalogPopup === "function") {
-      openRecipeCatalogPopup(target, systemId, anchorBounds);
+    if (typeof openRecipeManualWindow === "function") {
+      openRecipeManualWindow(target, systemId, anchorBounds);
     }
   }
 

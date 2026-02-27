@@ -88,6 +88,12 @@ export const VIEW_LAYOUT = {
     position: { x: 1180, y: 640 },
     mobileBreakpointPx: 900,
     mobileScale: 2,
+    recipeManual: {
+      widthPx: 1160,
+      heightPx: 680,
+      marginPx: 28,
+      zIndex: 80,
+    },
   },
   inventory: {
     mobileBreakpointPx: 900,

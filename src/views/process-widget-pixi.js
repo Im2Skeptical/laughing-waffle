@@ -49,6 +49,7 @@ import { createProcessWidgetTargetResolver } from "./process-widget/target-resol
 import { createProcessWidgetSelectionActions } from "./process-widget/selection-actions.js";
 import { createProcessWidgetCardModules } from "./process-widget/card-modules.js";
 import { createProcessWidgetProcessCardBuilder } from "./process-widget/process-card-builder.js";
+import { createRecipeManualWindow } from "./process-widget/recipe-manual-window.js";
 import {
   VIEW_LAYOUT,
   VIEWPORT_DESIGN_HEIGHT,
@@ -215,6 +216,7 @@ export function createProcessWidgetView({
     outputs: new Set(),
   };
   const selectionDropdown = createSelectionDropdown(layer, app);
+  let recipeManualWindow = null;
 
   let hoverContext = null;
   let externalFocusContext = null;
@@ -303,7 +305,23 @@ export function createProcessWidgetView({
     getWithdrawState,
     normalizeWithdrawSelection,
     invalidateAllSignatures,
-    openRecipeCatalogPopup,
+    openRecipeManualWindow: (target, systemId) => {
+      if (!target || !isRecipeSystem(systemId) || !recipeManualWindow) return;
+      const targetRef = makeTargetRef(target);
+      if (!targetRef) return;
+      recipeManualWindow.open({
+        targetRef,
+        systemId,
+      });
+    },
+  });
+  recipeManualWindow = createRecipeManualWindow({
+    PIXI,
+    app,
+    layer,
+    layout: processLayout?.recipeManual,
+    resolveViewModel: (payload) => resolveRecipeManualViewModel(payload),
+    onToggleRecipe: (payload) => toggleRecipeFromRecipeManual(payload),
   });
   const cardModules = createProcessWidgetCardModules({
     PIXI,
@@ -1053,59 +1071,127 @@ export function createProcessWidgetView({
   }
 
   function getRecipeSkillGateText(recipeId, unlocked) {
-    if (unlocked) return "Unlocked";
     const skillNames = RECIPE_SKILL_GATE_INDEX.get(recipeId) || [];
+    if (unlocked) {
+      if (skillNames.length > 0) return `Unlocked by ${skillNames.join(", ")}`;
+      return "Unlocked";
+    }
     if (skillNames.length > 0) {
       return `Locked: requires ${skillNames.join(", ")}`;
     }
     return "Locked: requires skill unlock";
   }
 
-  function getRecipeCatalogOptions(target, systemId) {
+  function buildRecipeDetailLines(recipe) {
+    if (!recipe) return [];
+    const inputs = formatRecipeItemList(recipe.inputs);
+    const tools = formatRecipeItemList(recipe.toolRequirements);
+    const outputs = formatRecipeItemList(recipe.outputs);
+    const duration = Number.isFinite(recipe.durationSec)
+      ? recipe.durationSec <= 0
+        ? "Instant"
+        : `${Math.floor(recipe.durationSec)}s`
+      : "?";
+    return [
+      `Inputs: ${inputs || "None"}`,
+      `Tools: ${tools || "None"}`,
+      `Output: ${outputs || "None"}`,
+      `Time: ${duration}`,
+    ];
+  }
+
+  function buildRecipeManualRows({
+    availability,
+    kind,
+    priority,
+    recipeEntryMap,
+  } = {}) {
+    const listedRows = [];
+    const unlistedRows = [];
+
+    const recipes = Object.entries(recipeDefs || {})
+      .map(([key, recipe]) => ({ key, recipe }))
+      .filter((entry) => !!entry?.recipe)
+      .filter((entry) => entry.recipe.kind === kind);
+
+    for (const { key, recipe } of recipes) {
+      const recipeId =
+        (typeof recipe?.id === "string" && recipe.id.length > 0
+          ? recipe.id
+          : key) || null;
+      if (!recipeId) continue;
+      const unlocked = availability?.recipeIds?.has(recipeId) === true;
+      if (!unlocked) continue;
+      const inList = priority.ordered.includes(recipeId);
+      const enabled = priority.enabled?.[recipeId] !== false;
+      const processEntry = recipeEntryMap.get(recipeId) || null;
+      const row = {
+        id: recipeId,
+        name: recipe?.name || recipeId,
+        kindLabel: kind === "craft" ? "Crafting Recipe" : "Cooking Recipe",
+        inList,
+        enabled,
+        actionLabel: inList ? "Remove" : "Add",
+        statusText: inList
+          ? enabled
+            ? "In output list (enabled)"
+            : "In output list (disabled)"
+          : "Not listed in output list",
+        snapshotText: formatRecipeProcessSnapshot(processEntry),
+        gateText: getRecipeSkillGateText(recipeId, true),
+        detailLines: buildRecipeDetailLines(recipe),
+      };
+      if (inList) listedRows.push(row);
+      else unlistedRows.push(row);
+    }
+
+    const alphaSort = (a, b) =>
+      String(a?.name || "").localeCompare(String(b?.name || ""));
+    listedRows.sort(alphaSort);
+    unlistedRows.sort(alphaSort);
+    return listedRows.concat(unlistedRows);
+  }
+
+  function resolveRecipeManualViewModel({
+    state,
+    targetRef,
+    systemId,
+  } = {}) {
+    if (!state || !targetRef || !isRecipeSystem(systemId)) return null;
+    const target = resolveTargetFromRef(state, targetRef);
+    if (!target) return null;
+
     const kind = getRecipeKindForHubSystem(systemId);
-    if (!kind) return [];
-    const state = getStateSafe();
+    if (!kind) return null;
+
     const availability = computeAvailableRecipesAndBuildings(state);
     const priority = getRecipePriorityForTarget(target, systemId, state);
     const entries = collectProcessEntries(state, target, systemId);
-    const entryByRecipe = buildRecipeEntryMap(entries);
+    const recipeEntryMap = buildRecipeEntryMap(entries);
+    const rows = buildRecipeManualRows({
+      availability,
+      kind,
+      priority,
+      recipeEntryMap,
+    });
 
-    const list = Object.entries(recipeDefs || {})
-      .map(([key, recipe]) => ({ key, recipe }))
-      .filter((entry) => !!entry.recipe)
-      .filter((entry) => entry.recipe.kind === kind)
-      .sort((a, b) =>
-        String(a?.recipe?.name || a?.recipe?.id || a?.key || "").localeCompare(
-          String(b?.recipe?.name || b?.recipe?.id || b?.key || "")
-        )
-      );
+    const topEnabledListedId = getTopEnabledRecipeId(priority);
+    const listedRows = rows.filter((row) => row.inList);
+    let defaultRecipeId = null;
+    if (topEnabledListedId && rows.some((row) => row.id === topEnabledListedId)) {
+      defaultRecipeId = topEnabledListedId;
+    } else if (listedRows.length > 0) {
+      defaultRecipeId = listedRows[0].id;
+    } else if (rows.length > 0) {
+      defaultRecipeId = rows[0].id;
+    }
 
-    return list
-      .map(({ key, recipe }) => {
-        const recipeId =
-          (typeof recipe?.id === "string" && recipe.id.length > 0
-            ? recipe.id
-            : key) || null;
-        const unlocked =
-          recipeId ? availability.recipeIds?.has(recipeId) === true : false;
-        if (!unlocked) return null;
-        const inList = recipeId ? priority.ordered.includes(recipeId) : false;
-        const enabled = recipeId ? priority.enabled?.[recipeId] !== false : false;
-        const gateText = getRecipeSkillGateText(recipeId, unlocked);
-        const actionLabel = inList ? "Remove" : "Add";
-        const stateLabel = inList ? (enabled ? "On" : "Off") : "Not listed";
-        const processEntry = recipeId ? entryByRecipe.get(recipeId) : null;
-        const progressText = formatRecipeProcessSnapshot(processEntry);
-        return {
-          value: recipeId,
-          locked: false,
-          label: `${actionLabel}: ${recipe?.name || recipeId}`,
-          detail: `${stateLabel} | ${gateText} | ${progressText} | ${formatRecipeDetails(
-            recipe
-          )}`,
-        };
-      })
-      .filter((entry) => !!entry);
+    return {
+      title: `${getTargetLabel(target)} - Recipies`,
+      rows,
+      defaultRecipeId,
+      emptyDetailText: "No unlocked recipes are available for this system yet.",
+    };
   }
 
   function getHubCol(target) {
@@ -2131,34 +2217,27 @@ export function createProcessWidgetView({
     selectionActions.openGrowthSelectionDropdown(target, anchorBounds);
   }
 
-  function openRecipeCatalogPopup(target, systemId, anchorBounds) {
+  function openRecipeManualWindow(target, systemId) {
     if (!target || !isRecipeSystem(systemId)) return;
-    const options = getRecipeCatalogOptions(target, systemId);
-    if (!options.length) return;
-    const byRecipeId = new Map();
-    for (const option of options) {
-      const recipeId =
-        typeof option?.value === "string" && option.value.length > 0
-          ? option.value
-          : null;
-      if (!recipeId) continue;
-      byRecipeId.set(recipeId, option);
-    }
-    const priority = getRecipePriorityForTarget(target, systemId);
-    const selectedValue = getTopEnabledRecipeId(priority);
-
-    openSelectionDropdown({
-      options,
-      selectedValue,
-      anchorBounds,
-      width: 340,
-      onSelect: (recipeId) => {
-        if (!recipeId) return;
-        const option = byRecipeId.get(recipeId);
-        if (option?.locked) return;
-        selectionActions.toggleRecipePresence?.(target, systemId, recipeId);
-      },
+    const targetRef = makeTargetRef(target);
+    if (!targetRef) return;
+    recipeManualWindow.open({
+      targetRef,
+      systemId,
     });
+  }
+
+  function toggleRecipeFromRecipeManual({
+    targetRef,
+    systemId,
+    recipeId,
+  } = {}) {
+    if (!recipeId || !isRecipeSystem(systemId)) return;
+    const state = getStateSafe();
+    if (!state) return;
+    const target = resolveTargetFromRef(state, targetRef);
+    if (!target) return;
+    selectionActions.toggleRecipePresence?.(target, systemId, recipeId);
   }
 
   function openRecipeSelectionDropdown(target, systemId, anchorBounds) {
@@ -2639,7 +2718,7 @@ export function createProcessWidgetView({
     manageButton.eventMode = "static";
     manageButton.cursor = "pointer";
     manageButton.on("pointertap", () => {
-      openRecipeCatalogPopup(target, systemId, manageButton.getBounds());
+      openRecipeManualWindow(target, systemId);
     });
     container.addChild(manageButton);
     manageButton.x = Math.max(
@@ -3055,6 +3134,7 @@ export function createProcessWidgetView({
 
   function update() {
     const state = getStateSafe();
+    recipeManualWindow.update(state);
     if (!state) {
       clearLozengeHoverUi();
       for (const win of windows.values()) {
