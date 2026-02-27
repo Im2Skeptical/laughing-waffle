@@ -3,8 +3,8 @@
 
 // Scenario Selector - Options for boot are in scenario-defs.js
 
-const BOOT_SETUP_ID = "devGym01";
-//const BOOT_SETUP_ID = "devPlaytesting01";
+//const BOOT_SETUP_ID = "devGym01";
+const BOOT_SETUP_ID = "devPlaytesting01";
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";

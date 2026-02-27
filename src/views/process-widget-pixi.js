@@ -37,6 +37,7 @@ import {
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 import { createSelectionDropdown } from "./components/selection-dropdown-pixi.js";
 import { createDropTargetRegistry } from "./process-widget/drop-target-registry.js";
@@ -81,14 +82,14 @@ const DRAWER_TOGGLE_BUTTON_MIN_WIDTH = 44;
 const DRAWER_TOGGLE_BUTTON_EDGE_PAD = 4;
 
 const MODULE_GAP = 8;
-const MODULE_PAD = 6;
+const MODULE_PAD = 7;
 const MODULE_RADIUS = 8;
 
-const PILL_HEIGHT = 18;
-const PILL_RADIUS = 9;
+const PILL_HEIGHT = 20;
+const PILL_RADIUS = 10;
 const PILL_GAP = 6;
 const PILL_PAD_X = 8;
-const TOGGLE_SIZE = 10;
+const TOGGLE_SIZE = 11;
 const TOGGLE_PAD = 6;
 const WINDOW_IDLE_DESTROY_FRAMES = 180;
 const WITHDRAW_UI_CACHE_MAX = 256;
@@ -128,8 +129,9 @@ const COLORS = {
   pillText: MUCHA_UI_COLORS.ink.primary,
   pillTextDisabled: MUCHA_UI_COLORS.ink.muted,
   pillTextInvalid: MUCHA_UI_COLORS.ink.alert,
-  progressBg: MUCHA_UI_COLORS.surfaces.panelRaised,
-  progressFill: MUCHA_UI_COLORS.accents.sage,
+  progressBg: MUCHA_UI_COLORS.surfaces.panelDeep,
+  progressBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
+  progressFill: MUCHA_UI_COLORS.accents.gold,
   dropboxBg: MUCHA_UI_COLORS.surfaces.panelDeep,
   dropboxBorder: MUCHA_UI_COLORS.surfaces.borderSoft,
   dropboxValidBg: 0x2a5f40,
@@ -321,6 +323,7 @@ export function createProcessWidgetView({
     getPoolItemTotals,
     formatRequirementLabel,
     resolveFixedEndpointId,
+    countContributingPawnsForProcess,
   });
   const {
     formatPoolSummary,
@@ -480,6 +483,74 @@ export function createProcessWidgetView({
     return typeof getGameState === "function" ? getGameState() : null;
   }
 
+  function hasPositiveStamina(pawn) {
+    if (!pawn || typeof pawn !== "object") return false;
+    const cur = pawn?.systemState?.stamina?.cur;
+    if (!Number.isFinite(cur)) return true;
+    return Math.floor(cur) > 0;
+  }
+
+  function countContributingPawnsForProcess({
+    state,
+    target,
+  } = {}) {
+    const simState = state || getStateSafe();
+    if (!simState || !target) return null;
+    const pawns = Array.isArray(simState.pawns) ? simState.pawns : [];
+    if (pawns.length <= 0) return 0;
+
+    if (hubStructureDefs[target?.defId]) {
+      const hubCol = Number.isFinite(target?.col)
+        ? Math.floor(target.col)
+        : Number.isFinite(target?.hubCol)
+          ? Math.floor(target.hubCol)
+          : null;
+      if (hubCol == null) return null;
+      const span =
+        Number.isFinite(target?.span) && target.span > 0
+          ? Math.floor(target.span)
+          : Number.isFinite(hubStructureDefs[target?.defId]?.defaultSpan) &&
+            hubStructureDefs[target.defId].defaultSpan > 0
+            ? Math.floor(hubStructureDefs[target.defId].defaultSpan)
+            : 1;
+      const end = hubCol + Math.max(1, span) - 1;
+      let count = 0;
+      for (const pawn of pawns) {
+        const pawnHubCol = Number.isFinite(pawn?.hubCol)
+          ? Math.floor(pawn.hubCol)
+          : null;
+        if (pawnHubCol == null) continue;
+        if (Number.isFinite(pawn?.envCol)) continue;
+        if (pawnHubCol < hubCol || pawnHubCol > end) continue;
+        if (!hasPositiveStamina(pawn)) continue;
+        count += 1;
+      }
+      return count;
+    }
+
+    if (envTileDefs[target?.defId]) {
+      const envCol = Number.isFinite(target?.col)
+        ? Math.floor(target.col)
+        : Number.isFinite(target?.envCol)
+          ? Math.floor(target.envCol)
+          : null;
+      if (envCol == null) return null;
+      let count = 0;
+      for (const pawn of pawns) {
+        const pawnEnvCol = Number.isFinite(pawn?.envCol)
+          ? Math.floor(pawn.envCol)
+          : null;
+        if (pawnEnvCol == null) continue;
+        if (pawnEnvCol !== envCol) continue;
+        if (!hasPositiveStamina(pawn)) continue;
+        count += 1;
+      }
+      return count;
+    }
+
+    return null;
+  }
+
   function getScreenSize() {
     const width = Number.isFinite(app?.renderer?.width)
       ? app.renderer.width
@@ -515,8 +586,35 @@ export function createProcessWidgetView({
     if (Math.abs(nextScale - prevScale) < 1e-6) return false;
     win.uiScale = nextScale;
     win.container.scale.set(nextScale);
+    refreshWindowTextResolution(win);
     win.hasPosition = false;
     return true;
+  }
+
+  function applyTextResolutionToTree(root, uiScale = 1) {
+    if (!root || !Array.isArray(root.children)) return 0;
+    const scale = Number.isFinite(uiScale) ? Math.max(1, uiScale) : 1;
+    let updated = 0;
+    const stack = [root];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node) continue;
+      if (node instanceof PIXI.Text) {
+        if (applyTextResolution(node, scale)) updated += 1;
+      }
+      const children = Array.isArray(node.children) ? node.children : null;
+      if (!children || children.length <= 0) continue;
+      for (let i = 0; i < children.length; i += 1) {
+        stack.push(children[i]);
+      }
+    }
+    return updated;
+  }
+
+  function refreshWindowTextResolution(win) {
+    if (!win?.container) return 0;
+    const uiScale = Number.isFinite(win.uiScale) ? win.uiScale : 1;
+    return applyTextResolutionToTree(win.container, uiScale);
   }
 
   function uniqueOwnerIds(ownerIds) {
@@ -982,28 +1080,32 @@ export function createProcessWidgetView({
         )
       );
 
-    return list.map(({ key, recipe }) => {
-      const recipeId =
-        (typeof recipe?.id === "string" && recipe.id.length > 0
-          ? recipe.id
-          : key) || null;
-      const inList = recipeId ? priority.ordered.includes(recipeId) : false;
-      const enabled = recipeId ? priority.enabled?.[recipeId] !== false : false;
-      const unlocked = recipeId ? availability.recipeIds?.has(recipeId) === true : false;
-      const gateText = getRecipeSkillGateText(recipeId, unlocked);
-      const actionLabel = inList ? "Remove" : "Add";
-      const stateLabel = inList ? (enabled ? "On" : "Off") : "Not listed";
-      const processEntry = recipeId ? entryByRecipe.get(recipeId) : null;
-      const progressText = formatRecipeProcessSnapshot(processEntry);
-      return {
-        value: recipeId,
-        locked: !unlocked,
-        label: `${actionLabel}: ${recipe?.name || recipeId}`,
-        detail: `${stateLabel} | ${gateText} | ${progressText} | ${formatRecipeDetails(
-          recipe
-        )}`,
-      };
-    });
+    return list
+      .map(({ key, recipe }) => {
+        const recipeId =
+          (typeof recipe?.id === "string" && recipe.id.length > 0
+            ? recipe.id
+            : key) || null;
+        const unlocked =
+          recipeId ? availability.recipeIds?.has(recipeId) === true : false;
+        if (!unlocked) return null;
+        const inList = recipeId ? priority.ordered.includes(recipeId) : false;
+        const enabled = recipeId ? priority.enabled?.[recipeId] !== false : false;
+        const gateText = getRecipeSkillGateText(recipeId, unlocked);
+        const actionLabel = inList ? "Remove" : "Add";
+        const stateLabel = inList ? (enabled ? "On" : "Off") : "Not listed";
+        const processEntry = recipeId ? entryByRecipe.get(recipeId) : null;
+        const progressText = formatRecipeProcessSnapshot(processEntry);
+        return {
+          value: recipeId,
+          locked: false,
+          label: `${actionLabel}: ${recipe?.name || recipeId}`,
+          detail: `${stateLabel} | ${gateText} | ${progressText} | ${formatRecipeDetails(
+            recipe
+          )}`,
+        };
+      })
+      .filter((entry) => !!entry);
   }
 
   function getHubCol(target) {
@@ -2512,45 +2614,44 @@ export function createProcessWidgetView({
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
-    const title = new PIXI.Text("Recipe Priority", {
-      fill: COLORS.moduleText,
-      fontSize: 10,
-      fontWeight: "bold",
-    });
-    title.x = MODULE_PAD;
-    title.y = MODULE_PAD;
-    container.addChild(title);
-
     const manageButton = new PIXI.Container();
-    const manageLabel = new PIXI.Text("Catalog", {
+    const manageLabel = new PIXI.Text("Recipies", {
       fill: COLORS.moduleText,
-      fontSize: 9,
+      fontSize: 11,
       fontWeight: "bold",
     });
-    const managePadX = 6;
-    const managePadY = 2;
-    const manageBgWidth = Math.max(56, Math.ceil(manageLabel.width + managePadX * 2));
+    const managePadX = 8;
+    const manageBgHeight = 18;
+    const manageBgWidthRaw = Math.max(82, Math.ceil(manageLabel.width + managePadX * 2));
+    const manageBgWidth = Math.max(
+      48,
+      Math.min(manageBgWidthRaw, Math.max(48, width - MODULE_PAD * 2))
+    );
     const manageBg = new PIXI.Graphics();
-    manageBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-    manageBg.beginFill(COLORS.pillEnabled, 0.98);
-    manageBg.drawRoundedRect(0, 0, manageBgWidth, 14, 6);
+    manageBg.lineStyle(1, COLORS.panelBorder, 0.92);
+    manageBg.beginFill(MUCHA_UI_COLORS.intent.softPop, 1);
+    manageBg.drawRoundedRect(0, 0, manageBgWidth, manageBgHeight, 8);
     manageBg.endFill();
     manageButton.addChild(manageBg);
     manageLabel.x = managePadX;
-    manageLabel.y = managePadY;
+    manageLabel.y = Math.max(0, Math.round((manageBgHeight - manageLabel.height) / 2));
+    fitTextToWidth(manageLabel, "Recipies", Math.max(12, manageBgWidth - managePadX * 2));
     manageButton.addChild(manageLabel);
-    manageButton.x = Math.max(MODULE_PAD, width - MODULE_PAD - manageBgWidth);
-    manageButton.y = MODULE_PAD - 1;
     manageButton.eventMode = "static";
     manageButton.cursor = "pointer";
     manageButton.on("pointertap", () => {
       openRecipeCatalogPopup(target, systemId, manageButton.getBounds());
     });
     container.addChild(manageButton);
+    manageButton.x = Math.max(
+      MODULE_PAD,
+      Math.floor((width - manageBgWidth) / 2)
+    );
+    manageButton.y = MODULE_PAD;
 
     const pillContainer = new PIXI.Container();
     pillContainer.x = MODULE_PAD;
-    pillContainer.y = title.y + 16;
+    pillContainer.y = manageButton.y + manageBgHeight + 8;
     container.addChild(pillContainer);
     const pillWidth = Math.max(24, width - MODULE_PAD * 2);
 
@@ -2585,20 +2686,6 @@ export function createProcessWidgetView({
       rowBg.endFill();
       row.addChild(rowBg);
 
-      const toggle = new PIXI.Container();
-      toggle.x = 4;
-      toggle.y = Math.floor((PILL_HEIGHT - TOGGLE_SIZE) / 2);
-      toggle.eventMode = "static";
-      toggle.cursor = "pointer";
-      const toggleBg = new PIXI.Graphics();
-      const toggleFill = enabled ? COLORS.progressFill : COLORS.panelBorder;
-      toggleBg.lineStyle(1, COLORS.moduleBorder, 0.95);
-      toggleBg.beginFill(toggleFill, 0.95);
-      toggleBg.drawRoundedRect(0, 0, TOGGLE_SIZE, TOGGLE_SIZE, 3);
-      toggleBg.endFill();
-      toggle.addChild(toggleBg);
-      row.addChild(toggle);
-
       const recipeName = formatRecipeName(recipeId);
       const processEntry = recipeEntryMap.get(recipeId);
       const snapshot = formatRecipeProcessSnapshot(processEntry);
@@ -2607,24 +2694,16 @@ export function createProcessWidgetView({
 
       const labelText = new PIXI.Text(recipeName, {
         fill: textColor,
-        fontSize: 9,
+        fontSize: 10,
         fontWeight: isFocused ? "bold" : "normal",
       });
-      const labelStartX = TOGGLE_SIZE + TOGGLE_PAD + PILL_PAD_X;
+      const labelStartX = PILL_PAD_X;
       labelText.x = labelStartX;
       labelText.y = Math.round((PILL_HEIGHT - labelText.height) / 2);
       const labelWidth = Math.max(24, pillWidth - labelStartX - 6);
       fitTextToWidth(labelText, recipeName, labelWidth);
       row.addChild(labelText);
       attachLozengeHoverHandlers(row, { fullLabel, hoverSpec: null });
-
-      toggle.on("pointerdown", (ev) => {
-        ev?.stopPropagation?.();
-      });
-      toggle.on("pointertap", (ev) => {
-        ev?.stopPropagation?.();
-        selectionActions.toggleHubRecipeEnabled?.(target, systemId, recipeId);
-      });
 
       const pillEntry = {
         recipeId,
@@ -2651,9 +2730,12 @@ export function createProcessWidgetView({
 
     let contentY = pillContainer.y;
     if (ordered.length <= 0) {
-      const emptyText = new PIXI.Text("No recipes listed. Use Catalog to add.", {
+      const emptyText = new PIXI.Text("No recipes listed. Use Recipies to add.", {
         fill: COLORS.moduleSub,
-        fontSize: 9,
+        fontSize: 10,
+        wordWrap: true,
+        breakWords: true,
+        wordWrapWidth: Math.max(24, width - MODULE_PAD * 2),
       });
       emptyText.x = MODULE_PAD;
       emptyText.y = contentY;
@@ -2665,7 +2747,7 @@ export function createProcessWidgetView({
       contentY += Math.max(PILL_HEIGHT, pillsHeight);
     }
 
-    const height = Math.max(52, contentY + MODULE_PAD);
+    const height = Math.max(64, contentY + MODULE_PAD);
     drawModuleBox(bg, width, height);
     return height;
   }
@@ -3128,6 +3210,7 @@ export function createProcessWidgetView({
               },
             });
           }
+          refreshWindowTextResolution(win);
         }
         positionWindowAtAnchor(win);
         win.container.visible = true;
@@ -3182,6 +3265,7 @@ export function createProcessWidgetView({
             onClose: () => hideWindow(windowId),
           },
         });
+        refreshWindowTextResolution(win);
       }
       positionWindowAtAnchor(win);
       win.container.visible = true;

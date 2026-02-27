@@ -132,7 +132,7 @@ export function createProcessWidgetProcessCardBuilder({
       radius: CARD_RADIUS,
       background: COLORS.headerBg,
       title,
-      titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
+      titleStyle: { fill: COLORS.headerText, fontSize: 13, fontWeight: "bold" },
       paddingX: HEADER_PAD_X,
       paddingY: HEADER_PAD_Y,
       pinOffsetX: 40,
@@ -146,7 +146,7 @@ export function createProcessWidgetProcessCardBuilder({
     if (isGrowthGroup && growthEntries) {
       const batchText = new PIXI.Text(`${growthEntries.length} batches`, {
         fill: COLORS.headerSub,
-        fontSize: 9,
+        fontSize: 10,
       });
       batchText.x = headerUi.titleText.x + headerUi.titleText.width + 6;
       batchText.y = HEADER_PAD_Y + 1;
@@ -154,7 +154,7 @@ export function createProcessWidgetProcessCardBuilder({
     } else if (count > 1) {
       const idxText = new PIXI.Text(`${index + 1}/${count}`, {
         fill: COLORS.headerSub,
-        fontSize: 9,
+        fontSize: 10,
       });
       idxText.x = headerUi.titleText.x + headerUi.titleText.width + 6;
       idxText.y = HEADER_PAD_Y + 1;
@@ -298,6 +298,9 @@ export function createProcessWidgetProcessCardBuilder({
             process,
             processDef,
             vertical,
+            state,
+            target,
+            systemId: processSystemId,
           });
         }
       } else if (id === "requirements") {

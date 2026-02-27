@@ -16,6 +16,7 @@ export function createProcessWidgetCardModules({
   getPoolItemTotals,
   formatRequirementLabel,
   resolveFixedEndpointId,
+  countContributingPawnsForProcess,
 } = {}) {
   function formatPoolSummary(poolTarget) {
     if (!poolTarget || poolTarget.kind !== "pool") return null;
@@ -44,6 +45,35 @@ export function createProcessWidgetCardModules({
       }
     }
     return `B ${totals.bronze}  S ${totals.silver}  G ${totals.gold}  D ${totals.diamond}`;
+  }
+
+  function drawStandardProgressBar({
+    container,
+    x,
+    y,
+    width,
+    height,
+    ratio,
+    radius = 7,
+    fillColor = COLORS.progressFill,
+    fillAlpha = 0.98,
+  }) {
+    const clampedRatio = Math.max(0, Math.min(1, Number(ratio) || 0));
+    const bg = new PIXI.Graphics();
+    bg.lineStyle(1, COLORS.progressBorder || COLORS.moduleBorder, 0.92);
+    bg.beginFill(COLORS.progressBg, 0.96);
+    bg.drawRoundedRect(x, y, width, height, radius);
+    bg.endFill();
+    container.addChild(bg);
+
+    const fillSize =
+      clampedRatio > 0 ? Math.max(2, width * clampedRatio) : 0;
+    if (fillSize <= 0) return;
+    const fill = new PIXI.Graphics();
+    fill.beginFill(fillColor, fillAlpha);
+    fill.drawRoundedRect(x, y, fillSize, height, radius);
+    fill.endFill();
+    container.addChild(fill);
   }
 
   function buildOutputModule({
@@ -140,6 +170,7 @@ export function createProcessWidgetCardModules({
       });
       line.x = MODULE_PAD;
       line.y = y;
+      fitTextToWidth(line, lineText, Math.max(20, width - MODULE_PAD * 2));
       container.addChild(line);
       y += 12;
 
@@ -150,6 +181,7 @@ export function createProcessWidgetCardModules({
         });
         poolText.x = MODULE_PAD;
         poolText.y = y;
+        fitTextToWidth(poolText, poolSummary, Math.max(20, width - MODULE_PAD * 2));
         container.addChild(poolText);
         y += 12;
       }
@@ -255,6 +287,7 @@ export function createProcessWidgetCardModules({
       });
       poolText.x = MODULE_PAD;
       poolText.y = y;
+      fitTextToWidth(poolText, summary, Math.max(20, width - MODULE_PAD * 2));
       container.addChild(poolText);
       y += 12;
     }
@@ -323,88 +356,148 @@ export function createProcessWidgetCardModules({
     process,
     processDef,
     vertical,
+    state,
+    target,
+    systemId,
   }) {
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
-    const labelText = new PIXI.Text(
-      vertical ? "Progress: Time" : "Progress: Work",
-      {
-        fill: COLORS.moduleSub,
-        fontSize: 10,
-      }
-    );
-    labelText.x = MODULE_PAD;
-    labelText.y = MODULE_PAD;
-    container.addChild(labelText);
+    const labelPrefix = new PIXI.Text("Progress:", {
+      fill: COLORS.moduleText,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    labelPrefix.x = MODULE_PAD;
+    labelPrefix.y = MODULE_PAD;
+    container.addChild(labelPrefix);
+
+    const labelMode = new PIXI.Text(vertical ? " Time" : " Work", {
+      fill: COLORS.moduleText,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    labelMode.x = labelPrefix.x + labelPrefix.width;
+    labelMode.y = MODULE_PAD;
+    container.addChild(labelMode);
 
     const duration = Math.max(1, Math.floor(processDef?.transform?.durationSec ?? 1));
     const progress = Math.max(0, Math.floor(process?.progress ?? 0));
     const ratio = Math.min(1, progress / duration);
+    const barTop = MODULE_PAD + 18;
 
     if (vertical) {
-      const barWidth = 14;
-      const barHeight = 40;
+      const barWidth = 18;
+      const barHeight = 56;
       const barX = Math.floor((width - barWidth) / 2);
-      const barY = labelText.y + 14;
+      const barY = barTop;
+      drawStandardProgressBar({
+        container,
+        x: barX,
+        y: barY,
+        width: barWidth,
+        height: barHeight,
+        ratio: 1,
+        radius: 8,
+        fillColor: COLORS.progressBg,
+      });
 
-      const barBg = new PIXI.Graphics();
-      barBg.beginFill(COLORS.progressBg, 1);
-      barBg.drawRoundedRect(barX, barY, barWidth, barHeight, 6);
-      barBg.endFill();
-      container.addChild(barBg);
-
-      const fillHeight = Math.max(2, barHeight * ratio);
-      const fill = new PIXI.Graphics();
-      fill.beginFill(COLORS.progressFill, 1);
-      fill.drawRoundedRect(
-        barX,
-        barY + (barHeight - fillHeight),
-        barWidth,
-        fillHeight,
-        6
-      );
-      fill.endFill();
-      container.addChild(fill);
+      const fillHeight = Math.max(0, barHeight * ratio);
+      if (fillHeight > 0) {
+        const fill = new PIXI.Graphics();
+        fill.beginFill(COLORS.progressFill, 0.98);
+        fill.drawRoundedRect(
+          barX,
+          barY + (barHeight - fillHeight),
+          barWidth,
+          fillHeight,
+          8
+        );
+        fill.endFill();
+        container.addChild(fill);
+      }
 
       const remain = Math.max(0, duration - progress);
       const timeText = new PIXI.Text(`${remain}s`, {
-        fill: COLORS.moduleSub,
-        fontSize: 10,
+        fill: COLORS.moduleText,
+        fontSize: 11,
       });
       timeText.x = Math.floor((width - timeText.width) / 2);
       timeText.y = barY + barHeight + 4;
       container.addChild(timeText);
+
+      const ratioText = new PIXI.Text(`${progress}/${duration}`, {
+        fill: COLORS.moduleSub,
+        fontSize: 10,
+      });
+      ratioText.x = Math.floor((width - ratioText.width) / 2);
+      ratioText.y = timeText.y + 14;
+      fitTextToWidth(ratioText, `${progress}/${duration}`, Math.max(20, width - MODULE_PAD * 2));
+      ratioText.x = Math.floor((width - ratioText.width) / 2);
+      container.addChild(ratioText);
     } else {
       const barWidth = width - MODULE_PAD * 2;
-      const barHeight = 10;
+      const barHeight = 16;
       const barX = MODULE_PAD;
-      const barY = labelText.y + 16;
-
-      const barBg = new PIXI.Graphics();
-      barBg.beginFill(COLORS.progressBg, 1);
-      barBg.drawRoundedRect(barX, barY, barWidth, barHeight, 6);
-      barBg.endFill();
-      container.addChild(barBg);
-
-      const fillWidth = Math.max(2, barWidth * ratio);
-      const fill = new PIXI.Graphics();
-      fill.beginFill(COLORS.progressFill, 1);
-      fill.drawRoundedRect(barX, barY, fillWidth, barHeight, 6);
-      fill.endFill();
-      container.addChild(fill);
+      const barY = barTop;
+      drawStandardProgressBar({
+        container,
+        x: barX,
+        y: barY,
+        width: barWidth,
+        height: barHeight,
+        ratio,
+        radius: 7,
+      });
 
       const remain = Math.max(0, duration - progress);
       const timeText = new PIXI.Text(`${remain}s`, {
-        fill: COLORS.moduleSub,
-        fontSize: 10,
+        fill: COLORS.moduleText,
+        fontSize: 11,
       });
       timeText.x = Math.floor((width - timeText.width) / 2);
       timeText.y = barY + barHeight + 6;
       container.addChild(timeText);
+
+      const progressText = new PIXI.Text(`${progress}/${duration} work`, {
+        fill: COLORS.moduleText,
+        fontSize: 10,
+        fontWeight: "bold",
+      });
+      fitTextToWidth(
+        progressText,
+        `${progress}/${duration} work`,
+        Math.max(20, width - MODULE_PAD * 2)
+      );
+      progressText.x = Math.floor((width - progressText.width) / 2);
+      progressText.y = timeText.y + 14;
+      container.addChild(progressText);
+
+      const contributorCount =
+        typeof countContributingPawnsForProcess === "function"
+          ? countContributingPawnsForProcess({
+              state,
+              target,
+              systemId,
+              process,
+              processDef,
+            })
+          : null;
+      const pawnsText = new PIXI.Text(
+        Number.isFinite(contributorCount)
+          ? `Pawns ${Math.max(0, Math.floor(contributorCount))}`
+          : "Pawns -",
+        {
+          fill: COLORS.moduleSub,
+          fontSize: 10,
+        }
+      );
+      pawnsText.x = Math.floor((width - pawnsText.width) / 2);
+      pawnsText.y = progressText.y + 13;
+      container.addChild(pawnsText);
     }
 
-    const height = Math.max(56, container.height + MODULE_PAD);
+    const height = Math.max(64, container.height + MODULE_PAD);
     drawModuleBox(bg, width, height);
     return height;
   }
@@ -481,22 +574,32 @@ export function createProcessWidgetCardModules({
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
-    const labelText = new PIXI.Text("Progress: Time", {
-      fill: COLORS.moduleSub,
-      fontSize: 10,
+    const labelPrefix = new PIXI.Text("Progress:", {
+      fill: COLORS.moduleText,
+      fontSize: 11,
+      fontWeight: "bold",
     });
-    labelText.x = MODULE_PAD;
-    labelText.y = MODULE_PAD;
-    container.addChild(labelText);
+    labelPrefix.x = MODULE_PAD;
+    labelPrefix.y = MODULE_PAD;
+    container.addChild(labelPrefix);
+
+    const labelMode = new PIXI.Text(" Time", {
+      fill: COLORS.moduleText,
+      fontSize: 11,
+      fontWeight: "bold",
+    });
+    labelMode.x = labelPrefix.x + labelPrefix.width;
+    labelMode.y = MODULE_PAD;
+    container.addChild(labelMode);
 
     const groups = buildGrowthProgressGroups(entries, 5);
     if (groups.length === 0) {
       const none = new PIXI.Text("No crops growing", {
         fill: COLORS.moduleSub,
-        fontSize: 9,
+        fontSize: 10,
       });
       none.x = MODULE_PAD;
-      none.y = labelText.y + 16;
+      none.y = labelPrefix.y + 16;
       container.addChild(none);
 
       const height = Math.max(56, none.y + 18);
@@ -504,7 +607,7 @@ export function createProcessWidgetCardModules({
       return height;
     }
 
-    const barHeight = 40;
+    const barHeight = 48;
     const barGap = 8;
     const barAreaWidth = width - MODULE_PAD * 2;
     const count = groups.length;
@@ -515,15 +618,20 @@ export function createProcessWidgetCardModules({
     const barWidth = Math.max(10, Math.min(maxBarWidth, barWidthRaw));
     const totalBarsWidth = barWidth * count + barGap * Math.max(0, count - 1);
     const startX = Math.floor(MODULE_PAD + (barAreaWidth - totalBarsWidth) / 2);
-    const barY = labelText.y + 16;
+    const barY = labelPrefix.y + 16;
 
     groups.forEach((group, index) => {
       const x = startX + index * (barWidth + barGap);
-      const barBg = new PIXI.Graphics();
-      barBg.beginFill(COLORS.progressBg, 1);
-      barBg.drawRoundedRect(x, barY, barWidth, barHeight, 6);
-      barBg.endFill();
-      container.addChild(barBg);
+      drawStandardProgressBar({
+        container,
+        x,
+        y: barY,
+        width: barWidth,
+        height: barHeight,
+        ratio: 1,
+        radius: 7,
+        fillColor: COLORS.progressBg,
+      });
 
       const members = group.items
         .slice()
@@ -531,7 +639,7 @@ export function createProcessWidgetCardModules({
       for (const member of members) {
         const fillHeight = Math.max(2, barHeight * member.ratio);
         const fill = new PIXI.Graphics();
-        fill.beginFill(COLORS.progressFill, 0.24);
+        fill.beginFill(COLORS.progressFill, 0.26);
         fill.drawRoundedRect(
           x,
           barY + (barHeight - fillHeight),
@@ -545,7 +653,7 @@ export function createProcessWidgetCardModules({
 
       const timeText = new PIXI.Text(`${group.earliestRemain}s`, {
         fill: COLORS.moduleSub,
-        fontSize: 9,
+        fontSize: 10,
       });
       timeText.x = x + Math.max(0, Math.floor((barWidth - timeText.width) / 2));
       timeText.y = barY + barHeight + 4;
@@ -554,7 +662,7 @@ export function createProcessWidgetCardModules({
       if (group.memberCount > 1) {
         const countText = new PIXI.Text(`x${group.memberCount}`, {
           fill: COLORS.headerSub,
-          fontSize: 8,
+          fontSize: 9,
           fontWeight: "bold",
         });
         countText.x = x + Math.max(0, Math.floor((barWidth - countText.width) / 2));
@@ -563,7 +671,7 @@ export function createProcessWidgetCardModules({
       }
     });
 
-    const height = Math.max(56, barY + barHeight + 20);
+    const height = Math.max(64, barY + barHeight + 22);
     drawModuleBox(bg, width, height);
     return height;
   }
@@ -574,7 +682,7 @@ export function createProcessWidgetCardModules({
 
     const title = new PIXI.Text("Materials", {
       fill: COLORS.moduleText,
-      fontSize: 10,
+      fontSize: 11,
       fontWeight: "bold",
     });
     title.x = MODULE_PAD;
@@ -586,7 +694,7 @@ export function createProcessWidgetCardModules({
     if (rows.length === 0) {
       const none = new PIXI.Text("None", {
         fill: COLORS.moduleSub,
-        fontSize: 9,
+        fontSize: 10,
       });
       none.x = MODULE_PAD;
       none.y = y;
@@ -596,40 +704,33 @@ export function createProcessWidgetCardModules({
       for (const row of rows) {
         const label = new PIXI.Text(`${row.label} ${row.progress}/${row.amount}`, {
           fill: COLORS.moduleSub,
-          fontSize: 9,
+          fontSize: 10,
         });
+        const requirementText = `${row.label} ${row.progress}/${row.amount}`;
+        fitTextToWidth(label, requirementText, Math.max(20, width - MODULE_PAD * 2));
         label.x = MODULE_PAD;
         label.y = y;
         container.addChild(label);
 
         const barWidth = width - MODULE_PAD * 2;
-        const barHeight = 6;
-        const barY = y + 10;
+        const barHeight = 12;
+        const barY = y + 12;
         const ratio = row.amount > 0 ? Math.min(1, row.progress / row.amount) : 0;
+        drawStandardProgressBar({
+          container,
+          x: MODULE_PAD,
+          y: barY,
+          width: barWidth,
+          height: barHeight,
+          ratio,
+          radius: 6,
+        });
 
-        const barBg = new PIXI.Graphics();
-        barBg.beginFill(COLORS.progressBg, 1);
-        barBg.drawRoundedRect(MODULE_PAD, barY, barWidth, barHeight, 4);
-        barBg.endFill();
-        container.addChild(barBg);
-
-        const fill = new PIXI.Graphics();
-        fill.beginFill(COLORS.progressFill, 1);
-        fill.drawRoundedRect(
-          MODULE_PAD,
-          barY,
-          Math.max(2, barWidth * ratio),
-          barHeight,
-          4
-        );
-        fill.endFill();
-        container.addChild(fill);
-
-        y += 18;
+        y += 24;
       }
     }
 
-    const height = Math.max(52, y + MODULE_PAD - 2);
+    const height = Math.max(58, y + MODULE_PAD - 2);
     drawModuleBox(bg, width, height);
     return height;
   }

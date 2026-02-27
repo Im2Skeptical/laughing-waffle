@@ -95,7 +95,7 @@ export const hubStructureDefs = {
     color: 0x7a5f8f,
     defaultSpan: 1,
     maxInstances: 1,
-    tags: ["depositable", "communal", "distributor"],
+    tags: ["depositable", "communal"],
     systems: {},
     inventory: { cols: 5, rows: 6 },
     inventoryRules: { allowedItemTags: ["grain", "edible"] },
