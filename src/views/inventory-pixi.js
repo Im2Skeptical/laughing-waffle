@@ -1662,7 +1662,9 @@ export function createInventoryView({
     if (!buildGhost || !globalPos) return;
     const ghost = buildGhost;
     const placing = isHubPlacementZone(globalPos);
-    const scale = placing ? BUILD_GHOST_SCALE_PLACE : BUILD_GHOST_SCALE_IDLE;
+    const uiScale = getInventoryWindowScale();
+    const baseScale = placing ? BUILD_GHOST_SCALE_PLACE : BUILD_GHOST_SCALE_IDLE;
+    const scale = baseScale * uiScale;
     ghost.container.scale.set(scale);
 
     ghost.card.x = 0;
