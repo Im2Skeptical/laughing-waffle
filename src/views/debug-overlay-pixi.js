@@ -17,9 +17,8 @@ const TOP_VIEW_UPDATES_COUNT = 5;
 const PERF_REFRESH_MS = 250;
 const SLOT_META_REFRESH_MS = 1000;
 const PARITY_REFRESH_MS = 500;
-const FULLSCREEN_BUTTON_HEIGHT = 56;
-const FULLSCREEN_BUTTON_FONT_SIZE = 15;
 const DEBUG_TOGGLE_SIZE = 38;
+const TOP_BUTTON_GAP = 6;
 
 function clampInt(value, fallback = 0) {
   const n = Math.floor(value);
@@ -96,13 +95,13 @@ export function createDebugOverlay({
   root.addChild(apText);
 
   const dbgBtn = new PIXI.Container();
-  dbgBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE - 50;
+  dbgBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE * 2 - TOP_BUTTON_GAP;
   dbgBtn.y = 2;
   dbgBtn.eventMode = "static";
   dbgBtn.cursor = "pointer";
   const dbgBtnBg = new PIXI.Graphics();
   dbgBtnBg.beginFill(0x444444);
-  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE * 3.0, DEBUG_TOGGLE_SIZE, 6);
+  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE, DEBUG_TOGGLE_SIZE, 6);
   dbgBtnBg.endFill();
   dbgBtn.addChild(dbgBtnBg);
   root.addChild(dbgBtn);
@@ -113,6 +112,30 @@ export function createDebugOverlay({
   dbgIcon.y = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
   dbgIcon.eventMode = "none";
   dbgBtn.addChild(dbgIcon);
+
+  const fullscreenBtn = new PIXI.Container();
+  fullscreenBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE;
+  fullscreenBtn.y = 2;
+  fullscreenBtn.eventMode = "static";
+  fullscreenBtn.cursor = "pointer";
+  const fullscreenBtnBg = new PIXI.Graphics();
+  fullscreenBtnBg.beginFill(0x444444);
+  fullscreenBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE, DEBUG_TOGGLE_SIZE, 6);
+  fullscreenBtnBg.endFill();
+  fullscreenBtn.addChild(fullscreenBtnBg);
+  root.addChild(fullscreenBtn);
+
+  const fullscreenIcon = new PIXI.Text("F", {
+    fontSize: 16,
+    fill: 0xffffff,
+    fontWeight: "bold",
+  });
+  fullscreenIcon.anchor.set(0.5, 0.5);
+  fullscreenIcon.x = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+  fullscreenIcon.y = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+  fullscreenIcon.eventMode = "none";
+  fullscreenBtn.addChild(fullscreenIcon);
+  fullscreenBtn.on("pointerdown", () => onToggleFullscreen?.());
 
   const panel = new PIXI.Container();
   panel.y = 42;
@@ -485,17 +508,6 @@ export function createDebugOverlay({
   panel.addChild(commitErrorRow);
   cursorY += 24;
 
-  const fullscreenBtn = createButton({
-    x: CONTENT_X,
-    y: cursorY,
-    width: CONTENT_W,
-    height: FULLSCREEN_BUTTON_HEIGHT,
-    label: "Enter Fullscreen",
-    fontSize: FULLSCREEN_BUTTON_FONT_SIZE,
-  });
-  cursorY += FULLSCREEN_BUTTON_HEIGHT + SECTION_GAP;
-  fullscreenBtn.container.on("pointerdown", () => onToggleFullscreen?.());
-
   function refreshScenarioUi() {
     if (!scenarioIds.length) {
       scenarioName.text = "No setupDefs found";
@@ -707,19 +719,21 @@ export function createDebugOverlay({
         typeof isFullscreenAvailable === "function"
           ? isFullscreenAvailable()
           : typeof onToggleFullscreen === "function";
-      setButtonEnabled(fullscreenBtn, !!fullscreenSupported);
+      fullscreenBtn.alpha = fullscreenSupported ? 1 : 0.45;
+      fullscreenBtn.eventMode = fullscreenSupported ? "static" : "none";
+      fullscreenBtn.cursor = fullscreenSupported ? "pointer" : "default";
+      fullscreenBtnBg.tint = 0xffffff;
       if (!fullscreenSupported) {
-        fullscreenBtn.text.text = "Fullscreen N/A";
+        fullscreenIcon.text = "N/A";
+        fullscreenIcon.style.fontSize = 10;
       } else {
         const isFullscreen =
           typeof getIsFullscreen === "function" ? !!getIsFullscreen() : false;
-        fullscreenBtn.text.text = isFullscreen
-          ? "Exit Fullscreen"
-          : "Enter Fullscreen";
+        fullscreenIcon.text = isFullscreen ? "X" : "F";
+        fullscreenIcon.style.fontSize = 16;
       }
-      fullscreenBtn.text.x = Math.round(
-        (fullscreenBtn.width - fullscreenBtn.text.width) * 0.5
-      );
+      fullscreenIcon.x = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+      fullscreenIcon.y = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
 
       updatePerfRows();
       updateParityRow();
