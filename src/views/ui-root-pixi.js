@@ -1478,6 +1478,61 @@ function openSystemGraphForHover() {
   return systemGraphModel.toggleGraphForHover(systemGraphView);
 }
 
+function getDebugSystemGraphWindowSpec() {
+  const timeline = runner.getTimeline?.();
+  const cursorState = runner.getCursorState?.();
+  const graphData = systemGraphController.getData?.() ?? {};
+  const historyEndSec = Math.max(0, Math.floor(timeline?.historyEndSec ?? 0));
+  const cursorSec = Math.max(0, Math.floor(cursorState?.tSec ?? historyEndSec));
+  const horizonSec = Math.max(0, Math.floor(graphData?.horizonSec ?? 1200));
+  return {
+    minSec: 0,
+    maxSec: Math.max(1, historyEndSec + horizonSec),
+    scrubSec: cursorSec,
+    forceScrubToCursor: false,
+  };
+}
+
+function getDebugSystemGraphCommitDecision({
+  scrubSec,
+  historyEndSec,
+} = {}) {
+  const sec = Math.max(0, Math.floor(scrubSec ?? 0));
+  const historyEnd = Math.max(0, Math.floor(historyEndSec ?? 0));
+  if (sec > historyEnd) {
+    return { allow: false, reason: "Forecast is preview-only" };
+  }
+  return { allow: true };
+}
+
+function getDebugSystemGraphHistoryZones({
+  minSec,
+  maxSec,
+  historyEndSec,
+} = {}) {
+  const min = Math.max(0, Math.floor(minSec ?? 0));
+  const max = Math.max(min, Math.floor(maxSec ?? min));
+  const historyEnd = Math.max(0, Math.floor(historyEndSec ?? 0));
+  const realizedEnd = Math.min(max, historyEnd);
+  if (realizedEnd <= min) return [];
+  return [{ kind: "editableHistory", startSec: min, endSec: realizedEnd }];
+}
+
+function applyDebugSystemGraphPolicy() {
+  systemGraphView.setWindowSpecResolver?.(() => getDebugSystemGraphWindowSpec());
+  systemGraphView.setCommitPolicyResolver?.((commitSpec) =>
+    getDebugSystemGraphCommitDecision(commitSpec)
+  );
+  systemGraphView.setHistoryZoneResolver?.((zoneSpec) =>
+    getDebugSystemGraphHistoryZones(zoneSpec)
+  );
+}
+
+function openSystemGraphFromDebug() {
+  applyDebugSystemGraphPolicy();
+  return systemGraphModel.toggleGraphForHover(systemGraphView);
+}
+
 function toggleApGraph() {
   if (apGraphView.isOpen()) {
     apGraphView.close();
@@ -1677,7 +1732,7 @@ const debugView = createDebugOverlay({
     applyScenarioDevUiBootstrap();
     return res;
   },
-  onOpenSystemGraph: () => openSystemGraphForHover(),
+  onOpenSystemGraph: () => openSystemGraphFromDebug(),
   onToggleApGraph: () => toggleApGraph(),
   onToggleFullscreen: () => {
     void toggleFullscreen();
