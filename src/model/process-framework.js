@@ -435,6 +435,12 @@ export function getProcessDefForInstance(process, target, context) {
       store: "inv",
       includeSelfInv: true,
       includeOccupants: true,
+      includePool: {
+        ownerKind: "pawn",
+        source: "occupants",
+        systemId: "storage",
+        poolKey: "byKindTier",
+      },
     };
   } else if (recipeDef?.kind === "cook" || recipeDef?.kind === "craft") {
     inputRule = {
