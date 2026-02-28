@@ -13,8 +13,10 @@ import {
 } from "../inventory-model.js";
 import {
   isAnyDropboxOwnerId,
+  isBasketDropboxOwnerId,
   isHubDropboxOwnerId,
   isProcessDropboxOwnerId,
+  parseBasketDropboxOwnerId,
   parseHubDropboxOwnerId,
   parseProcessDropboxOwnerId,
 } from "../owner-id-protocol.js";
@@ -608,6 +610,19 @@ export function cmdMoveProcessDropboxItem(
   }
   if (!isAnyDropboxOwnerId(fromOwnerId) && !isAnyDropboxOwnerId(toOwnerId)) {
     return { ok: false, reason: "notProcessDropbox" };
+  }
+  if (isBasketDropboxOwnerId(toOwnerId)) {
+    if (isAnyDropboxOwnerId(fromOwnerId)) {
+      return { ok: false, reason: "badOwner" };
+    }
+    const basket = parseBasketDropboxOwnerId(toOwnerId);
+    if (!basket?.ownerId) return { ok: false, reason: "badOwner" };
+    return cmdDepositItemToEquippedBasket(state, {
+      fromOwnerId,
+      toOwnerId: basket.ownerId,
+      itemId,
+      slotId: basket.slotId ?? null,
+    });
   }
   if (
     viaProcessDropbox === true &&

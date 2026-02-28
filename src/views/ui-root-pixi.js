@@ -10,6 +10,7 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import {
   isAnyDropboxOwnerId,
+  parseBasketDropboxOwnerId,
   parseProcessDropboxOwnerId,
 } from "../model/owner-id-protocol.js";
 import { evaluateProcessDropboxDragStatus } from "../model/commands/process-dropbox-logic.js";
@@ -981,6 +982,17 @@ inventoryView = createInventoryView({
     const procId = parseProcessDropboxOwnerId(ownerId);
     if (procId) {
       return procId ? `Process ${procId} Dropbox` : "Process Dropbox";
+    }
+    const basketDropbox = parseBasketDropboxOwnerId(ownerId);
+    if (basketDropbox?.ownerId != null) {
+      const state = runner.getState();
+      const pawn = state?.pawns?.find(
+        (candidatePawn) =>
+          String(candidatePawn?.id) === String(basketDropbox.ownerId)
+      );
+      const ownerLabel =
+        pawn?.name || `Pawn ${String(basketDropbox.ownerId)}`;
+      return `${ownerLabel} Basket Dropbox`;
     }
     const state = runner.getState();
     const hubSlot = state.hub.slots.find(

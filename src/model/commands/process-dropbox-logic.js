@@ -6,8 +6,10 @@ import { Inventory } from "../inventory-model.js";
 import { getProcessDefForInstance } from "../process-framework.js";
 import {
   buildProcessDropboxOwnerId,
+  isBasketDropboxOwnerId,
   isHubDropboxOwnerId,
   isProcessDropboxOwnerId,
+  parseBasketDropboxOwnerId,
   parseHubDropboxOwnerId,
   parseProcessDropboxOwnerId,
 } from "../owner-id-protocol.js";
@@ -138,6 +140,65 @@ function normalizeStructureDepositConfig(structure) {
   };
 }
 
+function normalizePawnOwnerId(ownerId) {
+  if (typeof ownerId === "number") return ownerId;
+  if (typeof ownerId === "string") {
+    const asNum = Number(ownerId);
+    if (Number.isFinite(asNum)) return asNum;
+  }
+  return ownerId;
+}
+
+function getLeaderByOwnerId(state, ownerId) {
+  const normalized = normalizePawnOwnerId(ownerId);
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawn =
+    pawns.find((candidatePawn) => candidatePawn?.id === normalized) ?? null;
+  if (!pawn || pawn.role !== "leader") return null;
+  return pawn;
+}
+
+function itemKindProvidesBasketPool(itemKind) {
+  if (typeof itemKind !== "string" || itemKind.length <= 0) return false;
+  const def = itemDefs?.[itemKind];
+  if (!def || typeof def !== "object") return false;
+  const specs = Array.isArray(def.poolProviders)
+    ? def.poolProviders
+    : def.poolProviders && typeof def.poolProviders === "object"
+      ? [def.poolProviders]
+      : [];
+  return specs.some((spec) => {
+    const systemId = typeof spec?.systemId === "string" ? spec.systemId : spec?.system;
+    const poolKey = typeof spec?.poolKey === "string" ? spec.poolKey : null;
+    return systemId === "storage" && poolKey === "byKindTier";
+  });
+}
+
+function getEquippedBasketForLeader(leader, preferredSlotId = null) {
+  if (!leader || leader.role !== "leader") return null;
+  const equipment =
+    leader?.equipment && typeof leader.equipment === "object"
+      ? leader.equipment
+      : null;
+  if (!equipment) return null;
+  const preferred =
+    typeof preferredSlotId === "string" && preferredSlotId.length > 0
+      ? preferredSlotId
+      : null;
+  if (preferred) {
+    const item = equipment[preferred];
+    if (item && itemKindProvidesBasketPool(item?.kind)) {
+      return { slotId: preferred, item };
+    }
+  }
+  for (const [slotId, item] of Object.entries(equipment)) {
+    if (!item || typeof item !== "object") continue;
+    if (!itemKindProvidesBasketPool(item?.kind)) continue;
+    return { slotId, item };
+  }
+  return null;
+}
+
 function itemKindMatchesDepositRules(itemKind, config) {
   if (!itemKind || !config) return false;
   if (config.allowAny) return true;
@@ -188,6 +249,18 @@ function isRecipeSystemIdleProcess(process, target, systemId) {
 }
 
 function resolveDropboxContext(state, toOwnerId) {
+  if (isBasketDropboxOwnerId(toOwnerId)) {
+    const parsed = parseBasketDropboxOwnerId(toOwnerId);
+    if (!parsed?.ownerId) {
+      return { ok: false, reason: "dropboxBadOwner", kind: "basket" };
+    }
+    return {
+      ok: true,
+      kind: "basket",
+      basketOwnerId: parsed.ownerId,
+      basketSlotId: parsed.slotId ?? null,
+    };
+  }
   if (isHubDropboxOwnerId(toOwnerId)) {
     const structureId = parseHubDropboxOwnerId(toOwnerId);
     const structure = findHubStructureById(state, structureId);
@@ -325,6 +398,27 @@ export function evaluateProcessDropboxDrop(state, spec = {}) {
   const ctx = resolveDropboxContext(state, toOwnerId);
   if (!ctx.ok) {
     return { status: "invalid", reason: ctx.reason, cap: 0 };
+  }
+
+  if (ctx.kind === "basket") {
+    const leader = getLeaderByOwnerId(state, ctx.basketOwnerId);
+    if (!leader) {
+      return { status: "invalid", reason: "dropboxNoProcess", cap: 0 };
+    }
+    const basketEntry = getEquippedBasketForLeader(leader, ctx.basketSlotId);
+    if (!basketEntry?.item) {
+      return { status: "invalid", reason: "dropboxNoProcess", cap: 0 };
+    }
+    if (itemKindProvidesBasketPool(itemKind)) {
+      return { status: "invalid", reason: "cannotDepositBasket", cap: 0 };
+    }
+    return {
+      status: "valid",
+      reason: "dropboxLoaded",
+      cap: quantity,
+      instant: true,
+      kind: "basket",
+    };
   }
 
   if (ctx.kind === "hub") {
@@ -505,6 +599,7 @@ export function evaluateProcessDropboxDragStatus(state, spec = {}) {
 }
 
 export function isInstantDropboxTarget(state, ownerId) {
+  if (isBasketDropboxOwnerId(ownerId)) return true;
   const evalRes = evaluateProcessDropboxDrop(state, {
     toOwnerId: ownerId,
     itemKind: "__probe__",

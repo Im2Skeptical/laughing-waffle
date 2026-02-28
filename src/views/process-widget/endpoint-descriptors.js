@@ -2,6 +2,7 @@ export function createEndpointDescriptorTools({
   isAnyDropboxOwnerId,
   isProcessDropboxOwnerId,
   isHubDropboxOwnerId,
+  isBasketDropboxOwnerId,
   envTileDefs,
   hubStructureDefs,
   findStructureById,
@@ -168,7 +169,8 @@ export function createEndpointDescriptorTools({
     if (!endpointId || typeof endpointId !== "string") return "Endpoint";
     if (
       isProcessDropboxOwnerId?.(endpointId) ||
-      isHubDropboxOwnerId?.(endpointId)
+      isHubDropboxOwnerId?.(endpointId) ||
+      isBasketDropboxOwnerId?.(endpointId)
     ) {
       return "Dropbox";
     }

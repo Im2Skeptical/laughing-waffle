@@ -12,8 +12,10 @@ import {
   resolveFixedEndpointId,
 } from "../model/process-framework.js";
 import {
+  buildBasketDropboxOwnerId,
   buildHubDropboxOwnerId,
   isAnyDropboxOwnerId,
+  isBasketDropboxOwnerId,
   isHubDropboxOwnerId,
   isProcessDropboxOwnerId,
 } from "../model/owner-id-protocol.js";
@@ -308,6 +310,7 @@ export function createProcessWidgetView({
     isAnyDropboxOwnerId,
     isProcessDropboxOwnerId,
     isHubDropboxOwnerId,
+    isBasketDropboxOwnerId,
     envTileDefs,
     hubStructureDefs,
     findStructureById,
@@ -2240,7 +2243,12 @@ export function createProcessWidgetView({
   }
 
   function getDepositDropboxOwnerId(target) {
-    if (!target || target?.refKind === "basket") return null;
+    if (!target) return null;
+    if (target?.refKind === "basket") {
+      const ownerId = target?.ownerId ?? null;
+      if (ownerId == null) return null;
+      return buildBasketDropboxOwnerId(ownerId, target?.basketSlotId ?? null);
+    }
     const def = target?.defId ? hubStructureDefs?.[target.defId] : null;
     const deposit = def?.deposit;
     if (!deposit || deposit.instantDropboxLoad !== true) return null;
@@ -2599,14 +2607,30 @@ export function createProcessWidgetView({
     body.y = HEADER_HEIGHT + 6;
     card.addChild(body);
 
+    const dropboxOwnerId = getDepositDropboxOwnerId(target);
+    const showDropbox = !!dropboxOwnerId;
+    const dropboxGap = showDropbox ? SEGMENT_GAP : 0;
+    const centralWidth = Math.max(
+      120,
+      totalWidth - (showDropbox ? DROPBOX_SIZE + dropboxGap : 0)
+    );
+
+    let dropbox = null;
+    if (showDropbox) {
+      dropbox = new PIXI.Container();
+      dropbox.x = 0;
+      dropbox.y = BODY_PAD;
+      body.addChild(dropbox);
+    }
+
     const central = new PIXI.Container();
-    central.x = 0;
+    central.x = showDropbox ? DROPBOX_SIZE + dropboxGap : 0;
     central.y = BODY_PAD;
     body.addChild(central);
 
     const moduleCount = 2;
     const moduleWidth = Math.floor(
-      (totalWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount
+      (centralWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount
     );
 
     let moduleX = 0;
@@ -2654,14 +2678,31 @@ export function createProcessWidgetView({
 
     central.height = moduleMaxHeight;
 
-    const bodyContentHeight = Math.max(moduleMaxHeight, MIN_BODY_CONTENT_HEIGHT);
+    const dropboxHeight = showDropbox ? DROPBOX_SIZE + 18 : 0;
+    const bodyContentHeight = Math.max(
+      moduleMaxHeight,
+      dropboxHeight,
+      MIN_BODY_CONTENT_HEIGHT
+    );
     stretchModuleViews(moduleViews, bodyContentHeight);
     central.height = bodyContentHeight;
     const bodyHeight = bodyContentHeight + BODY_PAD * 2;
 
+    if (showDropbox && dropbox) {
+      buildDropboxModule({
+        container: dropbox,
+        width: DROPBOX_SIZE,
+        height: bodyContentHeight,
+        process: null,
+        dropTargets: opts.dropTargets,
+        dropOwnerId: dropboxOwnerId,
+        labelText: "Dropbox",
+      });
+    }
+
     const centralBg = new PIXI.Graphics();
     centralBg.beginFill(0x000000, 0);
-    centralBg.drawRect(0, 0, totalWidth, bodyContentHeight);
+    centralBg.drawRect(0, 0, centralWidth, bodyContentHeight);
     centralBg.endFill();
     central.addChildAt(centralBg, 0);
 
@@ -2677,7 +2718,10 @@ export function createProcessWidgetView({
     const cardOpts = opts.cardOpts || {};
     clearContent(content, dropTargets);
 
-    const built = buildBasketCard(state, target, cardOpts);
+    const built = buildBasketCard(state, target, {
+      ...cardOpts,
+      dropTargets,
+    });
     built.card.y = 0;
     content.addChild(built.card);
   }
