@@ -809,7 +809,7 @@ export function createSkillTreeView({
       const edgeLearned = sa === "unlocked" && sb === "unlocked";
 
       let color = EDGE_COLOR;
-      let alpha = EDGE_ALPHA * 0.26;
+      let alpha = EDGE_ALPHA * 0.38;
       let width = 2;
 
       if (edgeMode === EDGE_MODE_FOCUS) {
@@ -818,9 +818,9 @@ export function createSkillTreeView({
           alpha = 0.98;
           width = 3;
         } else if (focusNodeId) {
-          alpha = 0.07;
+          alpha = 0.18;
         } else {
-          alpha = EDGE_ALPHA * 0.24;
+          alpha = EDGE_ALPHA * 0.44;
         }
       } else if (edgeMode === EDGE_MODE_PROGRESS) {
         if (endAHot && endBHot) {
@@ -832,7 +832,7 @@ export function createSkillTreeView({
           alpha = 0.48;
           width = 2.2;
         } else {
-          alpha = 0.06;
+          alpha = 0.16;
         }
         if (focusEdges.has(edgeKey)) {
           alpha = Math.max(alpha, 0.85);
