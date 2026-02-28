@@ -2,18 +2,24 @@ import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 import { createWindowHeader } from "../ui-helpers/window-header.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
 
-const PANEL_RADIUS = 12;
-const HEADER_HEIGHT = 26;
-const PANEL_PAD = 12;
-const PANE_GAP = 12;
-const PANE_RADIUS = 9;
-const PANE_PAD = 10;
-const ROW_HEIGHT = 28;
-const ROW_GAP = 6;
-const LIST_TITLE_HEIGHT = 18;
-const ACTION_BUTTON_WIDTH = 64;
-const ACTION_BUTTON_HEIGHT = 18;
-const SCROLLBAR_WIDTH = 8;
+const MANUAL_UI_SCALE = 2;
+
+function scaleUi(value) {
+  return Math.max(1, Math.floor(Number(value || 0) * MANUAL_UI_SCALE));
+}
+
+const PANEL_RADIUS = scaleUi(12);
+const HEADER_HEIGHT = scaleUi(26);
+const PANEL_PAD = scaleUi(12);
+const PANE_GAP = scaleUi(12);
+const PANE_RADIUS = scaleUi(9);
+const PANE_PAD = scaleUi(10);
+const ROW_HEIGHT = scaleUi(28);
+const ROW_GAP = scaleUi(6);
+const LIST_TITLE_HEIGHT = scaleUi(18);
+const ACTION_BUTTON_WIDTH = scaleUi(64);
+const ACTION_BUTTON_HEIGHT = scaleUi(18);
+const SCROLLBAR_WIDTH = scaleUi(8);
 
 function clampInt(value, minValue, maxValue) {
   const n = Number.isFinite(value) ? Math.floor(value) : minValue;
@@ -135,7 +141,7 @@ export function createRecipeManualWindow({
     title: "Recipies",
     titleStyle: {
       fill: MUCHA_UI_COLORS.ink.primary,
-      fontSize: 13,
+      fontSize: scaleUi(13),
       fontWeight: "bold",
     },
     paddingX: 10,
@@ -158,7 +164,7 @@ export function createRecipeManualWindow({
   leftPane.addChild(leftBg);
   const leftTitle = new PIXI.Text("Unlocked Recipies", {
     fill: MUCHA_UI_COLORS.ink.primary,
-    fontSize: 12,
+    fontSize: scaleUi(12),
     fontWeight: "bold",
   });
   leftPane.addChild(leftTitle);
@@ -178,7 +184,7 @@ export function createRecipeManualWindow({
 
   const leftEmptyText = new PIXI.Text("No unlocked recipes available.", {
     fill: MUCHA_UI_COLORS.ink.secondary,
-    fontSize: 11,
+    fontSize: scaleUi(11),
     wordWrap: true,
     breakWords: true,
   });
@@ -190,16 +196,16 @@ export function createRecipeManualWindow({
   rightPane.addChild(rightBg);
   const rightHeader = new PIXI.Text("Recipe Details", {
     fill: MUCHA_UI_COLORS.ink.primary,
-    fontSize: 12,
+    fontSize: scaleUi(12),
     fontWeight: "bold",
   });
   rightPane.addChild(rightHeader);
   const rightDetails = new PIXI.Text("", {
     fill: MUCHA_UI_COLORS.ink.secondary,
-    fontSize: 12,
+    fontSize: scaleUi(12),
     wordWrap: true,
     breakWords: true,
-    lineHeight: 16,
+    lineHeight: scaleUi(16),
   });
   rightPane.addChild(rightDetails);
 
@@ -412,7 +418,7 @@ export function createRecipeManualWindow({
     rightDetails.y = rightHeader.y + rightHeader.height + 6;
     rightDetails.style.wordWrapWidth = Math.max(80, rightWidth - PANE_PAD * 2);
 
-    applyTextResolutionToTree(root, PIXI, 1);
+    applyTextResolutionToTree(root, PIXI, MANUAL_UI_SCALE);
   }
 
   function buildDetailsText(row) {
@@ -443,7 +449,7 @@ export function createRecipeManualWindow({
       rightDetails.text =
         String(model?.emptyDetailText || "") ||
         "No unlocked recipes are available for this structure.";
-      applyTextResolution(rightDetails, 1);
+      applyTextResolution(rightDetails, MANUAL_UI_SCALE);
       return;
     }
 
@@ -480,7 +486,7 @@ export function createRecipeManualWindow({
 
       const label = new PIXI.Text(String(row?.name || rowId), {
         fill: MUCHA_UI_COLORS.ink.primary,
-        fontSize: 11,
+        fontSize: scaleUi(11),
         fontWeight: selected ? "bold" : "normal",
       });
       label.x = 8;
@@ -491,7 +497,7 @@ export function createRecipeManualWindow({
         Math.max(24, rowWidth - ACTION_BUTTON_WIDTH - 18)
       );
       rowRoot.addChild(label);
-      applyTextResolution(label, 1);
+      applyTextResolution(label, MANUAL_UI_SCALE);
 
       const actionButton = new PIXI.Container();
       actionButton.eventMode = "static";
@@ -522,13 +528,13 @@ export function createRecipeManualWindow({
 
       const actionText = new PIXI.Text(String(row?.actionLabel || "Add"), {
         fill: MUCHA_UI_COLORS.ink.primary,
-        fontSize: 10,
+        fontSize: scaleUi(10),
         fontWeight: "bold",
       });
       actionText.x = Math.floor((ACTION_BUTTON_WIDTH - actionText.width) * 0.5);
       actionText.y = Math.floor((ACTION_BUTTON_HEIGHT - actionText.height) * 0.5);
       actionButton.addChild(actionText);
-      applyTextResolution(actionText, 1);
+      applyTextResolution(actionText, MANUAL_UI_SCALE);
 
       rowRoot.addChild(actionButton);
       leftRows.addChild(rowRoot);
@@ -544,7 +550,7 @@ export function createRecipeManualWindow({
 
     const selectedRow = rows.find((row) => row?.id === selectedRecipeId) || null;
     rightDetails.text = buildDetailsText(selectedRow);
-    applyTextResolution(rightDetails, 1);
+    applyTextResolution(rightDetails, MANUAL_UI_SCALE);
   }
 
   function setOpenVisible(open) {
