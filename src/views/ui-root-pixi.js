@@ -1475,7 +1475,20 @@ let popGraphView = createRunnerMetricGraph({
 });
 
 function openSystemGraphForHover() {
-  return systemGraphModel.toggleGraphForHover(systemGraphView);
+  const result = systemGraphModel.toggleGraphForHover(systemGraphView);
+  if (debugSystemGraphFullHistoryEditActive) {
+    setDebugSystemGraphFullHistoryEditActive(false);
+  }
+  return result;
+}
+
+let debugSystemGraphFullHistoryEditActive = false;
+
+function setDebugSystemGraphFullHistoryEditActive(nextActive) {
+  const enabled = nextActive === true;
+  if (debugSystemGraphFullHistoryEditActive === enabled) return;
+  debugSystemGraphFullHistoryEditActive = enabled;
+  runner.setFullHistoryEditOverride?.(enabled);
 }
 
 function getDebugSystemGraphWindowSpec() {
@@ -1530,7 +1543,10 @@ function applyDebugSystemGraphPolicy() {
 
 function openSystemGraphFromDebug() {
   applyDebugSystemGraphPolicy();
-  return systemGraphModel.toggleGraphForHover(systemGraphView);
+  const result = systemGraphModel.toggleGraphForHover(systemGraphView);
+  const opened = !!result?.opened && systemGraphView.isOpen?.() === true;
+  setDebugSystemGraphFullHistoryEditActive(opened);
+  return result;
 }
 
 function toggleApGraph() {
@@ -1952,6 +1968,9 @@ app.ticker.add((delta) => {
   }
 
   const systemGraphOpen = systemGraphView.isOpen();
+  if (!systemGraphOpen && debugSystemGraphFullHistoryEditActive) {
+    setDebugSystemGraphFullHistoryEditActive(false);
+  }
   systemGraphController.setActive?.(systemGraphOpen);
   if (systemGraphOpen) {
     systemGraphModel.refreshTargetThrottled(performance.now());

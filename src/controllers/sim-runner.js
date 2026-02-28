@@ -76,6 +76,7 @@ export function createSimRunner({
   let pauseRequested = false;
   let lastPlannerCommitError = null;
   let plannerBoundaryCache = null;
+  let fullHistoryEditOverrideEnabled = false;
 
   function clearPlannerBoundaryCache() {
     plannerBoundaryCache = null;
@@ -111,11 +112,14 @@ export function createSimRunner({
   function getEditableHistoryBounds() {
     const windowSec = getEditableHistoryWindowSec();
     const maxReachedSec = syncTimelineMaxReachedHistoryEndSec();
-    const minEditableSec = Math.max(0, maxReachedSec - windowSec);
+    const minEditableSec = fullHistoryEditOverrideEnabled
+      ? 0
+      : Math.max(0, maxReachedSec - windowSec);
     return {
       windowSec,
       maxReachedSec,
       minEditableSec,
+      fullHistoryEditOverrideEnabled,
     };
   }
 
@@ -277,6 +281,7 @@ export function createSimRunner({
     rewindAccumulatorSec = 0;
     simAccumulator = 0;
     lastPlannerCommitError = null;
+    fullHistoryEditOverrideEnabled = false;
 
     timeline.checkpoints = [
       {
@@ -1357,6 +1362,11 @@ export function createSimRunner({
     isPreviewing: () => !!dragPreviewState,
     getEditableHistoryBounds,
     getEditWindowStatusAtSecond: (tSec) => getEditWindowStatusForSecond(tSec),
+    setFullHistoryEditOverride: (enabled) => {
+      fullHistoryEditOverrideEnabled = enabled === true;
+      return { ok: true, enabled: fullHistoryEditOverrideEnabled };
+    },
+    getFullHistoryEditOverride: () => fullHistoryEditOverrideEnabled,
     getLastPlannerCommitError: () => lastPlannerCommitError,
     setPreviewState: (s) => {
       dragPreviewState = s || null;

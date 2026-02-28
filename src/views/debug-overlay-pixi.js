@@ -19,6 +19,7 @@ const SLOT_META_REFRESH_MS = 1000;
 const PARITY_REFRESH_MS = 500;
 const DEBUG_TOGGLE_SIZE = 38;
 const TOP_BUTTON_GAP = 6;
+const TOP_BUTTON_WIDTH = DEBUG_TOGGLE_SIZE * 3;
 
 function clampInt(value, fallback = 0) {
   const n = Math.floor(value);
@@ -95,32 +96,32 @@ export function createDebugOverlay({
   root.addChild(apText);
 
   const dbgBtn = new PIXI.Container();
-  dbgBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE * 2 - TOP_BUTTON_GAP;
+  dbgBtn.x = PANEL_WIDTH - TOP_BUTTON_WIDTH * 2 - TOP_BUTTON_GAP;
   dbgBtn.y = 2;
   dbgBtn.eventMode = "static";
   dbgBtn.cursor = "pointer";
   const dbgBtnBg = new PIXI.Graphics();
   dbgBtnBg.beginFill(0x444444);
-  dbgBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE, DEBUG_TOGGLE_SIZE, 6);
+  dbgBtnBg.drawRoundedRect(0, 0, TOP_BUTTON_WIDTH, DEBUG_TOGGLE_SIZE, 6);
   dbgBtnBg.endFill();
   dbgBtn.addChild(dbgBtnBg);
   root.addChild(dbgBtn);
 
   const dbgIcon = new PIXI.Text("D", { fontSize: 20, fill: 0xffffff });
   dbgIcon.anchor.set(0.5, 0.5);
-  dbgIcon.x = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+  dbgIcon.x = Math.floor(TOP_BUTTON_WIDTH * 0.5);
   dbgIcon.y = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
   dbgIcon.eventMode = "none";
   dbgBtn.addChild(dbgIcon);
 
   const fullscreenBtn = new PIXI.Container();
-  fullscreenBtn.x = PANEL_WIDTH - DEBUG_TOGGLE_SIZE;
+  fullscreenBtn.x = PANEL_WIDTH - TOP_BUTTON_WIDTH;
   fullscreenBtn.y = 2;
   fullscreenBtn.eventMode = "static";
   fullscreenBtn.cursor = "pointer";
   const fullscreenBtnBg = new PIXI.Graphics();
   fullscreenBtnBg.beginFill(0x444444);
-  fullscreenBtnBg.drawRoundedRect(0, 0, DEBUG_TOGGLE_SIZE, DEBUG_TOGGLE_SIZE, 6);
+  fullscreenBtnBg.drawRoundedRect(0, 0, TOP_BUTTON_WIDTH, DEBUG_TOGGLE_SIZE, 6);
   fullscreenBtnBg.endFill();
   fullscreenBtn.addChild(fullscreenBtnBg);
   root.addChild(fullscreenBtn);
@@ -131,7 +132,7 @@ export function createDebugOverlay({
     fontWeight: "bold",
   });
   fullscreenIcon.anchor.set(0.5, 0.5);
-  fullscreenIcon.x = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+  fullscreenIcon.x = Math.floor(TOP_BUTTON_WIDTH * 0.5);
   fullscreenIcon.y = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
   fullscreenIcon.eventMode = "none";
   fullscreenBtn.addChild(fullscreenIcon);
@@ -732,7 +733,7 @@ export function createDebugOverlay({
         fullscreenIcon.text = isFullscreen ? "X" : "F";
         fullscreenIcon.style.fontSize = 16;
       }
-      fullscreenIcon.x = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
+      fullscreenIcon.x = Math.floor(TOP_BUTTON_WIDTH * 0.5);
       fullscreenIcon.y = Math.floor(DEBUG_TOGGLE_SIZE * 0.5);
 
       updatePerfRows();
