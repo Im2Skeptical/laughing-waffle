@@ -17,6 +17,7 @@ import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
 import { bindTouchLongPress } from "./ui-helpers/touch-long-press.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
 import { createHubPanels } from "./board/hub-structure-panels.js";
+import { createTagOrdersPanel } from "./board/tag-orders-panel.js";
 import {
   getEventRevealLockRemainingSec,
 } from "./env-event-deck-pixi.js";
@@ -93,6 +94,7 @@ export function createBoardView(opts) {
     onSystemIconHover,
     onSystemIconOut,
     onSystemIconClick,
+    onProcessCogClick,
     getExternalFocus,
   } = opts;
 
@@ -147,6 +149,23 @@ export function createBoardView(opts) {
   const ACTIVITY_PULSE_FREQ_HZ = 1.4;
   const ACTIVITY_FORAGE_COLOR = 0x56b67b;
   const ACTIVITY_FISH_COLOR = 0x4d9fdb;
+  const ORDERS_BUTTON_WIDTH = 30;
+  const ORDERS_BUTTON_HEIGHT = 16;
+  const ORDERS_BUTTON_RADIUS = 6;
+  const ORDERS_BUTTON_BOTTOM_PAD = 10;
+  const ORDERS_BUTTON_TAG_GAP = 4;
+  const ORDERS_BUTTON_BG = 0xa7afb8;
+  const ORDERS_BUTTON_BG_HOVER = 0xb7bfc8;
+  const ORDERS_BUTTON_STROKE = 0xdbe2e8;
+  const ORDERS_BUTTON_ICON = 0x4f5862;
+  const PROCESS_WIDGET_SYSTEM_IDS = new Set([
+    "growth",
+    "build",
+    "fireplace",
+    "workspace",
+    "residents",
+    "deposit",
+  ]);
   const BASE_TEXT_RESOLUTION = Math.max(
     2,
     Math.floor(globalThis?.devicePixelRatio || 1)
@@ -298,6 +317,16 @@ export function createBoardView(opts) {
     getGameState,
     onOpenRecipeWidget: (view, systemId) => handleSystemIconClick(view, systemId),
   });
+  const tagOrdersPanel = createTagOrdersPanel({
+    app,
+    layer: cropDropdownLayer,
+    getGameState,
+    isEnvTagVisible,
+    isHubTagVisible,
+    onToggleTileTag: (payload) => dispatchTileTagToggle(payload),
+    onToggleHubTag: (payload) => dispatchHubTagToggle(payload),
+    requestPauseForAction,
+  });
   let tagUi = null;
   let tileTagDragController = null;
   let hubTagDragController = null;
@@ -314,6 +343,38 @@ export function createBoardView(opts) {
     const state = getGameState?.();
     if (!state) return true;
     return hasHubTagUnlock(state, tagId);
+  }
+
+  function getTileAtCol(state, envCol) {
+    const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+    if (col == null || col < 0) return null;
+    return state?.board?.occ?.tile?.[col] || null;
+  }
+
+  function getHubStructureAtCol(state, hubCol) {
+    const col = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
+    if (col == null || col < 0) return null;
+    return state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure ?? null;
+  }
+
+  function isTagStatePlayerDisabled(entry) {
+    if (!entry || typeof entry !== "object") return false;
+    const disabledBy =
+      entry.disabledBy && typeof entry.disabledBy === "object"
+        ? entry.disabledBy
+        : null;
+    if (disabledBy) return disabledBy.player === true;
+    return entry.disabled === true;
+  }
+
+  function isVisibleEnabledTileTag(tileInst, tagId) {
+    if (!isEnvTagVisible(tagId)) return false;
+    return !isTagStatePlayerDisabled(tileInst?.tagStates?.[tagId]);
+  }
+
+  function isVisibleEnabledHubTag(structureInst, tagId) {
+    if (!isHubTagVisible(tagId)) return false;
+    return !isTagStatePlayerDisabled(structureInst?.tagStates?.[tagId]);
   }
 
   function buildTagOrderFromVisible(fullTags, reorderedVisible, isVisibleTag) {
@@ -337,12 +398,14 @@ export function createBoardView(opts) {
 
   function getVisibleTileTagSignature(tileInst) {
     const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
-    return tags.filter((tagId) => isEnvTagVisible(tagId)).join("|");
+    return tags.filter((tagId) => isVisibleEnabledTileTag(tileInst, tagId)).join("|");
   }
 
   function getVisibleHubTagSignature(structureInst) {
     const tags = Array.isArray(structureInst?.tags) ? structureInst.tags : [];
-    return tags.filter((tagId) => isHubTagVisible(tagId)).join("|");
+    return tags
+      .filter((tagId) => isVisibleEnabledHubTag(structureInst, tagId))
+      .join("|");
   }
 
   function clamp01(value) {
@@ -1296,6 +1359,14 @@ export function createBoardView(opts) {
     onSystemIconClick?.(view, systemId);
   }
 
+  function isProcessWidgetSystemId(systemId) {
+    return PROCESS_WIDGET_SYSTEM_IDS.has(systemId);
+  }
+
+  function handleProcessCogClick(view, systemId) {
+    onProcessCogClick?.(view, systemId);
+  }
+
   tagUi = createTagUi({
     interaction,
     tooltipView,
@@ -1307,6 +1378,8 @@ export function createBoardView(opts) {
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
     toggleTag: dispatchTileTagToggle,
+    isProcessWidgetSystem: isProcessWidgetSystemId,
+    onProcessCogClick: handleProcessCogClick,
     onSystemIconHover: handleSystemIconHover,
     onSystemIconOut: handleSystemIconOut,
     onSystemIconClick: handleSystemIconClick,
@@ -1322,6 +1395,8 @@ export function createBoardView(opts) {
     requestPauseForAction,
     toggleTag: dispatchHubTagToggle,
     openRecipeDropdown: hubPanels?.openRecipeDropdown,
+    isProcessWidgetSystem: isProcessWidgetSystemId,
+    onProcessCogClick: handleProcessCogClick,
     onSystemIconHover: handleSystemIconHover,
     onSystemIconOut: handleSystemIconOut,
     onSystemIconClick: handleSystemIconClick,
@@ -1342,7 +1417,9 @@ export function createBoardView(opts) {
     layoutEntries: (view) => tagUi?.layoutTagEntries?.(view),
     onCommit: (view, fromIndex, toIndex) => {
       const fullTags = Array.isArray(view.tile?.tags) ? view.tile.tags.slice() : [];
-      const visibleTags = fullTags.filter((tagId) => isEnvTagVisible(tagId));
+      const visibleTags = fullTags.filter((tagId) =>
+        isVisibleEnabledTileTag(view.tile, tagId)
+      );
       if (visibleTags.length !== view.tagEntries.length) return;
       if (fromIndex < 0 || fromIndex >= visibleTags.length) return;
       if (toIndex < 0 || toIndex >= visibleTags.length) return;
@@ -1352,7 +1429,7 @@ export function createBoardView(opts) {
       const nextFull = buildTagOrderFromVisible(
         fullTags,
         reorderedVisible,
-        isEnvTagVisible
+        (tagId) => isVisibleEnabledTileTag(view.tile, tagId)
       );
       if (!nextFull) return;
       dispatchTagOrder(view.col, nextFull);
@@ -1398,7 +1475,9 @@ export function createBoardView(opts) {
       const fullTags = Array.isArray(view.structure?.tags)
         ? view.structure.tags.slice()
         : [];
-      const visibleTags = fullTags.filter((tagId) => isHubTagVisible(tagId));
+      const visibleTags = fullTags.filter((tagId) =>
+        isVisibleEnabledHubTag(view.structure, tagId)
+      );
       if (visibleTags.length !== view.tagEntries.length) return;
       if (fromIndex < 0 || fromIndex >= visibleTags.length) return;
       if (toIndex < 0 || toIndex >= visibleTags.length) return;
@@ -1408,7 +1487,7 @@ export function createBoardView(opts) {
       const nextFull = buildTagOrderFromVisible(
         fullTags,
         reorderedVisible,
-        isHubTagVisible
+        (tagId) => isVisibleEnabledHubTag(view.structure, tagId)
       );
       if (!nextFull) return;
       dispatchHubTagOrder(view.col, nextFull);
@@ -2570,6 +2649,84 @@ export function createBoardView(opts) {
   // UI helpers
   // --------------------------------------------------------
 
+  function drawOrdersLauncherIcon(graphic, color, width, height) {
+    if (!graphic) return;
+    const lineColor = Number.isFinite(color) ? Math.floor(color) : 0x4f5862;
+    const w = Math.max(20, Math.floor(width));
+    const h = Math.max(12, Math.floor(height));
+    const insetX = 9;
+    const startY = Math.floor(h * 0.32);
+    const rowGap = 4;
+    const lineW = w - insetX * 2;
+    graphic.clear();
+    graphic.lineStyle(2, lineColor, 0.95);
+    for (let i = 0; i < 3; i += 1) {
+      const y = startY + i * rowGap;
+      graphic.moveTo(insetX, y);
+      graphic.lineTo(insetX + lineW, y);
+    }
+  }
+
+  function createOrdersLauncher(width, onTap) {
+    const button = new PIXI.Container();
+    button.eventMode = "static";
+    button.cursor = "pointer";
+
+    const bg = new PIXI.Graphics();
+    const icon = new PIXI.Graphics();
+    button.addChild(bg, icon);
+
+    let hovered = false;
+    function redraw() {
+      const fill = hovered ? ORDERS_BUTTON_BG_HOVER : ORDERS_BUTTON_BG;
+      bg.clear();
+      bg
+        .lineStyle(1, ORDERS_BUTTON_STROKE, 0.95)
+        .beginFill(fill, 0.98)
+        .drawRoundedRect(0, 0, ORDERS_BUTTON_WIDTH, ORDERS_BUTTON_HEIGHT, ORDERS_BUTTON_RADIUS)
+        .endFill();
+      drawOrdersLauncherIcon(
+        icon,
+        ORDERS_BUTTON_ICON,
+        ORDERS_BUTTON_WIDTH,
+        ORDERS_BUTTON_HEIGHT
+      );
+    }
+
+    button.x = Math.round((Math.max(1, width) - ORDERS_BUTTON_WIDTH) * 0.5);
+    button.y = 0;
+    button.hitArea = new PIXI.Rectangle(0, 0, ORDERS_BUTTON_WIDTH, ORDERS_BUTTON_HEIGHT);
+    button.on("pointerdown", (ev) => ev?.stopPropagation?.());
+    button.on("pointerover", () => {
+      hovered = true;
+      redraw();
+    });
+    button.on("pointerout", () => {
+      hovered = false;
+      redraw();
+    });
+    button.on("pointertap", (ev) => {
+      ev?.stopPropagation?.();
+      onTap?.();
+    });
+
+    redraw();
+    return button;
+  }
+
+  function getOrdersAnchorRect(button) {
+    const bounds = button?.getBounds?.();
+    if (!bounds) {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    };
+  }
+
   function getTileUi(tileInst) {
     const def = envTileDefs[tileInst.defId];
     const title = def?.name || tileInst.defId || "Tile";
@@ -2860,7 +3017,6 @@ export function createBoardView(opts) {
       }
       for (const entry of view.tagEntries || []) {
         if (entry?.labelText) view.hoverTextNodes.push(entry.labelText);
-        if (entry?.expandText) view.hoverTextNodes.push(entry.expandText);
       }
       setTextResolution(
         view.hoverTextNodes,
@@ -2868,9 +3024,18 @@ export function createBoardView(opts) {
       );
     }
 
+    if (view.ordersButton) {
+      view.ordersButton.y = Math.max(
+        y + 4,
+        view.cardHeight - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT
+      );
+    }
     view.tagStartY = Math.min(y + 4, view.cardHeight - 12);
     view.tagContainer.y = view.tagStartY;
-    view.tagMaxY = view.cardHeight - 6;
+    const ordersTop = Number.isFinite(view.ordersButton?.y)
+      ? view.ordersButton.y
+      : view.cardHeight - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT;
+    view.tagMaxY = Math.max(view.tagStartY, ordersTop - ORDERS_BUTTON_TAG_GAP);
     hubTagUi?.layoutTagEntries?.(view);
 
     if (view.cancelButton) {
@@ -2934,9 +3099,23 @@ export function createBoardView(opts) {
     titleText.y = 6;
     contentInk.addChild(titleText);
 
+    const tileOrdersCol = Number.isFinite(tileInst?.col) ? Math.floor(tileInst.col) : col;
+    const ordersButton = createOrdersLauncher(TILE_WIDTH, () => {
+      tagOrdersPanel.toggleForTarget({
+        kind: "env",
+        col: tileOrdersCol,
+        anchorRect: getOrdersAnchorRect(ordersButton),
+      });
+    });
+    ordersButton.y = Math.max(
+      titleText.y + titleText.height + 4,
+      TILE_HEIGHT - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT
+    );
+    contentInk.addChild(ordersButton);
+
     const tagContainer = new PIXI.Container();
     const tagStartY = titleText.y + titleText.height + 4;
-    const tagMaxY = TILE_HEIGHT - 6;
+    const tagMaxY = Math.max(tagStartY, ordersButton.y - ORDERS_BUTTON_TAG_GAP);
     tagContainer.x = Math.max(
       0,
       Math.round((TILE_WIDTH - TAG_LAYOUT.PILL_WIDTH) / 2)
@@ -3017,10 +3196,11 @@ export function createBoardView(opts) {
         container: cont,
         tile: tileInst,
         col,
-        setHoverActive,
+      setHoverActive,
       tagContainer,
       tagStartY,
       tagMaxY,
+      ordersButton,
       tagSignature: "",
       tagEntries: [],
       expandedTagId: null,
@@ -3598,9 +3778,25 @@ export function createBoardView(opts) {
       }
     }
 
+    const hubOrdersCol = Number.isFinite(structureInst?.col)
+      ? Math.floor(structureInst.col)
+      : col;
+    const ordersButton = createOrdersLauncher(width, () => {
+      tagOrdersPanel.toggleForTarget({
+        kind: "hub",
+        col: hubOrdersCol,
+        anchorRect: getOrdersAnchorRect(ordersButton),
+      });
+    });
+    ordersButton.y = Math.max(
+      y + 4,
+      height - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT
+    );
+    contentInk.addChild(ordersButton);
+
     const tagContainer = new PIXI.Container();
     const tagStartY = Math.min(y + 4, height - 12);
-    const tagMaxY = height - 6;
+    const tagMaxY = Math.max(tagStartY, ordersButton.y - ORDERS_BUTTON_TAG_GAP);
     tagContainer.x = Math.max(
       0,
       Math.round((width - HUB_TAG_LAYOUT.PILL_WIDTH) / 2)
@@ -3703,6 +3899,7 @@ export function createBoardView(opts) {
       tagContainer,
       tagStartY,
       tagMaxY,
+      ordersButton,
       tagSignature: "",
       tagEntries: [],
       expandedTagId: null,
@@ -4219,6 +4416,7 @@ export function createBoardView(opts) {
   // --------------------------------------------------------
 
   function rebuildAll() {
+    tagOrdersPanel?.close?.();
     const pendingHover = activeHover
       ? { kind: activeHover.kind, col: activeHover.col }
       : null;
@@ -4426,7 +4624,10 @@ export function createBoardView(opts) {
 
   function update(dt) {
     const s = getGameState?.();
-    if (!s?.board) return;
+    if (!s?.board) {
+      tagOrdersPanel?.close?.();
+      return;
+    }
 
     const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
     const hubCols = Array.isArray(s?.hub?.slots)
@@ -4444,6 +4645,7 @@ export function createBoardView(opts) {
     processTileRollFeedbackEvents(s);
     updateTileActivityOverlays(dt);
     updateTileRollFeedbackFx(dt);
+    tagOrdersPanel?.update?.(s);
 
     if (activeHover?.view?.holdHoverForOccupant) {
       const view = activeHover.view;

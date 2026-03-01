@@ -24,10 +24,16 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../defs/gamepieces/item-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { skillNodes } from "../defs/gamepieces/skill-tree-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
-import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
+import {
+  computeAvailableRecipesAndBuildings,
+  hasEnvTagUnlock,
+  hasHubTagUnlock,
+} from "../model/skills.js";
 import {
   buildRecipePrioritySignature,
   buildRecipePriorityFromSelectedRecipe,
@@ -1281,6 +1287,186 @@ export function createProcessWidgetView({
     if (Number.isFinite(target.envCol)) return Math.floor(target.envCol);
     return null;
   }
+
+  function getTargetKind(target) {
+    if (!target || target?.refKind === "basket") return null;
+    return hubStructureDefs?.[target.defId] ? "hub" : "env";
+  }
+
+  function resolveTagDefMapForTarget(target) {
+    const kind = getTargetKind(target);
+    if (kind === "hub") return hubTagDefs;
+    if (kind === "env") return envTagDefs;
+    return null;
+  }
+
+  function resolveTagIdForTargetSystem(target, systemId) {
+    if (!target || !systemId) return null;
+    const tagDefs = resolveTagDefMapForTarget(target);
+    if (!tagDefs) return null;
+    const tags = Array.isArray(target?.tags) ? target.tags : [];
+    for (const tagId of tags) {
+      const def = tagDefs?.[tagId];
+      const systems = Array.isArray(def?.systems) ? def.systems : [];
+      if (systems.includes(systemId)) return tagId;
+    }
+    return null;
+  }
+
+  function buildTagToggleDescriptor(target, systemId, stateOverride = null) {
+    if (!target || !systemId) return null;
+    const state = stateOverride || getStateSafe();
+    if (!state) return null;
+    const targetKind = getTargetKind(target);
+    if (!targetKind) return null;
+
+    const tagId = resolveTagIdForTargetSystem(target, systemId);
+    if (!tagId) return null;
+
+    if (targetKind === "env" && !hasEnvTagUnlock(state, tagId)) return null;
+    if (targetKind === "hub" && !hasHubTagUnlock(state, tagId)) return null;
+
+    let disabledPreview = null;
+    if (targetKind === "env") {
+      const envCol = getEnvCol(target);
+      if (Number.isFinite(envCol) && actionPlanner?.getTileTagTogglePreview) {
+        disabledPreview = actionPlanner.getTileTagTogglePreview({ envCol, tagId });
+      }
+    } else if (targetKind === "hub") {
+      const hubCol = getHubCol(target);
+      if (Number.isFinite(hubCol) && actionPlanner?.getHubTagTogglePreview) {
+        disabledPreview = actionPlanner.getHubTagTogglePreview({ hubCol, tagId });
+      }
+    }
+
+    const disabled =
+      typeof disabledPreview === "boolean"
+        ? disabledPreview
+        : target?.tagStates?.[tagId]?.disabled === true;
+    const tagName =
+      (targetKind === "hub"
+        ? hubTagDefs?.[tagId]?.ui?.name
+        : envTagDefs?.[tagId]?.ui?.name) ||
+      tagId;
+
+    return {
+      targetKind,
+      tagId,
+      tagName,
+      disabled: disabled === true,
+    };
+  }
+
+  function buildTagToggleSignature(target, systemId, stateOverride = null) {
+    const descriptor = buildTagToggleDescriptor(target, systemId, stateOverride);
+    if (!descriptor) return "none";
+    return `${descriptor.tagId}:${descriptor.disabled ? 1 : 0}`;
+  }
+
+  function toggleTargetTagForSystem(target, systemId, opts = {}) {
+    const state = getStateSafe();
+    if (!state || !target || !systemId) return { ok: false, reason: "badTarget" };
+    const descriptor = buildTagToggleDescriptor(target, systemId, state);
+    if (!descriptor) return { ok: false, reason: "noTagToggle" };
+    const nextDisabled =
+      typeof opts?.disabled === "boolean" ? opts.disabled : !descriptor.disabled;
+    const targetLabel = getTargetLabel(target);
+    const ghostSpec = {
+      description: `Tag ${descriptor.tagName} > ${targetLabel}: ${
+        nextDisabled ? "Off" : "On"
+      }`,
+      cost: descriptor.targetKind === "env" ? getTilePlanCost() : getHubPlanCost(),
+    };
+
+    const run = () => {
+      if (descriptor.targetKind === "env") {
+        const envCol = getEnvCol(target);
+        if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+        if (actionPlanner?.setTileTagToggleIntent) {
+          const res = actionPlanner.setTileTagToggleIntent({
+            envCol,
+            tagId: descriptor.tagId,
+            disabled: nextDisabled,
+          });
+          if (
+            res?.ok === false &&
+            res?.reason === "insufficientAP" &&
+            typeof flashActionGhost === "function"
+          ) {
+            flashActionGhost(ghostSpec, "fail");
+          }
+          return res;
+        }
+        if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+        const res = dispatchAction(
+          ActionKinds.TOGGLE_TILE_TAG,
+          { envCol, tagId: descriptor.tagId, disabled: nextDisabled },
+          { apCost: 5 }
+        );
+        if (
+          res?.ok === false &&
+          res?.reason === "insufficientAP" &&
+          typeof flashActionGhost === "function"
+        ) {
+          flashActionGhost(ghostSpec, "fail");
+        }
+        return res ?? { ok: true };
+      }
+
+      const hubCol = getHubCol(target);
+      if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+      if (actionPlanner?.setHubTagToggleIntent) {
+        const res = actionPlanner.setHubTagToggleIntent({
+          hubCol,
+          tagId: descriptor.tagId,
+          disabled: nextDisabled,
+        });
+        if (
+          res?.ok === false &&
+          res?.reason === "insufficientAP" &&
+          typeof flashActionGhost === "function"
+        ) {
+          flashActionGhost(ghostSpec, "fail");
+        }
+        return res;
+      }
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      const res = dispatchAction(
+        ActionKinds.TOGGLE_HUB_TAG,
+        { hubCol, tagId: descriptor.tagId, disabled: nextDisabled },
+        { apCost: 5 }
+      );
+      if (
+        res?.ok === false &&
+        res?.reason === "insufficientAP" &&
+        typeof flashActionGhost === "function"
+      ) {
+        flashActionGhost(ghostSpec, "fail");
+      }
+      return res ?? { ok: true };
+    };
+
+    const result =
+      typeof queueActionWhenPaused === "function"
+        ? queueActionWhenPaused(run)
+        : run();
+    invalidateAllSignatures();
+    return result;
+  }
+
+  function resolveHeaderTagToggleSpec(target, systemId, stateOverride = null) {
+    const descriptor = buildTagToggleDescriptor(target, systemId, stateOverride);
+    if (!descriptor) return null;
+    return {
+      on: descriptor.disabled !== true,
+      offLabel: "OFF",
+      onLabel: "ON",
+      onToggle: () => {
+        toggleTargetTagForSystem(target, systemId);
+      },
+    };
+  }
+
   function getProcessVariant(process, processDef) {
     if (!processDef) return "generic";
     const kind = processDef.processKind;
@@ -1864,7 +2050,7 @@ export function createProcessWidgetView({
 
     const totalWidth = CORE_WIDTH;
     const title = `${getTargetLabel(target)} - Growing`;
-    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
+    const headerToggle = opts.headerToggleSpec || null;
 
     const headerUi = createWindowHeader({
       stage: app?.stage,
@@ -1877,13 +2063,27 @@ export function createProcessWidgetView({
       titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
       paddingX: HEADER_PAD_X,
       paddingY: HEADER_PAD_Y,
+      showPin: !!headerToggle,
+      pinControlMode: "button",
+      pinText: headerToggle?.offLabel || "OFF",
+      pinTextPinned: headerToggle?.onLabel || "ON",
+      pinButtonWidth: 42,
+      pinButtonHeight: 16,
+      pinButtonBg: 0x5a2a31,
+      pinButtonBgHover: 0x5a2a31,
+      pinButtonBgPinned: 0x2e5c3f,
+      pinButtonBgPinnedHover: 0x2e5c3f,
+      pinButtonStroke: 0xf2b0b0,
+      pinButtonStrokePinned: 0xcff5d6,
+      pinButtonTextOff: 0xf2b0b0,
+      pinButtonTextPinned: 0xd7ffe0,
       pinOffsetX: 40,
       closeOffsetX: 20,
       dragTarget: opts.dragTarget,
-      onPinToggle: () => opts.onPinToggle?.(null, target),
+      onPinToggle: () => headerToggle?.onToggle?.(null, target),
       onClose: () => opts.onClose?.(null, target),
     });
-    headerUi.setPinned(!!pinned);
+    headerUi.setPinned(!!headerToggle?.on);
 
     const body = new PIXI.Container();
     body.y = HEADER_HEIGHT + 6;
@@ -2008,8 +2208,13 @@ export function createProcessWidgetView({
         ? getProcessDefForInstance(templateProcess, target, {})
         : null;
       if (!templateDef) {
+        const headerToggleSpec =
+          typeof cardOpts.resolveHeaderTagToggle === "function"
+            ? cardOpts.resolveHeaderTagToggle(target, "growth")
+            : null;
         const built = buildGrowthEmptyCard(state, target, {
           ...cardOpts,
+          headerToggleSpec,
           pool: focusedPool,
         });
         built.card.y = 0;
@@ -2396,7 +2601,7 @@ export function createProcessWidgetView({
 
     const totalWidth = CORE_WIDTH;
     const title = `${getTargetLabel(target)} - Depositing`;
-    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
+    const headerToggle = opts.headerToggleSpec || null;
 
     const headerUi = createWindowHeader({
       stage: app?.stage,
@@ -2409,13 +2614,27 @@ export function createProcessWidgetView({
       titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
       paddingX: HEADER_PAD_X,
       paddingY: HEADER_PAD_Y,
+      showPin: !!headerToggle,
+      pinControlMode: "button",
+      pinText: headerToggle?.offLabel || "OFF",
+      pinTextPinned: headerToggle?.onLabel || "ON",
+      pinButtonWidth: 42,
+      pinButtonHeight: 16,
+      pinButtonBg: 0x5a2a31,
+      pinButtonBgHover: 0x5a2a31,
+      pinButtonBgPinned: 0x2e5c3f,
+      pinButtonBgPinnedHover: 0x2e5c3f,
+      pinButtonStroke: 0xf2b0b0,
+      pinButtonStrokePinned: 0xcff5d6,
+      pinButtonTextOff: 0xf2b0b0,
+      pinButtonTextPinned: 0xd7ffe0,
       pinOffsetX: 40,
       closeOffsetX: 20,
       dragTarget: opts.dragTarget,
-      onPinToggle: () => opts.onPinToggle?.(null, target),
+      onPinToggle: () => headerToggle?.onToggle?.(null, target),
       onClose: () => opts.onClose?.(null, target),
     });
-    headerUi.setPinned(!!pinned);
+    headerUi.setPinned(!!headerToggle?.on);
 
     const body = new PIXI.Container();
     body.y = HEADER_HEIGHT + 6;
@@ -2546,8 +2765,13 @@ export function createProcessWidgetView({
     clearContent(content, dropTargets);
 
     if (!Array.isArray(entries) || entries.length === 0) {
+      const headerToggleSpec =
+        typeof cardOpts.resolveHeaderTagToggle === "function"
+          ? cardOpts.resolveHeaderTagToggle(target, "deposit")
+          : null;
       const built = buildDepositEmptyCard(state, target, {
         ...cardOpts,
+        headerToggleSpec,
         dropTargets,
       });
       built.card.y = 0;
@@ -2582,7 +2806,7 @@ export function createProcessWidgetView({
     const totalWidth = CORE_WIDTH;
     const ownerLabel = target?.basketOwnerName || "Basket";
     const title = `${ownerLabel} - Basket`;
-    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
+    const headerToggle = opts.headerToggleSpec || null;
 
     const headerUi = createWindowHeader({
       stage: app?.stage,
@@ -2595,13 +2819,27 @@ export function createProcessWidgetView({
       titleStyle: { fill: COLORS.headerText, fontSize: 12, fontWeight: "bold" },
       paddingX: HEADER_PAD_X,
       paddingY: HEADER_PAD_Y,
+      showPin: !!headerToggle,
+      pinControlMode: "button",
+      pinText: headerToggle?.offLabel || "OFF",
+      pinTextPinned: headerToggle?.onLabel || "ON",
+      pinButtonWidth: 42,
+      pinButtonHeight: 16,
+      pinButtonBg: 0x5a2a31,
+      pinButtonBgHover: 0x5a2a31,
+      pinButtonBgPinned: 0x2e5c3f,
+      pinButtonBgPinnedHover: 0x2e5c3f,
+      pinButtonStroke: 0xf2b0b0,
+      pinButtonStrokePinned: 0xcff5d6,
+      pinButtonTextOff: 0xf2b0b0,
+      pinButtonTextPinned: 0xd7ffe0,
       pinOffsetX: 40,
       closeOffsetX: 20,
       dragTarget: opts.dragTarget,
-      onPinToggle: () => opts.onPinToggle?.(null, target),
+      onPinToggle: () => headerToggle?.onToggle?.(null, target),
       onClose: () => opts.onClose?.(null, target),
     });
-    headerUi.setPinned(!!pinned);
+    headerUi.setPinned(!!headerToggle?.on);
 
     const body = new PIXI.Container();
     body.y = HEADER_HEIGHT + 6;
@@ -2720,6 +2958,7 @@ export function createProcessWidgetView({
 
     const built = buildBasketCard(state, target, {
       ...cardOpts,
+      headerToggleSpec: null,
       dropTargets,
     });
     built.card.y = 0;
@@ -3366,87 +3605,63 @@ export function createProcessWidgetView({
         } else {
           signature = buildProcessSignature(state, signatureKey, target, entries);
         }
+        signature = `${signature}|tag:${buildTagToggleSignature(
+          target,
+          win.systemId,
+          state
+        )}`;
 
         if (signature !== win.lastSignature) {
           win.lastSignature = signature;
+          const baseCardOpts = {
+            dragTarget: win.container,
+            resolveHeaderTagToggle: (cardTarget, cardSystemId) =>
+              resolveHeaderTagToggleSpec(cardTarget, cardSystemId, state),
+            onClose: () => hideWindow(windowId),
+          };
           if (win.groupKind === "growth") {
             rebuildGrowthWidget(state, target, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
               win,
-              cardOpts: {
-                dragTarget: win.container,
-                pinned: win.pinned,
-                onPinToggle: () => togglePinnedWindow(windowId),
-                onClose: () => hideWindow(windowId),
-              },
+              cardOpts: baseCardOpts,
             });
           } else if (win.groupKind === "build") {
             rebuildBuildWidget(state, target, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
-              cardOpts: {
-                dragTarget: win.container,
-                pinned: win.pinned,
-                onPinToggle: () => togglePinnedWindow(windowId),
-                onClose: () => hideWindow(windowId),
-              },
+              cardOpts: baseCardOpts,
             });
           } else if (win.groupKind === "residents") {
             rebuildResidentsWidget(state, target, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
-              cardOpts: {
-                dragTarget: win.container,
-                pinned: win.pinned,
-                onPinToggle: () => togglePinnedWindow(windowId),
-                onClose: () => hideWindow(windowId),
-              },
+              cardOpts: baseCardOpts,
             });
           } else if (win.groupKind === "deposit") {
             rebuildDepositWidget(state, target, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
-              cardOpts: {
-                dragTarget: win.container,
-                pinned: win.pinned,
-                onPinToggle: () => togglePinnedWindow(windowId),
-                onClose: () => hideWindow(windowId),
-              },
+              cardOpts: baseCardOpts,
             });
           } else if (win.groupKind === "basket") {
             rebuildBasketWidget(state, target, {
               content: win.content,
               dropTargets: win.dropTargets,
-              cardOpts: {
-                dragTarget: win.container,
-                pinned: win.pinned,
-                onPinToggle: () => togglePinnedWindow(windowId),
-                onClose: () => hideWindow(windowId),
-              },
+              cardOpts: baseCardOpts,
             });
           } else if (isRecipeSystem(win.groupKind)) {
             rebuildRecipeSystemWidget(state, target, win.groupKind, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
               win,
-              cardOpts: {
-                dragTarget: win.container,
-                pinned: win.pinned,
-                onPinToggle: () => togglePinnedWindow(windowId),
-                onClose: () => hideWindow(windowId),
-              },
+              cardOpts: baseCardOpts,
             });
           } else {
             rebuildWidget(state, target, entries, {
               content: win.content,
               dropTargets: win.dropTargets,
-              cardOpts: {
-                dragTarget: win.container,
-                pinned: win.pinned,
-                onPinToggle: () => togglePinnedWindow(windowId),
-                onClose: () => hideWindow(windowId),
-              },
+              cardOpts: baseCardOpts,
             });
           }
           refreshWindowTextResolution(win);
@@ -3491,7 +3706,12 @@ export function createProcessWidgetView({
 
       const entries = [{ ...entry, processDef }];
       const signatureKey = `${windowId}|${getTargetKey(target)}`;
-      const signature = buildProcessSignature(state, signatureKey, target, entries);
+      const signature = `${buildProcessSignature(
+        state,
+        signatureKey,
+        target,
+        entries
+      )}|tag:${buildTagToggleSignature(target, win.systemId, state)}`;
       if (signature !== win.lastSignature) {
         win.lastSignature = signature;
         rebuildWidget(state, target, entries, {
@@ -3499,8 +3719,8 @@ export function createProcessWidgetView({
           dropTargets: win.dropTargets,
           cardOpts: {
             dragTarget: win.container,
-            pinned: win.pinned,
-            onPinToggle: () => togglePinnedWindow(windowId),
+            resolveHeaderTagToggle: (cardTarget, cardSystemId) =>
+              resolveHeaderTagToggleSpec(cardTarget, cardSystemId, state),
             onClose: () => hideWindow(windowId),
           },
         });
@@ -3613,6 +3833,42 @@ export function createProcessWidgetView({
     }
   }
 
+  function openPinnedTarget(target, systemId) {
+    const state = getStateSafe();
+    if (!state || !target) return;
+    if (isGroupedSystem(systemId)) {
+      const windowId = `group:${systemId}:${getTargetKey(target)}`;
+      ensureWindow(
+        windowId,
+        target,
+        systemId,
+        { x: position.x, y: position.y },
+        0,
+        { group: true, groupKind: systemId }
+      );
+      setWindowPinned(windowId, true);
+      return;
+    }
+
+    const entries = collectProcessEntries(state, target, systemId);
+    if (entries.length === 0) return;
+    let offsetIndex = 0;
+    for (const entry of entries) {
+      const processId = entry?.process?.id;
+      if (!processId) continue;
+      ensureWindow(
+        processId,
+        target,
+        systemId,
+        { x: position.x, y: position.y },
+        offsetIndex,
+        { processId }
+      );
+      setWindowPinned(processId, true);
+      offsetIndex += 1;
+    }
+  }
+
   function showBasketWidgetForOwner(ownerId) {
     const state = getStateSafe();
     if (!state || ownerId == null) return { ok: false, reason: "badOwner" };
@@ -3696,6 +3952,7 @@ export function createProcessWidgetView({
     setHoverTarget,
     clearHoverTarget,
     togglePinnedTarget,
+    openPinnedTarget,
     setExternalFocusTarget,
     clearExternalFocusTarget,
     showBasketWidgetForOwner,

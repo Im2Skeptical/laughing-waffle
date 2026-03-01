@@ -122,7 +122,11 @@ export function createProcessWidgetProcessCardBuilder({
     const title =
       opts.titleOverride ||
       getCardTitle(targetLabel, process, processDef, variantOverride);
-    const pinned = typeof opts.pinned === "boolean" ? opts.pinned : false;
+    const processSystemId = entry?.systemId || routingSystemId || null;
+    const headerToggle =
+      typeof opts.resolveHeaderTagToggle === "function"
+        ? opts.resolveHeaderTagToggle(target, processSystemId)
+        : null;
 
     const headerUi = createWindowHeader({
       stage: app?.stage,
@@ -135,13 +139,27 @@ export function createProcessWidgetProcessCardBuilder({
       titleStyle: { fill: COLORS.headerText, fontSize: 13, fontWeight: "bold" },
       paddingX: HEADER_PAD_X,
       paddingY: HEADER_PAD_Y,
+      showPin: !!headerToggle,
+      pinControlMode: "button",
+      pinText: headerToggle?.offLabel || "OFF",
+      pinTextPinned: headerToggle?.onLabel || "ON",
+      pinButtonWidth: 42,
+      pinButtonHeight: 16,
+      pinButtonBg: 0x5a2a31,
+      pinButtonBgHover: 0x5a2a31,
+      pinButtonBgPinned: 0x2e5c3f,
+      pinButtonBgPinnedHover: 0x2e5c3f,
+      pinButtonStroke: 0xf2b0b0,
+      pinButtonStrokePinned: 0xcff5d6,
+      pinButtonTextOff: 0xf2b0b0,
+      pinButtonTextPinned: 0xd7ffe0,
       pinOffsetX: 40,
       closeOffsetX: 10,
       dragTarget: opts.dragTarget,
-      onPinToggle: () => opts.onPinToggle?.(process, target),
+      onPinToggle: () => headerToggle?.onToggle?.(process, target),
       onClose: () => opts.onClose?.(process, target),
     });
-    headerUi.setPinned(!!pinned);
+    headerUi.setPinned(!!headerToggle?.on);
 
     if (isGrowthGroup && growthEntries) {
       const batchText = new PIXI.Text(`${growthEntries.length} batches`, {
@@ -173,7 +191,6 @@ export function createProcessWidgetProcessCardBuilder({
     body.addChild(central);
 
     const variant = variantOverride || getProcessVariant(process, processDef);
-    const processSystemId = entry?.systemId || routingSystemId || null;
     const outputs = Array.isArray(processDef?.transform?.outputs)
       ? processDef.transform.outputs
       : [];

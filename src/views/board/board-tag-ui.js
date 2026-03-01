@@ -22,9 +22,9 @@ const TAG_PILL_PAD_X = 8;
 const TAG_PILL_GAP = 6;
 const TAG_PILL_MAX_WIDTH = TILE_WIDTH - 16;
 const TAG_PILL_WIDTH = TAG_PILL_MAX_WIDTH;
-const TAG_TOGGLE_SIZE = 12;
-const TAG_TOGGLE_PAD = 4;
-const TAG_LABEL_X = TAG_PILL_PAD_X + TAG_TOGGLE_SIZE + TAG_TOGGLE_PAD;
+const TAG_ACTION_SIZE = 12;
+const TAG_ACTION_PAD = 6;
+const TAG_LABEL_X = TAG_PILL_PAD_X;
 const TAG_ROW_SCALE_ACTIVE = 1.05;
 const TAG_PILL_BG_ACTIVE = MUCHA_UI_COLORS.surfaces.panelSoft;
 const TAG_PILL_BG_TOP = MUCHA_UI_COLORS.surfaces.panelRaised;
@@ -77,10 +77,9 @@ const SYSTEM_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
 const SYSTEM_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
-const SYSTEM_BUTTON_BG = MUCHA_UI_COLORS.surfaces.panel;
-const SYSTEM_BUTTON_BORDER = MUCHA_UI_COLORS.surfaces.border;
-const SYSTEM_BUTTON_FILL = MUCHA_UI_COLORS.accents.sageDark;
-const SYSTEM_BUTTON_TEXT = MUCHA_UI_COLORS.ink.primary;
+const TAG_ACTION_COG_FILL = 0xa7afb8;
+const TAG_ACTION_COG_STROKE = 0xdbe2e8;
+const TAG_ACTION_COG_ICON = 0x4f5862;
 
 const TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 const TIER_METAL_GRADIENTS = Object.freeze({
@@ -150,6 +149,8 @@ export function createTagUi(opts) {
     hoverTextResolution,
     requestPauseForAction,
     toggleTag,
+    onProcessCogClick,
+    isProcessWidgetSystem,
     onSystemIconHover,
     onSystemIconOut,
     onSystemIconClick,
@@ -222,8 +223,17 @@ export function createTagUi(opts) {
     return def?.ui?.name || tagId;
   }
 
-  function isOrdersButtonSystem(tagId, systemId) {
-    return tagId === "farmable" && systemId === "growth";
+  function isProcessWidgetCapableSystem(systemId) {
+    return isProcessWidgetSystem?.(systemId) === true;
+  }
+
+  function resolveProcessWidgetSystemIdForTagSystems(systems) {
+    if (!Array.isArray(systems) || systems.length <= 0) return null;
+    for (const systemId of systems) {
+      if (!isProcessWidgetCapableSystem(systemId)) continue;
+      return systemId;
+    }
+    return null;
   }
 
   function isTagUnlocked(tagId) {
@@ -235,13 +245,27 @@ export function createTagUi(opts) {
 
   function getVisibleTags(tileInst) {
     const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
-    return tags.filter((tagId) => isTagUnlocked(tagId));
+    return tags.filter(
+      (tagId) => isTagUnlocked(tagId) && !isTagPlayerDisabled(tileInst, tagId)
+    );
   }
 
   function isTagDisabled(tileInst, tagId) {
     if (!isTagUnlocked(tagId)) return true;
     const entry = tileInst?.tagStates?.[tagId];
     return entry?.disabled === true;
+  }
+
+  function isTagPlayerDisabled(tileInst, tagId) {
+    if (!isTagUnlocked(tagId)) return true;
+    const entry = tileInst?.tagStates?.[tagId];
+    if (!entry || typeof entry !== "object") return false;
+    const disabledBy =
+      entry.disabledBy && typeof entry.disabledBy === "object"
+        ? entry.disabledBy
+        : null;
+    if (disabledBy) return disabledBy.player === true;
+    return entry.disabled === true;
   }
 
   function getHydrationRatio(tileInst) {
@@ -650,30 +674,8 @@ export function createTagUi(opts) {
     }, 160);
   }
 
-  function drawOrdersButton(row) {
-    if (!row) return;
-    row.barFill.clear();
-    const inset = 1;
-    const width = Math.max(0, row.barWidth - inset * 2);
-    const height = Math.max(0, row.barHeight - inset * 2);
-    if (width <= 0 || height <= 0) return;
-    row.barFill.beginFill(SYSTEM_BUTTON_FILL, 0.96);
-    row.barFill.drawRoundedRect(
-      row.barX + inset,
-      row.barY + inset,
-      width,
-      height,
-      Math.max(2, row.barRadius - 1)
-    );
-    row.barFill.endFill();
-    row.barFill.beginFill(0xffffff, 0.12);
-    row.barFill.drawRect(row.barX + inset, row.barY + inset, width, 1);
-    row.barFill.endFill();
-  }
-
   function buildSystemRow(view, systemId, opts = null) {
     const ui = getSystemUi(systemId);
-    const isOrdersButton = opts?.openProcessWidgetButton === true;
     const processWidgetSystemId =
       typeof opts?.processSystemId === "string" && opts.processSystemId.length > 0
         ? opts.processSystemId
@@ -690,49 +692,43 @@ export function createTagUi(opts) {
       ev?.stopPropagation?.();
     });
 
-    let icon = null;
-    let iconText = null;
-    if (!isOrdersButton) {
-      icon = new PIXI.Container();
-      icon.eventMode = "static";
-      icon.cursor =
-        onSystemIconClick || onSystemIconHover || onSystemIconOut
-          ? "pointer"
-          : "help";
+    const icon = new PIXI.Container();
+    icon.eventMode = "static";
+    icon.cursor =
+      onSystemIconClick || onSystemIconHover || onSystemIconOut
+        ? "pointer"
+        : "help";
 
-      const iconBg = new PIXI.Graphics()
-        .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
-        .beginFill(ui.color, 1)
-        .drawCircle(
-          SYSTEM_ICON_SIZE / 2,
-          SYSTEM_ROW_HEIGHT / 2,
-          SYSTEM_ICON_SIZE / 2
-        )
-        .endFill();
-      iconText = new PIXI.Text(ui.icon, {
-        fill: 0xffffff,
-        fontSize: 8,
-        fontWeight: "bold",
-      });
-      applyTextResolution(iconText, 1.5);
-      iconText.anchor.set(0.5, 0.5);
-      iconText.x = SYSTEM_ICON_SIZE / 2;
-      iconText.y = SYSTEM_ROW_HEIGHT / 2;
-      icon.addChild(iconBg, iconText);
-      container.addChild(icon);
-    }
+    const iconBg = new PIXI.Graphics()
+      .lineStyle(1, TAG_PILL_BORDER_LOW, 0.8)
+      .beginFill(ui.color, 1)
+      .drawCircle(
+        SYSTEM_ICON_SIZE / 2,
+        SYSTEM_ROW_HEIGHT / 2,
+        SYSTEM_ICON_SIZE / 2
+      )
+      .endFill();
+    const iconText = new PIXI.Text(ui.icon, {
+      fill: 0xffffff,
+      fontSize: 8,
+      fontWeight: "bold",
+    });
+    applyTextResolution(iconText, 1.5);
+    iconText.anchor.set(0.5, 0.5);
+    iconText.x = SYSTEM_ICON_SIZE / 2;
+    iconText.y = SYSTEM_ROW_HEIGHT / 2;
+    icon.addChild(iconBg, iconText);
+    container.addChild(icon);
 
-    const barX = isOrdersButton ? 0 : SYSTEM_ICON_SIZE + 6;
-    const barWidth = isOrdersButton ? TAG_PILL_WIDTH : TAG_PILL_WIDTH - barX - 6;
-    const barHeight = isOrdersButton ? SYSTEM_ROW_HEIGHT - 2 : SYSTEM_BAR_HEIGHT;
-    const barY = isOrdersButton
-      ? 1
-      : Math.floor((SYSTEM_ROW_HEIGHT - barHeight) / 2);
-    const barRadius = isOrdersButton ? 5 : SYSTEM_BAR_RADIUS;
+    const barX = SYSTEM_ICON_SIZE + 6;
+    const barWidth = TAG_PILL_WIDTH - barX - 6;
+    const barHeight = SYSTEM_BAR_HEIGHT;
+    const barY = Math.floor((SYSTEM_ROW_HEIGHT - barHeight) / 2);
+    const barRadius = SYSTEM_BAR_RADIUS;
 
     const barBg = new PIXI.Graphics()
-      .lineStyle(1, isOrdersButton ? SYSTEM_BUTTON_BORDER : SYSTEM_BAR_BORDER, 0.9)
-      .beginFill(isOrdersButton ? SYSTEM_BUTTON_BG : SYSTEM_BAR_BG, 0.95)
+      .lineStyle(1, SYSTEM_BAR_BORDER, 0.9)
+      .beginFill(SYSTEM_BAR_BG, 0.95)
       .drawRoundedRect(
         barX,
         barY,
@@ -745,7 +741,7 @@ export function createTagUi(opts) {
     container.addChild(barBg, barFill);
 
     const labelText = new PIXI.Text("", {
-      fill: isOrdersButton ? SYSTEM_BUTTON_TEXT : SYSTEM_BAR_TEXT,
+      fill: SYSTEM_BAR_TEXT,
       fontSize: 9,
     });
     labelText.anchor.set(0.5, 0.5);
@@ -779,23 +775,7 @@ export function createTagUi(opts) {
       buildKind: opts?.kind ?? null,
       buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
       buildLabel: opts?.label ?? null,
-      isOrdersButton,
     };
-
-    if (isOrdersButton) {
-      container.cursor = "pointer";
-      container.on("pointerover", () => {
-        onSystemIconHover?.(view, processWidgetSystemId);
-      });
-      container.on("pointerout", () => {
-        onSystemIconOut?.(view, processWidgetSystemId);
-      });
-      container.on("pointertap", (ev) => {
-        ev?.stopPropagation?.();
-        onSystemIconClick?.(view, processWidgetSystemId);
-      });
-      return row;
-    }
 
     icon.on("pointerover", () => {
       onSystemIconHover?.(view, processWidgetSystemId);
@@ -824,6 +804,8 @@ export function createTagUi(opts) {
   function buildTagEntry(view, tagId, tileInst) {
     const tagDef = envTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
+    const processWidgetSystemId = resolveProcessWidgetSystemIdForTagSystems(systems);
+    const actionMode = processWidgetSystemId ? "cog" : "none";
 
     const container = new PIXI.Container();
     const row = new PIXI.Container();
@@ -838,19 +820,6 @@ export function createTagUi(opts) {
       .endFill();
     row.addChild(bg);
 
-    const toggle = new PIXI.Container();
-    toggle.x = TAG_PILL_PAD_X - 2;
-    toggle.y = Math.round((TAG_PILL_HEIGHT - TAG_TOGGLE_SIZE) / 2);
-    toggle.eventMode = "static";
-    toggle.cursor = "pointer";
-    row.addChild(toggle);
-
-    const toggleBg = new PIXI.Graphics();
-    toggle.addChild(toggleBg);
-
-    const toggleIcon = new PIXI.Graphics();
-    toggle.addChild(toggleIcon);
-
     const label = getTagLabel(tagId);
     const labelText = new PIXI.Text(label, {
       fill: TAG_PILL_TEXT,
@@ -861,13 +830,19 @@ export function createTagUi(opts) {
     labelText.y = Math.round((TAG_PILL_HEIGHT - labelText.height) / 2);
     row.addChild(labelText);
 
-    const expandText = new PIXI.Text(">", {
-      fill: TAG_PILL_TEXT,
-      fontSize: 10,
-    });
-    expandText.x = TAG_PILL_WIDTH - 14;
-    expandText.y = Math.round((TAG_PILL_HEIGHT - expandText.height) / 2);
-    row.addChild(expandText);
+    const actionControl = new PIXI.Container();
+    actionControl.x = TAG_PILL_WIDTH - TAG_ACTION_SIZE - TAG_ACTION_PAD;
+    actionControl.y = Math.round((TAG_PILL_HEIGHT - TAG_ACTION_SIZE) / 2);
+    actionControl.eventMode = actionMode === "cog" ? "static" : "none";
+    actionControl.cursor = actionMode === "cog" ? "pointer" : "default";
+    actionControl.visible = actionMode === "cog";
+    row.addChild(actionControl);
+
+    const actionBg = new PIXI.Graphics();
+    actionControl.addChild(actionBg);
+
+    const actionIcon = new PIXI.Graphics();
+    actionControl.addChild(actionIcon);
 
     const systemContainer = new PIXI.Container();
     systemContainer.y = TAG_PILL_HEIGHT + 4;
@@ -887,19 +862,6 @@ export function createTagUi(opts) {
         sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
       }
     } else {
-      const ordersSystems = systems.filter((systemId) =>
-        isOrdersButtonSystem(tagId, systemId)
-      );
-      for (const systemId of ordersSystems) {
-        const ordersRow = buildSystemRow(view, systemId, {
-          openProcessWidgetButton: true,
-          processSystemId: systemId,
-        });
-        ordersRow.container.y = sysY;
-        systemContainer.addChild(ordersRow.container);
-        systemRows.push(ordersRow);
-        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
-      }
       for (const systemId of systems) {
         const rowEntry = buildSystemRow(view, systemId);
         rowEntry.container.y = sysY;
@@ -918,10 +880,11 @@ export function createTagUi(opts) {
       bgColor: TAG_PILL_BG_LOW,
       borderColor: TAG_PILL_BORDER_LOW,
       labelText,
-      expandText,
-      toggle,
-      toggleBg,
-      toggleIcon,
+      actionControl,
+      actionBg,
+      actionIcon,
+      actionMode,
+      processWidgetSystemId,
       rowScale: 1,
       systemContainer,
       systemRows,
@@ -933,27 +896,21 @@ export function createTagUi(opts) {
 
     entry.setExpanded = (expanded) => {
       entry.expanded = !!expanded;
-      entry.expandText.text = entry.expanded ? "v" : ">";
     };
 
-    toggle.on("pointerdown", (ev) => {
-      ev?.stopPropagation?.();
-      view.ignoreNextTagTap = true;
-    });
-    toggle.on("pointertap", (ev) => {
-      ev?.stopPropagation?.();
-      view.ignoreNextTagTap = true;
-      view.hasTagToggle = true;
-      requestPauseForAction?.();
-      if (typeof toggleTag === "function") {
-        toggleTag({
-          envCol: Number.isFinite(view.tile?.col)
-            ? Math.floor(view.tile.col)
-            : view.col,
-          tagId,
-        });
-      }
-    });
+    if (actionMode === "cog") {
+      actionControl.on("pointerdown", (ev) => {
+        ev?.stopPropagation?.();
+        view.ignoreNextTagTap = true;
+      });
+      actionControl.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        view.ignoreNextTagTap = true;
+        view.hasTagToggle = true;
+        requestPauseForAction?.();
+        onProcessCogClick?.(view, processWidgetSystemId);
+      });
+    }
 
     row.on("pointerover", () => {
       showTooltipForTag(
@@ -988,31 +945,40 @@ export function createTagUi(opts) {
     return entry;
   }
 
-  function updateToggleVisual(entry, isDisabled) {
-    if (!entry?.toggleBg || !entry?.toggleIcon) return;
-    const fill = isDisabled ? 0x5a2a31 : 0x2e5c3f;
-    const stroke = isDisabled ? 0xf2b0b0 : 0xcff5d6;
-
-    entry.toggleBg.clear();
-    entry.toggleBg
-      .lineStyle(1, stroke, 0.9)
-      .beginFill(fill, 0.95)
-      .drawRoundedRect(0, 0, TAG_TOGGLE_SIZE, TAG_TOGGLE_SIZE, 3)
-      .endFill();
-
-    entry.toggleIcon.clear();
-    if (isDisabled) {
-      entry.toggleIcon
-        .lineStyle(2, stroke, 1)
-        .moveTo(3, 3)
-        .lineTo(TAG_TOGGLE_SIZE - 3, TAG_TOGGLE_SIZE - 3)
-        .moveTo(TAG_TOGGLE_SIZE - 3, 3)
-        .lineTo(3, TAG_TOGGLE_SIZE - 3);
-    } else {
-      entry.toggleIcon.beginFill(0xd7ffe0, 1);
-      entry.toggleIcon.drawCircle(TAG_TOGGLE_SIZE / 2, TAG_TOGGLE_SIZE / 2, 3);
-      entry.toggleIcon.endFill();
+  function drawCogVisual(icon, strokeColor) {
+    if (!icon) return;
+    const cx = TAG_ACTION_SIZE / 2;
+    const cy = TAG_ACTION_SIZE / 2;
+    const innerR = 2.4;
+    const outerR = 4.4;
+    icon.clear();
+    icon.lineStyle(1, strokeColor, 1);
+    icon.drawCircle(cx, cy, innerR);
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (Math.PI * 2 * i) / 8;
+      const x0 = cx + Math.cos(angle) * (outerR - 0.6);
+      const y0 = cy + Math.sin(angle) * (outerR - 0.6);
+      const x1 = cx + Math.cos(angle) * (outerR + 1.6);
+      const y1 = cy + Math.sin(angle) * (outerR + 1.6);
+      icon.moveTo(x0, y0);
+      icon.lineTo(x1, y1);
     }
+  }
+
+  function updateActionVisual(entry, isDisabled) {
+    if (!entry?.actionBg || !entry?.actionIcon) return;
+    if (entry.actionMode === "cog") {
+      entry.actionBg.clear();
+      entry.actionBg
+        .lineStyle(1, TAG_ACTION_COG_STROKE, 0.9)
+        .beginFill(TAG_ACTION_COG_FILL, 0.98)
+        .drawRoundedRect(0, 0, TAG_ACTION_SIZE, TAG_ACTION_SIZE, 3)
+        .endFill();
+      drawCogVisual(entry.actionIcon, TAG_ACTION_COG_ICON);
+      return;
+    }
+    entry.actionBg.clear();
+    entry.actionIcon.clear();
   }
 
   function setTagPillStyle(entry, style) {
@@ -1038,11 +1004,6 @@ export function createTagUi(opts) {
       entry.labelText.style.fill = textColor;
       entry.labelText.dirty = true;
     }
-    if (entry.expandText?.style?.fill !== textColor) {
-      entry.expandText.style.fill = textColor;
-      entry.expandText.dirty = true;
-    }
-
     entry.container.alpha = alpha;
 
     if (entry.rowScale !== rowScale) {
@@ -1167,12 +1128,6 @@ export function createTagUi(opts) {
     if (!row) return;
     const systemId = row.systemId;
     if (!systemId) return;
-
-    if (row.isOrdersButton) {
-      row.labelText.text = "Orders";
-      drawOrdersButton(row);
-      return;
-    }
 
     if (systemId === "build") {
       const process = getBuildProcess(tileInst);
@@ -1323,7 +1278,7 @@ export function createTagUi(opts) {
     }
 
     setTagPillStyle(entry, style);
-    updateToggleVisual(entry, isDisabled);
+    updateActionVisual(entry, isDisabled);
 
     for (const row of entry.systemRows || []) {
       updateSystemRow(view, row, tileInst);
@@ -1402,7 +1357,6 @@ export function createTagUi(opts) {
       }
       for (const entry of view.tagEntries) {
         if (entry?.labelText) view.hoverTextNodes.push(entry.labelText);
-        if (entry?.expandText) view.hoverTextNodes.push(entry.expandText);
         for (const row of entry?.systemRows || []) {
           if (row?.labelText) view.hoverTextNodes.push(row.labelText);
           if (row?.iconText) view.hoverTextNodes.push(row.iconText);

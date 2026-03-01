@@ -1283,6 +1283,10 @@ const boardView = createBoardView({
     const target = view?.structure ?? view?.tile ?? null;
     processWidgetView?.togglePinnedTarget?.(target, systemId);
   },
+  onProcessCogClick: (view, systemId) => {
+    const target = view?.structure ?? view?.tile ?? null;
+    processWidgetView?.togglePinnedTarget?.(target, systemId);
+  },
   getExternalFocus: () => getExternalUiFocus(),
 });
 

@@ -16,9 +16,21 @@ export function createWindowHeader(opts = {}) {
     paddingY = 4,
     showPin = true,
     showClose = true,
+    pinControlMode = "text",
     pinText = "[ ]",
     pinTextPinned = "[*]",
     pinStyle = { fill: MUCHA_UI_COLORS.ink.primary, fontSize: 12 },
+    pinButtonWidth = 42,
+    pinButtonHeight = 16,
+    pinButtonRadius = 4,
+    pinButtonBg = MUCHA_UI_COLORS.surfaces.panel,
+    pinButtonBgHover = MUCHA_UI_COLORS.surfaces.panelSoft,
+    pinButtonBgPinned = MUCHA_UI_COLORS.surfaces.panelSoft,
+    pinButtonBgPinnedHover = MUCHA_UI_COLORS.surfaces.panelRaised,
+    pinButtonStroke = MUCHA_UI_COLORS.surfaces.border,
+    pinButtonStrokePinned = MUCHA_UI_COLORS.surfaces.border,
+    pinButtonTextOff = MUCHA_UI_COLORS.ink.primary,
+    pinButtonTextPinned = MUCHA_UI_COLORS.ink.primary,
     closeText = "x",
     closeStyle = { fill: MUCHA_UI_COLORS.ink.primary, fontSize: 12 },
     closeButtonWidth = 42,
@@ -51,16 +63,76 @@ export function createWindowHeader(opts = {}) {
   header.addChild(titleText);
 
   let pinNode = null;
+  let pinButton = null;
+  let pinButtonBgGraphic = null;
+  let pinHovered = false;
+  let pinIsPinned = false;
+
+  function drawPinButton(buttonWidth, buttonHeight) {
+    if (!pinButtonBgGraphic) return;
+    const active = pinIsPinned === true;
+    const fill = active
+      ? pinHovered
+        ? pinButtonBgPinnedHover
+        : pinButtonBgPinned
+      : pinHovered
+        ? pinButtonBgHover
+        : pinButtonBg;
+    const stroke = active ? pinButtonStrokePinned : pinButtonStroke;
+    pinButtonBgGraphic.clear();
+    pinButtonBgGraphic
+      .lineStyle(1, stroke, 0.95)
+      .beginFill(fill, 0.98)
+      .drawRoundedRect(
+        0,
+        0,
+        buttonWidth,
+        buttonHeight,
+        Math.max(0, pinButtonRadius)
+      )
+      .endFill();
+  }
+
   if (showPin) {
     pinNode = new PIXI.Text(pinText, pinStyle);
-    pinNode.eventMode = "static";
-    pinNode.cursor = "pointer";
-    pinNode.on("pointerdown", (ev) => ev?.stopPropagation?.());
-    pinNode.on("pointertap", (ev) => {
-      ev?.stopPropagation?.();
-      onPinToggle?.();
-    });
-    header.addChild(pinNode);
+    if (pinControlMode === "button") {
+      pinNode.eventMode = "none";
+      pinButton = new PIXI.Container();
+      pinButton.eventMode = "static";
+      pinButton.cursor = "pointer";
+      pinButtonBgGraphic = new PIXI.Graphics();
+      pinButton.addChild(pinButtonBgGraphic);
+      pinButton.addChild(pinNode);
+      pinButton.on("pointerover", () => {
+        pinHovered = true;
+        drawPinButton(
+          Math.max(30, Math.floor(pinButtonWidth)),
+          Math.max(14, Math.floor(pinButtonHeight))
+        );
+      });
+      pinButton.on("pointerout", () => {
+        pinHovered = false;
+        drawPinButton(
+          Math.max(30, Math.floor(pinButtonWidth)),
+          Math.max(14, Math.floor(pinButtonHeight))
+        );
+      });
+      pinButton.on("pointerdown", (ev) => ev?.stopPropagation?.());
+      pinButton.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        onPinToggle?.();
+      });
+      header.addChild(pinButton);
+    } else {
+      pinNode.eventMode = "static";
+      pinNode.cursor = "pointer";
+      pinNode.on("pointerdown", (ev) => ev?.stopPropagation?.());
+      pinNode.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        onPinToggle?.();
+      });
+      header.addChild(pinNode);
+    }
   }
 
   let closeNode = null;
@@ -144,7 +216,24 @@ export function createWindowHeader(opts = {}) {
       closeNode.x = Math.floor((buttonWidth - closeNode.width) / 2);
       closeNode.y = Math.floor((buttonHeight - closeNode.height) / 2);
     }
-    if (pinNode) {
+    if (pinNode && pinButton) {
+      const buttonWidth = Math.max(30, Math.floor(pinButtonWidth));
+      const buttonHeight = Math.max(
+        14,
+        Math.min(height - 4, Math.floor(pinButtonHeight))
+      );
+      if (closeButton) {
+        pinButton.x = Math.max(0, closeButton.x - buttonWidth - 8);
+      } else {
+        pinButton.x = Math.max(0, currentWidth - pinOffsetX - buttonWidth);
+      }
+      pinButton.y = Math.floor((height - buttonHeight) / 2);
+      pinButton.hitArea = new PIXI.Rectangle(0, 0, buttonWidth, buttonHeight);
+      drawPinButton(buttonWidth, buttonHeight);
+      pinNode.style.fill = pinIsPinned ? pinButtonTextPinned : pinButtonTextOff;
+      pinNode.x = Math.floor((buttonWidth - pinNode.width) / 2);
+      pinNode.y = Math.floor((buttonHeight - pinNode.height) / 2);
+    } else if (pinNode) {
       const preferredPinX = currentWidth - pinOffsetX;
       if (closeButton) {
         pinNode.x = Math.min(
@@ -202,7 +291,11 @@ export function createWindowHeader(opts = {}) {
 
   function setPinned(pinned) {
     if (!pinNode) return;
-    pinNode.text = pinned ? pinTextPinned : pinText;
+    pinIsPinned = pinned === true;
+    pinNode.text = pinIsPinned ? pinTextPinned : pinText;
+    if (pinButton) {
+      redraw();
+    }
   }
 
   function setTitle(nextTitle) {
