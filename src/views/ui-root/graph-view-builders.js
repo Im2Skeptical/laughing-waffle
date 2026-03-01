@@ -13,6 +13,7 @@ export function createRunnerMetricGraph({
   metric = null,
   getMetricDef = null,
   getSeriesValueOverride = null,
+  getEventMarkers = null,
   getEditableHistoryBounds = null,
   historyWindowSec = undefined,
 }) {
@@ -41,6 +42,9 @@ export function createRunnerMetricGraph({
   if (typeof getMetricDef === "function") options.getMetricDef = getMetricDef;
   if (typeof getSeriesValueOverride === "function") {
     options.getSeriesValueOverride = getSeriesValueOverride;
+  }
+  if (typeof getEventMarkers === "function") {
+    options.getEventMarkers = getEventMarkers;
   }
   if (typeof getEditableHistoryBounds === "function") {
     options.getEditableHistoryBounds = getEditableHistoryBounds;

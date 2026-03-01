@@ -6,6 +6,9 @@ import { VIEWPORT_DESIGN_WIDTH } from "./layout-pixi.js";
 
 const BUTTON_WIDTH = 70;
 const BUTTON_HEIGHT = 44;
+const BASIC_TIME_LEVER_UI_MAX_ABS_SPEED = 4;
+const BASIC_TIME_LEVER_LOCK_SPEEDS = Object.freeze([-4, -2, 2, 4]);
+const BASIC_TIME_LEVER_LOCK_SNAP_NORM_RADIUS = 0.07;
 
 export const TIME_CONTROLS_LAYOUT = {
   enabled: true,
@@ -118,6 +121,9 @@ export function createTimeControlsView({
     layer: root,
     getTimeScale,
     setTimeScaleTarget,
+    uiMaxAbsSpeed: BASIC_TIME_LEVER_UI_MAX_ABS_SPEED,
+    lockSpeeds: BASIC_TIME_LEVER_LOCK_SPEEDS,
+    lockSnapNormRadius: BASIC_TIME_LEVER_LOCK_SNAP_NORM_RADIUS,
   });
 
   const controls = [

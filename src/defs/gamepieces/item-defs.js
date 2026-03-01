@@ -634,6 +634,8 @@ export const itemDefs = {
         editableRangeMode: "absolute",
         editableRangeStartSec: 0,
         editableRangeEndSec: 240,
+        systemTargetModeOnOpen: "inventoryOwnerLocked",
+        eventMarkerModeOnOpen: "leaderFaith",
       },
     },
     defaultWidth: 1,

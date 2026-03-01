@@ -502,6 +502,15 @@ export function createPawnsView(opts) {
       lines.push(`${label}${tierLabel}: ${cur}/${max}`);
     }
 
+    if (pawn?.role === "leader") {
+      const faithTierRaw = pawn?.leaderFaith?.tier;
+      const faithTier =
+        typeof faithTierRaw === "string" && faithTierRaw.length > 0
+          ? faithTierRaw
+          : "gold";
+      lines.push(`Faith (${faithTier})`);
+    }
+
     return lines;
   }
 

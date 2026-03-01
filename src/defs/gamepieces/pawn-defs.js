@@ -11,7 +11,7 @@ export const pawnDefs = {
     passives: [
       {
         id: "hungerDecay",
-        timing: { cadenceSec: 5 },
+        timing: { cadenceSec: 2 },
         effect: [
           {
             op: "AddToSystemState",

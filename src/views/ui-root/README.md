@@ -12,10 +12,15 @@ the root orchestration file focused on wiring.
 - `system-graph-model.js`
   - Hover-target resolution, system-series building, and throttled target
     updates for the systems graph.
-  - Public API: `controller`, `refreshTargetThrottled`, `toggleGraphForHover`.
+  - Public API: `controller`, `refreshTargetThrottled`,
+    `toggleGraphForHover`, `toggleGraphForOwner`.
 - `graph-view-builders.js`
   - Shared builder for metric graph views that use runner timeline/cursor/
     preview/commit callbacks.
+- `scroll-graph-orchestrator.js`
+  - Per-item scroll timegraph window orchestration with deterministic cascading
+    placement and per-scroll open/close lifecycle.
+  - Public API: `handleUseItem`, `handleInvalidate`, `update`, `closeAllGraphs`.
 - `projection-parity.js`
   - Debug probe utilities for projection parity checks.
 

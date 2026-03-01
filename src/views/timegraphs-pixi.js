@@ -35,10 +35,17 @@ const TIMEGRAPH_THEME = Object.freeze({
   gridMajor: 0x6d6248,
   gridMinor: 0x5a523f,
   actionMarker: MUCHA_UI_COLORS.accents.sage,
+  eventMarkerNormal: MUCHA_UI_COLORS.intent.softPop,
+  eventMarkerCritical: MUCHA_UI_COLORS.intent.dangerPop,
   forecastMarker: MUCHA_UI_COLORS.accents.sage,
   scrubMarker: MUCHA_UI_COLORS.ink.secondary,
   scrubLiveMarker: MUCHA_UI_COLORS.accents.gold,
 });
+
+const EVENT_MARKER_SEVERITY_ORDER = {
+  normal: 0,
+  critical: 1,
+};
 
 function normalizeHistoryZoneSegments(rawSegments, { minSec, maxSec, historyEndSec }) {
   const min = Math.max(0, Math.floor(minSec ?? 0));
@@ -115,6 +122,33 @@ function getSeriesValue(point, seriesId) {
   return 0;
 }
 
+function normalizeEventMarkers(rawMarkers, { minSec, maxSec }) {
+  const min = Math.max(0, Math.floor(minSec ?? 0));
+  const max = Math.max(min, Math.floor(maxSec ?? min));
+  const markers = Array.isArray(rawMarkers) ? rawMarkers : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const marker of markers) {
+    const sec = Number.isFinite(marker?.tSec) ? Math.floor(marker.tSec) : null;
+    if (sec == null || sec < min || sec > max) continue;
+    const severity = marker?.severity === "critical" ? "critical" : "normal";
+    const color = Number.isFinite(marker?.color) ? Math.floor(marker.color) : null;
+    const dedupeKey = `${sec}:${severity}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push({ tSec: sec, severity, color });
+  }
+
+  out.sort(
+    (a, b) =>
+      a.tSec - b.tSec ||
+      (EVENT_MARKER_SEVERITY_ORDER[a.severity] ?? 99) -
+        (EVENT_MARKER_SEVERITY_ORDER[b.severity] ?? 99)
+  );
+  return out;
+}
+
 export function createMetricGraphView({
   app,
   layer,
@@ -127,6 +161,7 @@ export function createMetricGraphView({
   getCursorState,
   getPreviewStatus,
   getSeriesValueOverride,
+  getEventMarkers,
   getEditableHistoryBounds,
   setPreviewState,
   clearPreviewState,
@@ -145,6 +180,8 @@ export function createMetricGraphView({
   let historyZoneResolver = null;
   let seriesValueOverrideResolver =
     typeof getSeriesValueOverride === "function" ? getSeriesValueOverride : null;
+  let eventMarkerResolver =
+    typeof getEventMarkers === "function" ? getEventMarkers : null;
 
   function resolveMetric() {
     const next =
@@ -939,6 +976,39 @@ export function createMetricGraphView({
       plotG.endFill();
     }
 
+    const rawEventMarkers =
+      typeof eventMarkerResolver === "function"
+        ? eventMarkerResolver({
+            minSec,
+            maxSec,
+            historyEndSec,
+            timeline: tl,
+            cursorState: cs,
+            graphData: data,
+          })
+        : null;
+    const eventMarkers = normalizeEventMarkers(rawEventMarkers, { minSec, maxSec });
+    for (const marker of eventMarkers) {
+      const x = timeToX(marker.tSec);
+      const color = Number.isFinite(marker?.color)
+        ? marker.color
+        : marker.severity === "critical"
+          ? TIMEGRAPH_THEME.eventMarkerCritical
+          : TIMEGRAPH_THEME.eventMarkerNormal;
+      if (marker.severity === "critical") {
+        plotG.lineStyle(1, color, 0.72);
+        plotG.moveTo(x, plot.y + 1);
+        plotG.lineTo(x, plot.y + plot.h - 1);
+        plotG.beginFill(color, 0.95);
+        plotG.drawCircle(x, plot.y + 7, 4);
+        plotG.endFill();
+        continue;
+      }
+      plotG.beginFill(color, 0.9);
+      plotG.drawCircle(x, plot.y + 8, 2.5);
+      plotG.endFill();
+    }
+
     if (perfEnabled()) {
       recordGraphRender({
         ms: perfNowMs() - perfStart,
@@ -1165,15 +1235,35 @@ export function createMetricGraphView({
     statusNote = "";
   }
 
+  function setEventMarkerResolver(nextResolver) {
+    eventMarkerResolver =
+      typeof nextResolver === "function" ? nextResolver : null;
+    lastPlotVersion = -1;
+    lastPlotBoundsKey = "";
+    statusNote = "";
+  }
+
+  function destroy() {
+    close();
+    eventMarkerResolver = null;
+    plotHit.removeAllListeners?.();
+    zoomBtn.removeAllListeners?.();
+    root.removeAllListeners?.();
+    root.parent?.removeChild?.(root);
+    root.destroy?.({ children: true });
+  }
+
   return {
     open,
     close,
+    destroy,
     isOpen,
     render,
     setWindowSpecResolver,
     setCommitPolicyResolver,
     setSeriesValueOverrideResolver,
     setHistoryZoneResolver,
+    setEventMarkerResolver,
   };
 }
 

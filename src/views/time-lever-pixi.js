@@ -1,5 +1,5 @@
 // time-lever-pixi.js
-// Time lever widget (Pixi): drag to set time scale, release to ease to pause/x1.
+// Time lever widget (Pixi): drag to set time scale with magnetic lock points.
 
 export function createTimeLeverView({
   app,
@@ -13,6 +13,9 @@ export function createTimeLeverView({
   margin = 4,
   curve = 1.5,
   stickySpeed = 0.5,
+  uiMaxAbsSpeed = 4,
+  lockSpeeds = [-4, -2, 2, 4],
+  lockSnapNormRadius = 0.07,
   labelGap = 4,
   labelFontSize = 12,
 } = {}) {
@@ -34,6 +37,7 @@ export function createTimeLeverView({
   let leverDragNorm = 0;
   let leverDragSpeed = 1;
   let lastHandleColor = null;
+  let lastTrackSignature = "";
 
   timeLever.visible =
     typeof getTimeScale === "function" || typeof setTimeScaleTarget === "function";
@@ -44,8 +48,21 @@ export function createTimeLeverView({
     return Math.max(1, Math.floor(max));
   }
 
+  function getActiveUiMaxSpeed() {
+    const engineMax = getTimeScaleMax();
+    const uiMax = Number.isFinite(uiMaxAbsSpeed)
+      ? Math.max(1, Math.floor(uiMaxAbsSpeed))
+      : 4;
+    return Math.min(engineMax, uiMax);
+  }
+
+  function clampNorm(norm) {
+    if (!Number.isFinite(norm)) return 0;
+    return Math.max(-1, Math.min(1, norm));
+  }
+
   function leverNormToSpeed(norm) {
-    const maxSpeed = getTimeScaleMax();
+    const maxSpeed = getActiveUiMaxSpeed();
     const n = Math.max(-1, Math.min(1, norm));
     const t = Math.pow(Math.abs(n), curve);
     if (n >= 0) return 1 + t * (maxSpeed - 1);
@@ -53,7 +70,7 @@ export function createTimeLeverView({
   }
 
   function speedToLeverNorm(speed) {
-    const maxSpeed = getTimeScaleMax();
+    const maxSpeed = getActiveUiMaxSpeed();
     const s = Number.isFinite(speed) ? speed : 1;
     if (s >= 1) {
       const t = (s - 1) / Math.max(1, maxSpeed - 1);
@@ -66,11 +83,59 @@ export function createTimeLeverView({
   function leverNormToHandleX(norm) {
     const minX = margin;
     const maxX = width - margin - handleWidth;
-    const t = (Math.max(-1, Math.min(1, norm)) + 1) / 2;
+    const t = (clampNorm(norm) + 1) / 2;
     return minX + t * (maxX - minX);
   }
 
+  function leverNormToTrackX(norm) {
+    return leverNormToHandleX(norm) + handleWidth * 0.5;
+  }
+
+  function getActiveLockSpeeds() {
+    const maxSpeed = getActiveUiMaxSpeed();
+    const source = Array.isArray(lockSpeeds) ? lockSpeeds : [];
+    const unique = new Set();
+    for (const value of source) {
+      if (!Number.isFinite(value)) continue;
+      const speed = Number(value);
+      if (speed === 0) continue;
+      if (Math.abs(speed) > maxSpeed) continue;
+      unique.add(speed);
+    }
+    return Array.from(unique).sort((a, b) => a - b);
+  }
+
+  function applyLockSnap(rawNorm) {
+    const norm = clampNorm(rawNorm);
+    const radius = Number.isFinite(lockSnapNormRadius)
+      ? Math.max(0, Number(lockSnapNormRadius))
+      : 0;
+    if (radius <= 0) return norm;
+
+    const activeLocks = getActiveLockSpeeds();
+    if (!activeLocks.length) return norm;
+
+    let closestNorm = norm;
+    let closestDist = Number.POSITIVE_INFINITY;
+    for (const speed of activeLocks) {
+      const lockNorm = speedToLeverNorm(speed);
+      const dist = Math.abs(lockNorm - norm);
+      if (dist < closestDist) {
+        closestNorm = lockNorm;
+        closestDist = dist;
+      }
+    }
+
+    return closestDist <= radius ? closestNorm : norm;
+  }
+
   function drawTimeLeverBase() {
+    const maxSpeed = getActiveUiMaxSpeed();
+    const activeLocks = getActiveLockSpeeds();
+    const signature = `${maxSpeed}|${activeLocks.join(",")}`;
+    if (signature === lastTrackSignature) return;
+    lastTrackSignature = signature;
+
     leverTrack.clear();
     leverTrack.beginFill(0x444444, 0.95);
     leverTrack.drawRoundedRect(0, 0, width, height, height / 2);
@@ -87,6 +152,18 @@ export function createTimeLeverView({
     leverTrack.lineStyle(1, 0x333333, 0.7);
     leverTrack.moveTo(width / 2, 6);
     leverTrack.lineTo(width / 2, height - 6);
+
+    for (const speed of activeLocks) {
+      const notchX = leverNormToTrackX(speedToLeverNorm(speed));
+      const isMajor = Math.abs(speed) >= 4;
+      const notchInset = isMajor ? 7 : 9;
+      const notchColor = isMajor ? 0xe4dcc5 : 0xc4baa1;
+      const notchAlpha = isMajor ? 0.92 : 0.78;
+      const notchWidth = isMajor ? 2 : 1;
+      leverTrack.lineStyle(notchWidth, notchColor, notchAlpha);
+      leverTrack.moveTo(notchX, notchInset);
+      leverTrack.lineTo(notchX, height - notchInset);
+    }
 
     leverHit.clear();
     leverHit.beginFill(0xffffff);
@@ -110,6 +187,7 @@ export function createTimeLeverView({
 
   function updateTimeLever(state) {
     if (!timeLever.visible) return;
+    drawTimeLeverBase();
 
     const ts = typeof getTimeScale === "function" ? getTimeScale() : null;
     const speed = ts && Number.isFinite(ts.current) ? ts.current : 1;
@@ -135,10 +213,8 @@ export function createTimeLeverView({
 
     const speedAbs = Math.abs(displaySpeed);
     const speedText = `${displaySpeed < 0 ? "-" : ""}x${speedAbs.toFixed(1)}`;
-    const showPauseHint =
-      (speedAbs < stickySpeed && !leverDragging) || displaySpeed < 0;
-    const pauseText =
-      showPauseHint || state?.paused ? " (release: pause)" : "";
+    const showPauseHint = speedAbs < stickySpeed && !leverDragging;
+    const pauseText = showPauseHint || state?.paused ? " (release: pause)" : "";
 
     leverLabel.text = `Time: ${speedText}${pauseText}`;
     leverLabel.x = (width - leverLabel.width) / 2;
@@ -155,11 +231,12 @@ export function createTimeLeverView({
     );
     const ratio = (handleX - minX) / Math.max(1, maxX - minX);
     const norm = ratio * 2 - 1;
-    leverDragNorm = norm;
-    leverDragSpeed = leverNormToSpeed(norm);
+    const snappedNorm = applyLockSnap(norm);
+    leverDragNorm = snappedNorm;
+    leverDragSpeed = leverNormToSpeed(snappedNorm);
 
     if (typeof setTimeScaleTarget === "function") {
-      setTimeScaleTarget(leverDragSpeed, { unpause: true });
+      setTimeScaleTarget(leverDragSpeed, { unpause: leverDragSpeed !== 0 });
     }
   }
 
@@ -167,13 +244,12 @@ export function createTimeLeverView({
     if (!leverDragging) return;
     leverDragging = false;
 
-    const shouldPause =
-      Math.abs(leverDragSpeed) < stickySpeed || leverDragSpeed < 0;
+    const shouldPause = Math.abs(leverDragSpeed) < stickySpeed;
     if (typeof setTimeScaleTarget === "function") {
       if (shouldPause) {
         setTimeScaleTarget(0, { requestPause: true });
       } else {
-        setTimeScaleTarget(1, { unpause: true });
+        setTimeScaleTarget(leverDragSpeed, { unpause: true });
       }
     }
   }

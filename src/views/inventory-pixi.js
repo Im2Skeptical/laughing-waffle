@@ -705,6 +705,7 @@ export function createInventoryView({
   function getLeaderSystemIds(leader) {
     const ids = new Set();
     for (const systemId of Object.keys(pawnSystemDefs || {})) {
+      if (systemId === "leadership") continue;
       ids.add(systemId);
     }
     if (leader?.role === "leader") {
@@ -714,12 +715,14 @@ export function createInventoryView({
       ? Object.keys(leader.systemState)
       : [];
     for (const systemId of stateIds) {
+      if (systemId === "leadership") continue;
       ids.add(systemId);
     }
     const tierIds = leader?.systemTiers && typeof leader.systemTiers === "object"
       ? Object.keys(leader.systemTiers)
       : [];
     for (const systemId of tierIds) {
+      if (systemId === "leadership") continue;
       ids.add(systemId);
     }
     return Array.from(ids.values()).sort((a, b) => a.localeCompare(b));

@@ -3,8 +3,8 @@
 
 // Scenario Selector - Options for boot are in scenario-defs.js
 
-const BOOT_SETUP_ID = "devGym01";
-//const BOOT_SETUP_ID = "devPlaytesting01";
+//const BOOT_SETUP_ID = "devGym01";
+const BOOT_SETUP_ID = "devPlaytesting01";
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
@@ -322,6 +322,7 @@ const NOOP_ACTION_LOG_VIEW = {
   resolveDragGhost() {},
   flashGhost() {},
 };
+let scrollGraphOrchestrator = null;
 
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
@@ -337,6 +338,7 @@ const runner = createSimRunner({
     apGraphController.handleInvalidate(reason);
     popGraphController.handleInvalidate(reason);
     systemGraphController.handleInvalidate(reason);
+    scrollGraphOrchestrator?.handleInvalidate?.(reason);
   },
   onRebuildViews: (reason = "unknown") => {
     tooltipView?.hide?.();
@@ -1085,7 +1087,6 @@ const tooltipView = createTooltipView({
 
 let inventoryView = null;
 let processWidgetView = null;
-let scrollGraphOrchestrator = null;
 const setApDragWarning = (active) => {
   actionLogView?.setApDragWarning?.(active);
 };
@@ -1681,19 +1682,28 @@ function toggleApGraph() {
 
 scrollGraphOrchestrator = createScrollGraphOrchestrator({
   runner,
-  metricViewsBySubject: {
-    population: popGraphView,
-    grain: grainGraphView,
-    food: foodGraphView,
+  interactionController,
+  createMetricController: createTimeGraphController,
+  createSystemGraphModel,
+  buildGraphView: ({ controller, metric, getMetricDef, openPosition }) => {
+    const spec = {
+      createMetricGraphView,
+      app,
+      layer: uiLayers.controlsLayer,
+      controller,
+      runner,
+      interaction: interactionController,
+      tooltipView,
+      openPosition,
+    };
+    if (metric) spec.metric = metric;
+    if (typeof getMetricDef === "function") {
+      spec.getMetricDef = getMetricDef;
+      spec.historyWindowSec = 600;
+    }
+    return createRunnerMetricGraph(spec);
   },
-  metricControllersBySubject: {
-    population: popGraphController,
-    grain: grainGraphController,
-    food: foodGraphController,
-  },
-  systemGraphView,
-  systemGraphController,
-  toggleSystemGraph: () => openSystemGraphForHover(),
+  scrollWindowBasePosition: VIEW_LAYOUT.graphs.systemScrollBase,
 });
 
 const chromeView = createChromeView({

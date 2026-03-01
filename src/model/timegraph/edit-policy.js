@@ -63,6 +63,13 @@ export function normalizeTimegraphPolicyState(graphState) {
   if (!SCROLL_GRAPH_SUBJECT_DEFS[subjectId]) return null;
 
   const typeDef = SCROLL_GRAPH_TYPE_DEFS[typeId];
+  const subjectDef = SCROLL_GRAPH_SUBJECT_DEFS[subjectId];
+  const metricId =
+    typeof graphState.metricId === "string"
+      ? graphState.metricId
+      : typeof subjectDef?.metricId === "string"
+        ? subjectDef.metricId
+        : null;
   const horizonSec = toSafeSec(graphState.horizonSec, 120);
   const historyWindowSec = toSafeSec(graphState.historyWindowSec, 120);
   const manufacturedSec = Number.isFinite(graphState.manufacturedSec)
@@ -83,10 +90,19 @@ export function normalizeTimegraphPolicyState(graphState) {
     : Number.isFinite(graphState.editableMaxSec)
       ? toSafeSec(graphState.editableMaxSec, 0)
       : null;
+  const systemTargetModeOnOpen =
+    graphState.systemTargetModeOnOpen === "inventoryOwnerLocked"
+      ? "inventoryOwnerLocked"
+      : "hover";
+  const eventMarkerModeOnOpen =
+    graphState.eventMarkerModeOnOpen === "leaderFaith"
+      ? "leaderFaith"
+      : "none";
 
   return {
     typeId,
     subjectId,
+    metricId,
     windowMode:
       typeof graphState.windowMode === "string"
         ? graphState.windowMode
@@ -108,6 +124,8 @@ export function normalizeTimegraphPolicyState(graphState) {
     editableRangeMode,
     editableRangeStartSec,
     editableRangeEndSec,
+    systemTargetModeOnOpen,
+    eventMarkerModeOnOpen,
   };
 }
 

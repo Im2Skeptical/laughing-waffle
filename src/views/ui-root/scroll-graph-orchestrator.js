@@ -1,9 +1,6 @@
 // scroll-graph-orchestrator.js
 
 import {
-  SCROLL_GRAPH_SUBJECT_IDS,
-} from "../../defs/gamepieces/scroll-timegraph-defs.js";
-import {
   computeHistoryZoneSegments,
   computeScrollCommitDecision,
   computeScrollWindowSpec,
@@ -11,6 +8,18 @@ import {
   getScrollTimegraphStateFromItem,
   toSafeSec,
 } from "../../model/timegraph/edit-policy.js";
+import { createLeaderFaithMarkerResolver } from "./leader-faith-marker-resolver.js";
+
+const DEFAULT_SCROLL_WINDOW_BASE_POSITION = Object.freeze({
+  x: 1212,
+  y: 120,
+});
+const SCROLL_WINDOW_CASCADE_STEP_PX = 28;
+const SCROLL_WINDOW_WIDTH_PX = 1200;
+const SCROLL_WINDOW_HEIGHT_PX = 176;
+const SCROLL_STAGE_WIDTH_PX = 2424;
+const SCROLL_STAGE_HEIGHT_PX = 1080;
+const SCROLL_WINDOW_MARGIN_PX = 8;
 
 function resolveWindowSpecForScroll(runner, scrollState) {
   const timeline = runner.getTimeline?.();
@@ -100,194 +109,111 @@ function clearScrollConfigFromView(view) {
   view.setCommitPolicyResolver?.(null);
   view.setHistoryZoneResolver?.(null);
   view.setSeriesValueOverrideResolver?.(null);
+  view.setEventMarkerResolver?.(null);
+}
+
+function normalizeScrollWindowBasePosition(scrollWindowBasePosition) {
+  const x = Number.isFinite(scrollWindowBasePosition?.x)
+    ? Math.floor(scrollWindowBasePosition.x)
+    : DEFAULT_SCROLL_WINDOW_BASE_POSITION.x;
+  const y = Number.isFinite(scrollWindowBasePosition?.y)
+    ? Math.floor(scrollWindowBasePosition.y)
+    : DEFAULT_SCROLL_WINDOW_BASE_POSITION.y;
+  return { x, y };
+}
+
+function resolveWindowPositionFromSequence(basePosition, sequence) {
+  const safeSeq = Number.isFinite(sequence) ? Math.max(1, Math.floor(sequence)) : 1;
+  const offset = (safeSeq - 1) * SCROLL_WINDOW_CASCADE_STEP_PX;
+  const centeredBaseX = Math.floor(basePosition.x - SCROLL_WINDOW_WIDTH_PX * 0.5);
+  const rawX = centeredBaseX + offset;
+  const rawY = basePosition.y + offset;
+  const minX = SCROLL_WINDOW_MARGIN_PX;
+  const minY = SCROLL_WINDOW_MARGIN_PX;
+  const maxX = Math.max(
+    minX,
+    SCROLL_STAGE_WIDTH_PX - SCROLL_WINDOW_WIDTH_PX - SCROLL_WINDOW_MARGIN_PX
+  );
+  const maxY = Math.max(
+    minY,
+    SCROLL_STAGE_HEIGHT_PX - SCROLL_WINDOW_HEIGHT_PX - SCROLL_WINDOW_MARGIN_PX
+  );
+  return {
+    x: Math.max(minX, Math.min(maxX, rawX)),
+    y: Math.max(minY, Math.min(maxY, rawY)),
+  };
+}
+
+function buildFrozenSeriesSnapshot(controller, minSec, maxSec) {
+  if (!controller || typeof controller.getSeriesValuesForSeconds !== "function") {
+    return null;
+  }
+  controller.ensureCache?.();
+  const startSec = toSafeSec(minSec, 0);
+  const endSec = toSafeSec(maxSec, startSec);
+  if (endSec < startSec) return null;
+  const seconds = [];
+  for (let sec = startSec; sec <= endSec; sec += 1) {
+    seconds.push(sec);
+  }
+  const valuesBySec =
+    controller.getSeriesValuesForSeconds(seconds, { focus: false }) ?? null;
+  if (!(valuesBySec instanceof Map)) return null;
+  return {
+    minSec: startSec,
+    maxSec: endSec,
+    valuesBySec,
+  };
 }
 
 export function createScrollGraphOrchestrator({
   runner,
-  metricViewsBySubject,
-  metricControllersBySubject,
-  systemGraphView,
-  systemGraphController,
-  toggleSystemGraph,
+  interactionController,
+  createMetricController,
+  createSystemGraphModel,
+  buildGraphView,
+  scrollWindowBasePosition = null,
 }) {
-  const metricViews = metricViewsBySubject || {};
-  const metricControllers = metricControllersBySubject || {};
-  const frozenSeriesByItemId = new Map();
-  let openSession = null;
+  const windowsByItemId = new Map();
+  const basePosition = normalizeScrollWindowBasePosition(scrollWindowBasePosition);
+  let nextOpenSequence = 0;
 
-  function clearScrollConfigForMetric(subjectId) {
-    const view = metricViews[subjectId];
-    if (view) clearScrollConfigFromView(view);
-    const controller = metricControllers[subjectId];
-    controller?.setHorizonSecOverride?.(null);
+  function destroyWindowRecord(record) {
+    if (!record) return;
+    record.controller?.setActive?.(false);
+    record.controller?.setHorizonSecOverride?.(null);
+    clearScrollConfigFromView(record.view);
+    record.view?.close?.();
+    record.view?.destroy?.();
   }
 
-  function buildFrozenSeriesSnapshot(controller, minSec, maxSec) {
-    if (!controller || typeof controller.getSeriesValuesForSeconds !== "function") {
-      return null;
-    }
-    controller.ensureCache?.();
-    const startSec = toSafeSec(minSec, 0);
-    const endSec = toSafeSec(maxSec, startSec);
-    if (endSec < startSec) return null;
-    const seconds = [];
-    for (let sec = startSec; sec <= endSec; sec += 1) {
-      seconds.push(sec);
-    }
-    const valuesBySec =
-      controller.getSeriesValuesForSeconds(seconds, { focus: false }) ?? null;
-    if (!(valuesBySec instanceof Map)) return null;
-    return {
-      minSec: startSec,
-      maxSec: endSec,
-      valuesBySec,
-    };
-  }
+  function applyRecordPolicy(record) {
+    if (!record) return;
+    const controllerHorizonSec = resolveControllerHorizonOverride(record.scrollState);
+    record.controller?.setHorizonSecOverride?.(controllerHorizonSec);
 
-  function closeMetricGraphs() {
-    for (const subjectId of SCROLL_GRAPH_SUBJECT_IDS) {
-      if (subjectId === "systems") continue;
-      const view = metricViews[subjectId];
-      if (!view) continue;
-      clearScrollConfigForMetric(subjectId);
-      if (view.isOpen?.()) view.close();
-    }
-  }
-
-  function closeSystemGraph() {
-    clearScrollConfigFromView(systemGraphView);
-    systemGraphController?.setHorizonSecOverride?.(null);
-    if (systemGraphView?.isOpen?.()) {
-      systemGraphView.close();
-    }
-  }
-
-  function closeAllGraphs() {
-    closeMetricGraphs();
-    closeSystemGraph();
-    openSession = null;
-  }
-
-  function openSystemsGraph(itemId, scrollState = null) {
-    const activeSameItem =
-      openSession &&
-      openSession.kind === "systems" &&
-      openSession.itemId === itemId &&
-      systemGraphView?.isOpen?.();
-
-    if (activeSameItem) {
-      closeSystemGraph();
-      openSession = null;
-      return { handled: true, action: "closed", kind: "systems" };
-    }
-
-    closeMetricGraphs();
-    if (!systemGraphView) return { handled: false, reason: "noSystemGraphView" };
-
-    const controllerHorizonSec = resolveControllerHorizonOverride(scrollState);
-    systemGraphController?.setHorizonSecOverride?.(controllerHorizonSec);
     let fixedWindowSpec = null;
-    if (scrollState?.frozen) {
-      const baseWindow = resolveWindowSpecForScroll(runner, scrollState);
+    if (record.scrollState?.frozen) {
+      const baseWindow = resolveWindowSpecForScroll(runner, record.scrollState);
       fixedWindowSpec = {
         minSec: toSafeSec(baseWindow?.minSec, 0),
         maxSec: toSafeSec(baseWindow?.maxSec, 1),
         scrubSec: toSafeSec(baseWindow?.scrubSec, baseWindow?.maxSec ?? 0),
       };
     }
-    applyScrollConfigToView(
-      runner,
-      systemGraphView,
-      scrollState || {
-        editable: false,
-        windowMode: "fullHistory",
-        horizonSec: controllerHorizonSec ?? 0,
-        historyWindowSec: controllerHorizonSec ?? 0,
-      },
-      fixedWindowSpec
-    );
 
-    if (typeof toggleSystemGraph === "function") {
-      const result = toggleSystemGraph();
-      if (result?.ok === false) return { handled: false, reason: result.reason };
-      const opened = systemGraphView.isOpen?.() === true;
-      openSession = opened
-        ? { kind: "systems", itemId }
-        : null;
-      return {
-        handled: true,
-        action: opened ? "opened" : "closed",
-        kind: "systems",
-      };
-    }
-
-    if (systemGraphView.isOpen?.()) {
-      systemGraphView.close();
-      openSession = null;
-      return { handled: true, action: "closed", kind: "systems" };
-    }
-
-    systemGraphView.open?.();
-    openSession = { kind: "systems", itemId };
-    return { handled: true, action: "opened", kind: "systems" };
-  }
-
-  function openMetricGraphForScroll(itemId, scrollState) {
-    const view = metricViews[scrollState.subjectId];
-    const controller = metricControllers[scrollState.subjectId];
-    if (!view) {
-      return {
-        handled: false,
-        reason: `missingMetricView:${scrollState.subjectId}`,
-      };
-    }
-
-    const activeSameItem =
-      openSession &&
-      openSession.kind === "metric" &&
-      openSession.itemId === itemId &&
-      openSession.subjectId === scrollState.subjectId &&
-      view.isOpen?.();
-
-    if (activeSameItem) {
-      clearScrollConfigForMetric(scrollState.subjectId);
-      view.close?.();
-      openSession = null;
-      return {
-        handled: true,
-        action: "closed",
-        kind: "metric",
-        subjectId: scrollState.subjectId,
-      };
-    }
-
-    closeMetricGraphs();
-    closeSystemGraph();
-
-    let fixedWindowSpec = null;
-    const controllerHorizonSec = resolveControllerHorizonOverride(scrollState);
-    controller?.setHorizonSecOverride?.(controllerHorizonSec);
-    if (scrollState.frozen) {
-      const baseWindow = resolveWindowSpecForScroll(runner, scrollState);
-      fixedWindowSpec = {
-        minSec: toSafeSec(baseWindow?.minSec, 0),
-        maxSec: toSafeSec(baseWindow?.maxSec, 1),
-        scrubSec: toSafeSec(baseWindow?.scrubSec, baseWindow?.maxSec ?? 0),
-      };
-      let snapshot = frozenSeriesByItemId.get(itemId) ?? null;
+    if (record.subjectId !== "systems" && record.scrollState?.frozen) {
+      let snapshot = record.frozenSnapshot;
       if (!snapshot) {
-        const built = buildFrozenSeriesSnapshot(
-          controller,
-          fixedWindowSpec.minSec,
-          fixedWindowSpec.maxSec
+        snapshot = buildFrozenSeriesSnapshot(
+          record.controller,
+          fixedWindowSpec?.minSec ?? 0,
+          fixedWindowSpec?.maxSec ?? 0
         );
-        if (built) {
-          snapshot = built;
-          frozenSeriesByItemId.set(itemId, built);
-        }
+        record.frozenSnapshot = snapshot;
       }
       if (snapshot?.valuesBySec instanceof Map) {
-        view.setSeriesValueOverrideResolver?.((tSec, seriesId) => {
+        record.view.setSeriesValueOverrideResolver?.((tSec, seriesId) => {
           const sec = toSafeSec(tSec, tSec);
           const values = snapshot.valuesBySec.get(sec);
           if (!values || typeof values !== "object") return null;
@@ -296,30 +222,165 @@ export function createScrollGraphOrchestrator({
         });
       }
     } else {
-      view.setSeriesValueOverrideResolver?.(null);
+      record.view.setSeriesValueOverrideResolver?.(null);
     }
 
-    applyScrollConfigToView(runner, view, scrollState, fixedWindowSpec);
-    runner.clearPreviewState?.();
-    view.open?.();
+    applyScrollConfigToView(
+      runner,
+      record.view,
+      record.scrollState,
+      fixedWindowSpec
+    );
+  }
 
-    openSession = {
-      kind: "metric",
-      itemId,
-      subjectId: scrollState.subjectId,
-    };
+  function createWindowRecord({ itemId, ownerIdAtOpen, scrollState }) {
+    if (!Number.isFinite(itemId)) return null;
+    if (!scrollState || typeof scrollState !== "object") return null;
+    if (typeof buildGraphView !== "function") return null;
+    if (typeof createMetricController !== "function") return null;
+    if (typeof createSystemGraphModel !== "function") return null;
+
+    const subjectId = scrollState.subjectId;
+    let systemModel = null;
+    let controller = null;
+    let metric = null;
+    let getMetricDef = null;
+
+    if (subjectId === "systems") {
+      systemModel = createSystemGraphModel({
+        interactionController,
+        runner,
+        createController: createMetricController,
+      });
+      controller = systemModel?.controller ?? null;
+      getMetricDef = () => controller?.getData?.().metric;
+    } else {
+      metric =
+        typeof scrollState.metricId === "string" && scrollState.metricId.length > 0
+          ? scrollState.metricId
+          : typeof subjectId === "string" && subjectId.length > 0
+            ? subjectId
+            : null;
+      if (!metric) return null;
+      controller = createMetricController({
+        getTimeline: () => runner.getTimeline(),
+        getCursorState: () => runner.getCursorState(),
+        metric,
+      });
+    }
+    if (!controller) return null;
+
+    nextOpenSequence += 1;
+    const windowPosition = resolveWindowPositionFromSequence(
+      basePosition,
+      nextOpenSequence
+    );
+    const view = buildGraphView({
+      controller,
+      metric,
+      getMetricDef,
+      openPosition: windowPosition,
+    });
+    if (!view) return null;
+
+    const mode =
+      scrollState.systemTargetModeOnOpen === "inventoryOwnerLocked"
+        ? "ownerLocked"
+        : "hover";
+
     return {
-      handled: true,
-      action: "opened",
-      kind: "metric",
-      subjectId: scrollState.subjectId,
+      itemId,
+      ownerIdAtOpen,
+      subjectId,
+      scrollState,
+      mode,
+      openedAtSeq: nextOpenSequence,
+      controller,
+      view,
+      systemModel,
+      lockedTarget: null,
+      frozenSnapshot: null,
     };
   }
 
-  function handleUseItem({ item }) {
+  function applyRecordEventMarkers(record) {
+    if (!record?.view) return;
+    const lockedTarget = record.lockedTarget;
+    const ownerPawnId = Number.isFinite(lockedTarget?.id)
+      ? Math.floor(lockedTarget.id)
+      : null;
+    const shouldApplyLeaderFaithMarkers =
+      record.subjectId === "systems" &&
+      record.mode === "ownerLocked" &&
+      record.scrollState?.eventMarkerModeOnOpen === "leaderFaith" &&
+      lockedTarget?.kind === "pawn" &&
+      ownerPawnId != null;
+
+    if (!shouldApplyLeaderFaithMarkers) {
+      record.view.setEventMarkerResolver?.(null);
+      return;
+    }
+
+    const markerResolver = createLeaderFaithMarkerResolver({
+      controller: record.controller,
+      ownerPawnId,
+    });
+    record.view.setEventMarkerResolver?.(markerResolver);
+  }
+
+  function openWindowRecord(record) {
+    if (!record) return { handled: false, reason: "noRecord" };
+    applyRecordPolicy(record);
+
+    if (record.subjectId === "systems") {
+      if (record.mode === "ownerLocked") {
+        const result = record.systemModel?.toggleGraphForOwner?.(
+          record.view,
+          record.ownerIdAtOpen,
+          { forceOpen: true }
+        );
+        if (result?.ok === false) {
+          return { handled: false, reason: result.reason || "ownerTargetNotFound" };
+        }
+        record.lockedTarget = result?.target ?? null;
+        applyRecordEventMarkers(record);
+      } else {
+        const result = record.systemModel?.toggleGraphForHover?.(record.view, {
+          forceOpen: true,
+        });
+        if (result?.ok === false) {
+          return { handled: false, reason: result.reason || "openFailed" };
+        }
+        record.lockedTarget = null;
+        applyRecordEventMarkers(record);
+      }
+      return { handled: true, action: "opened", kind: "systems" };
+    }
+
+    record.view.open?.();
+    return { handled: true, action: "opened", kind: "metric", subjectId: record.subjectId };
+  }
+
+  function handleUseItem({ item, ownerId } = {}) {
     const itemId = item?.id;
     if (!Number.isFinite(itemId)) {
       return { handled: false, reason: "missingItemId" };
+    }
+
+    const existing = windowsByItemId.get(itemId);
+    if (existing) {
+      if (existing.view?.isOpen?.() !== true) {
+        destroyWindowRecord(existing);
+        windowsByItemId.delete(itemId);
+      } else {
+        destroyWindowRecord(existing);
+        windowsByItemId.delete(itemId);
+        return {
+          handled: true,
+          action: "closed",
+          kind: existing.subjectId || "scroll",
+        };
+      }
     }
 
     const scrollState = getScrollTimegraphStateFromItem(item);
@@ -327,30 +388,67 @@ export function createScrollGraphOrchestrator({
       return { handled: false, reason: "notScrollGraphItem" };
     }
 
-    if (scrollState.subjectId === "systems") {
-      return openSystemsGraph(itemId, scrollState);
+    const record = createWindowRecord({
+      itemId,
+      ownerIdAtOpen: ownerId ?? null,
+      scrollState,
+    });
+    if (!record) {
+      return { handled: false, reason: "failedToCreateScrollWindow" };
     }
 
-    return openMetricGraphForScroll(itemId, scrollState);
+    const openResult = openWindowRecord(record);
+    if (openResult?.handled !== true) {
+      destroyWindowRecord(record);
+      return openResult;
+    }
+
+    runner.clearPreviewState?.();
+    windowsByItemId.set(itemId, record);
+    return openResult;
   }
 
-  function update() {
-    if (!openSession) return;
-    if (openSession.kind === "systems") {
-      if (!systemGraphView?.isOpen?.()) {
-        openSession = null;
+  function handleInvalidate(reason) {
+    for (const record of windowsByItemId.values()) {
+      record.controller?.handleInvalidate?.(reason);
+    }
+  }
+
+  function update(nowMs = performance.now()) {
+    const closedItemIds = [];
+
+    for (const [itemId, record] of windowsByItemId.entries()) {
+      const isOpen = record.view?.isOpen?.() === true;
+      if (!isOpen) {
+        destroyWindowRecord(record);
+        closedItemIds.push(itemId);
+        continue;
       }
-      return;
+
+      if (record.subjectId === "systems" && record.mode === "hover") {
+        record.systemModel?.refreshTargetThrottled?.(nowMs);
+      }
+
+      record.controller?.setActive?.(true);
+      record.controller?.update?.();
+      record.view?.render?.();
     }
 
-    const view = metricViews[openSession.subjectId];
-    if (!view || !view.isOpen?.()) {
-      openSession = null;
+    for (const itemId of closedItemIds) {
+      windowsByItemId.delete(itemId);
+    }
+  }
+
+  function closeAllGraphs() {
+    for (const [itemId, record] of windowsByItemId.entries()) {
+      destroyWindowRecord(record);
+      windowsByItemId.delete(itemId);
     }
   }
 
   return {
     handleUseItem,
+    handleInvalidate,
     update,
     closeAllGraphs,
   };

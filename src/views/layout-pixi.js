@@ -113,6 +113,7 @@ export const VIEW_LAYOUT = {
     grain: { x: 350, y: 370 },
     food: { x: 350, y: 460 },
     system: { x: 350, y: 220 },
+    systemScrollBase: { x: 1212, y: 120 },
     ap: { x: 350, y: 80 },
     population: { x: 350, y: 640 },
   },

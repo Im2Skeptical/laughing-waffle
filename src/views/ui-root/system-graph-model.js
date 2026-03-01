@@ -16,6 +16,11 @@ import {
   getTopEnabledRecipeId,
   normalizeRecipePriority,
 } from "../../model/recipe-priority.js";
+import {
+  isProcessDropboxOwnerId,
+  parseBasketDropboxOwnerId,
+  parseHubDropboxOwnerId,
+} from "../../model/owner-id-protocol.js";
 
 const SYSTEM_GRAPH_COLORS = [
   0x7fd0ff,
@@ -30,6 +35,14 @@ const SYSTEM_GRAPH_COLORS = [
 const SYSTEM_GRAPH_TARGET_UPDATE_MS = 30;
 const SYSTEM_GRAPH_TARGET_STABLE_MS = 80;
 const TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
+const LEADER_FAITH_SYSTEM_ID = "leaderFaith";
+const LEADER_FAITH_LABEL = "Faith";
+const LEADER_FAITH_TIER_MAP = Object.freeze({
+  bronze: 25,
+  silver: 50,
+  gold: 75,
+  diamond: 100,
+});
 const ENV_SYSTEM_ICON_MAP = {
   build: "B",
   hydration: "H",
@@ -56,6 +69,7 @@ const PAWN_SYSTEM_ICON_MAP = {
   stamina: "S",
   hunger: "H",
   leadership: "L",
+  leaderFaith: "Fa",
 };
 
 function getTierValue(defs, systemId, tier) {
@@ -166,6 +180,23 @@ function normalizeTier(tier, fallbackTier = "bronze") {
     return fallbackTier;
   }
   return "bronze";
+}
+
+function normalizeLeaderFaithTier(tier, fallbackTier = "gold") {
+  return normalizeTier(tier, fallbackTier);
+}
+
+function getLeaderFaithValueForPawn(pawn) {
+  if (!pawn || pawn.role !== "leader") return 0;
+  const tier = normalizeLeaderFaithTier(pawn?.leaderFaith?.tier, "gold");
+  const value = LEADER_FAITH_TIER_MAP[tier];
+  return Number.isFinite(value) ? value : 0;
+}
+
+function shouldHidePawnSystemInTimegraph(systemId) {
+  if (systemId === "leadership") return true;
+  const def = pawnSystemDefs?.[systemId];
+  return def?.ui?.hideInTooltip === true;
 }
 
 function formatBuildRequirementLabel(req) {
@@ -283,8 +314,66 @@ function findPawnById(snapshot, id) {
   const pawns = snapshot?.pawns;
   if (!Array.isArray(pawns)) return null;
   for (const pawn of pawns) {
-    if (pawn?.id === id) return pawn;
+    if (!pawn) continue;
+    if (String(pawn.id) === String(id)) return pawn;
   }
+  return null;
+}
+
+function findHubColByOwnerId(snapshot, ownerId) {
+  if (!snapshot || ownerId == null) return null;
+  const target = String(ownerId);
+  const occ = Array.isArray(snapshot?.hub?.occ) ? snapshot.hub.occ : null;
+  if (occ) {
+    for (let col = 0; col < occ.length; col += 1) {
+      const structure = occ[col];
+      if (!structure) continue;
+      if (String(structure.instanceId) !== target) continue;
+      return col;
+    }
+  }
+  const slots = Array.isArray(snapshot?.hub?.slots) ? snapshot.hub.slots : null;
+  if (!slots) return null;
+  for (let col = 0; col < slots.length; col += 1) {
+    const structure = slots[col]?.structure;
+    if (!structure) continue;
+    if (String(structure.instanceId) !== target) continue;
+    return col;
+  }
+  return null;
+}
+
+function normalizeOwnerTargetId(ownerId) {
+  if (ownerId == null) return null;
+  let normalized = ownerId;
+  const basket = parseBasketDropboxOwnerId(normalized);
+  if (basket?.ownerId != null) {
+    normalized = basket.ownerId;
+  }
+  const hubDropboxOwnerId = parseHubDropboxOwnerId(normalized);
+  if (hubDropboxOwnerId != null) {
+    normalized = hubDropboxOwnerId;
+  }
+  if (isProcessDropboxOwnerId(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function resolveSystemGraphTargetFromOwnerId(snapshot, ownerId) {
+  const normalized = normalizeOwnerTargetId(ownerId);
+  if (normalized == null) return null;
+
+  const pawn = findPawnById(snapshot, normalized);
+  if (pawn) {
+    return { kind: "pawn", id: pawn.id };
+  }
+
+  const hubCol = findHubColByOwnerId(snapshot, normalized);
+  if (hubCol != null) {
+    return { kind: "hub", col: hubCol };
+  }
+
   return null;
 }
 
@@ -537,9 +626,24 @@ function buildHubSystemLegendTooltipSpec(cursorState, col, systemId) {
 
 function buildPawnSystemLegendTooltipSpec(cursorState, pawnId, systemId) {
   const pawn = findPawnById(cursorState, pawnId);
+  const isLeaderFaith = systemId === LEADER_FAITH_SYSTEM_ID;
   const def = pawnSystemDefs?.[systemId];
-  const title = def?.ui?.name || systemId || "System";
+  const title = isLeaderFaith ? LEADER_FAITH_LABEL : def?.ui?.name || systemId || "System";
   const lines = [];
+  if (isLeaderFaith) {
+    lines.push("Leader faith progression tier.");
+    const faith = pawn?.leaderFaith;
+    if (faith && typeof faith === "object") {
+      const eatStreak = clampNonNegativeInt(faith?.eatStreak);
+      const decayElapsedSec = clampNonNegativeInt(faith?.decayElapsedSec);
+      lines.push(`Eat streak: ${eatStreak}`);
+      lines.push(`Decay elapsed: ${decayElapsedSec}s`);
+    }
+    const tier = normalizeLeaderFaithTier(pawn?.leaderFaith?.tier, "gold");
+    lines.push(`Tier: ${tier}`);
+    return { title, lines };
+  }
+
   if (def?.ui?.description) lines.push(def.ui.description);
 
   const tier = normalizeTier(pawn?.systemTiers?.[systemId], def?.defaultTier);
@@ -761,9 +865,18 @@ function buildSystemSeriesForTarget(target, state) {
       ...Object.keys(pawn?.systemState || {}),
       ...Object.keys(pawn?.systemTiers || {}),
     ]);
+    if (pawn?.role === "leader") {
+      ids.add(LEADER_FAITH_SYSTEM_ID);
+    }
     for (const systemId of ids.values()) {
+      const isLeaderFaith = systemId === LEADER_FAITH_SYSTEM_ID;
+      if (!isLeaderFaith && shouldHidePawnSystemInTimegraph(systemId)) {
+        continue;
+      }
       const defSys = pawnSystemDefs[systemId];
-      const sysLabel = defSys?.ui?.name || systemId;
+      const sysLabel = isLeaderFaith
+        ? LEADER_FAITH_LABEL
+        : defSys?.ui?.name || systemId;
       const legendUi = getLegendUiForDomain("pawn", systemId, sysLabel);
       series.push({
         id: `${targetKey}:${systemId}`,
@@ -775,6 +888,9 @@ function buildSystemSeriesForTarget(target, state) {
           buildPawnSystemLegendTooltipSpec(cursorState, id, systemId),
         getValue: (snapshot) => {
           const p = snapshot?.pawns?.find((candidate) => candidate.id === id);
+          if (isLeaderFaith) {
+            return getLeaderFaithValueForPawn(p);
+          }
           const sysState = p?.systemState?.[systemId];
           if (Number.isFinite(sysState?.cur)) return sysState.cur;
           if (Number.isFinite(sysState?.value)) return sysState.value;
@@ -786,6 +902,9 @@ function buildSystemSeriesForTarget(target, state) {
           const p =
             (resolved?.kind === "pawn" ? resolved.pawn : null) ??
             findPawnById(snapshot, id);
+          if (isLeaderFaith) {
+            return getLeaderFaithValueForPawn(p);
+          }
           const sysState = p?.systemState?.[systemId];
           if (Number.isFinite(sysState?.cur)) return sysState.cur;
           if (Number.isFinite(sysState?.value)) return sysState.value;
@@ -828,6 +947,7 @@ export function createSystemGraphModel({
   let nextSystemGraphTargetUpdateAtMs = 0;
   let pendingSystemGraphTargetKey = null;
   let pendingSystemGraphTargetSinceMs = 0;
+  let lockedOwnerTarget = null;
 
   function getSystemGraphTarget() {
     const hover =
@@ -877,7 +997,25 @@ export function createSystemGraphModel({
     metric,
   });
 
+  function applySystemGraphTarget(target, targetKey = null) {
+    const resolvedKey = targetKey ?? getSystemGraphTargetKey(target);
+    lastSystemGraphTargetKey = resolvedKey;
+    pendingSystemGraphTargetKey = null;
+    pendingSystemGraphTargetSinceMs = 0;
+    const state = runner.getCursorState?.();
+    const resolved = buildSystemSeriesForTarget(target, state);
+    controller.setSeries?.(resolved.series, resolved.label);
+    controller.setSubject?.(target, resolvedKey);
+    return true;
+  }
+
   function updateSystemGraphTarget(nowMs = performance.now()) {
+    if (lockedOwnerTarget) {
+      const lockedKey = getSystemGraphTargetKey(lockedOwnerTarget);
+      if (lockedKey === lastSystemGraphTargetKey) return false;
+      return applySystemGraphTarget(lockedOwnerTarget, lockedKey);
+    }
+
     const target = getSystemGraphTarget();
     const nextKey = getSystemGraphTargetKey(target);
     if (nextKey !== pendingSystemGraphTargetKey) {
@@ -889,25 +1027,23 @@ export function createSystemGraphModel({
       return false;
     }
     if (nextKey === lastSystemGraphTargetKey) return false;
-    lastSystemGraphTargetKey = nextKey;
-    pendingSystemGraphTargetKey = null;
-    pendingSystemGraphTargetSinceMs = 0;
-    const state = runner.getCursorState?.();
-    const resolved = buildSystemSeriesForTarget(target, state);
-    controller.setSeries?.(resolved.series, resolved.label);
-    controller.setSubject?.(target, nextKey);
-    return true;
+    return applySystemGraphTarget(target, nextKey);
   }
 
   function refreshTargetThrottled(nowMs = performance.now()) {
+    if (lockedOwnerTarget) {
+      return updateSystemGraphTarget(nowMs);
+    }
     if (nowMs < nextSystemGraphTargetUpdateAtMs) return false;
     nextSystemGraphTargetUpdateAtMs = nowMs + SYSTEM_GRAPH_TARGET_UPDATE_MS;
     return updateSystemGraphTarget(nowMs);
   }
 
-  function toggleGraphForHover(graphView) {
+  function toggleGraphForHover(graphView, opts = {}) {
     if (!graphView) return { ok: false, reason: "noGraphView" };
-    if (graphView.isOpen()) {
+    const forceOpen = opts?.forceOpen === true;
+    lockedOwnerTarget = null;
+    if (graphView.isOpen() && !forceOpen) {
       graphView.close();
       return { ok: true, closed: true };
     }
@@ -918,13 +1054,42 @@ export function createSystemGraphModel({
     pendingSystemGraphTargetSinceMs = now - SYSTEM_GRAPH_TARGET_STABLE_MS;
     nextSystemGraphTargetUpdateAtMs = 0;
     updateSystemGraphTarget(now);
+    if (graphView.isOpen()) {
+      return { ok: true, opened: true, alreadyOpen: true };
+    }
     graphView.open();
     return { ok: true, opened: true };
+  }
+
+  function toggleGraphForOwner(graphView, ownerId, opts = {}) {
+    if (!graphView) return { ok: false, reason: "noGraphView" };
+    const forceOpen = opts?.forceOpen === true;
+    const state = runner.getCursorState?.();
+    const target = resolveSystemGraphTargetFromOwnerId(state, ownerId);
+    if (!target) {
+      return { ok: false, reason: "ownerTargetNotFound" };
+    }
+
+    lockedOwnerTarget = target;
+    nextSystemGraphTargetUpdateAtMs = 0;
+    const targetKey = getSystemGraphTargetKey(target);
+    applySystemGraphTarget(target, targetKey);
+
+    if (graphView.isOpen() && !forceOpen) {
+      graphView.close();
+      return { ok: true, closed: true, targetKey, target };
+    }
+    if (graphView.isOpen()) {
+      return { ok: true, opened: true, alreadyOpen: true, targetKey, target };
+    }
+    graphView.open();
+    return { ok: true, opened: true, targetKey, target };
   }
 
   return {
     controller,
     refreshTargetThrottled,
     toggleGraphForHover,
+    toggleGraphForOwner,
   };
 }
