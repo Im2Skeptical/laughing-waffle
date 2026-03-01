@@ -3689,9 +3689,28 @@ export function createInventoryView({
   }
 
   function makeDragSprite(win, item, view, globalStart) {
-    const { cellSize } = win;
-    const w = item.width * cellSize;
-    const h = item.height * cellSize;
+    const cellSize = Number.isFinite(win?.cellSize)
+      ? Math.max(1, win.cellSize)
+      : DEFAULT_CELL_SIZE;
+    const uiScale = Number.isFinite(win?.uiScale) ? Math.max(0.01, win.uiScale) : 1;
+    const sourceBounds =
+      typeof view?.getBounds === "function" ? view.getBounds() : null;
+    const hasSourceBounds =
+      Number.isFinite(sourceBounds?.x) &&
+      Number.isFinite(sourceBounds?.y) &&
+      Number.isFinite(sourceBounds?.width) &&
+      Number.isFinite(sourceBounds?.height) &&
+      sourceBounds.width > 0 &&
+      sourceBounds.height > 0;
+
+    let w = item.width * cellSize;
+    let h = item.height * cellSize;
+    if (hasSourceBounds) {
+      const unscaledW = sourceBounds.width / uiScale;
+      const unscaledH = sourceBounds.height / uiScale;
+      if (Number.isFinite(unscaledW) && unscaledW > 1) w = unscaledW;
+      if (Number.isFinite(unscaledH) && unscaledH > 1) h = unscaledH;
+    }
 
     const g = new PIXI.Graphics();
     g.beginFill(0xffffaa);
@@ -3709,10 +3728,9 @@ export function createInventoryView({
     border.drawRoundedRect(0, 0, w - 2, h - 2, 5);
     c.addChild(border);
 
-    if (view?.sourceEquipmentSlotId) {
-      const bounds = view.getBounds();
-      c.x = bounds.x;
-      c.y = bounds.y;
+    if (hasSourceBounds) {
+      c.x = sourceBounds.x;
+      c.y = sourceBounds.y;
     } else {
       const global = win.body.toGlobal({
         x: item.gridX * cellSize,
@@ -3721,6 +3739,7 @@ export function createInventoryView({
       c.x = global.x;
       c.y = global.y;
     }
+    c.scale.set(uiScale);
 
     if (Number.isFinite(globalStart?.x) && Number.isFinite(globalStart?.y)) {
       c.x = Math.round(c.x);
