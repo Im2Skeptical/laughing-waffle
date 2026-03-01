@@ -67,8 +67,10 @@ import {
 } from "./env-event-deck-pixi.js";
 import {
   getPerfSnapshot,
+  getTopViewUpdates,
   perfEnabled,
   perfNowMs,
+  resetPerfCounters,
   recordViewFrame,
   recordViewUpdate,
 } from "../model/perf.js";
@@ -88,19 +90,82 @@ function isBootVariantFlagEnabled(flagId) {
   return BOOT_VARIANT_FLAGS?.[flagId] !== false;
 }
 
+const MOBILE_PERF_DEFAULTS = Object.freeze({
+  breakpointPx: 980,
+  disablePlayfieldShader: true,
+  shaderQuality: "low",
+  maxTextResolution: 2,
+  disableAntialias: true,
+});
+
+function getMobilePerfConfig() {
+  const raw =
+    VIEW_LAYOUT?.performance?.mobile &&
+    typeof VIEW_LAYOUT.performance.mobile === "object"
+      ? VIEW_LAYOUT.performance.mobile
+      : {};
+  const breakpointPx = Number.isFinite(raw.breakpointPx)
+    ? Math.max(320, Math.floor(raw.breakpointPx))
+    : MOBILE_PERF_DEFAULTS.breakpointPx;
+  const shaderQuality =
+    typeof raw.shaderQuality === "string" && raw.shaderQuality.length > 0
+      ? raw.shaderQuality
+      : MOBILE_PERF_DEFAULTS.shaderQuality;
+  const maxTextResolution = Number.isFinite(raw.maxTextResolution)
+    ? Math.max(1, Math.floor(raw.maxTextResolution))
+    : MOBILE_PERF_DEFAULTS.maxTextResolution;
+  return {
+    breakpointPx,
+    shaderQuality,
+    maxTextResolution,
+    disablePlayfieldShader:
+      raw.disablePlayfieldShader !== false &&
+      MOBILE_PERF_DEFAULTS.disablePlayfieldShader,
+    disableAntialias:
+      raw.disableAntialias !== false && MOBILE_PERF_DEFAULTS.disableAntialias,
+  };
+}
+
+const MOBILE_PERF_CONFIG = getMobilePerfConfig();
+
+function getViewportWidthPxNow() {
+  const vv = window.visualViewport;
+  if (vv && Number.isFinite(vv.width) && vv.width > 0) {
+    return Math.max(1, Math.floor(vv.width));
+  }
+  return Math.max(
+    1,
+    Math.floor(
+      window.innerWidth ||
+        document.documentElement.clientWidth ||
+        VIEWPORT_DESIGN_WIDTH
+    )
+  );
+}
+
+function isMobilePerfViewportWidth(widthPx = getViewportWidthPxNow()) {
+  return widthPx <= MOBILE_PERF_CONFIG.breakpointPx;
+}
+
+const MOBILE_PERF_AT_BOOT = isMobilePerfViewportWidth();
 
 if (
   typeof globalThis !== "undefined" &&
   globalThis.__PERF_ENABLED__ == null
 ) {
-  globalThis.__PERF_ENABLED__ = true;
+  globalThis.__PERF_ENABLED__ = false;
+}
+
+if (typeof globalThis !== "undefined" && MOBILE_PERF_AT_BOOT) {
+  globalThis.__MAX_TEXT_RESOLUTION__ = MOBILE_PERF_CONFIG.maxTextResolution;
 }
 
 export const app = new PIXI.Application({
   width: VIEWPORT_DESIGN_WIDTH,
   height: VIEWPORT_DESIGN_HEIGHT,
   backgroundColor: 0x57514b,
-  antialias: true,
+  antialias:
+    MOBILE_PERF_AT_BOOT && MOBILE_PERF_CONFIG.disableAntialias ? false : true,
 });
 
 installGlobalTextStylePolicy(PIXI, {
@@ -167,6 +232,55 @@ function fitCanvasToViewport(view) {
 
 // Apply fit immediately so even early boot/runtime errors do not leave a 1920x1080 corner view.
 fitCanvasToViewport(app.view);
+let mobilePerfActive = MOBILE_PERF_AT_BOOT;
+
+function applyMobilePerformanceProfile() {
+  const viewport = getViewportSizePx();
+  const nextMobilePerfActive = isMobilePerfViewportWidth(viewport.width);
+
+  if (typeof globalThis !== "undefined") {
+    globalThis.__MAX_TEXT_RESOLUTION__ = nextMobilePerfActive
+      ? MOBILE_PERF_CONFIG.maxTextResolution
+      : null;
+  }
+
+  if (
+    MOBILE_PERF_CONFIG.disableAntialias &&
+    app?.renderer &&
+    Object.prototype.hasOwnProperty.call(app.renderer, "multisample")
+  ) {
+    const msaa = globalThis?.PIXI?.MSAA_QUALITY;
+    if (msaa) {
+      app.renderer.multisample = nextMobilePerfActive
+        ? msaa.NONE
+        : msaa.HIGH ?? msaa.MEDIUM ?? msaa.LOW ?? app.renderer.multisample;
+    }
+  }
+
+  if (playfieldShader?.setQuality) {
+    const defaultQuality =
+      typeof VIEW_LAYOUT?.playfieldShader?.quality === "string" &&
+      VIEW_LAYOUT.playfieldShader.quality.length > 0
+        ? VIEW_LAYOUT.playfieldShader.quality
+        : "medium";
+    playfieldShader.setQuality(
+      nextMobilePerfActive ? MOBILE_PERF_CONFIG.shaderQuality : defaultQuality
+    );
+  }
+
+  if (playfieldShader?.setEnabled) {
+    const defaultEnabled = VIEW_LAYOUT?.playfieldShader?.enabled !== false;
+    const nextEnabled =
+      nextMobilePerfActive && MOBILE_PERF_CONFIG.disablePlayfieldShader
+        ? false
+        : defaultEnabled;
+    playfieldShader.setEnabled(nextEnabled);
+  }
+
+  const changed = mobilePerfActive !== nextMobilePerfActive;
+  mobilePerfActive = nextMobilePerfActive;
+  return { changed, active: mobilePerfActive };
+}
 
 let flashActionLogAp = null;
 let actionLogView = null;
@@ -180,6 +294,7 @@ let processWidgetHoverUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
+let playfieldShader = null;
 let stateTintOverlay = null;
 let lastStateTintKey = "__init__";
 let stateTintCurrentR = 1;
@@ -281,6 +396,7 @@ const popGraphController = createTimeGraphController({
 
 function resizeCanvas() {
   fitCanvasToViewport(app.view);
+  applyMobilePerformanceProfile();
   document.body.style.backgroundColor = "black";
   document.body.style.margin = "0";
   document.body.style.overflow = "hidden";
@@ -1234,7 +1350,7 @@ function clearActionLogAndReset() {
   );
 }
 
-const playfieldShader = createPlayfieldMuchaStyle({
+playfieldShader = createPlayfieldMuchaStyle({
   layout: VIEW_LAYOUT.playfieldShader,
   getState: () => runner.getState(),
   getTimeline: () => runner.getTimeline(),
@@ -1244,6 +1360,7 @@ const playfieldShader = createPlayfieldMuchaStyle({
     height: app.screen.height,
   }),
 });
+applyMobilePerformanceProfile();
 
 backdropView = createBackdropView({
   app,
@@ -2015,6 +2132,11 @@ window.__DBG__ = {
         systemGraphController,
       ],
     }),
+  perfReset: () => {
+    resetPerfCounters();
+    return { ok: true };
+  },
+  perfTop: (n = 10, metric = "avgMs") => getTopViewUpdates(n, metric),
   test: runDeterminismSuite,
 };
 

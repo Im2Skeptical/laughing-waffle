@@ -99,6 +99,15 @@ export const VIEW_LAYOUT = {
     mobileBreakpointPx: 900,
     mobileScale: 2,
   },
+  performance: {
+    mobile: {
+      breakpointPx: 980,
+      disablePlayfieldShader: true,
+      shaderQuality: "low",
+      maxTextResolution: 2,
+      disableAntialias: true,
+    },
+  },
   graphs: {
     gold: { x: 350, y: 280 },
     grain: { x: 350, y: 370 },
@@ -401,6 +410,25 @@ function getHubTotalWidth() {
   return HUB_COLS * HUB_COL_WIDTH + (HUB_COLS - 1) * HUB_COL_GAP;
 }
 
+const boardColumnCenterCache = new Map();
+const hubColumnCenterCache = new Map();
+const COLUMN_CENTER_CACHE_LIMIT = 16;
+
+function getCenterCacheKey(screenWidth, cols, pieceWidth) {
+  const width = Number.isFinite(screenWidth) ? Math.floor(screenWidth) : 0;
+  const count = Number.isFinite(cols) ? Math.floor(cols) : 0;
+  const piece = Number.isFinite(pieceWidth) ? Math.floor(pieceWidth) : 0;
+  return `${width}|${count}|${piece}`;
+}
+
+function putCenterCache(cache, key, values) {
+  if (cache.size >= COLUMN_CENTER_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+  cache.set(key, values);
+}
+
 export function getBoardColumnX(screenWidth, col) {
   const totalWidth = getBoardTotalWidth();
   const rect = resolveAnchoredRect({
@@ -439,6 +467,48 @@ export function getBoardColumnCenterX(screenWidth, col) {
 
 export function getHubColumnCenterX(screenWidth, col) {
   return getHubColumnX(screenWidth, col) + HUB_COL_WIDTH / 2;
+}
+
+export function getBoardColumnCenterXs(
+  screenWidth,
+  cols = BOARD_COLS,
+  pieceWidth = BOARD_COL_WIDTH
+) {
+  const count = Number.isFinite(cols) ? Math.max(0, Math.floor(cols)) : BOARD_COLS;
+  const width = Number.isFinite(pieceWidth)
+    ? Math.max(1, Math.floor(pieceWidth))
+    : BOARD_COL_WIDTH;
+  const key = getCenterCacheKey(screenWidth, count, width);
+  if (boardColumnCenterCache.has(key)) {
+    return boardColumnCenterCache.get(key);
+  }
+  const values = new Array(count);
+  for (let col = 0; col < count; col++) {
+    values[col] = getBoardColumnX(screenWidth, col) + width * 0.5;
+  }
+  putCenterCache(boardColumnCenterCache, key, values);
+  return values;
+}
+
+export function getHubColumnCenterXs(
+  screenWidth,
+  cols = HUB_COLS,
+  pieceWidth = HUB_COL_WIDTH
+) {
+  const count = Number.isFinite(cols) ? Math.max(0, Math.floor(cols)) : HUB_COLS;
+  const width = Number.isFinite(pieceWidth)
+    ? Math.max(1, Math.floor(pieceWidth))
+    : HUB_COL_WIDTH;
+  const key = getCenterCacheKey(screenWidth, count, width);
+  if (hubColumnCenterCache.has(key)) {
+    return hubColumnCenterCache.get(key);
+  }
+  const values = new Array(count);
+  for (let col = 0; col < count; col++) {
+    values[col] = getHubColumnX(screenWidth, col) + width * 0.5;
+  }
+  putCenterCache(hubColumnCenterCache, key, values);
+  return values;
 }
 
 export function layoutBoardColPos(screenWidth, col, width, rowY) {

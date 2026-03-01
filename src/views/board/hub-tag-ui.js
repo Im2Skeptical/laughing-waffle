@@ -49,6 +49,7 @@ const SYSTEM_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
 const SYSTEM_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
+const SYSTEM_BAR_RATIO_QUANT = 100;
 const TAG_ACTION_COG_FILL = 0xa7afb8;
 const TAG_ACTION_COG_STROKE = 0xdbe2e8;
 const TAG_ACTION_COG_ICON = 0x4f5862;
@@ -391,6 +392,9 @@ export function createHubTagUi(opts) {
 
   function updateActionVisual(entry, isDisabled) {
     if (!entry?.actionBg || !entry?.actionIcon) return;
+    const visualKey = entry.actionMode === "cog" ? "cog" : "none";
+    if (entry.lastActionVisualKey === visualKey) return;
+    entry.lastActionVisualKey = visualKey;
     if (entry.actionMode === "cog") {
       entry.actionBg.clear();
       entry.actionBg
@@ -452,6 +456,26 @@ export function createHubTagUi(opts) {
       row.barRadius
     );
     row.barFill.endFill();
+  }
+
+  function quantizeSystemBarRatio(ratio) {
+    const t = Math.max(0, Math.min(1, ratio));
+    return Math.round(t * SYSTEM_BAR_RATIO_QUANT);
+  }
+
+  function setSystemRowLabel(row, label) {
+    if (row.lastLabelText === label) return;
+    row.lastLabelText = label;
+    row.labelText.text = label;
+  }
+
+  function renderSystemRowBar(row, label, ratio, color) {
+    const ratioKey = quantizeSystemBarRatio(ratio);
+    const renderKey = `bar|${color}|${ratioKey}|${label}`;
+    if (row.lastBarRenderKey === renderKey) return;
+    setSystemRowLabel(row, label);
+    drawSystemBar(row, ratioKey / SYSTEM_BAR_RATIO_QUANT, color);
+    row.lastBarRenderKey = renderKey;
   }
 
   function buildSystemRow(view, systemId, opts = null) {
@@ -560,6 +584,8 @@ export function createHubTagUi(opts) {
       storageItemId: opts?.storageItemId ?? null,
       storageLabel: opts?.storageLabel ?? null,
       processWidgetSystemId,
+      lastLabelText: null,
+      lastBarRenderKey: null,
     };
 
     icon.on("pointerover", () => {
@@ -707,6 +733,7 @@ export function createHubTagUi(opts) {
       actionBg,
       actionIcon,
       actionMode,
+      lastActionVisualKey: null,
       processWidgetSystemId,
       rowScale: 1,
       systemContainer,
@@ -837,8 +864,7 @@ export function createHubTagUi(opts) {
     if (systemId === "build") {
       const process = getBuildProcess(structure);
       if (!process) {
-        row.labelText.text = "Build";
-        drawSystemBar(row, 0, row.uiColor);
+        renderSystemRowBar(row, "Build", 0, row.uiColor);
         return;
       }
       if (row.buildKind === "requirement") {
@@ -846,23 +872,25 @@ export function createHubTagUi(opts) {
           ? process.requirements[row.buildReqIndex]
           : null;
         if (!req) {
-          row.labelText.text = row.buildLabel || "Material";
-          drawSystemBar(row, 0, row.uiColor);
+          renderSystemRowBar(row, row.buildLabel || "Material", 0, row.uiColor);
           return;
         }
         const required = Math.max(0, Math.floor(req.amount ?? 0));
         const progress = Math.max(0, Math.floor(req.progress ?? 0));
         const ratio = required > 0 ? progress / required : 0;
         const label = row.buildLabel || formatBuildRequirementLabel(req);
-        row.labelText.text = `${label} ${progress}/${required}`;
-        drawSystemBar(row, ratio, row.uiColor);
+        renderSystemRowBar(
+          row,
+          `${label} ${progress}/${required}`,
+          ratio,
+          row.uiColor
+        );
         return;
       }
       const progress = Math.max(0, Math.floor(process.progress ?? 0));
       const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
       const ratio = duration > 0 ? progress / duration : 0;
-      row.labelText.text = `Build ${progress}/${duration}`;
-      drawSystemBar(row, ratio, row.uiColor);
+      renderSystemRowBar(row, `Build ${progress}/${duration}`, ratio, row.uiColor);
       return;
     }
 
@@ -870,12 +898,15 @@ export function createHubTagUi(opts) {
       const systemState = structure?.systemState?.[systemId] || {};
       const summary = getRecipePrioritySummary(systemId, systemState);
       if (summary.enabledCount <= 0) {
-        row.labelText.text = "No recipes";
-        drawSystemBar(row, 0, row.uiColor);
+        renderSystemRowBar(row, "No recipes", 0, row.uiColor);
         return;
       }
-      row.labelText.text = `${summary.enabledCount} on: ${formatRecipeName(summary.topId)}`;
-      drawSystemBar(row, 1, row.uiColor);
+      renderSystemRowBar(
+        row,
+        `${summary.enabledCount} on: ${formatRecipeName(summary.topId)}`,
+        1,
+        row.uiColor
+      );
       return;
     }
 
@@ -883,21 +914,18 @@ export function createHubTagUi(opts) {
       const info = getDepositPoolInfo(structure);
       const pool = info?.pool;
       if (!pool || typeof pool !== "object") {
-        row.labelText.text = row.storageLabel || "Storage";
-        drawSystemBar(row, 0, row.uiColor);
+        renderSystemRowBar(row, row.storageLabel || "Storage", 0, row.uiColor);
         return;
       }
       const totals = getStorageTotals(pool, row.storageItemId);
       const maxTotal = Math.max(1, getStorageMaxTotal(pool));
       const ratio = maxTotal > 0 ? totals.total / maxTotal : 0;
       const label = row.storageLabel || getSystemUi("storage").label;
-      row.labelText.text = `${label} ${totals.total}`;
-      drawSystemBar(row, ratio, row.uiColor);
+      renderSystemRowBar(row, `${label} ${totals.total}`, ratio, row.uiColor);
       return;
     }
 
-    row.labelText.text = getSystemUi(systemId).label;
-    drawSystemBar(row, 1, row.uiColor);
+    renderSystemRowBar(row, getSystemUi(systemId).label, 1, row.uiColor);
   }
 
   function updateTagEntries(view, structure) {

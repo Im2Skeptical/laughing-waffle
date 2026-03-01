@@ -11,6 +11,12 @@ function clampScale(scale) {
   return scale;
 }
 
+function getGlobalResolutionCap() {
+  const raw = Number(globalThis?.__MAX_TEXT_RESOLUTION__);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  return Math.max(1, Math.floor(raw));
+}
+
 export function getTextResolutionForScale(scale = 1, options = {}) {
   const minResolution = Number.isFinite(options?.minResolution)
     ? Math.max(1, Math.ceil(options.minResolution))
@@ -20,7 +26,19 @@ export function getTextResolutionForScale(scale = 1, options = {}) {
     Math.ceil(getDevicePixelRatio())
   );
   const effectiveScale = clampScale(scale);
-  return Math.max(minResolution, Math.ceil(baseResolution * effectiveScale));
+  const resolved = Math.max(minResolution, Math.ceil(baseResolution * effectiveScale));
+  const localCapRaw = Number(options?.maxResolution);
+  const localCap =
+    Number.isFinite(localCapRaw) && localCapRaw > 0
+      ? Math.max(1, Math.floor(localCapRaw))
+      : null;
+  const globalCap = getGlobalResolutionCap();
+  const cap =
+    localCap != null && globalCap != null
+      ? Math.min(localCap, globalCap)
+      : localCap ?? globalCap;
+  if (cap == null) return resolved;
+  return Math.max(1, Math.min(resolved, cap));
 }
 
 export function applyTextResolution(textNode, scale = 1, options = {}) {

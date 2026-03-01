@@ -46,7 +46,9 @@ import {
   ENV_STRUCTURE_ROW_Y,
   HUB_STRUCTURE_ROW_Y,
   getBoardColumnX,
+  getBoardColumnCenterXs,
   getHubColumnX,
+  getHubColumnCenterXs,
   layoutBoardColPos,
   layoutHubColPos,
 } from "./layout-pixi.js";
@@ -137,6 +139,7 @@ export function createBoardView(opts) {
   const FEEDBACK_FLOAT_RISE_PX = 30;
   const FEEDBACK_STACK_STEP_PX = 14;
   const FEEDBACK_MAX_STACK = 4;
+  const AP_AFFORDABILITY_REFRESH_MS = 100;
   const EVENT_EXPIRY_FX_DURATION_SEC = 0.42;
   const EVENT_EXPIRY_FX_MAX_ACTIVE = 64;
   const EVENT_EXPIRY_FLASH_FILL = 0xd73846;
@@ -283,6 +286,15 @@ export function createBoardView(opts) {
   let stagePointerMoveHandler = null;
   let lastProcessedGameEventId = 0;
   let lastSeenEventSec = null;
+  let eventSlotsLayoutKey = "";
+  let envStructureSlotsLayoutKey = "";
+  let hubSlotsLayoutKey = "";
+  let apAffordabilityCache = {
+    signature: "",
+    computedAtMs: -1,
+    invalidEnv: new Set(),
+    invalidHub: new Set(),
+  };
   const tileRollFxByCol = new Map();
   const missThrottleByColSec = new Map();
   const activeEventExpiryFx = [];
@@ -439,6 +451,13 @@ export function createBoardView(opts) {
     const rg = Math.round(ag + (bg - ag) * blend);
     const rb = Math.round(ab + (bb - ab) * blend);
     return ((rr & 0xff) << 16) | ((rg & 0xff) << 8) | (rb & 0xff);
+  }
+
+  function nowMs() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
   }
 
   function getStructureSpan(structure, fallbackCol = null) {
@@ -1161,10 +1180,19 @@ export function createBoardView(opts) {
   function setTextResolution(textNodes, resolution) {
     if (!Array.isArray(textNodes)) return;
     if (!Number.isFinite(resolution)) return;
+    const globalCapRaw = Number(globalThis?.__MAX_TEXT_RESOLUTION__);
+    const globalCap =
+      Number.isFinite(globalCapRaw) && globalCapRaw > 0
+        ? Math.max(1, Math.floor(globalCapRaw))
+        : null;
+    const nextResolution =
+      globalCap == null
+        ? resolution
+        : Math.max(1, Math.min(Math.floor(resolution), globalCap));
     for (const node of textNodes) {
       if (!node || typeof node !== "object") continue;
-      if (node.resolution === resolution) continue;
-      node.resolution = resolution;
+      if (node.resolution === nextResolution) continue;
+      node.resolution = nextResolution;
       if (node.dirty != null) node.dirty = true;
     }
   }
@@ -1220,6 +1248,20 @@ export function createBoardView(opts) {
     overlay.visible = !!active;
   }
 
+  function getScreenWidthInt() {
+    return Math.max(1, Math.floor(app?.screen?.width ?? 1));
+  }
+
+  function getDropTargetCenterXs(envCols, hubCols) {
+    const screenWidth = getScreenWidthInt();
+    const safeEnvCols = Number.isFinite(envCols) ? Math.max(0, Math.floor(envCols)) : 0;
+    const safeHubCols = Number.isFinite(hubCols) ? Math.max(0, Math.floor(hubCols)) : 0;
+    return {
+      envCenters: getBoardColumnCenterXs(screenWidth, safeEnvCols, TILE_WIDTH),
+      hubCenters: getHubColumnCenterXs(screenWidth, safeHubCols, HUB_STRUCTURE_WIDTH),
+    };
+  }
+
   function resolvePawnDropTargetFromPos(globalPos, envCols, hubCols) {
     if (!globalPos) return null;
     const envLen = Number.isFinite(envCols) ? Math.max(0, envCols) : BOARD_COLS;
@@ -1234,13 +1276,12 @@ export function createBoardView(opts) {
     const targetCols = targetRow === "env" ? envLen : hubLen;
     if (targetCols <= 0) return null;
 
+    const centers = getDropTargetCenterXs(envLen, hubLen);
+    const centerXs = targetRow === "env" ? centers.envCenters : centers.hubCenters;
     let bestCol = null;
     let bestDist2 = Infinity;
     for (let col = 0; col < targetCols; col++) {
-      const cx =
-        targetRow === "env"
-          ? getBoardColumnX(app.screen.width, col) + TILE_WIDTH * 0.5
-          : getHubColumnX(app.screen.width, col) + HUB_STRUCTURE_WIDTH * 0.5;
+      const cx = centerXs[col];
       const dx = globalPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {
@@ -2942,11 +2983,24 @@ export function createBoardView(opts) {
         label = `${meter.label}: ${value}/${max}`;
       }
 
-      labelText.text = label;
+      const ratioClamped = Math.max(0, Math.min(1, ratio));
+      const quantizedRatio = Math.round(ratioClamped * 1000);
+      const renderKey = `${label}|${quantizedRatio}|${Math.floor(width)}`;
+      if (mv.lastRenderKey === renderKey) {
+        continue;
+      }
+      mv.lastRenderKey = renderKey;
+
+      if (labelText.text !== label) {
+        labelText.text = label;
+      }
       barFill.clear();
-      barFill.beginFill(0x00cc66);
-      barFill.drawRoundedRect(8, labelText.y + 14, width * ratio, 6, 3);
-      barFill.endFill();
+      const fillWidth = width * ratioClamped;
+      if (fillWidth > 0.001) {
+        barFill.beginFill(0x00cc66);
+        barFill.drawRoundedRect(8, labelText.y + 14, fillWidth, 6, 3);
+        barFill.endFill();
+      }
     }
   }
 
@@ -3485,16 +3539,22 @@ export function createBoardView(opts) {
     const expires = Number.isFinite(view.event?.expiresSec)
       ? Math.floor(view.event.expiresSec)
       : null;
+    const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    const createdSec = Number.isFinite(view.event?.createdSec)
+      ? Math.floor(view.event.createdSec)
+      : null;
+    const signature = `${expires ?? "none"}|${createdSec ?? "none"}|${nowSec}`;
+    if (view.remainingSignature === signature) {
+      return;
+    }
+    view.remainingSignature = signature;
+
     if (expires == null) {
       view.remainingText.text = "";
       view.timerDrainBorder.visible = false;
       view.timerDrainMask.clear();
       return;
     }
-    const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
-    const createdSec = Number.isFinite(view.event?.createdSec)
-      ? Math.floor(view.event.createdSec)
-      : null;
     const totalLifetimeSec =
       createdSec != null ? Math.max(0, expires - createdSec) : 0;
     const remaining = Math.max(0, expires - nowSec);
@@ -4192,6 +4252,11 @@ export function createBoardView(opts) {
   }
 
   function syncEventSlots(cols) {
+    const screenWidth = getScreenWidthInt();
+    const layoutKey = `${screenWidth}|${cols}`;
+    if (eventSlotViews.length === cols && eventSlotsLayoutKey === layoutKey) {
+      return;
+    }
     for (let col = 0; col < cols; col++) {
       let view = eventSlotViews[col];
       if (!view) {
@@ -4199,7 +4264,7 @@ export function createBoardView(opts) {
         eventSlotViews[col] = view;
       } else {
         const pos = layoutBoardColPos(
-          app.screen.width,
+          screenWidth,
           col,
           EVENT_WIDTH,
           EVENT_ROW_Y
@@ -4213,6 +4278,7 @@ export function createBoardView(opts) {
       removeFromParent(eventSlotViews[i]);
     }
     eventSlotViews.length = cols;
+    eventSlotsLayoutKey = layoutKey;
   }
 
   function buildEnvStructureSlotView(col) {
@@ -4240,6 +4306,11 @@ export function createBoardView(opts) {
   }
 
   function syncEnvStructureSlots(cols) {
+    const screenWidth = getScreenWidthInt();
+    const layoutKey = `${screenWidth}|${cols}`;
+    if (envStructureSlotViews.length === cols && envStructureSlotsLayoutKey === layoutKey) {
+      return;
+    }
     for (let col = 0; col < cols; col++) {
       let view = envStructureSlotViews[col];
       if (!view) {
@@ -4247,7 +4318,7 @@ export function createBoardView(opts) {
         envStructureSlotViews[col] = view;
       } else {
         const pos = layoutBoardColPos(
-          app.screen.width,
+          screenWidth,
           col,
           ENV_STRUCTURE_WIDTH,
           ENV_STRUCTURE_ROW_Y
@@ -4261,6 +4332,7 @@ export function createBoardView(opts) {
       removeFromParent(envStructureSlotViews[i]);
     }
     envStructureSlotViews.length = cols;
+    envStructureSlotsLayoutKey = layoutKey;
   }
 
   function buildHubSlotView(col) {
@@ -4323,6 +4395,11 @@ export function createBoardView(opts) {
   }
 
   function syncHubSlots(cols) {
+    const screenWidth = getScreenWidthInt();
+    const layoutKey = `${screenWidth}|${cols}`;
+    if (hubSlotViews.length === cols && hubSlotsLayoutKey === layoutKey) {
+      return;
+    }
     for (let col = 0; col < cols; col++) {
       let view = hubSlotViews[col];
       if (!view) {
@@ -4330,7 +4407,7 @@ export function createBoardView(opts) {
         hubSlotViews[col] = view;
       } else {
         const pos = layoutHubColPos(
-          app.screen.width,
+          screenWidth,
           col,
           HUB_STRUCTURE_WIDTH,
           HUB_STRUCTURE_ROW_Y
@@ -4344,6 +4421,7 @@ export function createBoardView(opts) {
       removeFromParent(hubSlotViews[i]?.container);
     }
     hubSlotViews.length = cols;
+    hubSlotsLayoutKey = layoutKey;
   }
 
   function syncHubStructures(state, cols, pawnCountsByHub = null) {
@@ -4411,6 +4489,72 @@ export function createBoardView(opts) {
     }
   }
 
+  function getPawnDragAffordability(state, pawnId, envCols, hubCols) {
+    if (
+      pawnId == null ||
+      typeof actionPlanner?.getPawnMoveAffordability !== "function"
+    ) {
+      return {
+        invalidEnv: new Set(),
+        invalidHub: new Set(),
+      };
+    }
+
+    const tSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    const actionPoints = Number.isFinite(state?.actionPoints)
+      ? Math.floor(state.actionPoints)
+      : 0;
+    const actionPointCap = Number.isFinite(state?.actionPointCap)
+      ? Math.floor(state.actionPointCap)
+      : 0;
+    const signature = [
+      pawnId,
+      tSec,
+      actionPoints,
+      actionPointCap,
+      envCols,
+      hubCols,
+    ].join("|");
+    const elapsedMs = nowMs() - (apAffordabilityCache.computedAtMs ?? -1);
+    const shouldRefresh =
+      apAffordabilityCache.signature !== signature ||
+      elapsedMs >= AP_AFFORDABILITY_REFRESH_MS;
+
+    if (!shouldRefresh) {
+      return {
+        invalidEnv: apAffordabilityCache.invalidEnv,
+        invalidHub: apAffordabilityCache.invalidHub,
+      };
+    }
+
+    const invalidEnv = new Set();
+    const invalidHub = new Set();
+
+    for (let col = 0; col < envCols; col++) {
+      const aff = actionPlanner.getPawnMoveAffordability({
+        pawnId,
+        toEnvCol: col,
+      });
+      if (aff?.ok && aff.affordable === false) invalidEnv.add(col);
+    }
+    for (let col = 0; col < hubCols; col++) {
+      const aff = actionPlanner.getPawnMoveAffordability({
+        pawnId,
+        toHubCol: col,
+      });
+      if (aff?.ok && aff.affordable === false) invalidHub.add(col);
+    }
+
+    apAffordabilityCache = {
+      signature,
+      computedAtMs: nowMs(),
+      invalidEnv,
+      invalidHub,
+    };
+
+    return { invalidEnv, invalidHub };
+  }
+
   // --------------------------------------------------------
   // rebuildAll
   // --------------------------------------------------------
@@ -4453,10 +4597,13 @@ export function createBoardView(opts) {
     tileViews.length = 0;
     eventViews.clear();
     eventSlotViews.length = 0;
+    eventSlotsLayoutKey = "";
     envStructureViews.clear();
     envStructureSlotViews.length = 0;
+    envStructureSlotsLayoutKey = "";
     hubStructureViews.clear();
     hubSlotViews.length = 0;
+    hubSlotsLayoutKey = "";
 
     const s = getGameState?.();
     lastProcessedGameEventId = getMaxEventFeedId(s?.gameEventFeed);
@@ -4496,29 +4643,21 @@ export function createBoardView(opts) {
       ? state.hub.slots.length
       : HUB_COLS;
 
-    const invalidEnv = new Set();
-    const invalidHub = new Set();
+    if (!isPawnDrag) {
+      apAffordabilityCache.signature = "";
+      apAffordabilityCache.computedAtMs = -1;
+    }
+
+    const affordability = isPawnDrag
+      ? getPawnDragAffordability(state, pawnId, envCols, hubCols)
+      : { invalidEnv: new Set(), invalidHub: new Set() };
+    const invalidEnv = affordability.invalidEnv;
+    const invalidHub = affordability.invalidHub;
+
     const dropTarget =
       isPawnDrag && lastPointerPos
         ? resolvePawnDropTargetFromPos(lastPointerPos, envCols, hubCols)
         : null;
-
-    if (isPawnDrag && typeof actionPlanner?.getPawnMoveAffordability === "function") {
-      for (let col = 0; col < envCols; col++) {
-        const aff = actionPlanner.getPawnMoveAffordability({
-          pawnId,
-          toEnvCol: col,
-        });
-        if (aff?.ok && aff.affordable === false) invalidEnv.add(col);
-      }
-      for (let col = 0; col < hubCols; col++) {
-        const aff = actionPlanner.getPawnMoveAffordability({
-          pawnId,
-          toHubCol: col,
-        });
-        if (aff?.ok && aff.affordable === false) invalidHub.add(col);
-      }
-    }
 
     for (const view of tileViews) {
       if (!view) continue;
@@ -4535,6 +4674,7 @@ export function createBoardView(opts) {
     }
 
     const coveredHubCols = new Set();
+    const invalidCoveredHubCols = new Set();
     for (const view of hubStructureViews.values()) {
       const structure = view.structure;
       const def = structure ? hubStructureDefs[structure.defId] : null;
@@ -4552,7 +4692,10 @@ export function createBoardView(opts) {
       let invalid = false;
       for (let c = base; c < base + span; c++) {
         coveredHubCols.add(c);
-        if (isPawnDrag && invalidHub.has(c)) invalid = true;
+        if (isPawnDrag && invalidHub.has(c)) {
+          invalid = true;
+          invalidCoveredHubCols.add(c);
+        }
       }
       view.apOverlayTarget = invalid ? AP_OVERLAY_ALPHA : 0;
       updateApOverlay(view, dt);
@@ -4584,37 +4727,14 @@ export function createBoardView(opts) {
     }
 
     let hoverInvalid = false;
-    if (isPawnDrag && lastPointerPos) {
-      for (const view of tileViews) {
-        if (!view) continue;
-        const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
-        if (col == null || !invalidEnv.has(col)) continue;
-        if (isPointerInsideView(view, lastPointerPos)) {
+    if (isPawnDrag && dropTarget) {
+      if (dropTarget.row === "env") {
+        hoverInvalid = invalidEnv.has(dropTarget.col);
+      } else if (dropTarget.row === "hub") {
+        if (invalidCoveredHubCols.has(dropTarget.col)) {
           hoverInvalid = true;
-          break;
-        }
-      }
-
-      if (!hoverInvalid) {
-        for (const view of hubStructureViews.values()) {
-          if (!view?.apOverlayTarget) continue;
-          if (isPointerInsideView(view, lastPointerPos)) {
-            hoverInvalid = true;
-            break;
-          }
-        }
-      }
-
-      if (!hoverInvalid) {
-        for (const view of hubSlotViews) {
-          if (!view) continue;
-          const col = Number.isFinite(view.col) ? Math.floor(view.col) : null;
-          if (col == null || coveredHubCols.has(col)) continue;
-          if (!invalidHub.has(col)) continue;
-          if (isPointerInsideView(view, lastPointerPos)) {
-            hoverInvalid = true;
-            break;
-          }
+        } else if (!coveredHubCols.has(dropTarget.col)) {
+          hoverInvalid = invalidHub.has(dropTarget.col);
         }
       }
     }

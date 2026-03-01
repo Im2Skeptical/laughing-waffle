@@ -77,6 +77,7 @@ const SYSTEM_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
 const SYSTEM_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const SYSTEM_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const SYSTEM_BAR_RADIUS = 4;
+const SYSTEM_BAR_RATIO_QUANT = 100;
 const TAG_ACTION_COG_FILL = 0xa7afb8;
 const TAG_ACTION_COG_STROKE = 0xdbe2e8;
 const TAG_ACTION_COG_ICON = 0x4f5862;
@@ -770,6 +771,8 @@ export function createTagUi(opts) {
       uiColor: ui.color,
       lastCropId: null,
       lastMaturedMax: 0,
+      lastLabelText: null,
+      lastBarRenderKey: null,
       flashOverlay,
       flashTimeout: null,
       buildKind: opts?.kind ?? null,
@@ -884,6 +887,7 @@ export function createTagUi(opts) {
       actionBg,
       actionIcon,
       actionMode,
+      lastActionVisualKey: null,
       processWidgetSystemId,
       rowScale: 1,
       systemContainer,
@@ -967,6 +971,9 @@ export function createTagUi(opts) {
 
   function updateActionVisual(entry, isDisabled) {
     if (!entry?.actionBg || !entry?.actionIcon) return;
+    const visualKey = entry.actionMode === "cog" ? "cog" : "none";
+    if (entry.lastActionVisualKey === visualKey) return;
+    entry.lastActionVisualKey = visualKey;
     if (entry.actionMode === "cog") {
       entry.actionBg.clear();
       entry.actionBg
@@ -1124,6 +1131,33 @@ export function createTagUi(opts) {
     }
   }
 
+  function quantizeSystemBarRatio(ratio) {
+    return Math.round(clamp01(ratio) * SYSTEM_BAR_RATIO_QUANT);
+  }
+
+  function setSystemRowLabel(row, label) {
+    if (row.lastLabelText === label) return;
+    row.lastLabelText = label;
+    row.labelText.text = label;
+  }
+
+  function renderSystemRowBar(row, label, ratio, color) {
+    const ratioKey = quantizeSystemBarRatio(ratio);
+    const renderKey = `bar|${color}|${ratioKey}|${label}`;
+    if (row.lastBarRenderKey === renderKey) return;
+    setSystemRowLabel(row, label);
+    drawSystemBar(row, ratioKey / SYSTEM_BAR_RATIO_QUANT, color);
+    row.lastBarRenderKey = renderKey;
+  }
+
+  function renderSystemRowTier(row, label, tier) {
+    const renderKey = `tier|${tier}|${label}`;
+    if (row.lastBarRenderKey === renderKey) return;
+    setSystemRowLabel(row, label);
+    drawTierMetalBar(row, tier);
+    row.lastBarRenderKey = renderKey;
+  }
+
   function updateSystemRow(view, row, tileInst) {
     if (!row) return;
     const systemId = row.systemId;
@@ -1132,8 +1166,7 @@ export function createTagUi(opts) {
     if (systemId === "build") {
       const process = getBuildProcess(tileInst);
       if (!process) {
-        row.labelText.text = "Build";
-        drawSystemBar(row, 0, row.uiColor);
+        renderSystemRowBar(row, "Build", 0, row.uiColor);
         return;
       }
       if (row.buildKind === "requirement") {
@@ -1141,23 +1174,25 @@ export function createTagUi(opts) {
           ? process.requirements[row.buildReqIndex]
           : null;
         if (!req) {
-          row.labelText.text = row.buildLabel || "Material";
-          drawSystemBar(row, 0, row.uiColor);
+          renderSystemRowBar(row, row.buildLabel || "Material", 0, row.uiColor);
           return;
         }
         const required = Math.max(0, Math.floor(req.amount ?? 0));
         const progress = Math.max(0, Math.floor(req.progress ?? 0));
         const ratio = required > 0 ? progress / required : 0;
         const label = row.buildLabel || formatBuildRequirementLabel(req);
-        row.labelText.text = `${label} ${progress}/${required}`;
-        drawSystemBar(row, ratio, row.uiColor);
+        renderSystemRowBar(
+          row,
+          `${label} ${progress}/${required}`,
+          ratio,
+          row.uiColor
+        );
         return;
       }
       const progress = Math.max(0, Math.floor(process.progress ?? 0));
       const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
       const ratio = duration > 0 ? progress / duration : 0;
-      row.labelText.text = `Build ${progress}/${duration}`;
-      drawSystemBar(row, ratio, row.uiColor);
+      renderSystemRowBar(row, `Build ${progress}/${duration}`, ratio, row.uiColor);
       return;
     }
     if (systemId === "hydration") {
@@ -1165,15 +1200,13 @@ export function createTagUi(opts) {
       const cur = Number.isFinite(hyd?.cur) ? Math.floor(hyd.cur) : 0;
       const max = Number.isFinite(hyd?.max) ? Math.floor(hyd.max) : 0;
       const ratio = max > 0 ? cur / max : 0;
-      row.labelText.text = `${cur}/${max}`;
-      drawSystemBar(row, ratio, row.uiColor);
+      renderSystemRowBar(row, `${cur}/${max}`, ratio, row.uiColor);
       return;
     }
 
     if (systemId === "fertility") {
       const tier = getSystemTier(tileInst, systemId);
-      row.labelText.text = formatTierLabel(tier);
-      drawTierMetalBar(row, tier);
+      renderSystemRowTier(row, formatTierLabel(tier), tier);
       return;
     }
 
@@ -1194,8 +1227,7 @@ export function createTagUi(opts) {
       }
 
       if (!cropId) {
-        row.labelText.text = "Select Crop";
-        drawSystemBar(row, 0, GROWTH_BAR_COLORS.idle);
+        renderSystemRowBar(row, "Select Crop", 0, GROWTH_BAR_COLORS.idle);
         row.lastMaturedMax = 0;
         return;
       }
@@ -1206,8 +1238,12 @@ export function createTagUi(opts) {
         }
         const denom = row.lastMaturedMax || maturedTotal || 1;
         const ratio = denom > 0 ? maturedTotal / denom : 0;
-        row.labelText.text = `Harvest ${formatCompactCount(maturedTotal)}`;
-        drawSystemBar(row, ratio, GROWTH_BAR_COLORS.harvesting);
+        renderSystemRowBar(
+          row,
+          `Harvest ${formatCompactCount(maturedTotal)}`,
+          ratio,
+          GROWTH_BAR_COLORS.harvesting
+        );
         return;
       }
 
@@ -1236,20 +1272,27 @@ export function createTagUi(opts) {
           );
           const remaining = Math.max(0, duration - elapsed);
           const ratio = clamp01(elapsed / Math.max(1, duration));
-          row.labelText.text = `Maturing ${remaining}s`;
-          drawSystemBar(row, ratio, GROWTH_BAR_COLORS.maturing);
+          renderSystemRowBar(
+            row,
+            `Maturing ${remaining}s`,
+            ratio,
+            GROWTH_BAR_COLORS.maturing
+          );
           return;
         }
       }
 
-      row.labelText.text = `Plant ${cropName}`;
-      drawSystemBar(row, getHydrationRatio(tileInst), GROWTH_BAR_COLORS.planting);
+      renderSystemRowBar(
+        row,
+        `Plant ${cropName}`,
+        getHydrationRatio(tileInst),
+        GROWTH_BAR_COLORS.planting
+      );
       return;
     }
 
     const tier = getSystemTier(tileInst, systemId);
-    row.labelText.text = formatTierLabel(tier);
-    drawTierMetalBar(row, tier);
+    renderSystemRowTier(row, formatTierLabel(tier), tier);
   }
 
   function updateTagEntry(view, entry, tileInst, topTagId, hasPawn, activeTagIds) {

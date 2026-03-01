@@ -19,8 +19,8 @@ import {
   TILE_WIDTH,
   TILE_ROW_Y,
   CHARACTER_ROW_OFFSET_Y,
-  getBoardColumnCenterX,
-  getHubColumnCenterX,
+  getBoardColumnCenterXs,
+  getHubColumnCenterXs,
   layoutBoardColPos,
   layoutHubStructurePos,
   GAMEPIECE_HOVER_SCALE,
@@ -61,6 +61,7 @@ export function createPawnsView(opts) {
 
   const viewsById = new Map();
   const DRAG_THRESHOLD_PX = 3;
+  const DRAG_GHOST_REFRESH_MS = 50;
   const FAN_SPACING = 40;
   const RADIUS = 20;
   const LEADER_DIAMOND_SCALE = 1.15;
@@ -68,12 +69,24 @@ export function createPawnsView(opts) {
   let focusedPawnId = null;
   let followerOrdinalByPawnIdCache = new Map();
   let followerOrdinalSignature = "";
+  let dragGhostCache = {
+    pawnId: null,
+    targetKey: "",
+    lastUpdatedMs: -1,
+  };
 
   function clamp01(value) {
     if (!Number.isFinite(value)) return 0;
     if (value <= 0) return 0;
     if (value >= 1) return 1;
     return value;
+  }
+
+  function nowMs() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
   }
 
   function dimColor(color, factor = 0.35) {
@@ -328,6 +341,14 @@ export function createPawnsView(opts) {
     return `Hub ${col}`;
   }
 
+  function getDropTargetCenterXs(envCols, hubCols) {
+    const screenWidth = Math.max(1, Math.floor(app?.screen?.width ?? 1));
+    return {
+      envCenters: getBoardColumnCenterXs(screenWidth, envCols, TILE_WIDTH),
+      hubCenters: getHubColumnCenterXs(screenWidth, hubCols, HUB_STRUCTURE_WIDTH),
+    };
+  }
+
   function getDropTargetFromPos(globalPos) {
     const state = getStateSafe();
     if (!globalPos || !state) return null;
@@ -341,13 +362,13 @@ export function createPawnsView(opts) {
     const targetRow = distToTile <= distToHub ? "env" : "hub";
 
     const colCount = targetRow === "env" ? envCols : hubCols;
-    const getCenterX =
-      targetRow === "env" ? getBoardColumnCenterX : getHubColumnCenterX;
+    const centerXs = getDropTargetCenterXs(envCols, hubCols);
+    const targetCenters = targetRow === "env" ? centerXs.envCenters : centerXs.hubCenters;
 
     let bestIndex = null;
     let bestDist2 = Infinity;
     for (let col = 0; col < colCount; col++) {
-      const cx = getCenterX(app.screen.width, col);
+      const cx = targetCenters[col];
       const dx = globalPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {
@@ -359,10 +380,17 @@ export function createPawnsView(opts) {
     return { row: targetRow, col: bestIndex };
   }
 
-  function buildPawnDragGhostSpec(pawn, globalPos) {
+  function resetDragGhostCache() {
+    dragGhostCache = {
+      pawnId: null,
+      targetKey: "",
+      lastUpdatedMs: -1,
+    };
+  }
+
+  function buildPawnDragGhostSpec(pawn, target = null) {
     if (!pawn) return null;
     const state = getStateSafe();
-    const target = getDropTargetFromPos(globalPos);
     const pawnName = pawn?.name || `Pawn ${pawn?.id ?? ""}`.trim() || "Pawn";
     const intentId = pawn?.id != null ? `pawn:${pawn.id}` : null;
     if (!target || !state) {
@@ -388,9 +416,26 @@ export function createPawnsView(opts) {
 
   function updatePawnDragGhost(pawn, globalPos) {
     if (typeof setDragGhost !== "function") return;
-    const spec = buildPawnDragGhostSpec(pawn, globalPos);
+    const target = getDropTargetFromPos(globalPos);
+    const pawnId = pawn?.id ?? null;
+    const targetKey = target ? `${target.row}:${target.col}` : "none";
+    const elapsedMs = nowMs() - (dragGhostCache.lastUpdatedMs ?? -1);
+    if (
+      dragGhostCache.pawnId === pawnId &&
+      dragGhostCache.targetKey === targetKey &&
+      elapsedMs < DRAG_GHOST_REFRESH_MS
+    ) {
+      return;
+    }
+
+    const spec = buildPawnDragGhostSpec(pawn, target);
     if (!spec) return;
     setDragGhost(spec);
+    dragGhostCache = {
+      pawnId,
+      targetKey,
+      lastUpdatedMs: nowMs(),
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -891,6 +936,7 @@ export function createPawnsView(opts) {
     function tryStartDrag() {
       const pawnData = view.pawn || pawn;
       dragging = true;
+      resetDragGhostCache();
       interactionSafe.startDrag?.({ type: "pawn", id: pawnData.id });
       requestPauseForAction?.();
       view.selfHover = false;
@@ -939,6 +985,7 @@ export function createPawnsView(opts) {
       interactionSafe.endDrag?.();
 
       const g = ev.data.global;
+      resetDragGhostCache();
 
       if (pawnLongPress.consumeTap()) {
         hideHover();

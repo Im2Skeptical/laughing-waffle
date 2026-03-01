@@ -218,6 +218,79 @@ export function recordActionDispatch({ ok = true, ms = 0 } = {}) {
   }
 }
 
+export function resetPerfCounters() {
+  perf.timeline.rebuild.count = 0;
+  perf.timeline.rebuild.memoHits = 0;
+  perf.timeline.rebuild.memoMisses = 0;
+  perf.timeline.rebuild.lastMs = 0;
+
+  perf.timeline.checkpoints.count = 0;
+  perf.timeline.checkpoints.lastMs = 0;
+
+  perf.projection.history.lastMs = 0;
+  perf.projection.history.lastPoints = 0;
+  perf.projection.forecast.lastMs = 0;
+  perf.projection.forecast.lastPoints = 0;
+  perf.projection.stateWindow.lastMs = 0;
+  perf.projection.stateWindow.lastPoints = 0;
+
+  perf.timegraph.cacheHits = 0;
+  perf.timegraph.cacheMisses = 0;
+
+  perf.view.lastMs = 0;
+  perf.view.lastPoints = 0;
+  perf.view.lastMetric = null;
+
+  perf.runtime.scrub.commitCalls = 0;
+  perf.runtime.scrub.commitMoved = 0;
+  perf.runtime.scrub.commitFailed = 0;
+  perf.runtime.scrub.commitLastMs = 0;
+  perf.runtime.scrub.browseCalls = 0;
+  perf.runtime.scrub.browseMoved = 0;
+  perf.runtime.scrub.browseFailed = 0;
+  perf.runtime.scrub.browseLastMs = 0;
+
+  perf.runtime.planner.commitCalls = 0;
+  perf.runtime.planner.commitFailed = 0;
+  perf.runtime.planner.commitLastMs = 0;
+  perf.runtime.planner.commitMaxMs = 0;
+  perf.runtime.planner.committedActionsLast = 0;
+
+  perf.runtime.actionDispatch.calls = 0;
+  perf.runtime.actionDispatch.failed = 0;
+  perf.runtime.actionDispatch.lastMs = 0;
+  perf.runtime.actionDispatch.maxMs = 0;
+
+  perf.runtime.frame.count = 0;
+  perf.runtime.frame.lastMs = 0;
+  perf.runtime.frame.maxMs = 0;
+
+  perf.runtime.viewUpdates.clear();
+}
+
+export function getTopViewUpdates(limit = 10, metric = "avgMs") {
+  const safeLimit = Number.isFinite(limit)
+    ? Math.max(1, Math.floor(limit))
+    : 10;
+  const key = metric === "maxMs" ? "maxMs" : "avgMs";
+  const rows = [];
+  for (const [id, stat] of perf.runtime.viewUpdates.entries()) {
+    const count = Math.max(0, Math.floor(stat?.count ?? 0));
+    const totalMs = Number.isFinite(stat?.totalMs) ? stat.totalMs : 0;
+    const avgMs = count > 0 ? totalMs / count : 0;
+    const maxMs = Number.isFinite(stat?.maxMs) ? stat.maxMs : 0;
+    rows.push({
+      id,
+      count,
+      avgMs,
+      maxMs,
+      lastMs: Number.isFinite(stat?.lastMs) ? stat.lastMs : 0,
+    });
+  }
+  rows.sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0));
+  return rows.slice(0, safeLimit);
+}
+
 export function getPerfCounters() {
   return perf;
 }

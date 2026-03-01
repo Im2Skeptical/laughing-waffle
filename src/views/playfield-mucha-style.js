@@ -359,16 +359,17 @@ export function createPlayfieldMuchaStyle({
       return true;
     }
 
-    const preset = QUALITY_PRESETS[quality];
-    const profileCfg = config.profiles[nextProfile] || config.profiles.playfield;
-    const filter = createFilterSafe();
-    const entry = { container, filter, profile: nextProfile };
+    const entry = { container, filter: null, profile: nextProfile };
     registry.set(container, entry);
 
-    if (enabled && filter) {
-      attachFilter(container, filter);
+    if (enabled) {
+      const preset = QUALITY_PRESETS[quality];
+      const profileCfg = config.profiles[nextProfile] || config.profiles.playfield;
+      const filter = ensureEntryFilter(entry, preset, profileCfg.misregister);
+      if (filter) {
+        attachFilter(container, filter);
+      }
     }
-    applyQualityToFilter(filter, preset, profileCfg.misregister);
     return true;
   }
 
@@ -441,6 +442,19 @@ export function createPlayfieldMuchaStyle({
   }
 
   function update() {
+    if (registry.size <= 0) return;
+
+    if (!enabled) {
+      for (const [container, entry] of registry.entries()) {
+        if (!container || container.destroyed) {
+          registry.delete(container);
+          continue;
+        }
+        detachFilter(entry.container, entry.filter);
+      }
+      return;
+    }
+
     const state = typeof getState === "function" ? getState() : null;
     const timeline = typeof getTimeline === "function" ? getTimeline() : null;
     const preview =
@@ -539,11 +553,7 @@ export function createPlayfieldMuchaStyle({
       );
 
       const filter = ensureEntryFilter(entry, preset, misregister);
-      if (enabled) {
-        attachFilter(entry.container, filter);
-      } else {
-        detachFilter(entry.container, entry.filter);
-      }
+      attachFilter(entry.container, filter);
       if (!filter) continue;
 
       applyQualityToFilter(filter, preset, misregister);
