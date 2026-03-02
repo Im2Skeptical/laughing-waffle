@@ -4,6 +4,7 @@
 import { recipeDefs } from "./gamepieces/recipes-defs.js";
 import { hubStructureDefs } from "./gamepieces/hub-structure-defs.js";
 import { skillTrees, skillNodes } from "./gamepieces/skill-tree-defs.js";
+import { skillFeatureUnlockDefs } from "./gamesettings/skill-feature-unlocks-defs.js";
 import { validateSkillDefs } from "./validate-skill-defs.js";
 
 const DEV =
@@ -17,6 +18,7 @@ const result = validateSkillDefs({
   skillNodes,
   recipeDefs,
   hubStructureDefs,
+  skillFeatureUnlockDefs,
 });
 
 if (!result.ok) {

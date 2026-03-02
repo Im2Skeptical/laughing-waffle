@@ -52,6 +52,7 @@ export const forageDropTables = {
       },
 
       tile_levee: {
+        nullWeight: 280,
         drops: [
           { kind: "clay", rarity: "silver", qtyMin: 1, qtyMax: 2 },
           { kind: "dates", rarity: "gold", qtyMin: 1, qtyMax: 20 },

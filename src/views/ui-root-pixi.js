@@ -74,7 +74,9 @@ import {
   recordViewFrame,
   recordViewUpdate,
 } from "../model/perf.js";
-import { hasAnyLeaderUnlockedSkillNode } from "../model/skills.js";
+import {
+  hasSkillFeatureUnlock,
+} from "../model/skills.js";
 import { createProjectionParityProbe } from "./ui-root/projection-parity.js";
 import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
 import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
@@ -1718,6 +1720,10 @@ const sunMoonDisksView = createSunAndMoonDisksView({
   app,
   layer: uiLayers.controlsLayer,
   getState: () => runner.getState(),
+  getDiskVisibility: (state) => ({
+    moon: hasSkillFeatureUnlock(state, "ui.disk.moon"),
+    season: hasSkillFeatureUnlock(state, "ui.disk.season"),
+  }),
   getTimeline: () => runner.getTimeline(),
   getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
   browseCursorSecond: (tSec) => runner.browseCursorSecond?.(tSec),
@@ -1939,7 +1945,7 @@ eventLogView = createEventLogView({
   layer: uiLayers.controlsLayer,
   getState: () => runner.getState(),
   isVisible: () =>
-    hasAnyLeaderUnlockedSkillNode(runner.getState?.(), "Memory"),
+    hasSkillFeatureUnlock(runner.getState?.(), "ui.log.event"),
   onSelectEntry: (entry) => handleEventLogSelection(entry),
   onToggleYearEndPerformance: (entry) =>
     toggleYearEndPerformanceFromEventLog(entry),

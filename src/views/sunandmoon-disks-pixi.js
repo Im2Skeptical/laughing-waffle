@@ -253,6 +253,7 @@ export function createSunAndMoonDisksView({
   app,
   layer,
   getState,
+  getDiskVisibility,
   getTimeline,
   getEditableHistoryBounds,
   browseCursorSecond,
@@ -285,8 +286,30 @@ export function createSunAndMoonDisksView({
     return diskId === DISK_ID_SEASON ? seasonSprite : moonSprite;
   }
 
-  function getFeedbackDiskId() {
-    return dragSession?.diskId === DISK_ID_MOON ? DISK_ID_MOON : DISK_ID_SEASON;
+  function resolveDiskVisibility(state) {
+    const raw =
+      typeof getDiskVisibility === "function" ? getDiskVisibility(state) : null;
+    if (!raw || typeof raw !== "object") {
+      return { moon: true, season: true };
+    }
+    return {
+      moon: raw.moon !== false,
+      season: raw.season !== false,
+    };
+  }
+
+  function isDiskVisible(diskId, visibility) {
+    if (!visibility || typeof visibility !== "object") return true;
+    return diskId === DISK_ID_SEASON ? visibility.season !== false : visibility.moon !== false;
+  }
+
+  function getFeedbackDiskId(visibility) {
+    if (dragSession && isDiskVisible(dragSession.diskId, visibility)) {
+      return dragSession.diskId;
+    }
+    if (isDiskVisible(DISK_ID_SEASON, visibility)) return DISK_ID_SEASON;
+    if (isDiskVisible(DISK_ID_MOON, visibility)) return DISK_ID_MOON;
+    return null;
   }
 
   function flushBrowseRequest() {
@@ -329,13 +352,16 @@ export function createSunAndMoonDisksView({
     if (!event) return;
     if (layout?.enabled === false) return;
 
+    const state = typeof getState === "function" ? getState() : null;
+    const visibility = resolveDiskVisibility(state);
+    if (!isDiskVisible(diskId, visibility)) return;
+
     const sprite = getSpriteByDiskId(diskId);
-    if (!sprite) return;
+    if (!sprite || sprite.visible === false) return;
 
     const pointerAngleRad = getSpritePointerAngleRad(sprite, event.global);
     if (!Number.isFinite(pointerAngleRad)) return;
 
-    const state = typeof getState === "function" ? getState() : null;
     const dragStartSec = getTSecInt(state);
     const markerAnchorRad = Number.isFinite(ringMarkerAngleByDisk[diskId])
       ? ringMarkerAngleByDisk[diskId]
@@ -375,8 +401,15 @@ export function createSunAndMoonDisksView({
       return;
     }
 
+    const state = typeof getState === "function" ? getState() : null;
+    const visibility = resolveDiskVisibility(state);
+    if (!isDiskVisible(dragSession.diskId, visibility)) {
+      endDrag();
+      return;
+    }
+
     const sprite = getSpriteByDiskId(dragSession.diskId);
-    if (!sprite) return;
+    if (!sprite || sprite.visible === false) return;
 
     const nextPointerAngleRad = getSpritePointerAngleRad(sprite, event.global);
     if (!Number.isFinite(nextPointerAngleRad)) return;
@@ -493,7 +526,7 @@ export function createSunAndMoonDisksView({
     feedbackGraphics.endFill();
   }
 
-  function drawRingFeedback({ state, baseTimeSec }) {
+  function drawRingFeedback({ state, baseTimeSec, visibility }) {
     if (!feedbackGraphics) return;
 
     feedbackGraphics.clear();
@@ -502,9 +535,10 @@ export function createSunAndMoonDisksView({
       feedbackText.text = "";
     }
 
-    const diskId = getFeedbackDiskId();
+    const diskId = getFeedbackDiskId(visibility);
+    if (!diskId) return;
     const sprite = getSpriteByDiskId(diskId);
-    if (!sprite || !state) return;
+    if (!sprite || sprite.visible === false || !state) return;
 
     const cx = sprite.x;
     const cy = sprite.y;
@@ -663,30 +697,42 @@ export function createSunAndMoonDisksView({
   function update(_frameDt) {
     if (!root || !getState) return;
 
+    const state = getState();
+    if (!state) return;
+
+    const visibility = resolveDiskVisibility(state);
+    const moonVisible = isDiskVisible(DISK_ID_MOON, visibility);
+    const seasonVisible = isDiskVisible(DISK_ID_SEASON, visibility);
+
     const enabled = layout?.enabled !== false;
     if (enabled !== lastEnabled) {
       applyLayout();
       lastEnabled = enabled;
     }
 
-    if (!enabled) {
+    if (dragSession && !isDiskVisible(dragSession.diskId, visibility)) {
+      endDrag();
+    }
+
+    if (moonSprite) moonSprite.visible = moonVisible;
+    if (seasonSprite) seasonSprite.visible = seasonVisible;
+    root.visible = enabled && (moonVisible || seasonVisible);
+
+    if (!root.visible) {
       if (dragSession) endDrag();
       if (feedbackGraphics) feedbackGraphics.clear();
       if (feedbackText) feedbackText.visible = false;
       return;
     }
 
-    const state = getState();
-    if (!state) return;
-
     const baseTimeSec = getTimeSecForRotation(state);
 
-    if (moonSprite) {
+    if (moonSprite && moonSprite.visible !== false) {
       const orbit01 = getMoonOrbitPhase01AtTime(baseTimeSec);
       moonSprite.rotation = phase01ToRotationRad(orbit01, layout.moon);
     }
 
-    if (seasonSprite) {
+    if (seasonSprite && seasonSprite.visible !== false) {
       const q =
         Number.isFinite(layout.season?.quadrants) && layout.season.quadrants > 0
           ? layout.season.quadrants
@@ -698,6 +744,7 @@ export function createSunAndMoonDisksView({
     drawRingFeedback({
       state,
       baseTimeSec,
+      visibility,
     });
   }
 

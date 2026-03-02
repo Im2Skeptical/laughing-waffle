@@ -76,6 +76,8 @@ function formatNodeUnlockEffect(effect) {
           ? effect.recipeId
           : unlockType === "tag" && typeof effect?.tagId === "string"
             ? effect.tagId
+          : unlockType === "feature" && typeof effect?.featureId === "string"
+            ? effect.featureId
           : unlockType === "hubStructure" && typeof effect?.hubStructureId === "string"
             ? effect.hubStructureId
             : unlockType === "tag" &&
@@ -95,6 +97,7 @@ function formatNodeUnlockEffect(effect) {
     const action = op === "GrantUnlock" ? "Unlock" : "Lock";
     if (unlockType === "recipe") return `${action} recipe: ${unlockId}`;
     if (unlockType === "hubStructure") return `${action} building: ${unlockId}`;
+    if (unlockType === "feature") return `${action} feature: ${unlockId}`;
     if (unlockType === "tag" && tagDomain === "env") return `${action} env tag: ${unlockId}`;
     if (unlockType === "tag" && tagDomain === "hub") return `${action} hub tag: ${unlockId}`;
     if (unlockType === "tag" && tagDomain === "item") return `${action} item tag: ${unlockId}`;

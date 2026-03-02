@@ -213,14 +213,18 @@ Reference for all currently registered effect ops in `src/model/effects/index.js
 - Behavior: delegates to `multiplyGlobalSkillModifier` / `multiplyPawnSkillModifier`.
 
 ### `GrantUnlock`
-- Required: `unlockType: "recipe" | "hubStructure"`.
-- Unlock id resolution: `unlockId`, else `recipeId` / `hubStructureId` by type, else `defId`.
-- Behavior: grants recipe/building unlock in `state.skillRuntime.unlocks`.
+- Required: `unlockType: "recipe" | "hubStructure" | "tag" | "feature"`.
+- Unlock id resolution:
+  - `unlockId` (all types), else
+  - `recipeId` / `hubStructureId` / `tagId` / `featureId` by type, else
+  - `envTagId` / `hubTagId` / `itemTagId` for tag-domain aliases, else
+  - `defId`.
+- Behavior: grants unlock in `state.skillRuntime.unlocks`.
 
 ### `RevokeUnlock`
-- Required: `unlockType: "recipe" | "hubStructure"`.
+- Required: `unlockType: "recipe" | "hubStructure" | "tag" | "feature"`.
 - Unlock id resolution: same as `GrantUnlock`.
-- Behavior: revokes recipe/building unlock in `state.skillRuntime.unlocks`.
+- Behavior: revokes unlock in `state.skillRuntime.unlocks`.
 
 ## Tag / Event / Prop Ops
 

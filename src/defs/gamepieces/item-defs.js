@@ -148,7 +148,8 @@ export const itemDefs = {
     name: "Dates",
     color: 0x842e20,  //#842e20
     maxStack: 20,
-    baseTags: ["edible"],
+    baseTags: ["edible","perishable"],
+    baseSystemTiers: { perishability: "silver" },
     defaultWidth: 1,
     defaultHeight: 1,
     ui: {

@@ -7,8 +7,8 @@ import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import {
-  hasAnyLeaderUnlockedSkillNode,
   hasEnvTagUnlock,
+  hasSkillFeatureUnlock,
 } from "../../model/skills.js";
 import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
 import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
@@ -398,7 +398,7 @@ export function createTagUi(opts) {
   function buildDroppedItemsTooltipLines(tileInst, tagDef) {
     const state = getGameState?.();
     if (!state) return [];
-    if (!hasAnyLeaderUnlockedSkillNode(state, "Memory")) return [];
+    if (!hasSkillFeatureUnlock(state, "ui.tooltip.droppedItems")) return [];
 
     const tileDefId = typeof tileInst?.defId === "string" ? tileInst.defId : null;
     if (!tileDefId) return [];

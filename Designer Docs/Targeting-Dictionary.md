@@ -90,4 +90,5 @@ Used by `ConsumeItem`, `TransferUnits`, `SpawnItem`, `SpawnFromDropTable`.
   - `effects.characterMods`: applies only to the character that unlocked the node.
   - `effects.globalMods`: aggregates across all characters and applies globally.
   - `effects.unlocks.recipes` / `effects.unlocks.hubStructures`: global unlock gates for recipe and build availability.
+  - `effects.unlocks.features`: global feature flags (for example UI feature visibility gates).
 - Aggregation is deterministic (character and node id ordering is normalized in `src/model/skills.js`).

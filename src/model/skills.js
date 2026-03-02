@@ -11,6 +11,7 @@ import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { hubTagDefs } from "../defs/gamesystems/hub-tag-defs.js";
 import { itemTagDefs } from "../defs/gamesystems/item-tag-defs.js";
+import { skillFeatureUnlockDefs } from "../defs/gamesettings/skill-feature-unlocks-defs.js";
 import { validateSkillDefs as validateSkillDefsRegistry } from "../defs/validate-skill-defs.js";
 import {
   isObject,
@@ -113,6 +114,9 @@ function normalizeSkillRuntimeShape(runtime, defsInput = null) {
   );
   const knownEnvTagIds = new Set(Object.keys(defsInput?.envTagDefs ?? envTagDefs ?? {}));
   const knownHubTagIds = new Set(Object.keys(defsInput?.hubTagDefs ?? hubTagDefs ?? {}));
+  const knownFeatureUnlockIds = new Set(
+    Object.keys(defsInput?.skillFeatureUnlockDefs ?? skillFeatureUnlockDefs ?? {})
+  );
   const knownItemTagIds = new Set(Object.keys(defsInput?.itemTagDefs ?? itemTagDefs ?? {}));
 
   return {
@@ -132,6 +136,10 @@ function normalizeSkillRuntimeShape(runtime, defsInput = null) {
       ),
       envTags: normalizeStringUnlockList(safeUnlocks.envTags, knownEnvTagIds),
       hubTags: normalizeStringUnlockList(safeUnlocks.hubTags, knownHubTagIds),
+      features: normalizeStringUnlockList(
+        safeUnlocks.features,
+        knownFeatureUnlockIds
+      ),
       itemTags: normalizeStringUnlockList(safeUnlocks.itemTags, knownItemTagIds),
     },
   };
@@ -281,6 +289,14 @@ function getDefaultUnlockedItemTags(defsInput) {
   const defaults = uniqueSortedStrings(progression?.defaultUnlockedItemTags);
   if (defaults.length > 0) return defaults.filter((id) => !!itemTagDefs[id]);
   return sortStrings(Object.keys(itemTagDefs || {}));
+}
+
+function getDefaultUnlockedFeatures(defsInput) {
+  const progression = getProgressionDefs(defsInput);
+  const defs = defsInput?.skillFeatureUnlockDefs ?? skillFeatureUnlockDefs ?? {};
+  const defaults = uniqueSortedStrings(progression?.defaultUnlockedFeatures);
+  if (defaults.length > 0) return defaults.filter((id) => !!defs[id]);
+  return [];
 }
 
 function normalizeSkillEffectSpecList(raw) {
@@ -478,6 +494,37 @@ export function revokeSkillItemTagUnlock(state, tagId) {
   return revokeSkillTagUnlock(state, tagId, "itemTags");
 }
 
+export function grantSkillFeatureUnlock(state, featureId) {
+  if (
+    typeof featureId !== "string" ||
+    !featureId.length ||
+    !skillFeatureUnlockDefs[featureId]
+  ) {
+    return false;
+  }
+  const runtime = withRuntimeSkillState(state);
+  const unlocked = Array.isArray(runtime.unlocks?.features)
+    ? runtime.unlocks.features
+    : [];
+  if (unlocked.includes(featureId)) return false;
+  unlocked.push(featureId);
+  unlocked.sort((a, b) => a.localeCompare(b));
+  runtime.unlocks.features = unlocked;
+  return true;
+}
+
+export function revokeSkillFeatureUnlock(state, featureId) {
+  if (typeof featureId !== "string") return false;
+  const runtime = withRuntimeSkillState(state);
+  const unlocked = Array.isArray(runtime.unlocks?.features)
+    ? runtime.unlocks.features
+    : [];
+  const next = unlocked.filter((id) => id !== featureId);
+  if (next.length === unlocked.length) return false;
+  runtime.unlocks.features = next;
+  return true;
+}
+
 export function getGlobalSkillModifier(state, key, fallback = 0) {
   const runtime = withRuntimeSkillState(state);
   const value = runtime?.modifiers?.global?.[key];
@@ -550,19 +597,6 @@ export function hasUnlockedSkillNode(state, pawnId, nodeId) {
   return unlockedSet.has(nodeId);
 }
 
-export function hasAnyLeaderUnlockedSkillNode(state, nodeId) {
-  if (typeof nodeId !== "string" || !nodeId.length) return false;
-  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
-  for (const pawn of pawns) {
-    if (!pawn || pawn.role !== "leader") continue;
-    const unlocked = Array.isArray(pawn.unlockedSkillNodeIds)
-      ? pawn.unlockedSkillNodeIds
-      : [];
-    if (unlocked.includes(nodeId)) return true;
-  }
-  return false;
-}
-
 export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
   const leaderPawn = getPawnById(state, leaderPawnId);
   if (!leaderPawn || leaderPawn.role !== "leader") {
@@ -581,7 +615,7 @@ export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
     equipment: true,
     systems: true,
     prestige: unlockedSet.has("Worship"),
-    skills: unlockedSet.has("Memory"),
+    skills: hasSkillFeatureUnlock(state, "ui.inventory.skills"),
     build: availability.hubStructureIds.size > 0,
   };
 }
@@ -693,6 +727,7 @@ export function computeGlobalSkillMods(state) {
     unlockedHubStructures: new Set(getDefaultUnlockedHubStructures(defsInput)),
     unlockedEnvTags: new Set(getDefaultUnlockedEnvTags(defsInput)),
     unlockedHubTags: new Set(getDefaultUnlockedHubTags(defsInput)),
+    unlockedFeatures: new Set(getDefaultUnlockedFeatures(defsInput)),
     unlockedItemTags: new Set(getDefaultUnlockedItemTags(defsInput)),
   };
 
@@ -722,6 +757,9 @@ export function computeGlobalSkillMods(state) {
     }
     for (const tagId of runtimeUnlocks.hubTags || []) {
       if (hubTagDefs[tagId]) out.unlockedHubTags.add(tagId);
+    }
+    for (const featureId of runtimeUnlocks.features || []) {
+      if (skillFeatureUnlockDefs[featureId]) out.unlockedFeatures.add(featureId);
     }
     for (const tagId of runtimeUnlocks.itemTags || []) {
       if (itemTagDefs[tagId]) out.unlockedItemTags.add(tagId);
@@ -762,6 +800,18 @@ export function hasItemTagUnlock(state, tagId) {
   if (typeof tagId !== "string" || !tagId.length || !itemTagDefs[tagId]) return false;
   const globalMods = computeGlobalSkillMods(state);
   return globalMods.unlockedItemTags.has(tagId);
+}
+
+export function hasSkillFeatureUnlock(state, featureId) {
+  if (
+    typeof featureId !== "string" ||
+    !featureId.length ||
+    !skillFeatureUnlockDefs[featureId]
+  ) {
+    return false;
+  }
+  const globalMods = computeGlobalSkillMods(state);
+  return globalMods.unlockedFeatures.has(featureId);
 }
 
 export function getSkillTreeLayout(treeId, opts = {}, defsInput = null) {
@@ -834,6 +884,7 @@ export function validateSkillDefs(defsInput = null) {
   const hubs = defsInput?.hubStructureDefs ?? hubStructureDefs;
   const envTags = defsInput?.envTagDefs ?? envTagDefs;
   const hubTags = defsInput?.hubTagDefs ?? hubTagDefs;
+  const featureUnlocks = defsInput?.skillFeatureUnlockDefs ?? skillFeatureUnlockDefs;
   const itemTags = defsInput?.itemTagDefs ?? itemTagDefs;
   return validateSkillDefsRegistry({
     skillTrees: trees,
@@ -842,6 +893,7 @@ export function validateSkillDefs(defsInput = null) {
     hubStructureDefs: hubs,
     envTagDefs: envTags,
     hubTagDefs: hubTags,
+    skillFeatureUnlockDefs: featureUnlocks,
     itemTagDefs: itemTags,
   });
 }

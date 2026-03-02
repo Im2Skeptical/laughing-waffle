@@ -2,9 +2,11 @@ import {
   addGlobalSkillModifier,
   addPawnSkillModifier,
   getSkillNodeDef,
+  getSkillNodeUnlockEffects,
   getSkillTreeDef,
   getUnlockedSkillSet,
   grantSkillEnvTagUnlock,
+  grantSkillFeatureUnlock,
   grantSkillHubStructureUnlock,
   grantSkillHubTagUnlock,
   grantSkillItemTagUnlock,
@@ -12,11 +14,13 @@ import {
   multiplyGlobalSkillModifier,
   multiplyPawnSkillModifier,
   revokeSkillEnvTagUnlock,
+  revokeSkillFeatureUnlock,
   revokeSkillHubStructureUnlock,
   revokeSkillHubTagUnlock,
   revokeSkillItemTagUnlock,
   revokeSkillRecipeUnlock,
 } from "../../skills.js";
+import { runEffect } from "../index.js";
 
 function resolvePawnId(effect, context) {
   if (effect?.pawnId != null) return effect.pawnId;
@@ -111,7 +115,14 @@ function applyUnlockToLeader(leaderPawn, nodeId) {
 
 function resolveUnlockType(effect) {
   const type = effect?.unlockType;
-  if (type === "recipe" || type === "hubStructure" || type === "tag") return type;
+  if (
+    type === "recipe" ||
+    type === "hubStructure" ||
+    type === "tag" ||
+    type === "feature"
+  ) {
+    return type;
+  }
   return null;
 }
 
@@ -145,6 +156,13 @@ function resolveUnlockId(effect, unlockType) {
     effect.hubStructureId.length > 0
   ) {
     return effect.hubStructureId;
+  }
+  if (
+    unlockType === "feature" &&
+    typeof effect?.featureId === "string" &&
+    effect.featureId.length > 0
+  ) {
+    return effect.featureId;
   }
   const tagDomain = unlockType === "tag" ? resolveTagDomain(effect) : null;
   if (
@@ -266,7 +284,24 @@ export function handleGrantSkillNode(state, effect, context) {
 
   const nextPoints = ignoreCost ? currentPoints : Math.max(0, currentPoints - cost);
   leaderPawn.skillPoints = nextPoints;
-  return applyUnlockToLeader(leaderPawn, nodeDef.id);
+  const changed = applyUnlockToLeader(leaderPawn, nodeDef.id);
+  if (!changed) return false;
+
+  const unlockEffects = getSkillNodeUnlockEffects(nodeDef);
+  if (unlockEffects.length > 0) {
+    const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    runEffect(state, unlockEffects, {
+      ...context,
+      kind: "game",
+      state,
+      source: leaderPawn,
+      pawn: leaderPawn,
+      pawnId: leaderPawn.id,
+      ownerId: leaderPawn.id,
+      tSec: nowSec,
+    });
+  }
+  return true;
 }
 
 export function handleGrantUnlock(state, effect) {
@@ -281,6 +316,9 @@ export function handleGrantUnlock(state, effect) {
   }
   if (unlockType === "hubStructure") {
     return grantSkillHubStructureUnlock(state, unlockId);
+  }
+  if (unlockType === "feature") {
+    return grantSkillFeatureUnlock(state, unlockId);
   }
   const tagDomain = resolveTagDomain(effect);
   if (!tagDomain) return false;
@@ -301,6 +339,9 @@ export function handleRevokeUnlock(state, effect) {
   }
   if (unlockType === "hubStructure") {
     return revokeSkillHubStructureUnlock(state, unlockId);
+  }
+  if (unlockType === "feature") {
+    return revokeSkillFeatureUnlock(state, unlockId);
   }
   const tagDomain = resolveTagDomain(effect);
   if (!tagDomain) return false;

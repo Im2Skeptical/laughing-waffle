@@ -92,11 +92,35 @@ export const skillTrees = {
 };
 
 export const skillNodes = {
+  Astronomy: {
+    id: "Astronomy",
+    ringId: "ring_02",
+    treeId: "systemColorMap",
+    name: "Papyrus_01",
+    desc: "",
+    cost: 1,
+    tags: [
+      "Blue",
+      "Early",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueEarly_01",
+      "BlueEarly_03",
+      "Cooking",
+      "Crafting"
+    ],
+    uiPos: {
+      x: 628,
+      y: 619
+    },
+    onUnlock: []
+  },
   Basket: {
     id: "Basket",
     ringId: "ring_02",
     treeId: "systemColorMap",
-    name: "Basket",
+    name: "GreenEarly_Notable_01",
     desc: "",
     cost: 1,
     tags: [
@@ -159,7 +183,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlackBlueEarly_03",
-      "SolarAstronomy"
+      "Papyrus"
     ],
     uiPos: {
       x: 226,
@@ -992,9 +1016,9 @@ export const skillNodes = {
       "Early"
     ],
     adjacent: [
+      "Astronomy",
       "BlueEarly_02",
-      "Farming",
-      "LunarAstronomy"
+      "Farming"
     ],
     uiPos: {
       x: 611,
@@ -1015,7 +1039,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_01",
-      "SolarAstronomy"
+      "Papyrus"
     ],
     uiPos: {
       x: 520,
@@ -1035,8 +1059,8 @@ export const skillNodes = {
       "Early"
     ],
     adjacent: [
-      "BlueEarly_04",
-      "LunarAstronomy"
+      "Astronomy",
+      "BlueEarly_04"
     ],
     uiPos: {
       x: 480,
@@ -1057,7 +1081,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_03",
-      "SolarAstronomy",
+      "Papyrus",
       "Weaving"
     ],
     uiPos: {
@@ -1079,7 +1103,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_06",
-      "SolarAstronomy"
+      "Papyrus"
     ],
     uiPos: {
       x: 246,
@@ -1100,7 +1124,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_05",
-      "Papyrus"
+      "Prophecy"
     ],
     uiPos: {
       x: 279,
@@ -1121,7 +1145,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_08",
-      "Papyrus"
+      "Prophecy"
     ],
     uiPos: {
       x: 66,
@@ -1142,7 +1166,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_07",
-      "SolarAstronomy"
+      "Papyrus"
     ],
     uiPos: {
       x: 44,
@@ -1163,7 +1187,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_10",
-      "Papyrus"
+      "Prophecy"
     ],
     uiPos: {
       x: 176,
@@ -1205,7 +1229,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueEarly_12",
-      "Papyrus"
+      "Prophecy"
     ],
     uiPos: {
       x: -63,
@@ -1293,7 +1317,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueGreenEarly_03",
-      "SolarAstronomy"
+      "Papyrus"
     ],
     uiPos: {
       x: 649,
@@ -1549,7 +1573,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueLate_02",
-      "Prophecy"
+      "BlueMid_Notable"
     ],
     uiPos: {
       x: -365,
@@ -1591,11 +1615,32 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueLate_02",
-      "Library"
+      "BlueLate_Notable"
     ],
     uiPos: {
       x: -667,
       y: 1683
+    },
+    onUnlock: []
+  },
+  BlueLate_Notable: {
+    id: "BlueLate_Notable",
+    ringId: "ring_09",
+    treeId: "systemColorMap",
+    name: "BlueNodeLateNotable_01",
+    desc: "Outer edge anchor.",
+    cost: 4,
+    tags: [
+      "Blue",
+      "Late",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueLate_03"
+    ],
+    uiPos: {
+      x: -761,
+      y: 1560
     },
     onUnlock: []
   },
@@ -1612,7 +1657,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueMid_02",
-      "Papyrus"
+      "Prophecy"
     ],
     uiPos: {
       x: -83,
@@ -1633,7 +1678,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueMid_01",
-      "Prophecy"
+      "BlueMid_Notable"
     ],
     uiPos: {
       x: -183,
@@ -1654,7 +1699,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueMid_04",
-      "Prophecy"
+      "BlueMid_Notable"
     ],
     uiPos: {
       x: -178,
@@ -1696,7 +1741,7 @@ export const skillNodes = {
     ],
     adjacent: [
       "BlueMid_06",
-      "Prophecy"
+      "BlueMid_Notable"
     ],
     uiPos: {
       x: -697,
@@ -1725,11 +1770,35 @@ export const skillNodes = {
     },
     onUnlock: []
   },
+  BlueMid_Notable: {
+    id: "BlueMid_Notable",
+    ringId: "ring_07",
+    treeId: "systemColorMap",
+    name: "BlueNodeMidNotable_01",
+    desc: "Mid anchor.",
+    cost: 2,
+    tags: [
+      "Blue",
+      "Mid",
+      "Notable"
+    ],
+    adjacent: [
+      "BlueLate_01",
+      "BlueMid_02",
+      "BlueMid_03",
+      "BlueMid_05"
+    ],
+    uiPos: {
+      x: -336,
+      y: 1736
+    },
+    onUnlock: []
+  },
   Cooking: {
     id: "Cooking",
     ringId: "ring_02",
     treeId: "systemColorMap",
-    name: "Cooking",
+    name: "GreenEarly_Notable_01",
     desc: "",
     cost: 1,
     tags: [
@@ -1738,9 +1807,9 @@ export const skillNodes = {
       "Notable"
     ],
     adjacent: [
+      "Astronomy",
       "Basket",
-      "Hearth",
-      "LunarAstronomy"
+      "Hearth"
     ],
     uiPos: {
       x: 732,
@@ -1779,7 +1848,7 @@ export const skillNodes = {
     id: "Crafting",
     ringId: "ring_04",
     treeId: "systemColorMap",
-    name: "Crafting",
+    name: "BlackBlueEarly_Notable_01",
     desc: "",
     cost: 1,
     tags: [
@@ -1790,7 +1859,7 @@ export const skillNodes = {
       "Notable"
     ],
     adjacent: [
-      "LunarAstronomy",
+      "Astronomy",
       "Worship"
     ],
     uiPos: {
@@ -1874,7 +1943,7 @@ export const skillNodes = {
     id: "Fish",
     ringId: "ring_02",
     treeId: "systemColorMap",
-    name: "Fish",
+    name: "RedEarly_Notable_01",
     desc: "",
     cost: 1,
     tags: [
@@ -1905,7 +1974,7 @@ export const skillNodes = {
     id: "Forage",
     ringId: "ring_02",
     treeId: "systemColorMap",
-    name: "Forage",
+    name: "RedEarly_Notable_01",
     desc: "",
     cost: 1,
     tags: [
@@ -2697,7 +2766,7 @@ export const skillNodes = {
   Hearth: {
     id: "Hearth",
     treeId: "systemColorMap",
-    name: "Hearth",
+    name: "RedEarly_Notable_01",
     desc: "",
     cost: 1,
     tags: [
@@ -2725,7 +2794,7 @@ export const skillNodes = {
     id: "Housing",
     ringId: "ring_04",
     treeId: "systemColorMap",
-    name: "Housing",
+    name: "MudHouses_01",
     desc: "",
     cost: 1,
     tags: [
@@ -2764,57 +2833,6 @@ export const skillNodes = {
       }
     ]
   },
-  Library: {
-    id: "Library",
-    ringId: "ring_09",
-    treeId: "systemColorMap",
-    name: "Library",
-    desc: "Outer edge anchor.",
-    cost: 4,
-    tags: [
-      "Blue",
-      "Late",
-      "Notable"
-    ],
-    adjacent: [
-      "BlueLate_03"
-    ],
-    uiPos: {
-      x: -761,
-      y: 1560
-    },
-    onUnlock: []
-  },
-  LunarAstronomy: {
-    id: "LunarAstronomy",
-    ringId: "ring_02",
-    treeId: "systemColorMap",
-    name: "Lunar Astronomy",
-    desc: "Reveals the moon disk in the HUD.",
-    cost: 1,
-    tags: [
-      "Blue",
-      "Early",
-      "Notable"
-    ],
-    adjacent: [
-      "BlueEarly_01",
-      "BlueEarly_03",
-      "Cooking",
-      "Crafting"
-    ],
-    uiPos: {
-      x: 628,
-      y: 619
-    },
-    onUnlock: [
-      {
-        op: "GrantUnlock",
-        unlockType: "feature",
-        unlockId: "ui.disk.moon"
-      }
-    ]
-  },
   Memory: {
     id: "Memory",
     treeId: "systemColorMap",
@@ -2828,49 +2846,34 @@ export const skillNodes = {
       "Hearth"
     ],
     uiPos: {
-      x: 681,
+      x: 680,
       y: 536
     },
-    onUnlock: [
-      {
-        op: "GrantUnlock",
-        unlockType: "feature",
-        unlockId: "ui.inventory.skills"
-      },
-      {
-        op: "GrantUnlock",
-        unlockType: "feature",
-        unlockId: "ui.log.event"
-      },
-      {
-        op: "GrantUnlock",
-        unlockType: "feature",
-        unlockId: "ui.tooltip.droppedItems"
-      }
-    ]
+    onUnlock: []
   },
   Papyrus: {
     id: "Papyrus",
-    ringId: "ring_04",
+    ringId: "ring_02",
     treeId: "systemColorMap",
-    name: "BlueEarlyNotable2",
-    desc: "",
-    cost: 1,
+    name: "BlueNodeEarlyNotable_01",
+    desc: "Cluster punctuation.",
+    cost: 2,
     tags: [
       "Blue",
       "Early",
       "Notable"
     ],
     adjacent: [
-      "BlueEarly_06",
-      "BlueEarly_07",
-      "BlueEarly_09",
-      "BlueEarly_11",
-      "BlueMid_01"
+      "BlackBlueEarly_01",
+      "BlueEarly_02",
+      "BlueEarly_04",
+      "BlueEarly_05",
+      "BlueEarly_08",
+      "BlueGreenEarly_01"
     ],
     uiPos: {
-      x: 33,
-      y: 1261
+      x: 364,
+      y: 885
     },
     onUnlock: []
   },
@@ -2901,25 +2904,26 @@ export const skillNodes = {
   },
   Prophecy: {
     id: "Prophecy",
-    ringId: "ring_07",
+    ringId: "ring_04",
     treeId: "systemColorMap",
-    name: "Prophecy",
-    desc: "Mid anchor.",
-    cost: 2,
+    name: "BlueEarlyNotable2",
+    desc: "",
+    cost: 1,
     tags: [
       "Blue",
-      "Mid",
+      "Early",
       "Notable"
     ],
     adjacent: [
-      "BlueLate_01",
-      "BlueMid_02",
-      "BlueMid_03",
-      "BlueMid_05"
+      "BlueEarly_06",
+      "BlueEarly_07",
+      "BlueEarly_09",
+      "BlueEarly_11",
+      "BlueMid_01"
     ],
     uiPos: {
-      x: -335,
-      y: 1736
+      x: 33,
+      y: 1261
     },
     onUnlock: []
   },
@@ -3732,38 +3736,6 @@ export const skillNodes = {
     },
     onUnlock: []
   },
-  SolarAstronomy: {
-    id: "SolarAstronomy",
-    ringId: "ring_02",
-    treeId: "systemColorMap",
-    name: "Solar Astronomy",
-    desc: "Reveals the season disk in the HUD.",
-    cost: 2,
-    tags: [
-      "Blue",
-      "Early",
-      "Notable"
-    ],
-    adjacent: [
-      "BlackBlueEarly_01",
-      "BlueEarly_02",
-      "BlueEarly_04",
-      "BlueEarly_05",
-      "BlueEarly_08",
-      "BlueGreenEarly_01"
-    ],
-    uiPos: {
-      x: 364,
-      y: 885
-    },
-    onUnlock: [
-      {
-        op: "GrantUnlock",
-        unlockType: "feature",
-        unlockId: "ui.disk.season"
-      }
-    ]
-  },
   Storehouse: {
     id: "Storehouse",
     ringId: "ring_02",
@@ -3830,7 +3802,7 @@ export const skillNodes = {
     id: "Worship",
     ringId: "ring_02",
     treeId: "systemColorMap",
-    name: "Worship",
+    name: "BlackEarly_Notable_01",
     desc: "",
     cost: 1,
     tags: [

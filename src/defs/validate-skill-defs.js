@@ -69,7 +69,7 @@ const SKILL_MODIFIER_KEYS = new Set([
   "projectionHorizonBonusSec",
   "populationFoodMult",
 ]);
-const SKILL_UNLOCK_TYPES = new Set(["recipe", "hubStructure", "tag"]);
+const SKILL_UNLOCK_TYPES = new Set(["recipe", "hubStructure", "tag", "feature"]);
 const SKILL_TAG_DOMAINS = new Set(["env", "hub", "item"]);
 
 function normalizeEffectList(effectSpec) {
@@ -134,6 +134,7 @@ function validateSkillUnlockEffect(
   knownHubIds,
   knownEnvTagIds,
   knownHubTagIds,
+  knownFeatureIds,
   knownItemTagIds,
   errors
 ) {
@@ -141,7 +142,7 @@ function validateSkillUnlockEffect(
   if (!SKILL_UNLOCK_TYPES.has(unlockType)) {
     addIssue(
       errors,
-      `${contextLabel}: ${effect.op} unlockType must be "recipe", "hubStructure", or "tag".`
+      `${contextLabel}: ${effect.op} unlockType must be "recipe", "hubStructure", "tag", or "feature".`
     );
     return;
   }
@@ -169,6 +170,10 @@ function validateSkillUnlockEffect(
             typeof effect?.hubStructureId === "string" &&
             effect.hubStructureId.length > 0
           ? effect.hubStructureId
+          : unlockType === "feature" &&
+              typeof effect?.featureId === "string" &&
+              effect.featureId.length > 0
+            ? effect.featureId
           : unlockType === "tag" &&
               tagDomain === "env" &&
               typeof effect?.envTagId === "string" &&
@@ -196,6 +201,12 @@ function validateSkillUnlockEffect(
       errors,
       `${contextLabel}: ${effect.op} hub structure "${unlockId}" not found.`
     );
+  } else if (
+    unlockType === "feature" &&
+    knownFeatureIds &&
+    !knownFeatureIds.has(unlockId)
+  ) {
+    addIssue(errors, `${contextLabel}: ${effect.op} feature "${unlockId}" not found.`);
   } else if (
     unlockType === "tag" &&
     tagDomain === "env" &&
@@ -227,6 +238,7 @@ function validateNodeEffectList(
   knownHubIds,
   knownEnvTagIds,
   knownHubTagIds,
+  knownFeatureIds,
   knownItemTagIds,
   errors
 ) {
@@ -263,6 +275,7 @@ function validateNodeEffectList(
         knownHubIds,
         knownEnvTagIds,
         knownHubTagIds,
+        knownFeatureIds,
         knownItemTagIds,
         errors
       );
@@ -297,6 +310,7 @@ export function validateSkillDefs({
   hubStructureDefs,
   envTagDefs,
   hubTagDefs,
+  skillFeatureUnlockDefs,
   itemTagDefs,
 } = {}) {
   const errors = [];
@@ -633,6 +647,9 @@ export function validateSkillDefs({
   const knownHubIds = new Set(Object.keys(hubStructureDefs || {}));
   const knownEnvTagIds = isObject(envTagDefs) ? new Set(Object.keys(envTagDefs)) : null;
   const knownHubTagIds = isObject(hubTagDefs) ? new Set(Object.keys(hubTagDefs)) : null;
+  const knownFeatureIds = isObject(skillFeatureUnlockDefs)
+    ? new Set(Object.keys(skillFeatureUnlockDefs))
+    : null;
   const knownItemTagIds = isObject(itemTagDefs) ? new Set(Object.keys(itemTagDefs)) : null;
 
   const treeNodeIds = new Map();
@@ -696,6 +713,7 @@ export function validateSkillDefs({
       knownHubIds,
       knownEnvTagIds,
       knownHubTagIds,
+      knownFeatureIds,
       knownItemTagIds,
       errors
     );
@@ -707,6 +725,7 @@ export function validateSkillDefs({
         knownHubIds,
         knownEnvTagIds,
         knownHubTagIds,
+        knownFeatureIds,
         knownItemTagIds,
         errors
       );

@@ -4,7 +4,7 @@
       "systemColorMap": {
         "id": "systemColorMap",
         "name": "System Color Map",
-        "startNodeId": "Astronomy",
+        "startNodeId": "LunarAstronomy",
         "ui": {
           "accentColor": 16777215,
           "layoutMode": "ringByTags",
@@ -69,34 +69,10 @@
       }
     },
     "skillNodes": {
-      "Astronomy": {
-        "id": "Astronomy",
-        "treeId": "systemColorMap",
-        "name": "Papyrus_01",
-        "desc": "",
-        "cost": 1,
-        "tags": [
-          "Blue",
-          "Early",
-          "Notable"
-        ],
-        "adjacent": [
-          "BlueEarly_01",
-          "BlueEarly_03",
-          "Cooking",
-          "Crafting"
-        ],
-        "onUnlock": [],
-        "uiPos": {
-          "x": 628,
-          "y": 619
-        },
-        "ringId": "ring_02"
-      },
       "Basket": {
         "id": "Basket",
         "treeId": "systemColorMap",
-        "name": "GreenEarly_Notable_01",
+        "name": "Basket",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -153,7 +129,7 @@
         ],
         "adjacent": [
           "BlackBlueEarly_03",
-          "Papyrus"
+          "SolarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -986,9 +962,9 @@
           "Early"
         ],
         "adjacent": [
-          "Astronomy",
           "BlueEarly_02",
-          "Farming"
+          "Farming",
+          "LunarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1009,7 +985,7 @@
         ],
         "adjacent": [
           "BlueEarly_01",
-          "Papyrus"
+          "SolarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1029,8 +1005,8 @@
           "Early"
         ],
         "adjacent": [
-          "Astronomy",
-          "BlueEarly_04"
+          "BlueEarly_04",
+          "LunarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1051,7 +1027,7 @@
         ],
         "adjacent": [
           "BlueEarly_03",
-          "Papyrus",
+          "SolarAstronomy",
           "Weaving"
         ],
         "onUnlock": [],
@@ -1073,7 +1049,7 @@
         ],
         "adjacent": [
           "BlueEarly_06",
-          "Papyrus"
+          "SolarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1094,7 +1070,7 @@
         ],
         "adjacent": [
           "BlueEarly_05",
-          "Prophecy"
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1115,7 +1091,7 @@
         ],
         "adjacent": [
           "BlueEarly_08",
-          "Prophecy"
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1136,7 +1112,7 @@
         ],
         "adjacent": [
           "BlueEarly_07",
-          "Papyrus"
+          "SolarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1157,7 +1133,7 @@
         ],
         "adjacent": [
           "BlueEarly_10",
-          "Prophecy"
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1199,7 +1175,7 @@
         ],
         "adjacent": [
           "BlueEarly_12",
-          "Prophecy"
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1287,7 +1263,7 @@
         ],
         "adjacent": [
           "BlueGreenEarly_03",
-          "Papyrus"
+          "SolarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1543,7 +1519,7 @@
         ],
         "adjacent": [
           "BlueLate_02",
-          "BlueMid_Notable"
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1585,33 +1561,12 @@
         ],
         "adjacent": [
           "BlueLate_02",
-          "BlueLate_Notable"
+          "Library"
         ],
         "onUnlock": [],
         "uiPos": {
           "x": -667,
           "y": 1683
-        },
-        "ringId": "ring_09"
-      },
-      "BlueLate_Notable": {
-        "id": "BlueLate_Notable",
-        "treeId": "systemColorMap",
-        "name": "BlueNodeLateNotable_01",
-        "desc": "Outer edge anchor.",
-        "cost": 4,
-        "tags": [
-          "Blue",
-          "Late",
-          "Notable"
-        ],
-        "adjacent": [
-          "BlueLate_03"
-        ],
-        "onUnlock": [],
-        "uiPos": {
-          "x": -761,
-          "y": 1560
         },
         "ringId": "ring_09"
       },
@@ -1627,7 +1582,7 @@
         ],
         "adjacent": [
           "BlueMid_02",
-          "Prophecy"
+          "Papyrus"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1648,7 +1603,7 @@
         ],
         "adjacent": [
           "BlueMid_01",
-          "BlueMid_Notable"
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1669,7 +1624,7 @@
         ],
         "adjacent": [
           "BlueMid_04",
-          "BlueMid_Notable"
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1711,7 +1666,7 @@
         ],
         "adjacent": [
           "BlueMid_06",
-          "BlueMid_Notable"
+          "Prophecy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1741,34 +1696,10 @@
         },
         "ringId": "ring_08"
       },
-      "BlueMid_Notable": {
-        "id": "BlueMid_Notable",
-        "treeId": "systemColorMap",
-        "name": "BlueNodeMidNotable_01",
-        "desc": "Mid anchor.",
-        "cost": 2,
-        "tags": [
-          "Blue",
-          "Mid",
-          "Notable"
-        ],
-        "adjacent": [
-          "BlueLate_01",
-          "BlueMid_02",
-          "BlueMid_03",
-          "BlueMid_05"
-        ],
-        "onUnlock": [],
-        "uiPos": {
-          "x": -336,
-          "y": 1736
-        },
-        "ringId": "ring_07"
-      },
       "Cooking": {
         "id": "Cooking",
         "treeId": "systemColorMap",
-        "name": "GreenEarly_Notable_01",
+        "name": "Cooking",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -1777,9 +1708,9 @@
           "Notable"
         ],
         "adjacent": [
-          "Astronomy",
           "Basket",
-          "Hearth"
+          "Hearth",
+          "LunarAstronomy"
         ],
         "onUnlock": [],
         "uiPos": {
@@ -1791,7 +1722,7 @@
       "Crafting": {
         "id": "Crafting",
         "treeId": "systemColorMap",
-        "name": "BlackBlueEarly_Notable_01",
+        "name": "Crafting",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -1802,7 +1733,7 @@
           "Notable"
         ],
         "adjacent": [
-          "Astronomy",
+          "LunarAstronomy",
           "Worship"
         ],
         "onUnlock": [],
@@ -1865,7 +1796,7 @@
       "Fish": {
         "id": "Fish",
         "treeId": "systemColorMap",
-        "name": "RedEarly_Notable_01",
+        "name": "Fish",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -1889,7 +1820,7 @@
       "Forage": {
         "id": "Forage",
         "treeId": "systemColorMap",
-        "name": "RedEarly_Notable_01",
+        "name": "Forage",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -2675,7 +2606,7 @@
       "Hearth": {
         "id": "Hearth",
         "treeId": "systemColorMap",
-        "name": "RedEarly_Notable_01",
+        "name": "Hearth",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -2696,7 +2627,7 @@
       "Housing": {
         "id": "Housing",
         "treeId": "systemColorMap",
-        "name": "MudHouses_01",
+        "name": "Housing",
         "desc": "",
         "cost": 1,
         "tags": [
@@ -2718,6 +2649,57 @@
         },
         "ringId": "ring_04"
       },
+      "Library": {
+        "id": "Library",
+        "treeId": "systemColorMap",
+        "name": "Library",
+        "desc": "Outer edge anchor.",
+        "cost": 4,
+        "tags": [
+          "Blue",
+          "Late",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueLate_03"
+        ],
+        "onUnlock": [],
+        "uiPos": {
+          "x": -761,
+          "y": 1560
+        },
+        "ringId": "ring_09"
+      },
+      "LunarAstronomy": {
+        "id": "LunarAstronomy",
+        "treeId": "systemColorMap",
+        "name": "Lunar Astronomy",
+        "desc": "Reveals the moon disk in the HUD.",
+        "cost": 1,
+        "tags": [
+          "Blue",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlueEarly_01",
+          "BlueEarly_03",
+          "Cooking",
+          "Crafting"
+        ],
+        "onUnlock": [
+          {
+            "op": "GrantUnlock",
+            "unlockType": "feature",
+            "unlockId": "ui.disk.moon"
+          }
+        ],
+        "uiPos": {
+          "x": 628,
+          "y": 619
+        },
+        "ringId": "ring_02"
+      },
       "Memory": {
         "id": "Memory",
         "treeId": "systemColorMap",
@@ -2730,37 +2712,52 @@
         "adjacent": [
           "Hearth"
         ],
-        "onUnlock": [],
+        "onUnlock": [
+          {
+            "op": "GrantUnlock",
+            "unlockType": "feature",
+            "unlockId": "ui.inventory.skills"
+          },
+          {
+            "op": "GrantUnlock",
+            "unlockType": "feature",
+            "unlockId": "ui.log.event"
+          },
+          {
+            "op": "GrantUnlock",
+            "unlockType": "feature",
+            "unlockId": "ui.tooltip.droppedItems"
+          }
+        ],
         "uiPos": {
-          "x": 680,
+          "x": 681,
           "y": 536
         }
       },
       "Papyrus": {
         "id": "Papyrus",
         "treeId": "systemColorMap",
-        "name": "BlueNodeEarlyNotable_01",
-        "desc": "Cluster punctuation.",
-        "cost": 2,
+        "name": "BlueEarlyNotable2",
+        "desc": "",
+        "cost": 1,
         "tags": [
           "Blue",
           "Early",
           "Notable"
         ],
         "adjacent": [
-          "BlackBlueEarly_01",
-          "BlueEarly_02",
-          "BlueEarly_04",
-          "BlueEarly_05",
-          "BlueEarly_08",
-          "BlueGreenEarly_01"
+          "BlueEarly_06",
+          "BlueEarly_07",
+          "BlueEarly_09",
+          "BlueEarly_11",
+          "BlueMid_01"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 364,
-          "y": 885
+          "x": 33,
+          "y": 1261
         },
-        "ringId": "ring_02"
+        "ringId": "ring_04"
       },
       "Preserve": {
         "id": "Preserve",
@@ -2790,27 +2787,26 @@
       "Prophecy": {
         "id": "Prophecy",
         "treeId": "systemColorMap",
-        "name": "BlueEarlyNotable2",
-        "desc": "",
-        "cost": 1,
+        "name": "Prophecy",
+        "desc": "Mid anchor.",
+        "cost": 2,
         "tags": [
           "Blue",
-          "Early",
+          "Mid",
           "Notable"
         ],
         "adjacent": [
-          "BlueEarly_06",
-          "BlueEarly_07",
-          "BlueEarly_09",
-          "BlueEarly_11",
-          "BlueMid_01"
+          "BlueLate_01",
+          "BlueMid_02",
+          "BlueMid_03",
+          "BlueMid_05"
         ],
         "onUnlock": [],
         "uiPos": {
-          "x": 33,
-          "y": 1261
+          "x": -335,
+          "y": 1736
         },
-        "ringId": "ring_04"
+        "ringId": "ring_07"
       },
       "RedBlackEarly_01": {
         "id": "RedBlackEarly_01",
@@ -3621,6 +3617,38 @@
         },
         "ringId": "ring_07"
       },
+      "SolarAstronomy": {
+        "id": "SolarAstronomy",
+        "treeId": "systemColorMap",
+        "name": "Solar Astronomy",
+        "desc": "Reveals the season disk in the HUD.",
+        "cost": 2,
+        "tags": [
+          "Blue",
+          "Early",
+          "Notable"
+        ],
+        "adjacent": [
+          "BlackBlueEarly_01",
+          "BlueEarly_02",
+          "BlueEarly_04",
+          "BlueEarly_05",
+          "BlueEarly_08",
+          "BlueGreenEarly_01"
+        ],
+        "onUnlock": [
+          {
+            "op": "GrantUnlock",
+            "unlockType": "feature",
+            "unlockId": "ui.disk.season"
+          }
+        ],
+        "uiPos": {
+          "x": 364,
+          "y": 885
+        },
+        "ringId": "ring_02"
+      },
       "Storehouse": {
         "id": "Storehouse",
         "treeId": "systemColorMap",
@@ -3674,7 +3702,7 @@
       "Worship": {
         "id": "Worship",
         "treeId": "systemColorMap",
-        "name": "BlackEarly_Notable_01",
+        "name": "Worship",
         "desc": "",
         "cost": 1,
         "tags": [

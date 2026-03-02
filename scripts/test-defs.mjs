@@ -17,6 +17,7 @@ import {
 } from "../src/defs/gamepieces/skill-tree-defs.js";
 import { INTENT_AP_COSTS } from "../src/defs/gamesettings/action-costs-defs.js";
 import { eventLogTypeDefs } from "../src/defs/gamesettings/event-log-types-defs.js";
+import { skillFeatureUnlockDefs } from "../src/defs/gamesettings/skill-feature-unlocks-defs.js";
 import { LEADER_EQUIPMENT_SLOT_ORDER } from "../src/defs/gamesystems/equipment-slot-defs.js";
 import { validateEnvDefs } from "../src/defs/validate-env-defs.js";
 import { validateSkillDefs } from "../src/defs/validate-skill-defs.js";
@@ -154,6 +155,7 @@ function validateSkillDefsHard() {
     skillNodes,
     recipeDefs,
     hubStructureDefs,
+    skillFeatureUnlockDefs,
   });
 
   if (!result.ok) {
@@ -169,8 +171,78 @@ function validateSkillDefsHard() {
   console.log("[test] Skill defs validation check complete");
 }
 
+function validateSkillFeatureUnlockIds() {
+  const valid = validateSkillDefs({
+    skillTrees: {
+      testTree: {
+        id: "testTree",
+        name: "Test",
+        startNodeId: "start",
+      },
+    },
+    skillNodes: {
+      start: {
+        id: "start",
+        treeId: "testTree",
+        name: "Start",
+        desc: "",
+        cost: 0,
+        adjacent: [],
+        onUnlock: [
+          {
+            op: "GrantUnlock",
+            unlockType: "feature",
+            unlockId: "ui.disk.moon",
+          },
+        ],
+      },
+    },
+    recipeDefs: {},
+    hubStructureDefs: {},
+    skillFeatureUnlockDefs,
+  });
+  assert.equal(valid.ok, true, "[test] feature unlock id should validate when known");
+
+  const invalid = validateSkillDefs({
+    skillTrees: {
+      testTree: {
+        id: "testTree",
+        name: "Test",
+        startNodeId: "start",
+      },
+    },
+    skillNodes: {
+      start: {
+        id: "start",
+        treeId: "testTree",
+        name: "Start",
+        desc: "",
+        cost: 0,
+        adjacent: [],
+        onUnlock: [
+          {
+            op: "GrantUnlock",
+            unlockType: "feature",
+            unlockId: "ui.disk.not-real",
+          },
+        ],
+      },
+    },
+    recipeDefs: {},
+    hubStructureDefs: {},
+    skillFeatureUnlockDefs,
+  });
+  assert.equal(
+    invalid.ok,
+    false,
+    "[test] unknown feature unlock id should fail validation"
+  );
+  console.log("[test] Skill feature unlock validation checks complete");
+}
+
 await checkDefsBundleability();
 validateCoreDefinitions();
 validateEventLogTypeDefs();
 validateEnvironmentDefsSoft();
 validateSkillDefsHard();
+validateSkillFeatureUnlockIds();

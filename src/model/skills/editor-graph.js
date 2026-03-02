@@ -7,6 +7,7 @@ import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
+import { skillFeatureUnlockDefs } from "../../defs/gamesettings/skill-feature-unlocks-defs.js";
 import { validateSkillDefs } from "../../defs/validate-skill-defs.js";
 import { computeSkillTreeLayout } from "./layout-engine.js";
 import {
@@ -466,6 +467,7 @@ export function exportRuntimeSkillDefsFromEditorGraph(graph) {
     hubStructureDefs,
     envTagDefs,
     hubTagDefs,
+    skillFeatureUnlockDefs,
     itemTagDefs,
   });
 
