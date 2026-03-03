@@ -16,6 +16,8 @@ export function createRunnerMetricGraph({
   getEventMarkers = null,
   getEditableHistoryBounds = null,
   historyWindowSec = undefined,
+  getSystemTargetModeLabel = null,
+  onToggleSystemTargetMode = null,
 }) {
   const metricId =
     typeof metric === "string" ? metric : typeof metric?.id === "string" ? metric.id : null;
@@ -51,6 +53,12 @@ export function createRunnerMetricGraph({
   }
   if (Number.isFinite(historyWindowSec) && historyWindowSec > 0) {
     options.historyWindowSec = historyWindowSec;
+  }
+  if (typeof getSystemTargetModeLabel === "function") {
+    options.getSystemTargetModeLabel = getSystemTargetModeLabel;
+  }
+  if (typeof onToggleSystemTargetMode === "function") {
+    options.onToggleSystemTargetMode = onToggleSystemTargetMode;
   }
 
   return createMetricGraphView(options);

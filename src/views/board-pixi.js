@@ -98,6 +98,7 @@ export function createBoardView(opts) {
     onSystemIconOut,
     onSystemIconClick,
     onProcessCogClick,
+    onGamepieceTapForSystemFocus,
     getExternalFocus,
   } = opts;
 
@@ -290,6 +291,7 @@ export function createBoardView(opts) {
   let iconDistributorRangePreview = null;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
+  let stageWheelHandler = null;
   let lastProcessedGameEventId = 0;
   let lastSeenEventSec = null;
   let eventSlotsLayoutKey = "";
@@ -1801,6 +1803,19 @@ export function createBoardView(opts) {
     lastPointerPos = { x: p.x, y: p.y };
   }
 
+  function clientToStagePoint(clientX, clientY) {
+    const canvas = app?.view;
+    const rect = canvas?.getBoundingClientRect?.();
+    if (!rect) return null;
+    const width = Number.isFinite(rect.width) ? rect.width : 0;
+    const height = Number.isFinite(rect.height) ? rect.height : 0;
+    if (width <= 0 || height <= 0) return null;
+    const x = ((clientX - rect.left) * app.screen.width) / width;
+    const y = ((clientY - rect.top) * app.screen.height) / height;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  }
+
   function setActiveHover(next) {
     if (!next?.view) return;
     if (activeHover?.view === next.view) return;
@@ -1857,6 +1872,8 @@ export function createBoardView(opts) {
     restoreFromHover(view.container);
     view.isHovered = false;
     view.hoverAnchor = null;
+    updateTileTagLayoutForHoverState(view);
+    tagUi?.resetTagScroll?.(view);
     clearHoverContext();
     tooltipView?.hide?.();
     // Dropdown handles its own hide behavior.
@@ -1874,6 +1891,9 @@ export function createBoardView(opts) {
     if (!view) return;
     view.setHoverActive?.(false);
     restoreFromHover(view.container);
+    if (view.descText) {
+      view.descText.visible = false;
+    }
     clearHoverContext();
     tooltipView?.hide?.();
   }
@@ -1886,6 +1906,8 @@ export function createBoardView(opts) {
     view.occupantHoverHoldSec = 0;
     view.isHovered = false;
     view.hoverAnchor = null;
+    updateHubStructureViewUi(view, view.structure);
+    hubTagUi?.resetTagScroll?.(view);
     clearHoverContext();
     tooltipView?.hide?.();
     if (inventoryView && view.structureHasInventory?.()) {
@@ -1964,6 +1986,27 @@ export function createBoardView(opts) {
     return true;
   }
 
+  function updateTileTagLayoutForHoverState(view) {
+    if (!view) return;
+    if (view.ordersButton) {
+      view.ordersButton.visible = !!view.isHovered;
+    }
+    const baseStartY = Number.isFinite(view.tagStartYBase)
+      ? view.tagStartYBase
+      : Number.isFinite(view.tagStartY)
+      ? view.tagStartY
+      : 0;
+    view.tagStartY = baseStartY;
+    view.tagContainer.y = view.tagStartY;
+    const defaultBottom = TILE_HEIGHT - 12;
+    if (view.ordersButton?.visible && Number.isFinite(view.ordersButton?.y)) {
+      view.tagMaxY = Math.max(view.tagStartY, view.ordersButton.y - ORDERS_BUTTON_TAG_GAP);
+    } else {
+      view.tagMaxY = Math.max(view.tagStartY, defaultBottom);
+    }
+    tagUi?.layoutTagEntries?.(view);
+  }
+
   function applyTileHover(view) {
     if (!view?.container || !view?.tile) return;
     const { title, desc } = getTileUi(view.tile);
@@ -1984,6 +2027,7 @@ export function createBoardView(opts) {
         : 1;
     view.isHovered = true;
     view.hoverAnchor = anchor;
+    updateTileTagLayoutForHoverState(view);
     setHoverContext("tile", anchorCol, span, anchor);
     tooltipView?.show?.(
       {
@@ -2135,6 +2179,7 @@ export function createBoardView(opts) {
       : 0;
     view.isHovered = true;
     view.hoverAnchor = anchor;
+    updateHubStructureViewUi(view, view.structure);
     setHoverContext("hub", anchorCol, span, anchor);
 
     tooltipView?.show?.(
@@ -2963,6 +3008,9 @@ export function createBoardView(opts) {
     const height = ENV_STRUCTURE_HEIGHT;
     view.setHoverActive?.(true);
     elevateForHover(view.container);
+    if (view.descText) {
+      view.descText.visible = true;
+    }
     const anchor = getScaledAnchorRect(
       view.container,
       width,
@@ -3133,10 +3181,16 @@ export function createBoardView(opts) {
     if (!view || !structureInst) return false;
     const ui = getHubStructureUi(structureInst);
     const buildActive = !!getBuildProcess(structureInst);
-    const signature = `${ui.title}|${ui.lines.join("|")}|${ui.color}`;
+    const visibleLines = view.isHovered ? ui.lines : [];
+    const signature = `${ui.title}|${visibleLines.join("|")}|${ui.color}|${
+      view.isHovered ? 1 : 0
+    }`;
     if (signature === view.uiSignature) {
       if (view.cancelButton) {
         view.cancelButton.visible = buildActive;
+      }
+      if (view.ordersButton) {
+        view.ordersButton.visible = !!view.isHovered;
       }
       return false;
     }
@@ -3166,7 +3220,7 @@ export function createBoardView(opts) {
 
     let y = view.titleText.y + view.titleText.height + 2;
     const maxLineY = view.cardHeight - 40;
-    for (const line of ui.lines) {
+    for (const line of visibleLines) {
       const t = new PIXI.Text(line, {
         fill: 0x000000,
         fontSize: 10,
@@ -3204,6 +3258,7 @@ export function createBoardView(opts) {
     }
 
     if (view.ordersButton) {
+      view.ordersButton.visible = !!view.isHovered;
       view.ordersButton.y = Math.max(
         y + 4,
         view.cardHeight - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT
@@ -3211,9 +3266,10 @@ export function createBoardView(opts) {
     }
     view.tagStartY = Math.min(y + 4, view.cardHeight - 12);
     view.tagContainer.y = view.tagStartY;
-    const ordersTop = Number.isFinite(view.ordersButton?.y)
-      ? view.ordersButton.y
-      : view.cardHeight - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT;
+    const ordersTop =
+      view.ordersButton?.visible && Number.isFinite(view.ordersButton?.y)
+        ? view.ordersButton.y
+        : view.cardHeight - 12;
     view.tagMaxY = Math.max(view.tagStartY, ordersTop - ORDERS_BUTTON_TAG_GAP);
     hubTagUi?.layoutTagEntries?.(view);
 
@@ -3286,6 +3342,7 @@ export function createBoardView(opts) {
         anchorRect: getOrdersAnchorRect(ordersButton),
       });
     });
+    ordersButton.visible = false;
     ordersButton.y = Math.max(
       titleText.y + titleText.height + 4,
       TILE_HEIGHT - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT
@@ -3294,7 +3351,7 @@ export function createBoardView(opts) {
 
     const tagContainer = new PIXI.Container();
     const tagStartY = titleText.y + titleText.height + 4;
-    const tagMaxY = Math.max(tagStartY, ordersButton.y - ORDERS_BUTTON_TAG_GAP);
+    const tagMaxY = TILE_HEIGHT - 12;
     tagContainer.x = Math.max(
       0,
       Math.round((TILE_WIDTH - TAG_LAYOUT.PILL_WIDTH) / 2)
@@ -3342,7 +3399,9 @@ export function createBoardView(opts) {
     hoverTextBaseNodes.push(titleText, pawnText);
     hoverTextNodes.push(...hoverTextBaseNodes);
 
-      cont.on("pointerenter", () => {
+    let tileLongPress = null;
+
+    cont.on("pointerenter", () => {
         if (!interaction?.canShowHoverUI?.()) return;
         if (activeTagDrag && activeTagDrag !== view) return;
         const anchorCol = Number.isFinite(view.tile?.col)
@@ -3358,12 +3417,27 @@ export function createBoardView(opts) {
         applyTileHover(view);
       });
 
-      cont.on("pointerleave", () => {
+    cont.on("pointerleave", () => {
         if (view.tagDrag || view.holdHover) return;
         if (activeHover?.view && activeHover.view !== view) return;
         if (holdHoverForOccupantIfNeeded(view)) return;
         clearActiveHover(view);
+    });
+
+    cont.on("pointertap", () => {
+      if (tileLongPress?.consumeTap?.()) return;
+      const focusCol = Number.isFinite(view.tile?.col)
+        ? Math.floor(view.tile.col)
+        : Number.isFinite(col)
+        ? Math.floor(col)
+        : null;
+      if (focusCol == null) return;
+      onGamepieceTapForSystemFocus?.({
+        kind: "tile",
+        col: focusCol,
+        target: view.tile ?? null,
       });
+    });
 
     const pos = layoutBoardColPos(app.screen.width, col, TILE_WIDTH, TILE_ROW_Y);
     cont.x = pos.x;
@@ -3379,11 +3453,18 @@ export function createBoardView(opts) {
       tagContainer,
       tagStartY,
       tagMaxY,
+      tagStartYBase: tagStartY,
       ordersButton,
       tagSignature: "",
       tagEntries: [],
       expandedTagId: null,
       hasTagToggle: false,
+      tagScrollOffsetY: 0,
+      tagScrollMaxY: 0,
+      tagMask: null,
+      tagOverflowTopFade: null,
+      tagOverflowBottomFade: null,
+      tagOverflowMoreText: null,
       pawnCount: 0,
       ignoreNextTagTap: false,
       tagDrag: null,
@@ -3397,6 +3478,7 @@ export function createBoardView(opts) {
         holdHoverForOccupant: false,
         occupantHoverHoldSec: 0,
       contentPaint,
+      contentInk,
       pawnBadge,
       pawnText,
       feedbackLayer,
@@ -3418,7 +3500,7 @@ export function createBoardView(opts) {
     tagUi?.rebuildTileTags?.(view, tileInst);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
     registerPaintContainer(contentPaint);
-    bindTouchLongPress({
+    tileLongPress = bindTouchLongPress({
       app,
       target: cont,
       shouldStart: () => {
@@ -3770,6 +3852,7 @@ export function createBoardView(opts) {
     });
     descText.x = 6;
     descText.y = titleText.y + titleText.height + 2;
+    descText.visible = false;
     contentInk.addChild(descText);
     hoverTextNodes.push(titleText, descText);
 
@@ -3878,6 +3961,7 @@ export function createBoardView(opts) {
   function buildHubStructureView(structureInst, col, opts = {}) {
     const { title, lines, color, meters } =
       getHubStructureUi(structureInst);
+    const visibleLines = [];
     const span =
       Number.isFinite(structureInst.span) && structureInst.span > 0
         ? Math.floor(structureInst.span)
@@ -3930,7 +4014,7 @@ export function createBoardView(opts) {
 
     let y = titleText.y + titleText.height + 2;
     const lineTextNodes = [];
-    for (const line of lines) {
+    for (const line of visibleLines) {
       const t = new PIXI.Text(line, {
         fill: 0x000000,
         fontSize: 10,
@@ -3973,6 +4057,7 @@ export function createBoardView(opts) {
         anchorRect: getOrdersAnchorRect(ordersButton),
       });
     });
+    ordersButton.visible = false;
     ordersButton.y = Math.max(
       y + 4,
       height - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT
@@ -4092,6 +4177,12 @@ export function createBoardView(opts) {
       tagEntries: [],
       expandedTagId: null,
       hasTagToggle: false,
+      tagScrollOffsetY: 0,
+      tagScrollMaxY: 0,
+      tagMask: null,
+      tagOverflowTopFade: null,
+      tagOverflowBottomFade: null,
+      tagOverflowMoreText: null,
       ignoreNextTagTap: false,
       tagDrag: null,
       holdHoverForOccupant: false,
@@ -4167,6 +4258,18 @@ export function createBoardView(opts) {
 
     cont.on("pointertap", () => {
       if (hubLongPress.consumeTap()) return;
+      const focusCol = Number.isFinite(structureInst?.col)
+        ? Math.floor(structureInst.col)
+        : Number.isFinite(col)
+        ? Math.floor(col)
+        : null;
+      if (focusCol != null) {
+        onGamepieceTapForSystemFocus?.({
+          kind: "hub",
+          col: focusCol,
+          target: structureInst ?? null,
+        });
+      }
       if (inventoryView && structureHasInventory()) {
         inventoryView.togglePinned(structureInst.instanceId);
       }
@@ -4941,6 +5044,28 @@ export function createBoardView(opts) {
     if (!stagePointerMoveHandler) {
       stagePointerMoveHandler = (ev) => trackPointerPos(ev);
       app.stage.on("pointermove", stagePointerMoveHandler);
+    }
+    if (!stageWheelHandler) {
+      stageWheelHandler = (ev) => {
+        if (!activeHover?.view) return;
+        if (activeTagDrag || activeHubTagDrag) return;
+        const stagePoint = clientToStagePoint(ev.clientX, ev.clientY);
+        if (!stagePoint) return;
+        const hoverView = activeHover.view;
+        if (!isPointerInsideView(hoverView, stagePoint, 2)) return;
+        let handled = false;
+        if (activeHover.kind === "tile") {
+          handled = tagUi?.scrollTagEntries?.(hoverView, ev.deltaY) === true;
+        } else if (activeHover.kind === "hub") {
+          handled = hubTagUi?.scrollTagEntries?.(hoverView, ev.deltaY) === true;
+        }
+        if (!handled) return;
+        ev.preventDefault?.();
+        ev.stopPropagation?.();
+      };
+      app?.view?.addEventListener?.("wheel", stageWheelHandler, {
+        passive: false,
+      });
     }
     ensureEventExpiryFxLayerAttached();
     const state = getGameState?.();

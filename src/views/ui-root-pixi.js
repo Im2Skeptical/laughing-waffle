@@ -1421,6 +1421,9 @@ const boardView = createBoardView({
     const target = view?.structure ?? view?.tile ?? null;
     processWidgetView?.togglePinnedTarget?.(target, systemId);
   },
+  onGamepieceTapForSystemFocus: (focus) => {
+    focusSystemGraphFromGamepiece(focus);
+  },
   getExternalFocus: () => getExternalUiFocus(),
 });
 
@@ -1530,6 +1533,8 @@ processWidgetView = createProcessWidgetView({
   position: VIEW_LAYOUT.processWidget.position,
 });
 
+let systemGraphTargetMode = "hover";
+
 let goldGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
@@ -1577,6 +1582,8 @@ let systemGraphView = createRunnerMetricGraph({
   getMetricDef: () => systemGraphController.getData().metric,
   openPosition: VIEW_LAYOUT.graphs.system,
   historyWindowSec: 600,
+  getSystemTargetModeLabel: () => getSystemGraphTargetModeLabel(),
+  onToggleSystemTargetMode: () => toggleSystemGraphTargetMode(),
 });
 
 let apGraphView = createRunnerMetricGraph({
@@ -1612,8 +1619,109 @@ let popGraphView = createRunnerMetricGraph({
   openPosition: VIEW_LAYOUT.graphs.population,
 });
 
+function getSystemGraphTargetModeLabel() {
+  return systemGraphTargetMode === "click" ? "Target: Click" : "Target: Hover";
+}
+
+function parseSystemGraphSubjectKey(rawKey) {
+  const key = typeof rawKey === "string" ? rawKey : "";
+  if (!key.length) return null;
+  const parts = key.split(":");
+  if (parts.length < 2) return null;
+  const kind = parts[0];
+  const value = parts.slice(1).join(":");
+  if (kind === "tile") {
+    const col = Number.isFinite(Number(value)) ? Math.floor(Number(value)) : null;
+    return col == null ? null : { kind: "tile", col };
+  }
+  if (kind === "hub") {
+    const col = Number.isFinite(Number(value)) ? Math.floor(Number(value)) : null;
+    return col == null ? null : { kind: "hub", col };
+  }
+  if (kind === "pawn") {
+    const id = Number.isFinite(Number(value)) ? Math.floor(Number(value)) : null;
+    return id == null ? null : { kind: "pawn", id };
+  }
+  return null;
+}
+
+function getCurrentHoverSystemTarget() {
+  const hover =
+    interactionController.getHoveredPawn?.() ??
+    interactionController.getHovered?.() ??
+    interactionController.getLastHovered?.();
+  if (!hover) return null;
+  if (hover.kind === "tile") {
+    const col = Number.isFinite(hover.col) ? Math.floor(hover.col) : null;
+    return col == null ? null : { kind: "tile", col };
+  }
+  if (hover.kind === "hub") {
+    const col = Number.isFinite(hover.col) ? Math.floor(hover.col) : null;
+    return col == null ? null : { kind: "hub", col };
+  }
+  if (hover.kind === "pawn") {
+    const id = Number.isFinite(hover.id) ? Math.floor(hover.id) : null;
+    return id == null ? null : { kind: "pawn", id };
+  }
+  return null;
+}
+
+function lockSystemGraphToTarget(target, { forceOpen = false } = {}) {
+  if (!target) return { ok: false, reason: "noTarget" };
+  return systemGraphModel.toggleGraphForTarget(systemGraphView, target, {
+    forceOpen,
+  });
+}
+
+function lockSystemGraphToCurrentTarget({ forceOpen = false } = {}) {
+  const subjectKey = systemGraphController.getData?.()?.subjectKey ?? null;
+  const fromSubject = parseSystemGraphSubjectKey(subjectKey);
+  const target = fromSubject || getCurrentHoverSystemTarget();
+  if (!target) return { ok: false, reason: "noTarget" };
+  return lockSystemGraphToTarget(target, { forceOpen });
+}
+
+function toggleSystemGraphTargetMode() {
+  systemGraphTargetMode = systemGraphTargetMode === "click" ? "hover" : "click";
+  if (!systemGraphView.isOpen?.()) return;
+  if (systemGraphTargetMode === "hover") {
+    systemGraphModel.toggleGraphForHover(systemGraphView, { forceOpen: true });
+  } else {
+    lockSystemGraphToCurrentTarget({ forceOpen: true });
+  }
+}
+
+function focusSystemGraphFromGamepiece(focus) {
+  if (systemGraphTargetMode !== "click") return;
+  if (!systemGraphView.isOpen?.()) return;
+  if (!focus || typeof focus !== "object") return;
+  const kind = focus.kind;
+  if (kind !== "tile" && kind !== "hub" && kind !== "pawn") return;
+  if (kind === "tile") {
+    const col = Number.isFinite(focus.col) ? Math.floor(focus.col) : null;
+    if (col == null) return;
+    lockSystemGraphToTarget({ kind: "tile", col }, { forceOpen: true });
+    return;
+  }
+  if (kind === "hub") {
+    const col = Number.isFinite(focus.col) ? Math.floor(focus.col) : null;
+    if (col == null) return;
+    lockSystemGraphToTarget({ kind: "hub", col }, { forceOpen: true });
+    return;
+  }
+  const id = Number.isFinite(focus.id) ? Math.floor(focus.id) : null;
+  if (id == null) return;
+  lockSystemGraphToTarget({ kind: "pawn", id }, { forceOpen: true });
+}
+
 function openSystemGraphForHover() {
-  const result = systemGraphModel.toggleGraphForHover(systemGraphView);
+  let result =
+    systemGraphTargetMode === "click"
+      ? lockSystemGraphToCurrentTarget()
+      : systemGraphModel.toggleGraphForHover(systemGraphView);
+  if (result?.ok === false && systemGraphTargetMode === "click") {
+    result = systemGraphModel.toggleGraphForHover(systemGraphView);
+  }
   if (debugSystemGraphFullHistoryEditActive) {
     setDebugSystemGraphFullHistoryEditActive(false);
   }
@@ -1681,7 +1789,13 @@ function applyDebugSystemGraphPolicy() {
 
 function openSystemGraphFromDebug() {
   applyDebugSystemGraphPolicy();
-  const result = systemGraphModel.toggleGraphForHover(systemGraphView);
+  let result =
+    systemGraphTargetMode === "click"
+      ? lockSystemGraphToCurrentTarget()
+      : systemGraphModel.toggleGraphForHover(systemGraphView);
+  if (result?.ok === false && systemGraphTargetMode === "click") {
+    result = systemGraphModel.toggleGraphForHover(systemGraphView);
+  }
   const opened = !!result?.opened && systemGraphView.isOpen?.() === true;
   setDebugSystemGraphFullHistoryEditActive(opened);
   return result;

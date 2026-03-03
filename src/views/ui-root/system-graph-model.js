@@ -947,7 +947,7 @@ export function createSystemGraphModel({
   let nextSystemGraphTargetUpdateAtMs = 0;
   let pendingSystemGraphTargetKey = null;
   let pendingSystemGraphTargetSinceMs = 0;
-  let lockedOwnerTarget = null;
+  let lockedTarget = null;
 
   function getSystemGraphTarget() {
     const hover =
@@ -1009,11 +1009,31 @@ export function createSystemGraphModel({
     return true;
   }
 
+  function resolveExplicitTarget(snapshot, rawTarget) {
+    if (!rawTarget || typeof rawTarget !== "object") return null;
+    if (rawTarget.kind === "tile") {
+      const col = Number.isFinite(rawTarget.col) ? Math.floor(rawTarget.col) : null;
+      if (col == null) return null;
+      return resolveTileForTooltip(snapshot, col) ? { kind: "tile", col } : null;
+    }
+    if (rawTarget.kind === "hub") {
+      const col = Number.isFinite(rawTarget.col) ? Math.floor(rawTarget.col) : null;
+      if (col == null) return null;
+      return resolveHubStructureForTooltip(snapshot, col) ? { kind: "hub", col } : null;
+    }
+    if (rawTarget.kind === "pawn") {
+      const id = rawTarget.id ?? null;
+      if (id == null) return null;
+      return findPawnById(snapshot, id) ? { kind: "pawn", id } : null;
+    }
+    return null;
+  }
+
   function updateSystemGraphTarget(nowMs = performance.now()) {
-    if (lockedOwnerTarget) {
-      const lockedKey = getSystemGraphTargetKey(lockedOwnerTarget);
+    if (lockedTarget) {
+      const lockedKey = getSystemGraphTargetKey(lockedTarget);
       if (lockedKey === lastSystemGraphTargetKey) return false;
-      return applySystemGraphTarget(lockedOwnerTarget, lockedKey);
+      return applySystemGraphTarget(lockedTarget, lockedKey);
     }
 
     const target = getSystemGraphTarget();
@@ -1031,7 +1051,7 @@ export function createSystemGraphModel({
   }
 
   function refreshTargetThrottled(nowMs = performance.now()) {
-    if (lockedOwnerTarget) {
+    if (lockedTarget) {
       return updateSystemGraphTarget(nowMs);
     }
     if (nowMs < nextSystemGraphTargetUpdateAtMs) return false;
@@ -1042,7 +1062,7 @@ export function createSystemGraphModel({
   function toggleGraphForHover(graphView, opts = {}) {
     if (!graphView) return { ok: false, reason: "noGraphView" };
     const forceOpen = opts?.forceOpen === true;
-    lockedOwnerTarget = null;
+    lockedTarget = null;
     if (graphView.isOpen() && !forceOpen) {
       graphView.close();
       return { ok: true, closed: true };
@@ -1061,35 +1081,52 @@ export function createSystemGraphModel({
     return { ok: true, opened: true };
   }
 
-  function toggleGraphForOwner(graphView, ownerId, opts = {}) {
+  function toggleGraphForTarget(graphView, target, opts = {}) {
     if (!graphView) return { ok: false, reason: "noGraphView" };
     const forceOpen = opts?.forceOpen === true;
+    const state = runner.getCursorState?.();
+    const resolvedTarget = resolveExplicitTarget(state, target);
+    if (!resolvedTarget) {
+      return { ok: false, reason: "invalidTarget" };
+    }
+
+    lockedTarget = resolvedTarget;
+    nextSystemGraphTargetUpdateAtMs = 0;
+    const targetKey = getSystemGraphTargetKey(resolvedTarget);
+    applySystemGraphTarget(resolvedTarget, targetKey);
+
+    if (graphView.isOpen() && !forceOpen) {
+      graphView.close();
+      return { ok: true, closed: true, targetKey, target: resolvedTarget };
+    }
+    if (graphView.isOpen()) {
+      return {
+        ok: true,
+        opened: true,
+        alreadyOpen: true,
+        targetKey,
+        target: resolvedTarget,
+      };
+    }
+    graphView.open();
+    return { ok: true, opened: true, targetKey, target: resolvedTarget };
+  }
+
+  function toggleGraphForOwner(graphView, ownerId, opts = {}) {
+    if (!graphView) return { ok: false, reason: "noGraphView" };
     const state = runner.getCursorState?.();
     const target = resolveSystemGraphTargetFromOwnerId(state, ownerId);
     if (!target) {
       return { ok: false, reason: "ownerTargetNotFound" };
     }
-
-    lockedOwnerTarget = target;
-    nextSystemGraphTargetUpdateAtMs = 0;
-    const targetKey = getSystemGraphTargetKey(target);
-    applySystemGraphTarget(target, targetKey);
-
-    if (graphView.isOpen() && !forceOpen) {
-      graphView.close();
-      return { ok: true, closed: true, targetKey, target };
-    }
-    if (graphView.isOpen()) {
-      return { ok: true, opened: true, alreadyOpen: true, targetKey, target };
-    }
-    graphView.open();
-    return { ok: true, opened: true, targetKey, target };
+    return toggleGraphForTarget(graphView, target, opts);
   }
 
   return {
     controller,
     refreshTargetThrottled,
     toggleGraphForHover,
+    toggleGraphForTarget,
     toggleGraphForOwner,
   };
 }

@@ -7,6 +7,7 @@ import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
+import { FAITH_GROWTH_STREAK_FOR_UPGRADE } from "../../defs/gamesettings/gamerules-defs.js";
 import { TIER_ASC } from "../../model/effects/core/tiers.js";
 import { hasHubTagUnlock } from "../../model/skills.js";
 import {
@@ -53,6 +54,15 @@ const SYSTEM_BAR_RATIO_QUANT = 100;
 const TAG_ACTION_COG_FILL = 0xa7afb8;
 const TAG_ACTION_COG_STROKE = 0xdbe2e8;
 const TAG_ACTION_COG_ICON = 0x4f5862;
+const TAG_OVERFLOW_FADE_HEIGHT = 14;
+const TAG_OVERFLOW_TEXT = "More...";
+const FAITH_TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
+const FAITH_TIER_COLORS = Object.freeze({
+  bronze: 0x8f6945,
+  silver: 0x8ea0b2,
+  gold: 0xc8a03f,
+  diamond: 0x72a9c8,
+});
 
 const HUB_SYSTEM_UI_MAP = {
   build: { label: "Build", icon: "B", color: 0x8f7a58 },
@@ -138,11 +148,27 @@ export function createHubTagUi(opts) {
     return systemId === "fireplace" || systemId === "workspace";
   }
 
+  function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function formatTierLabel(tier) {
+    const raw = typeof tier === "string" ? tier : "";
+    if (!raw.length) return "Bronze";
+    return raw[0].toUpperCase() + raw.slice(1);
+  }
+
+  function isHousingTag(tagId) {
+    return tagId === "canHouse";
+  }
+
   function isProcessWidgetCapableSystem(systemId) {
     return isProcessWidgetSystem?.(systemId) === true;
   }
 
-  function resolveProcessWidgetSystemIdForTagSystems(systems) {
+  function resolveProcessWidgetSystemIdForTagSystems(systems, tagId = null) {
+    if (isHousingTag(tagId)) return null;
     if (!Array.isArray(systems) || systems.length <= 0) return null;
     for (const systemId of systems) {
       if (!isProcessWidgetCapableSystem(systemId)) continue;
@@ -478,13 +504,83 @@ export function createHubTagUi(opts) {
     row.lastBarRenderKey = renderKey;
   }
 
+  function getFaithThreshold() {
+    const raw = Number.isFinite(FAITH_GROWTH_STREAK_FOR_UPGRADE)
+      ? Math.floor(FAITH_GROWTH_STREAK_FOR_UPGRADE)
+      : 3;
+    return Math.max(1, raw);
+  }
+
+  function getFaithTierIndex(tier) {
+    const key = typeof tier === "string" ? tier : "";
+    const idx = FAITH_TIER_ORDER.indexOf(key);
+    return idx >= 0 ? idx : 0;
+  }
+
+  function renderFaithRow(structure, row) {
+    const tier = typeof structure?.systemTiers?.faith === "string"
+      ? structure.systemTiers.faith
+      : "bronze";
+    const tierIndex = getFaithTierIndex(tier);
+    const tracker = getGameState?.()?.populationTracker || {};
+    const streak = Math.max(0, Math.floor(tracker?.faithGrowthStreak ?? 0));
+    const threshold = getFaithThreshold();
+    const ratio = clamp01(streak / threshold);
+    const label = `${formatTierLabel(tier)} ${streak}/${threshold}`;
+    const renderKey = `faith|${tier}|${streak}|${threshold}`;
+    if (row.lastBarRenderKey === renderKey) return;
+
+    setSystemRowLabel(row, label);
+    row.barFill.clear();
+
+    const slotGap = 1;
+    const slotCount = FAITH_TIER_ORDER.length;
+    const slotWidth = Math.max(
+      1,
+      Math.floor((row.barWidth - slotGap * (slotCount - 1)) / slotCount)
+    );
+    let x = row.barX;
+    for (let i = 0; i < slotCount; i += 1) {
+      const tierId = FAITH_TIER_ORDER[i];
+      const active = i <= tierIndex;
+      const color = FAITH_TIER_COLORS[tierId] ?? 0x777777;
+      row.barFill.beginFill(active ? color : MUCHA_UI_COLORS.surfaces.borderSoft, active ? 0.95 : 0.55);
+      row.barFill.drawRoundedRect(x, row.barY, slotWidth, row.barHeight, 2);
+      row.barFill.endFill();
+      x += slotWidth + slotGap;
+    }
+
+    const progressHeight = Math.max(2, Math.floor(row.barHeight * 0.35));
+    const progressY = row.barY + row.barHeight - progressHeight;
+    row.barFill.beginFill(0x000000, 0.25);
+    row.barFill.drawRect(row.barX, progressY, row.barWidth, progressHeight);
+    row.barFill.endFill();
+    if (ratio > 0) {
+      row.barFill.beginFill(MUCHA_UI_COLORS.intent.alertPop, 0.9);
+      row.barFill.drawRect(
+        row.barX,
+        progressY,
+        Math.max(1, Math.floor(row.barWidth * ratio)),
+        progressHeight
+      );
+      row.barFill.endFill();
+    }
+
+    row.lastBarRenderKey = renderKey;
+  }
+
   function buildSystemRow(view, systemId, opts = null) {
     const uiOverride = opts?.uiOverride ?? null;
     const ui = uiOverride || getSystemUi(systemId);
-    const processWidgetSystemId =
+    const allowProcessWidgetOpen = opts?.allowProcessWidgetOpen !== false;
+    const requestedProcessSystemId =
       typeof opts?.processSystemId === "string" && opts.processSystemId.length > 0
         ? opts.processSystemId
         : systemId;
+    const processWidgetSystemId =
+      allowProcessWidgetOpen && isProcessWidgetCapableSystem(requestedProcessSystemId)
+        ? requestedProcessSystemId
+        : null;
     const container = new PIXI.Container();
     container.eventMode = "static";
     container.hitArea = new PIXI.Rectangle(
@@ -610,6 +706,7 @@ export function createHubTagUi(opts) {
     });
     icon.on("pointertap", (ev) => {
       ev?.stopPropagation?.();
+      if (!processWidgetSystemId) return;
       onSystemIconClick?.(view, processWidgetSystemId);
     });
 
@@ -619,7 +716,10 @@ export function createHubTagUi(opts) {
   function buildTagEntry(view, tagId, structure) {
     const tagDef = hubTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
-    const processWidgetSystemId = resolveProcessWidgetSystemIdForTagSystems(systems);
+    const processWidgetSystemId = resolveProcessWidgetSystemIdForTagSystems(
+      systems,
+      tagId
+    );
     const actionMode = processWidgetSystemId ? "cog" : "none";
 
     const container = new PIXI.Container();
@@ -682,12 +782,13 @@ export function createHubTagUi(opts) {
         if (systemId === "storage") {
           const itemIds = listStorageItemIds(structure);
           if (itemIds.length === 0) {
-            const rowEntry = buildSystemRow(view, "storage", {
-              storageItemId: null,
-              storageLabel: "Storage",
-              uiOverride: getSystemUi("storage"),
-              processSystemId: "deposit",
-            });
+              const rowEntry = buildSystemRow(view, "storage", {
+                storageItemId: null,
+                storageLabel: "Storage",
+                uiOverride: getSystemUi("storage"),
+                processSystemId: "deposit",
+                allowProcessWidgetOpen: !isHousingTag(tagId),
+              });
             rowEntry.container.y = sysY;
             systemContainer.addChild(rowEntry.container);
             systemRows.push(rowEntry);
@@ -703,6 +804,7 @@ export function createHubTagUi(opts) {
                 storageLabel: label,
                 uiOverride: { label, icon, color },
                 processSystemId: "deposit",
+                allowProcessWidgetOpen: !isHousingTag(tagId),
               });
               rowEntry.container.y = sysY;
               systemContainer.addChild(rowEntry.container);
@@ -713,6 +815,7 @@ export function createHubTagUi(opts) {
           continue;
         }
         const rowEntry = buildSystemRow(view, systemId, {
+          allowProcessWidgetOpen: !isHousingTag(tagId),
         });
         rowEntry.container.y = sysY;
         systemContainer.addChild(rowEntry.container);
@@ -757,7 +860,6 @@ export function createHubTagUi(opts) {
       actionControl.on("pointertap", (ev) => {
         ev?.stopPropagation?.();
         view.ignoreNextTagTap = true;
-        view.hasTagToggle = true;
         requestPauseForAction?.();
         onProcessCogClick?.(view, processWidgetSystemId);
       });
@@ -787,73 +889,167 @@ export function createHubTagUi(opts) {
       ev?.stopPropagation?.();
       if (view.ignoreNextTagTap) {
         view.ignoreNextTagTap = false;
-        return;
       }
-      view.hasTagToggle = true;
-      const next = view.expandedTagId === tagId ? null : tagId;
-      view.expandedTagId = next;
-      for (const entry of view.tagEntries || []) {
-        entry.setExpanded(entry.tagId === view.expandedTagId);
-      }
-      layoutTagEntries(view);
     });
 
     return entry;
   }
 
+  function ensureTagOverflowDecor(view) {
+    if (!view) return;
+    if (!view.tagMask) {
+      view.tagMask = new PIXI.Graphics();
+      view.contentInk?.addChild?.(view.tagMask);
+      if (view.tagContainer) {
+        view.tagContainer.mask = view.tagMask;
+      }
+    }
+    if (!view.tagOverflowTopFade) {
+      view.tagOverflowTopFade = new PIXI.Graphics();
+      view.contentInk?.addChild?.(view.tagOverflowTopFade);
+    }
+    if (!view.tagOverflowBottomFade) {
+      view.tagOverflowBottomFade = new PIXI.Graphics();
+      view.contentInk?.addChild?.(view.tagOverflowBottomFade);
+    }
+    if (!view.tagOverflowMoreText) {
+      view.tagOverflowMoreText = new PIXI.Text(TAG_OVERFLOW_TEXT, {
+        fill: MUCHA_UI_COLORS.ink.secondary,
+        fontSize: 9,
+      });
+      view.tagOverflowMoreText.visible = false;
+      view.tagOverflowMoreText.eventMode = "none";
+      view.contentInk?.addChild?.(view.tagOverflowMoreText);
+      setTextResolution?.([view.tagOverflowMoreText], baseTextResolution);
+    }
+  }
+
+  function updateTagOverflowDecor(view, maxHeight, contentHeight) {
+    ensureTagOverflowDecor(view);
+    const mask = view.tagMask;
+    const topFade = view.tagOverflowTopFade;
+    const bottomFade = view.tagOverflowBottomFade;
+    const moreText = view.tagOverflowMoreText;
+    if (!mask || !topFade || !bottomFade || !moreText) return;
+
+    const x = Number.isFinite(view.tagContainer?.x) ? view.tagContainer.x : 0;
+    const y = Number.isFinite(view.tagStartY) ? view.tagStartY : 0;
+    const width = TAG_PILL_WIDTH;
+    const height = Math.max(0, Math.floor(maxHeight));
+    const scrollMax = Math.max(0, Math.floor(view.tagScrollMaxY ?? 0));
+    const scroll = Math.max(0, Math.floor(view.tagScrollOffsetY ?? 0));
+    const hasOverflow = scrollMax > 0 && contentHeight > maxHeight + 1;
+    const showTop = hasOverflow && scroll > 0;
+    const showBottom = hasOverflow && scroll < scrollMax;
+    const fadeHeight = Math.min(TAG_OVERFLOW_FADE_HEIGHT, height);
+
+    mask.clear();
+    if (height > 0) {
+      mask.beginFill(0xffffff, 1);
+      mask.drawRect(x, y, width, height);
+      mask.endFill();
+    }
+
+    topFade.clear();
+    if (showTop && fadeHeight > 0) {
+      topFade.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.7);
+      topFade.drawRect(x, y, width, fadeHeight);
+      topFade.endFill();
+    }
+
+    bottomFade.clear();
+    if (showBottom && fadeHeight > 0) {
+      bottomFade.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.75);
+      bottomFade.drawRect(x, y + Math.max(0, height - fadeHeight), width, fadeHeight);
+      bottomFade.endFill();
+    }
+
+    moreText.visible = showBottom;
+    if (showBottom) {
+      moreText.x = x + Math.max(0, Math.floor((width - moreText.width) / 2));
+      moreText.y = y + Math.max(0, height - moreText.height - 1);
+    }
+  }
+
   function layoutTagEntries(view) {
     const entries = view.tagEntries || [];
-    const tagMaxY =
-      typeof view.tagMaxY === "number" ? view.tagMaxY : 0;
+    const tagMaxY = typeof view.tagMaxY === "number" ? view.tagMaxY : 0;
     const maxHeight = Math.max(0, tagMaxY - view.tagStartY);
+    if (!Number.isFinite(view.tagScrollOffsetY)) {
+      view.tagScrollOffsetY = 0;
+    }
 
-    let y = 0;
+    let totalContentHeight = 0;
     for (const entry of entries) {
       if (!entry) continue;
       const rowScale = entry.rowScale ?? 1;
       const rowHeight = TAG_PILL_HEIGHT * rowScale;
-      const spaceRemaining = maxHeight - y;
-      if (spaceRemaining < rowHeight) {
-        entry.container.visible = false;
-        continue;
-      }
-      entry.container.visible = true;
-      entry.container.x = 0;
-      entry.container.y = y;
-
       let entryHeight = rowHeight;
       if (entry.expanded && entry.systemRows.length > 0) {
-        const maxSystemHeight = spaceRemaining - rowHeight - 4;
-        if (maxSystemHeight > 0) {
-          let sysY = 0;
-          for (const row of entry.systemRows) {
-            if (sysY + SYSTEM_ROW_HEIGHT <= maxSystemHeight) {
-              row.container.visible = true;
-              row.container.y = sysY;
-              sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
-            } else {
-              row.container.visible = false;
-            }
-          }
-          if (sysY > 0) sysY -= SYSTEM_ROW_GAP;
-          entry.systemContainer.visible = sysY > 0;
-          entryHeight = rowHeight + (sysY > 0 ? sysY + 4 : 0);
-        } else {
-          entry.systemContainer.visible = false;
-          for (const row of entry.systemRows) {
-            row.container.visible = false;
-          }
+        let sysY = 0;
+        for (const row of entry.systemRows) {
+          row.container.visible = true;
+          row.container.y = sysY;
+          sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
         }
+        if (sysY > 0) sysY -= SYSTEM_ROW_GAP;
+        entry.systemContainer.visible = sysY > 0;
+        entryHeight = rowHeight + (sysY > 0 ? sysY + 4 : 0);
       } else {
         entry.systemContainer.visible = false;
         for (const row of entry.systemRows) {
           row.container.visible = false;
         }
       }
-
       entry.height = entryHeight;
+      totalContentHeight += entryHeight + TAG_PILL_GAP;
+    }
+    if (totalContentHeight > 0) totalContentHeight -= TAG_PILL_GAP;
+
+    view.tagScrollMaxY = Math.max(0, totalContentHeight - maxHeight);
+    const scrollOffsetY = Math.max(
+      0,
+      Math.min(view.tagScrollOffsetY ?? 0, view.tagScrollMaxY)
+    );
+    view.tagScrollOffsetY = scrollOffsetY;
+
+    let y = 0;
+    const viewportTop = scrollOffsetY;
+    const viewportBottom = scrollOffsetY + maxHeight;
+    for (const entry of entries) {
+      if (!entry) continue;
+      const entryHeight = entry.height ?? TAG_PILL_HEIGHT;
+      const entryTop = y;
+      const entryBottom = y + entryHeight;
+      entry.container.visible =
+        maxHeight > 0 && entryBottom >= viewportTop && entryTop <= viewportBottom;
+      entry.container.x = 0;
+      entry.container.y = y - scrollOffsetY;
       y += entryHeight + TAG_PILL_GAP;
     }
+
+    updateTagOverflowDecor(view, maxHeight, totalContentHeight);
+  }
+
+  function scrollTagEntries(view, deltaY = 0) {
+    if (!view || !Number.isFinite(deltaY)) return false;
+    const maxScroll = Math.max(0, Math.floor(view.tagScrollMaxY ?? 0));
+    if (maxScroll <= 0) return false;
+    const prev = Math.max(0, Math.floor(view.tagScrollOffsetY ?? 0));
+    const next = Math.max(0, Math.min(maxScroll, prev + Math.floor(deltaY)));
+    if (next === prev) return false;
+    view.tagScrollOffsetY = next;
+    layoutTagEntries(view);
+    return true;
+  }
+
+  function resetTagScroll(view) {
+    if (!view) return false;
+    const prev = Math.max(0, Math.floor(view.tagScrollOffsetY ?? 0));
+    if (prev === 0) return false;
+    view.tagScrollOffsetY = 0;
+    layoutTagEntries(view);
+    return true;
   }
 
   function updateSystemRow(structure, row) {
@@ -894,6 +1090,20 @@ export function createHubTagUi(opts) {
       return;
     }
 
+    if (systemId === "residents") {
+      const residents = structure?.systemState?.residents || {};
+      const population = Math.max(0, Math.floor(residents.population ?? 0));
+      const capacity = Math.max(0, Math.floor(residents.housingCapacity ?? 0));
+      const ratio = capacity > 0 ? population / capacity : 0;
+      renderSystemRowBar(row, `${population}/${capacity}`, ratio, row.uiColor);
+      return;
+    }
+
+    if (systemId === "faith") {
+      renderFaithRow(structure, row);
+      return;
+    }
+
     if (isRecipeSystem(systemId)) {
       const systemState = structure?.systemState?.[systemId] || {};
       const summary = getRecipePrioritySummary(systemId, systemState);
@@ -928,6 +1138,18 @@ export function createHubTagUi(opts) {
     renderSystemRowBar(row, getSystemUi(systemId).label, 1, row.uiColor);
   }
 
+  function syncExpandedTagToActive(view, activeTagId) {
+    const nextTagId =
+      typeof activeTagId === "string" && activeTagId.length > 0 ? activeTagId : null;
+    if (view.expandedTagId === nextTagId) return false;
+    view.expandedTagId = nextTagId;
+    view.tagScrollOffsetY = 0;
+    for (const entry of view.tagEntries || []) {
+      entry.setExpanded(entry.tagId === view.expandedTagId);
+    }
+    return true;
+  }
+
   function updateTagEntries(view, structure) {
     const tags = getStructureTags(structure);
     const enabledTags = tags.filter((tagId) => !isTagDisabled(structure, tagId));
@@ -940,6 +1162,10 @@ export function createHubTagUi(opts) {
     const activeTagIds = new Set(
       hasPawn ? enabledTags.slice(0, pawnCount) : []
     );
+    const activeTagId = hasPawn ? enabledTags[0] ?? null : null;
+    if (syncExpandedTagToActive(view, activeTagId)) {
+      layoutTagEntries(view);
+    }
     const buildEntry = (view.tagEntries || []).find(
       (entry) => entry?.tagId === "build"
     );
@@ -1004,15 +1230,14 @@ export function createHubTagUi(opts) {
       view.expandedTagId = null;
     }
 
-    if (!view.hasTagToggle && !view.expandedTagId) {
-      const pawnCount =
-        Number.isFinite(view?.pawnCount) && view.pawnCount > 0
-          ? Math.floor(view.pawnCount)
-          : 0;
-      const enabledTags = tags.filter((tagId) => !isTagDisabled(structure, tagId));
-      const activeTagId = pawnCount > 0 ? enabledTags[0] ?? null : null;
-      view.expandedTagId = activeTagId;
-    }
+    const pawnCount =
+      Number.isFinite(view?.pawnCount) && view.pawnCount > 0
+        ? Math.floor(view.pawnCount)
+        : 0;
+    const enabledTags = tags.filter((tagId) => !isTagDisabled(structure, tagId));
+    const activeTagId = pawnCount > 0 ? enabledTags[0] ?? null : null;
+    view.expandedTagId = activeTagId;
+    view.tagScrollOffsetY = 0;
 
     for (const tagId of tags) {
       const entry = buildTagEntry(view, tagId, structure);
@@ -1047,5 +1272,7 @@ export function createHubTagUi(opts) {
     rebuildStructureTags,
     updateTagEntries,
     layoutTagEntries,
+    scrollTagEntries,
+    resetTagScroll,
   };
 }

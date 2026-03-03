@@ -170,6 +170,8 @@ export function createMetricGraphView({
   historyWindowSec = null,
   getWindowSpec = null,
   canCommitScrubSecond = null,
+  getSystemTargetModeLabel = null,
+  onToggleSystemTargetMode = null,
 }) {
   let metricDef = GRAPH_METRICS.gold;
   let series = GRAPH_METRICS.gold.series;
@@ -267,9 +269,15 @@ export function createMetricGraphView({
 
   const ZOOM_BTN_W = 70;
   const ZOOM_BTN_H = 22;
+  const TARGET_BTN_W = 110;
   const HEADER_LEFT_X = 16;
   const HEADER_CONTENT_GAP = 14;
-  const HEADER_TEXT_X = HEADER_LEFT_X + ZOOM_BTN_W + HEADER_CONTENT_GAP;
+  const hasTargetModeButton = typeof onToggleSystemTargetMode === "function";
+  const HEADER_TEXT_X =
+    HEADER_LEFT_X +
+    ZOOM_BTN_W +
+    HEADER_CONTENT_GAP +
+    (hasTargetModeButton ? TARGET_BTN_W + HEADER_CONTENT_GAP : 0);
   const zoomBtn = new PIXI.Container();
   const zoomBg = new PIXI.Graphics();
   const zoomText = new PIXI.Text("", {
@@ -281,6 +289,18 @@ export function createMetricGraphView({
   zoomBtn.eventMode = "static";
   zoomBtn.cursor = "pointer";
   root.addChild(zoomBtn);
+  const targetBtn = new PIXI.Container();
+  const targetBg = new PIXI.Graphics();
+  const targetText = new PIXI.Text("", {
+    fontFamily: "Arial",
+    fontSize: 11,
+    fill: TIMEGRAPH_THEME.textPrimary,
+  });
+  targetBtn.addChild(targetBg, targetText);
+  targetBtn.eventMode = hasTargetModeButton ? "static" : "none";
+  targetBtn.cursor = hasTargetModeButton ? "pointer" : "default";
+  targetBtn.visible = hasTargetModeButton;
+  root.addChild(targetBtn);
   root.addChild(text);
 
   let isScrubbing = false;
@@ -654,6 +674,24 @@ export function createMetricGraphView({
 
     zoomBtn.x = zoomX;
     zoomBtn.y = y;
+
+    if (hasTargetModeButton) {
+      const targetX = zoomX + ZOOM_BTN_W + HEADER_CONTENT_GAP;
+      targetBg.clear();
+      targetBg.lineStyle(1, TIMEGRAPH_THEME.panelBorder, 0.92);
+      targetBg.beginFill(TIMEGRAPH_THEME.buttonBg, 1);
+      targetBg.drawRoundedRect(0, 0, TARGET_BTN_W, ZOOM_BTN_H, 6);
+      targetBg.endFill();
+      const labelRaw =
+        typeof getSystemTargetModeLabel === "function"
+          ? getSystemTargetModeLabel()
+          : "Target";
+      targetText.text = String(labelRaw || "Target");
+      targetText.x = Math.floor((TARGET_BTN_W - targetText.width) / 2);
+      targetText.y = Math.floor((ZOOM_BTN_H - targetText.height) / 2);
+      targetBtn.x = targetX;
+      targetBtn.y = y;
+    }
     text.x = HEADER_TEXT_X;
     text.y = 10;
   }
@@ -1156,6 +1194,17 @@ export function createMetricGraphView({
     render();
   });
 
+  targetBtn.on("pointerdown", (e) => {
+    e.stopPropagation();
+  });
+  targetBtn.on("pointertap", (e) => {
+    e.stopPropagation();
+    if (!hasTargetModeButton) return;
+    onToggleSystemTargetMode?.();
+    statusNote = "";
+    render();
+  });
+
   function open() {
     if (root.visible) return;
     root.visible = true;
@@ -1248,6 +1297,7 @@ export function createMetricGraphView({
     eventMarkerResolver = null;
     plotHit.removeAllListeners?.();
     zoomBtn.removeAllListeners?.();
+    targetBtn.removeAllListeners?.();
     root.removeAllListeners?.();
     root.parent?.removeChild?.(root);
     root.destroy?.({ children: true });

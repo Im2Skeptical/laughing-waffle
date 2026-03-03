@@ -252,6 +252,9 @@ export function createSkillTreeView({
   let activeTreeId = null;
   let activeDefs = null;
   let bufferUnlockIds = new Set();
+  let saveButtonFlashTimeout = null;
+  let saveButtonSavedFlashUntilMs = 0;
+  let saveButtonErrorState = false;
   let selectedNodeId = null;
   let hoverNodeId = null;
   let edgeMode = EDGE_MODE_FOCUS;
@@ -279,6 +282,47 @@ export function createSkillTreeView({
     anchorWorldY: 0,
     moved: false,
   };
+
+  function clearSaveButtonFlashTimer() {
+    if (!saveButtonFlashTimeout) return;
+    clearTimeout(saveButtonFlashTimeout);
+    saveButtonFlashTimeout = null;
+  }
+
+  function scheduleSaveButtonRefreshAfterFlash() {
+    clearSaveButtonFlashTimer();
+    const nowMs = performance.now();
+    const remainingMs = Math.max(0, Math.floor(saveButtonSavedFlashUntilMs - nowMs));
+    if (remainingMs <= 0) return;
+    saveButtonFlashTimeout = setTimeout(() => {
+      saveButtonFlashTimeout = null;
+      if (!root.visible) return;
+      updateSaveButtonVisual();
+    }, remainingMs + 16);
+  }
+
+  function updateSaveButtonVisual() {
+    const nowMs = performance.now();
+    if (saveButtonErrorState) {
+      saveBtn.setVariant?.("error");
+      return;
+    }
+    if (nowMs < saveButtonSavedFlashUntilMs) {
+      saveBtn.setVariant?.("saved");
+      return;
+    }
+    if (bufferUnlockIds.size > 0) {
+      saveBtn.setVariant?.("pending");
+      return;
+    }
+    saveBtn.setVariant?.("idle");
+  }
+
+  function clearSaveButtonError() {
+    if (!saveButtonErrorState) return;
+    saveButtonErrorState = false;
+    updateSaveButtonVisual();
+  }
 
   function getState() {
     return runner?.getCursorState?.() ?? runner?.getState?.() ?? null;
@@ -746,7 +790,10 @@ export function createSkillTreeView({
     const state = getState();
     const leaderPawn = getLeaderPawn(state);
     treeWorld.removeChildren();
-    if (!state || !leaderPawn || !activeTreeId) return;
+    if (!state || !leaderPawn || !activeTreeId) {
+      updateSaveButtonVisual();
+      return;
+    }
 
     const treeDef = getActiveTreeDef();
     const layout = getSkillTreeLayout(
@@ -963,6 +1010,7 @@ export function createSkillTreeView({
         if (status === "unlockable") {
           bufferUnlockIds.add(nodeId);
           errorText.text = "";
+          clearSaveButtonError();
         }
         updateInfoText(state);
         renderTree();
@@ -990,6 +1038,7 @@ export function createSkillTreeView({
     const remaining = Math.max(0, skillPoints - totalCost);
     pointsText.text = `Skill Points: ${remaining}/${skillPoints}  |  Queued Cost: ${totalCost}`;
     updateInfoText(state);
+    updateSaveButtonVisual();
   }
 
   function onPanMove(ev) {
@@ -1130,11 +1179,15 @@ export function createSkillTreeView({
     const state = getState();
     if (!state?.paused) {
       errorText.text = "Skill changes can only be saved while paused.";
+      saveButtonErrorState = true;
+      updateSaveButtonVisual();
       return { ok: false, reason: "notPaused", unlocked: [] };
     }
     const leaderPawn = getLeaderPawn(state);
     if (!leaderPawn) {
       errorText.text = "No active leader pawn.";
+      saveButtonErrorState = true;
+      updateSaveButtonVisual();
       return { ok: false, reason: "noLeaderPawn", unlocked: [] };
     }
 
@@ -1149,18 +1202,24 @@ export function createSkillTreeView({
       if (!res?.ok) {
         errorText.text = `Failed to unlock "${nodeId}": ${res?.reason || "unknown"}`;
         bufferUnlockIds.clear();
+        saveButtonErrorState = true;
+        saveButtonSavedFlashUntilMs = 0;
         renderTree();
         return { ok: false, reason: res?.reason || "unlockFailed", unlocked };
       }
       unlocked.push(nodeId);
     }
     bufferUnlockIds.clear();
+    clearSaveButtonError();
     return { ok: true, unlocked };
   }
 
   function saveChanges() {
     const commit = commitQueuedUnlocks();
     if (!commit?.ok) return;
+    saveButtonErrorState = false;
+    saveButtonSavedFlashUntilMs = performance.now() + 700;
+    scheduleSaveButtonRefreshAfterFlash();
     const count = commit.unlocked.length;
     errorText.text =
       count > 0
@@ -1172,6 +1231,7 @@ export function createSkillTreeView({
   function cancelQueuedChanges() {
     const count = bufferUnlockIds.size;
     bufferUnlockIds.clear();
+    clearSaveButtonError();
     errorText.text =
       count > 0
         ? `Canceled ${count} queued ${count === 1 ? "skill" : "skills"}.`
@@ -1249,6 +1309,9 @@ export function createSkillTreeView({
     activeTreeId = treeIds[0];
     activeDefs = defs;
     bufferUnlockIds = new Set();
+    clearSaveButtonFlashTimer();
+    saveButtonSavedFlashUntilMs = 0;
+    saveButtonErrorState = false;
     selectedNodeId = null;
     hoverNodeId = null;
     cameraInitialized = false;
@@ -1269,6 +1332,9 @@ export function createSkillTreeView({
     activeTreeId = null;
     activeDefs = null;
     bufferUnlockIds.clear();
+    clearSaveButtonFlashTimer();
+    saveButtonSavedFlashUntilMs = 0;
+    saveButtonErrorState = false;
     selectedNodeId = null;
     hoverNodeId = null;
     cameraInitialized = false;
@@ -1278,6 +1344,7 @@ export function createSkillTreeView({
     zoomText.text = "";
     infoText.text = "";
     onExit = null;
+    updateSaveButtonVisual();
   }
 
   function resize() {

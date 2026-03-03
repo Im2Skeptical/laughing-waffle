@@ -1072,6 +1072,18 @@ export function createProcessWidgetView({
     return `Progress ${progress}/${duration}${reqText}`;
   }
 
+  function isRecipeEntryProgressable(entry) {
+    const process = entry?.process || null;
+    if (!process) return false;
+    const reqs = Array.isArray(process.requirements) ? process.requirements : [];
+    for (const req of reqs) {
+      const amount = Math.max(0, Math.floor(req?.amount ?? 0));
+      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+      if (progress < amount) return false;
+    }
+    return true;
+  }
+
   function getRecipeSkillGateText(recipeId, unlocked, { systemId = null } = {}) {
     if (systemId === "growth") {
       return unlocked ? "Available seed" : "Unavailable seed";
@@ -3019,16 +3031,16 @@ export function createProcessWidgetView({
     };
   }
 
-  function resolveRecipeFocusId(win, priority, recipeEntryMap) {
+  function resolveRecipeFocusId(_win, priority, recipeEntryMap) {
     const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
     const enabled = getEnabledRecipeIds(priority);
-    const currentFocus =
-      typeof win?.recipeFocusId === "string" && win.recipeFocusId.length > 0
-        ? win.recipeFocusId
-        : null;
-
-    if (currentFocus && ordered.includes(currentFocus)) {
-      return currentFocus;
+    for (const recipeId of enabled) {
+      const entry = recipeEntryMap.get(recipeId);
+      if (!entry) continue;
+      if (isRecipeEntryProgressable(entry)) return recipeId;
+    }
+    for (const recipeId of enabled) {
+      if (recipeEntryMap.has(recipeId)) return recipeId;
     }
     if (enabled.length > 0) return enabled[0];
     for (const recipeId of ordered) {
@@ -3082,6 +3094,7 @@ export function createProcessWidgetView({
     const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
     const enabledMap =
       priority?.enabled && typeof priority.enabled === "object" ? priority.enabled : {};
+    const focusedIndex = ordered.indexOf(viewState.recipeFocusId);
 
     const bg = new PIXI.Graphics();
     container.addChild(bg);
@@ -3143,6 +3156,13 @@ export function createProcessWidgetView({
     for (const recipeId of ordered) {
       const enabled = enabledMap[recipeId] !== false;
       const isFocused = viewState.recipeFocusId === recipeId;
+      const processEntry = recipeEntryMap.get(recipeId);
+      const blockedByRequirements = enabled && processEntry && !isRecipeEntryProgressable(processEntry);
+      const isSkipped =
+        focusedIndex > 0 &&
+        enabled &&
+        blockedByRequirements &&
+        ordered.indexOf(recipeId) < focusedIndex;
       const row = new PIXI.Container();
       row.eventMode = "static";
       row.cursor = "grab";
@@ -3154,7 +3174,11 @@ export function createProcessWidgetView({
         : isFocused
           ? COLORS.pillEnabled
           : COLORS.moduleBg;
-      const borderColor = isFocused ? COLORS.progressFill : COLORS.moduleBorder;
+      const borderColor = isSkipped
+        ? MUCHA_UI_COLORS.intent.dangerPop
+        : isFocused
+          ? COLORS.progressFill
+          : COLORS.moduleBorder;
       rowBg.lineStyle(1, borderColor, 0.95);
       rowBg.beginFill(bgColor, 0.98);
       rowBg.drawRoundedRect(0, 0, pillWidth, PILL_HEIGHT, PILL_RADIUS);
@@ -3163,7 +3187,6 @@ export function createProcessWidgetView({
 
       const recipeName =
         systemId === "growth" ? formatCropName(recipeId) : formatRecipeName(recipeId);
-      const processEntry = recipeEntryMap.get(recipeId);
       const snapshot = formatRecipeProcessSnapshot(processEntry, { systemId });
       const fullLabel = `${recipeName} - ${snapshot}`;
       const textColor = enabled ? COLORS.pillText : COLORS.pillTextDisabled;
@@ -3196,9 +3219,6 @@ export function createProcessWidgetView({
           pillView.ignoreNextTap = false;
           return;
         }
-        if (viewState.recipeFocusId === recipeId) return;
-        viewState.recipeFocusId = recipeId;
-        invalidateAllSignatures();
       });
 
       pillContainer.addChild(row);
