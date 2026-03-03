@@ -51,6 +51,15 @@ export const hubStructureDefs = {
     tags: ["canRest", "canHouse"],
     systems: {},
     inventory: { cols: 5, rows: 10 },
+    build: {
+      laborSec: 15,
+      placementMode: "upgrade",
+      upgradeFromDefIds: ["makeshiftShelter"],
+      requirements: [
+        { kind: "item", itemId: "straw", amount: 4 },
+        { kind: "item", itemId: "reeds", amount: 2 },
+      ],
+    },
     ui: {
       title: "Mud Houses",
       lines: ["Just enough for everyone to rest."],

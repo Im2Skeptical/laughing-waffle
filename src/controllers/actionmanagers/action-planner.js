@@ -1382,10 +1382,10 @@ export function createActionPlanner({
     const state = getStateSafe();
     if (!state?.paused) return { ok: false, reason: "mustBePaused" };
     const targetCol = normalizeBuildHubCol(target);
-    const resolvedKey =
+    const fallbackKey =
       buildKey ||
       (Number.isFinite(targetCol) ? `hub:${Math.floor(targetCol)}` : null);
-    if (!resolvedKey) return { ok: false, reason: "noBuildKey" };
+    if (!fallbackKey) return { ok: false, reason: "noBuildKey" };
     if (!defId) return { ok: false, reason: "badDefId" };
 
     const placementCheck = validateHubConstructionPlacement(
@@ -1394,6 +1394,11 @@ export function createActionPlanner({
       targetCol
     );
     if (!placementCheck?.ok) return placementCheck || { ok: false, reason: "badPlacement" };
+
+    const resolvedKey =
+      Number.isFinite(placementCheck.hubCol)
+        ? `hub:${Math.floor(placementCheck.hubCol)}`
+        : fallbackKey;
 
     const subjectKey = `build:${resolvedKey}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);

@@ -10,6 +10,7 @@ import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { ActionKinds } from "../model/actions.js";
+import { validateHubConstructionPlacement } from "../model/build-helpers.js";
 import { hasEnvTagUnlock, hasHubTagUnlock } from "../model/skills.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
@@ -129,6 +130,10 @@ export function createBoardView(opts) {
   const AP_OVERLAY_STROKE = 0xff4f5e;
   const PAWN_LANDING_OVERLAY_FILL = 0x2d7daa;
   const PAWN_LANDING_OVERLAY_STROKE = 0xd5f3ff;
+  const BUILD_PREVIEW_VALID_FILL = 0x2f7a4d;
+  const BUILD_PREVIEW_VALID_STROKE = 0x9de3ba;
+  const BUILD_PREVIEW_INVALID_FILL = 0x8a2630;
+  const BUILD_PREVIEW_INVALID_STROKE = 0xff8d98;
   const OCCUPANT_HOVER_GRACE_SEC = 0.16;
   const DISTRIBUTOR_RANGE_OVERLAY_FILL = 0x2d6b95;
   const DISTRIBUTOR_RANGE_OVERLAY_STROKE = 0x84cbff;
@@ -281,6 +286,7 @@ export function createBoardView(opts) {
   let focusedHubCol = null;
   let apDragWarningActive = false;
   let buildDistributorRangePreview = null;
+  let buildPlacementPreview = null;
   let iconDistributorRangePreview = null;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
@@ -574,6 +580,32 @@ export function createBoardView(opts) {
       span: spanInfo.span,
       range,
     });
+  }
+
+  function normalizeBuildPlacementPreview(spec) {
+    const defId = typeof spec?.defId === "string" ? spec.defId : null;
+    if (!defId) return null;
+    const placementMode = spec?.placementMode === "upgrade" ? "upgrade" : "new";
+    const hubCol = Number.isFinite(spec?.hubCol) ? Math.floor(spec.hubCol) : null;
+    const upgradeFromDefIds = Array.isArray(spec?.upgradeFromDefIds)
+      ? spec.upgradeFromDefIds.filter((id) => typeof id === "string" && id.length > 0)
+      : [];
+    return { defId, placementMode, hubCol, upgradeFromDefIds };
+  }
+
+  function sameBuildPlacementPreview(left, right) {
+    if (left == null && right == null) return true;
+    if (!left || !right) return false;
+    if (left.defId !== right.defId) return false;
+    if (left.placementMode !== right.placementMode) return false;
+    if (left.hubCol !== right.hubCol) return false;
+    const leftIds = Array.isArray(left.upgradeFromDefIds) ? left.upgradeFromDefIds : [];
+    const rightIds = Array.isArray(right.upgradeFromDefIds) ? right.upgradeFromDefIds : [];
+    if (leftIds.length !== rightIds.length) return false;
+    for (let i = 0; i < leftIds.length; i += 1) {
+      if (leftIds[i] !== rightIds[i]) return false;
+    }
+    return true;
   }
 
   function getMaxEventFeedId(feed) {
@@ -1230,6 +1262,31 @@ export function createBoardView(opts) {
     return overlay;
   }
 
+  function drawBuildPlacementOverlay(overlay, width, height, radius, kind) {
+    if (!overlay) return;
+    overlay.clear();
+    if (kind !== "valid" && kind !== "invalid") {
+      overlay.visible = false;
+      return;
+    }
+    const fill = kind === "valid" ? BUILD_PREVIEW_VALID_FILL : BUILD_PREVIEW_INVALID_FILL;
+    const stroke =
+      kind === "valid" ? BUILD_PREVIEW_VALID_STROKE : BUILD_PREVIEW_INVALID_STROKE;
+    overlay
+      .lineStyle(2, stroke, 0.95)
+      .beginFill(fill, 0.3)
+      .drawRoundedRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4), radius)
+      .endFill();
+    overlay.visible = true;
+  }
+
+  function createBuildPlacementOverlay(width, height, radius) {
+    const overlay = new PIXI.Graphics();
+    drawBuildPlacementOverlay(overlay, width, height, radius, null);
+    overlay.eventMode = "none";
+    return overlay;
+  }
+
   function createPawnLandingOverlay(width, height, radius) {
     const overlay = new PIXI.Graphics();
     overlay
@@ -1298,6 +1355,20 @@ export function createBoardView(opts) {
     overlay.visible = !!active;
   }
 
+  function setBuildPlacementOverlayState(view, kind) {
+    const overlay = view?.buildPlacementOverlay;
+    if (!overlay) return;
+    if (view.buildPlacementOverlayState === kind) return;
+    view.buildPlacementOverlayState = kind;
+    drawBuildPlacementOverlay(
+      overlay,
+      view.cardWidth ?? HUB_STRUCTURE_WIDTH,
+      view.cardHeight ?? HUB_STRUCTURE_HEIGHT,
+      10,
+      kind
+    );
+  }
+
   function getActiveDistributorRangePreview() {
     return iconDistributorRangePreview || buildDistributorRangePreview;
   }
@@ -1344,6 +1415,49 @@ export function createBoardView(opts) {
     }
   }
 
+  function updateBuildPlacementOverlays() {
+    const preview = buildPlacementPreview;
+    const isUpgradePreview = preview?.placementMode === "upgrade";
+    if (!isUpgradePreview) {
+      for (const view of hubStructureViews.values()) {
+        setBuildPlacementOverlayState(view, null);
+      }
+      for (const view of hubSlotViews) {
+        setBuildPlacementOverlayState(view, null);
+      }
+      return;
+    }
+
+    const state = getGameState?.();
+    if (!state) {
+      for (const view of hubStructureViews.values()) {
+        setBuildPlacementOverlayState(view, null);
+      }
+      return;
+    }
+
+    for (const view of hubStructureViews.values()) {
+      const structureCol = Number.isFinite(view?.structure?.col)
+        ? Math.floor(view.structure.col)
+        : Number.isFinite(view?.col)
+          ? Math.floor(view.col)
+          : null;
+      if (structureCol == null) {
+        setBuildPlacementOverlayState(view, null);
+        continue;
+      }
+      const check = validateHubConstructionPlacement(
+        state,
+        preview.defId,
+        structureCol
+      );
+      setBuildPlacementOverlayState(view, check?.ok ? "valid" : "invalid");
+    }
+    for (const view of hubSlotViews) {
+      setBuildPlacementOverlayState(view, null);
+    }
+  }
+
   function setBuildDistributorRangePreview(spec) {
     const next = buildDistributorRangePreviewFromSpec(spec);
     if (sameDistributorRangePreview(buildDistributorRangePreview, next)) return;
@@ -1353,6 +1467,17 @@ export function createBoardView(opts) {
   function clearBuildDistributorRangePreview() {
     if (buildDistributorRangePreview == null) return;
     buildDistributorRangePreview = null;
+  }
+
+  function setBuildPlacementPreviewSpec(spec) {
+    const next = normalizeBuildPlacementPreview(spec);
+    if (sameBuildPlacementPreview(buildPlacementPreview, next)) return;
+    buildPlacementPreview = next;
+  }
+
+  function clearBuildPlacementPreviewSpec() {
+    if (buildPlacementPreview == null) return;
+    buildPlacementPreview = null;
   }
 
   function setIconDistributorRangePreview(view, systemId) {
@@ -3877,6 +4002,9 @@ export function createBoardView(opts) {
     );
     contentInk.addChild(distributorRangeOverlay);
 
+    const buildPlacementOverlay = createBuildPlacementOverlay(width, height, 10);
+    contentInk.addChild(buildPlacementOverlay);
+
     const focusOutline = new PIXI.Graphics();
     focusOutline.lineStyle(2, 0x7fd0ff, 1);
     focusOutline.drawRoundedRect(2, 2, width - 4, height - 4, 8);
@@ -3982,6 +4110,8 @@ export function createBoardView(opts) {
       apOverlayTarget: 0,
       pawnLandingOverlay,
       distributorRangeOverlay,
+      buildPlacementOverlay,
+      buildPlacementOverlayState: null,
       focusOutline,
       isFocused: false,
       cancelButton,
@@ -4373,6 +4503,13 @@ export function createBoardView(opts) {
     );
     cont.addChild(distributorRangeOverlay);
 
+    const buildPlacementOverlay = createBuildPlacementOverlay(
+      HUB_STRUCTURE_WIDTH,
+      HUB_STRUCTURE_HEIGHT,
+      10
+    );
+    cont.addChild(buildPlacementOverlay);
+
     const pos = layoutHubColPos(
       app.screen.width,
       col,
@@ -4391,6 +4528,10 @@ export function createBoardView(opts) {
       apOverlayTarget: 0,
       pawnLandingOverlay,
       distributorRangeOverlay,
+      buildPlacementOverlay,
+      buildPlacementOverlayState: null,
+      cardWidth: HUB_STRUCTURE_WIDTH,
+      cardHeight: HUB_STRUCTURE_HEIGHT,
     };
   }
 
@@ -4761,6 +4902,7 @@ export function createBoardView(opts) {
     syncHubStructures(s, hubCols, pawnCounts.hub);
     syncAreaChrome(s, cols, hubCols);
     updateDistributorRangeOverlays();
+    updateBuildPlacementOverlays();
     updatePlanFocus();
     processTileRollFeedbackEvents(s);
     updateTileActivityOverlays(dt);
@@ -4843,8 +4985,10 @@ export function createBoardView(opts) {
     setDistributorBuildPreview(spec) {
       if (!spec) {
         clearBuildDistributorRangePreview();
+        clearBuildPlacementPreviewSpec();
       } else {
         setBuildDistributorRangePreview(spec);
+        setBuildPlacementPreviewSpec(spec);
       }
     },
   };

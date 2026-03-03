@@ -109,6 +109,27 @@ export function isStructureUnderConstruction(structure) {
   return !!getBuildProcess(structure);
 }
 
+function normalizeBuildPlacementMode(def) {
+  const modeRaw = def?.build?.placementMode;
+  return modeRaw === "upgrade" ? "upgrade" : "new";
+}
+
+function normalizeUpgradeFromDefIds(def) {
+  const raw = Array.isArray(def?.build?.upgradeFromDefIds)
+    ? def.build.upgradeFromDefIds
+    : [];
+  return raw.filter((id) => typeof id === "string" && id.length > 0);
+}
+
+function getHubStructureAtCol(state, hubCol) {
+  const col = normalizeHubCol(hubCol);
+  if (col == null) return null;
+  const occ = Array.isArray(state?.hub?.occ) ? state.hub.occ : null;
+  if (occ && occ[col]) return occ[col];
+  const slot = Array.isArray(state?.hub?.slots) ? state.hub.slots[col] : null;
+  return slot?.structure ?? null;
+}
+
 export function validateHubConstructionPlacement(state, defId, hubCol) {
   if (!state || !state.hub || !Array.isArray(state.hub.slots)) {
     return { ok: false, reason: "noHub" };
@@ -129,31 +150,81 @@ export function validateHubConstructionPlacement(state, defId, hubCol) {
 
   const cols = state.hub.slots.length;
   const span = getStructureSpan(def);
+  const placementMode = normalizeBuildPlacementMode(def);
+  const upgradeFromDefIds = normalizeUpgradeFromDefIds(def);
+  const sourceStructure =
+    placementMode === "upgrade" ? getHubStructureAtCol(state, col) : null;
+  const sourceDefId =
+    placementMode === "upgrade" && typeof sourceStructure?.defId === "string"
+      ? sourceStructure.defId
+      : null;
+  const anchorCol =
+    placementMode === "upgrade" && Number.isFinite(sourceStructure?.col)
+      ? Math.floor(sourceStructure.col)
+      : col;
 
-  if (col < 0 || col >= cols) return { ok: false, reason: "badHubCol" };
-  if (col + span > cols) return { ok: false, reason: "spanOutOfBounds" };
+  if (anchorCol < 0 || anchorCol >= cols) return { ok: false, reason: "badHubCol" };
+  if (anchorCol + span > cols) return { ok: false, reason: "spanOutOfBounds" };
+
+  if (placementMode === "upgrade") {
+    if (!sourceStructure) {
+      return { ok: false, reason: "noUpgradeSource" };
+    }
+    if (
+      upgradeFromDefIds.length > 0 &&
+      !upgradeFromDefIds.includes(sourceStructure.defId)
+    ) {
+      return {
+        ok: false,
+        reason: "upgradeSourceMismatch",
+        sourceDefId,
+        upgradeFromDefIds,
+      };
+    }
+    if (isStructureUnderConstruction(sourceStructure)) {
+      return { ok: false, reason: "upgradeSourceUnderConstruction" };
+    }
+  }
 
   const maxInstances = getMaxInstances(def);
   if (maxInstances > 0) {
     const existing = countStructuresByDefId(state, defId);
-    if (existing >= maxInstances) {
+    const nextCount =
+      existing +
+      (placementMode === "upgrade" && sourceDefId === defId ? 0 : 1);
+    if (nextCount > maxInstances) {
       return {
         ok: false,
         reason: "maxInstancesReached",
         maxInstances,
         existing,
+        nextCount,
       };
     }
   }
 
   const occ = Array.isArray(state.hub.occ) ? state.hub.occ : null;
   for (let offset = 0; offset < span; offset++) {
-    const index = col + offset;
+    const index = anchorCol + offset;
     const occupied = occ ? occ[index] : state.hub.slots[index]?.structure;
-    if (occupied) {
+    if (!occupied) continue;
+    const sameUpgradeSource =
+      placementMode === "upgrade" &&
+      sourceStructure &&
+      occupied.instanceId === sourceStructure.instanceId;
+    if (!sameUpgradeSource) {
       return { ok: false, reason: "slotOccupied", hubCol: index };
     }
   }
 
-  return { ok: true, def, hubCol: col, span };
+  return {
+    ok: true,
+    def,
+    hubCol: anchorCol,
+    span,
+    placementMode,
+    upgradeFromDefIds,
+    sourceDefId,
+    sourceStructureId: sourceStructure?.instanceId ?? null,
+  };
 }

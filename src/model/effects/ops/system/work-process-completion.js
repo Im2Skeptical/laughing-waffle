@@ -76,6 +76,7 @@ export function finalizeBuildProcess(state, target, process) {
   const def = defId ? hubStructureDefs[defId] : null;
   if (!def) return false;
 
+  target.defId = defId;
   target.tags = normalizeTagList(def.tags);
 
   if (target.tagStates && typeof target.tagStates === "object") {

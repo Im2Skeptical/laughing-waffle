@@ -10,27 +10,35 @@ import {
   rebuildHubOccupancy,
 } from "../state.js";
 
-export function cmdBuildDesignate(state, payload = {}) {
-  const defId = payload.defId ?? null;
-  const target = payload.target ?? {};
-  const hubCol = payload.hubCol ?? target.hubCol ?? target.col ?? null;
+function clearStructureBuildTagState(structure) {
+  if (!structure?.tagStates || typeof structure.tagStates !== "object") return;
+  if (!Object.prototype.hasOwnProperty.call(structure.tagStates, "build")) return;
+  delete structure.tagStates.build;
+  if (Object.keys(structure.tagStates).length <= 0) {
+    delete structure.tagStates;
+  }
+}
 
-  const validity = validateHubConstructionPlacement(state, defId, hubCol);
-  if (!validity?.ok) return validity || { ok: false, reason: "badPlacement" };
+function ensureBuildTag(structure) {
+  if (!structure || typeof structure !== "object") return;
+  const tags = Array.isArray(structure.tags) ? structure.tags.slice() : [];
+  if (!tags.includes("build")) tags.push("build");
+  structure.tags = tags;
+  clearStructureBuildTagState(structure);
+}
 
-  const def = validity.def;
-  const col = validity.hubCol;
-  const tier = typeof payload.tier === "string" ? payload.tier : null;
-  const structure = makeHubStructureInstance(defId, state, { tier });
-  structure.tags = ["build"];
-  if (structure.tagStates) delete structure.tagStates;
-
+function startBuildProcess(state, structure, buildDefId, def, sourceDefId = null) {
   const laborRaw = def?.build?.laborSec ?? def?.build?.labor ?? 0;
   const laborSec = Number.isFinite(laborRaw)
     ? Math.max(0, Math.floor(laborRaw))
     : 0;
   const durationSec = Math.max(1, laborSec);
   const requirements = buildRequirementProgress(def);
+
+  if (!structure.systemState || typeof structure.systemState !== "object") {
+    structure.systemState = {};
+  }
+  structure.systemState.build = { processes: [] };
 
   runEffect(
     state,
@@ -44,7 +52,11 @@ export function cmdBuildDesignate(state, payload = {}) {
       uniqueType: true,
       completionPolicy: "build",
       requirements,
-      processMeta: { buildKind: "hubStructure", buildDefId: defId },
+      processMeta: {
+        buildKind: "hubStructure",
+        buildDefId,
+        buildSourceDefId: sourceDefId,
+      },
     },
     {
       kind: "build",
@@ -55,6 +67,63 @@ export function cmdBuildDesignate(state, payload = {}) {
       owner: structure,
     }
   );
+}
+
+function findHubStructureById(state, structureId) {
+  if (structureId == null) return null;
+  const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (const slot of slots) {
+    const structure = slot?.structure;
+    if (!structure) continue;
+    if (structure.instanceId === structureId) return structure;
+  }
+  return null;
+}
+
+export function cmdBuildDesignate(state, payload = {}) {
+  const defId = payload.defId ?? null;
+  const target = payload.target ?? {};
+  const hubCol = payload.hubCol ?? target.hubCol ?? target.col ?? null;
+
+  const validity = validateHubConstructionPlacement(state, defId, hubCol);
+  if (!validity?.ok) return validity || { ok: false, reason: "badPlacement" };
+
+  const def = validity.def;
+  const col = validity.hubCol;
+  const placementMode = validity.placementMode === "upgrade" ? "upgrade" : "new";
+  const sourceDefId =
+    typeof validity.sourceDefId === "string" ? validity.sourceDefId : null;
+
+  if (placementMode === "upgrade") {
+    const existingAtCol =
+      state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure ?? null;
+    const structure =
+      existingAtCol?.instanceId === validity.sourceStructureId
+        ? existingAtCol
+        : findHubStructureById(state, validity.sourceStructureId);
+    if (!structure) return { ok: false, reason: "noUpgradeSource" };
+
+    ensureBuildTag(structure);
+    startBuildProcess(state, structure, defId, def, sourceDefId);
+
+    ensureHubState(state);
+    rebuildHubOccupancy(state);
+
+    return {
+      ok: true,
+      result: "buildUpgradeDesignated",
+      defId,
+      sourceDefId,
+      hubCol: col,
+      structureId: structure.instanceId,
+    };
+  }
+
+  const tier = typeof payload.tier === "string" ? payload.tier : null;
+  const structure = makeHubStructureInstance(defId, state, { tier });
+  structure.tags = ["build"];
+  if (structure.tagStates) delete structure.tagStates;
+  startBuildProcess(state, structure, defId, def);
 
   const slot = state.hub.slots[col];
   if (slot && typeof slot === "object") {

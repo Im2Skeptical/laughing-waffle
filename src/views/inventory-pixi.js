@@ -23,11 +23,11 @@ import {
 } from "../defs/gamesettings/gamerules-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
-  computeAvailableRecipesAndBuildings,
   getLeaderInventorySectionCapabilities,
   getSkillNodes,
   getUnlockedSkillSet,
 } from "../model/skills.js";
+import { validateHubConstructionPlacement } from "../model/build-helpers.js";
 import {
   isItemBeyondAbsoluteTimegraphWindow,
   isItemUseCurrentlyAvailable,
@@ -50,6 +50,7 @@ import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { createBuildingManagerView } from "./building-manager-pixi.js";
 
 
 
@@ -113,14 +114,11 @@ const LEADER_SYSTEM_UI_OVERRIDES = Object.freeze({
 const SKILLS_PANEL_HEIGHT = 102;
 const SKILLS_UNLOCKED_LIST_MAX = 5;
 const SKILLS_LIST_LINE_HEIGHT = 14;
-const BUILD_PANEL_ROW_HEIGHT = 24;
-const BUILD_PANEL_ROW_GAP = 4;
 const BUILD_PANEL_PADDING = 6;
 const BUILD_PANEL_HINT_HEIGHT = 12;
 const BUILD_PANEL_GAP = 8;
+const BUILD_PANEL_BUTTON_HEIGHT = 24;
 const BUILD_PANEL_BG = MUCHA_UI_COLORS.surfaces.panel;
-const BUILD_PANEL_ROW_BG = MUCHA_UI_COLORS.surfaces.border;
-const BUILD_PANEL_ROW_BG_ACTIVE = MUCHA_UI_COLORS.surfaces.panelSoft;
 const BUILD_PANEL_TEXT = MUCHA_UI_COLORS.ink.primary;
 const BUILD_PANEL_TEXT_MUTED = MUCHA_UI_COLORS.ink.muted;
 const SECTION_HEADER_HEIGHT = 22;
@@ -258,7 +256,7 @@ export function createInventoryView({
   let activeBuildSpec = null;
   let lastPointerPos = null;
   let buildGhost = null;
-  let buildGhostDefId = null;
+  let buildGhostSignature = null;
   let consumePrompt = null;
 
   // Owners currently showing an error flash; used to pause auto-rebuilds.
@@ -650,55 +648,63 @@ export function createInventoryView({
     };
   }
 
-  function countStructuresByDefId(state) {
-    const counts = new Map();
-    const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
-    for (const slot of slots) {
-      const structure = slot?.structure;
-      if (!structure) continue;
-      const id = structure.defId;
-      counts.set(id, (counts.get(id) || 0) + 1);
-    }
-    return counts;
+  function normalizeBuildPlacementMode(def) {
+    const raw = def?.build?.placementMode;
+    return raw === "upgrade" ? "upgrade" : "new";
   }
 
-  function computeBuildOptions(state, leader) {
-    if (!state || !leader) return [];
-    const availability = computeAvailableRecipesAndBuildings(state);
-    const unlocked = availability?.hubStructureIds ?? new Set();
-
-    const counts = countStructuresByDefId(state);
-    const options = [];
-
-    for (const id of unlocked.values()) {
-      const def = hubStructureDefs[id];
-      if (!def) continue;
-      const maxInstances = Number.isFinite(def.maxInstances)
-        ? Math.max(0, Math.floor(def.maxInstances))
-        : 1;
-      const existing = counts.get(id) || 0;
-      const available = maxInstances === 0 ? false : existing < maxInstances;
-      options.push({
-        def,
-        id,
-        name: def.name || id,
-        available,
-        existing,
-        maxInstances,
-      });
-    }
-
-    options.sort((a, b) => a.name.localeCompare(b.name));
-    return options;
+  function normalizeBuildUpgradeSources(def) {
+    const raw = Array.isArray(def?.build?.upgradeFromDefIds)
+      ? def.build.upgradeFromDefIds
+      : [];
+    return raw.filter((id) => typeof id === "string" && id.length > 0);
   }
 
-  function computeBuildContentHeight(optionCount) {
-    const rows = Math.max(0, Math.floor(optionCount ?? 0));
-    const rowsHeight = rows
-      ? rows * BUILD_PANEL_ROW_HEIGHT + Math.max(0, rows - 1) * BUILD_PANEL_ROW_GAP
-      : 0;
-    const rowGap = rows > 0 ? BUILD_PANEL_ROW_GAP : 0;
-    return BUILD_PANEL_PADDING * 2 + rowsHeight + rowGap + BUILD_PANEL_HINT_HEIGHT;
+  function buildPlanSpecFromDefId(defId) {
+    const def = hubStructureDefs?.[defId];
+    if (!def) return null;
+    return {
+      defId,
+      placementMode: normalizeBuildPlacementMode(def),
+      upgradeFromDefIds: normalizeBuildUpgradeSources(def),
+    };
+  }
+
+  const buildingManagerView = createBuildingManagerView({
+    PIXI,
+    layer,
+    getState: getStateSafe,
+    getScreenSize,
+    onSelectBuild: (spec) => {
+      const ownerId = spec?.ownerId;
+      if (ownerId == null) return;
+      setActiveBuild(ownerId, spec);
+      const win = windows.get(ownerId);
+      if (win) updateLeaderPanel(win);
+    },
+  });
+
+  function canBuildAtAnyHubCol(state, defId) {
+    const cols = Array.isArray(state?.hub?.slots) ? state.hub.slots.length : 0;
+    for (let col = 0; col < cols; col += 1) {
+      const check = validateHubConstructionPlacement(state, defId, col);
+      if (check?.ok) return true;
+    }
+    return false;
+  }
+
+  function isBuildPlanStillValid(state, buildSpec) {
+    if (!state || !buildSpec?.defId) return false;
+    return canBuildAtAnyHubCol(state, buildSpec.defId);
+  }
+
+  function computeBuildContentHeight() {
+    return (
+      BUILD_PANEL_PADDING * 2 +
+      BUILD_PANEL_BUTTON_HEIGHT +
+      BUILD_PANEL_GAP +
+      BUILD_PANEL_HINT_HEIGHT
+    );
   }
 
   function clamp01(value) {
@@ -1217,7 +1223,7 @@ export function createInventoryView({
     }
   }
 
-  function layoutLeaderSections(win, leader, buildOptionCount = null, sectionCaps = null) {
+  function layoutLeaderSections(win, leader, sectionCaps = null) {
     if (!win || !leader) return;
     const state = ensureSectionState(win);
     const panel = win.leaderPanel;
@@ -1229,10 +1235,6 @@ export function createInventoryView({
         : getLeaderSectionCapabilities(getStateSafe(), leader);
 
     const sectionWidth = win.panelWidth - INNER_PADDING * 2;
-    const optionsCount =
-      buildOptionCount == null
-        ? computeBuildOptions(getStateSafe(), leader).length
-        : Math.max(0, Math.floor(buildOptionCount));
 
     const equipVisible = resolvedCaps.equipment !== false;
     const systemsVisible = resolvedCaps.systems === true;
@@ -1272,7 +1274,7 @@ export function createInventoryView({
       win.bin.container.y = bodyY;
     }
 
-    const buildContentHeight = computeBuildContentHeight(optionsCount);
+    const buildContentHeight = computeBuildContentHeight();
     const systemsContentHeight = Number.isFinite(panel.systemsContentHeight)
       ? Math.max(0, Math.floor(panel.systemsContentHeight))
       : computeLeaderSystemsContentHeightForLeader(leader);
@@ -1481,12 +1483,39 @@ export function createInventoryView({
     pushBuildPlacementPreview();
   }
 
-  function setActiveBuild(ownerId, defId) {
-    if (!ownerId || !defId) return;
+  function closeBuildingManagerForOwner(ownerId, reason = "ownerHidden") {
+    if (!buildingManagerView?.isOpen?.()) return;
+    if (buildingManagerView.getOpenOwnerId?.() !== ownerId) return;
+    buildingManagerView.close(reason);
+  }
+
+  function setActiveBuild(ownerId, buildSpec) {
+    const spec =
+      typeof buildSpec === "string"
+        ? buildPlanSpecFromDefId(buildSpec)
+        : buildSpec?.defId
+          ? {
+              ...buildPlanSpecFromDefId(buildSpec.defId),
+              ...buildSpec,
+              defId: buildSpec.defId,
+            }
+          : null;
+    if (!ownerId || !spec?.defId) return;
+    const normalizedSpec = {
+      ownerId,
+      defId: spec.defId,
+      placementMode: spec.placementMode === "upgrade" ? "upgrade" : "new",
+      upgradeFromDefIds: Array.isArray(spec.upgradeFromDefIds)
+        ? spec.upgradeFromDefIds
+            .filter((id) => typeof id === "string" && id.length > 0)
+            .slice()
+        : [],
+    };
     if (
       activeBuildSpec &&
       activeBuildSpec.ownerId === ownerId &&
-      activeBuildSpec.defId === defId
+      activeBuildSpec.defId === normalizedSpec.defId &&
+      activeBuildSpec.placementMode === normalizedSpec.placementMode
     ) {
       activeBuildSpec = null;
       if (buildGhost) buildGhost.container.visible = false;
@@ -1494,7 +1523,7 @@ export function createInventoryView({
       return;
     }
     requestPauseForAction?.();
-    activeBuildSpec = { ownerId, defId };
+    activeBuildSpec = normalizedSpec;
     pushBuildPlacementPreview();
   }
 
@@ -1579,20 +1608,29 @@ export function createInventoryView({
     return buildGhost;
   }
 
-  function updateBuildGhostContent(defId) {
+  function updateBuildGhostContent(buildSpec) {
     const ghost = ensureBuildGhost();
     if (!ghost) return;
+    const spec =
+      typeof buildSpec === "string"
+        ? buildPlanSpecFromDefId(buildSpec)
+        : buildSpec?.defId
+          ? buildSpec
+          : null;
+    const defId = spec?.defId ?? null;
     if (!defId) {
       ghost.container.visible = false;
-      buildGhostDefId = null;
+      buildGhostSignature = null;
       return;
     }
-    if (buildGhostDefId === defId) return;
-    buildGhostDefId = defId;
+    const signature = `${defId}|${spec?.placementMode || "new"}`;
+    if (buildGhostSignature === signature) return;
+    buildGhostSignature = signature;
 
     const def = hubStructureDefs[defId];
     ghost.titleText.text = def?.name || defId || "Build";
-    ghost.subtitleText.text = "Construction Plan";
+    ghost.subtitleText.text =
+      spec?.placementMode === "upgrade" ? "Upgrade Plan" : "Construction Plan";
 
     const { width, height } = getBuildGhostCardSize(def);
     if (ghost.cardWidth !== width || ghost.cardHeight !== height) {
@@ -1623,6 +1661,14 @@ export function createInventoryView({
     const lines = [];
     const apCost = INTENT_AP_COSTS?.buildDesignate ?? 0;
     lines.push(`AP: ${apCost}`);
+    if (spec?.placementMode === "upgrade") {
+      const sourceNames = Array.isArray(spec?.upgradeFromDefIds)
+        ? spec.upgradeFromDefIds
+            .map((id) => hubStructureDefs?.[id]?.name || id)
+            .join(", ")
+        : "";
+      lines.push(`Upgrade from: ${sourceNames || "Source structure"}`);
+    }
 
     const reqs = Array.isArray(def?.build?.requirements) ? def.build.requirements : [];
     for (const req of reqs) {
@@ -1739,13 +1785,13 @@ export function createInventoryView({
       y: HUB_STRUCTURE_ROW_Y + Math.floor(HUB_STRUCTURE_HEIGHT / 2),
     };
     const col = resolveHubColFromPos(state, pos, screenWidth);
-    if (col == null) {
-      setBuildPlacementPreview(null);
-      return;
-    }
     setBuildPlacementPreview({
       defId: activeBuildSpec.defId,
       hubCol: col,
+      placementMode: activeBuildSpec.placementMode || "new",
+      upgradeFromDefIds: Array.isArray(activeBuildSpec.upgradeFromDefIds)
+        ? activeBuildSpec.upgradeFromDefIds.slice()
+        : [],
     });
   }
 
@@ -1909,13 +1955,10 @@ export function createInventoryView({
     const equipmentPanelHeight = leader ? EQUIP_PANEL_HEIGHT + INNER_PADDING : 0;
     const bodyY = HEADER_HEIGHT + INNER_PADDING + equipmentPanelHeight;
     const baseHeight = bodyY + rows * cellSize + INNER_PADDING;
-    const buildOptions = leader
-      ? computeBuildOptions(getStateSafe(), leader)
-      : [];
     const systemsPanelHeight = leader
       ? computeLeaderSystemsContentHeightForLeader(leader)
       : 0;
-    const buildPanelHeight = computeBuildContentHeight(buildOptions.length);
+    const buildPanelHeight = computeBuildContentHeight();
     const leaderPanelHeight = leader
       ? LEADER_PANEL_PADDING +
         SECTION_HEADER_HEIGHT +
@@ -2424,10 +2467,22 @@ export function createInventoryView({
       buildPanelBg.endFill();
       buildPanel.addChild(buildPanelBg);
 
-      const buildListContainer = new PIXI.Container();
-      buildListContainer.x = BUILD_PANEL_PADDING;
-      buildListContainer.y = BUILD_PANEL_PADDING;
-      buildPanel.addChild(buildListContainer);
+      const buildOpenButton = new PIXI.Container();
+      buildOpenButton.eventMode = "static";
+      buildOpenButton.cursor = "pointer";
+      buildOpenButton.x = BUILD_PANEL_PADDING;
+      buildOpenButton.y = BUILD_PANEL_PADDING;
+      buildPanel.addChild(buildOpenButton);
+
+      const buildOpenButtonBg = new PIXI.Graphics();
+      buildOpenButton.addChild(buildOpenButtonBg);
+
+      const buildOpenButtonText = new PIXI.Text("Open Building Manager", {
+        fill: BUILD_PANEL_TEXT,
+        fontSize: 11,
+        fontWeight: "bold",
+      });
+      buildOpenButton.addChild(buildOpenButtonText);
 
       const buildHintText = new PIXI.Text("", {
         fill: BUILD_PANEL_TEXT_MUTED,
@@ -2438,13 +2493,17 @@ export function createInventoryView({
         buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
       buildPanel.addChild(buildHintText);
 
-      let buildRows = [];
-
       buildPanel.on("pointertap", (ev) => {
         if (!activeBuildSpec || activeBuildSpec.ownerId !== ownerId) return;
         ev?.stopPropagation?.();
         clearActiveBuildForOwner(ownerId);
         updateLeaderPanel(win);
+      });
+      buildOpenButton.on("pointertap", (ev) => {
+        ev?.stopPropagation?.();
+        if (uiBlocked) return;
+        requestPauseForAction?.();
+        buildingManagerView.open({ ownerId });
       });
 
       win.leaderPanel = {
@@ -2472,10 +2531,10 @@ export function createInventoryView({
         openSkillTreeButton,
         buildPanel,
         buildPanelBg,
+        buildOpenButton,
+        buildOpenButtonBg,
+        buildOpenButtonText,
         buildHintText,
-        buildListContainer,
-        buildRows,
-        buildOptionsSignature: "",
         buildPanelHeight,
         sectionCaps: getLeaderSectionCapabilities(getStateSafe(), leader),
       };
@@ -2546,6 +2605,7 @@ export function createInventoryView({
     if (!win.pinned) {
       win.container.visible = false;
       clearActiveBuildForOwner(ownerId);
+      closeBuildingManagerForOwner(ownerId);
     }
     if (consumePrompt?.ownerId === ownerId && !win.pinned) {
       hideConsumePrompt();
@@ -2561,6 +2621,7 @@ export function createInventoryView({
     win.container.visible = false;
     win.pinText.text = "[ ]";
     clearActiveBuildForOwner(ownerId);
+    closeBuildingManagerForOwner(ownerId);
     if (consumePrompt?.ownerId === ownerId) {
       hideConsumePrompt();
     }
@@ -2574,6 +2635,7 @@ export function createInventoryView({
     if (!win.pinned && !win.hovered) {
       win.container.visible = false;
       clearActiveBuildForOwner(ownerId);
+      closeBuildingManagerForOwner(ownerId);
     } else {
       win.container.visible = true;
     }
@@ -3131,6 +3193,7 @@ export function createInventoryView({
     if (!leader) {
       win.leaderPanel.container.visible = false;
       clearActiveBuildForOwner(win.ownerId);
+      closeBuildingManagerForOwner(win.ownerId, "noLeader");
       return;
     }
     const panel = win.leaderPanel;
@@ -3140,9 +3203,18 @@ export function createInventoryView({
 
     if (!sectionCaps.build) {
       clearActiveBuildForOwner(win.ownerId);
+      closeBuildingManagerForOwner(win.ownerId, "buildLocked");
     }
 
-    const options = sectionCaps.build ? computeBuildOptions(state, leader) : [];
+    let activeBuildForOwner =
+      activeBuildSpec && activeBuildSpec.ownerId === win.ownerId
+        ? activeBuildSpec
+        : null;
+    if (activeBuildForOwner && !isBuildPlanStillValid(state, activeBuildForOwner)) {
+      clearActiveBuildForOwner(win.ownerId);
+      activeBuildForOwner = null;
+    }
+
     if (sectionCaps.systems) {
       rebuildLeaderSystemsRows(win, leader);
     } else if (panel.systemsRowsContainer) {
@@ -3151,7 +3223,7 @@ export function createInventoryView({
       panel.systemsContentHeight = 0;
       panel.systemsRowsContainer.removeChildren();
     }
-    layoutLeaderSections(win, leader, options.length, sectionCaps);
+    layoutLeaderSections(win, leader, sectionCaps);
     if (sectionCaps.systems) {
       updateLeaderSystemsRows(win, leader);
     }
@@ -3212,103 +3284,48 @@ export function createInventoryView({
       sectionCaps.skills && typeof openSkillTree === "function"
     );
 
-    if (panel.buildListContainer && sectionCaps.build) {
-      let activeDefId =
-        activeBuildSpec && activeBuildSpec.ownerId === win.ownerId
-          ? activeBuildSpec.defId
-          : null;
-      if (
-        activeDefId &&
-        !options.some((entry) => entry.id === activeDefId && entry.available)
-      ) {
-        clearActiveBuildForOwner(win.ownerId);
-        activeDefId = null;
+    if (sectionCaps.build) {
+      const activeDefId = activeBuildForOwner?.defId ?? null;
+      const buttonWidth =
+        win.panelWidth - INNER_PADDING * 2 - BUILD_PANEL_PADDING * 2;
+      const buttonHeight = BUILD_PANEL_BUTTON_HEIGHT;
+      const buttonEnabled = true;
+
+      if (panel.buildOpenButton) {
+        panel.buildOpenButton.eventMode = buttonEnabled ? "static" : "none";
+        panel.buildOpenButton.cursor = buttonEnabled ? "pointer" : "default";
       }
-
-      const signature = `${options
-        .map((o) => `${o.id}:${o.available ? "1" : "0"}`)
-        .join("|")}|active:${activeDefId ?? ""}`;
-
-      if (signature !== panel.buildOptionsSignature) {
-        panel.buildOptionsSignature = signature;
-        panel.buildListContainer.removeChildren();
-        panel.buildRows = [];
-
-        const rowWidth =
-          win.panelWidth - INNER_PADDING * 2 - BUILD_PANEL_PADDING * 2;
-        let rowY = 0;
-        for (const entry of options) {
-          const row = new PIXI.Container();
-          row.y = rowY;
-          row.eventMode = "static";
-          row.cursor = entry.available ? "pointer" : "default";
-
-          const isActive = activeDefId === entry.id;
-          const fill = isActive
-            ? BUILD_PANEL_ROW_BG_ACTIVE
-            : BUILD_PANEL_ROW_BG;
-          const alpha = entry.available ? 0.95 : 0.5;
-
-          const rowBg = new PIXI.Graphics()
-            .beginFill(fill, alpha)
-            .drawRoundedRect(0, 0, rowWidth, BUILD_PANEL_ROW_HEIGHT, 6)
-            .endFill();
-          row.addChild(rowBg);
-
-          const label = new PIXI.Text(entry.name, {
-            fill: BUILD_PANEL_TEXT,
-            fontSize: 11,
-          });
-          label.x = 6;
-          label.y = 4;
-          row.addChild(label);
-
-          const cost = INTENT_AP_COSTS?.buildDesignate ?? 0;
-          const costText = new PIXI.Text(String(cost), {
-            fill: MUCHA_UI_COLORS.accents.gold,
-            fontSize: 10,
-          });
-          costText.x = rowWidth - 18;
-          costText.y = 5;
-          row.addChild(costText);
-
-          let limitText = null;
-          if (!entry.available) {
-            limitText = new PIXI.Text("Limit", {
-              fill: 0xffc2c2,
-              fontSize: 9,
-            });
-            limitText.x = rowWidth - 60;
-            limitText.y = 6;
-            row.addChild(limitText);
-          }
-
-          row.on("pointertap", (ev) => {
-            ev?.stopPropagation?.();
-            if (!entry.available) return;
-            setActiveBuild(win.ownerId, entry.id);
-            updateLeaderPanel(win);
-          });
-
-          panel.buildListContainer.addChild(row);
-          panel.buildRows.push({
-            id: entry.id,
-            row,
-            rowBg,
-            label,
-            costText,
-            limitText,
-          });
-
-          rowY += BUILD_PANEL_ROW_HEIGHT + BUILD_PANEL_ROW_GAP;
-        }
+      if (panel.buildOpenButtonBg) {
+        panel.buildOpenButtonBg.clear();
+        panel.buildOpenButtonBg
+          .lineStyle(1, MUCHA_UI_COLORS.surfaces.borderSoft, 0.95)
+          .beginFill(
+            buttonEnabled
+              ? MUCHA_UI_COLORS.surfaces.border
+              : MUCHA_UI_COLORS.surfaces.panelDeep,
+            0.97
+          )
+          .drawRoundedRect(0, 0, buttonWidth, buttonHeight, 6)
+          .endFill();
+      }
+      if (panel.buildOpenButtonText) {
+        panel.buildOpenButtonText.text = "Open Building Manager";
+        panel.buildOpenButtonText.alpha = buttonEnabled ? 1 : 0.5;
+        panel.buildOpenButtonText.x = Math.max(
+          6,
+          Math.floor((buttonWidth - panel.buildOpenButtonText.width) / 2)
+        );
+        panel.buildOpenButtonText.y = Math.max(
+          3,
+          Math.floor((buttonHeight - panel.buildOpenButtonText.height) / 2)
+        );
       }
 
       if (panel.buildHintText) {
         panel.buildHintText.text =
           activeDefId != null
             ? "Drop here to cancel."
-            : "Select a building to place.";
+            : "Open manager to choose a build plan.";
         panel.buildHintText.y =
           panel.buildPanelHeight - BUILD_PANEL_PADDING - BUILD_PANEL_HINT_HEIGHT;
       }
@@ -3326,31 +3343,18 @@ export function createInventoryView({
         );
         panel.buildPanelBg.endFill();
       }
+
       panel.buildHeader?.setExpanded?.(
         ensureSectionState(win).build !== false,
         activeDefId != null,
         activeDefId != null ? "Cancel Build" : "Build"
       );
 
-      if (panel.buildListContainer) {
-        panel.buildListContainer.alpha = activeDefId != null ? 0.35 : 1;
-        panel.buildListContainer.eventMode = activeDefId != null ? "none" : "static";
-      }
-
       if (panel.buildPanel) {
         panel.buildPanel.cursor = activeDefId != null ? "pointer" : "default";
       }
-    } else {
-      panel.buildOptionsSignature = "";
-      if (panel.buildListContainer) {
-        panel.buildListContainer.removeChildren();
-        panel.buildRows = [];
-        panel.buildListContainer.alpha = 1;
-        panel.buildListContainer.eventMode = "none";
-      }
-      if (panel.buildHintText) {
-        panel.buildHintText.text = "";
-      }
+    } else if (panel.buildHintText) {
+      panel.buildHintText.text = "";
     }
   }
 
@@ -4784,6 +4788,7 @@ export function createInventoryView({
 
   function init() {
     stage.on("pointerdown", (ev) => {
+      if (buildingManagerView?.isOpen?.()) return;
       if (!activeBuildSpec) return;
       if (dragItem.active || dragWindow.active) return;
       const p = ev?.data?.global;
@@ -4811,7 +4816,7 @@ export function createInventoryView({
       if (!p) return;
       lastPointerPos = { x: p.x, y: p.y };
       if (!activeBuildSpec) return;
-      updateBuildGhostContent(activeBuildSpec.defId);
+      updateBuildGhostContent(activeBuildSpec);
       pushBuildPlacementPreview();
       if (buildGhost) {
         buildGhost.container.visible = true;
@@ -4821,6 +4826,7 @@ export function createInventoryView({
   }
 
   function update(dt) {
+    buildingManagerView.update();
     updateApDragOverlays(dt);
     updateConsumePrompt(dt);
     pushBuildPlacementPreview();
@@ -4829,7 +4835,7 @@ export function createInventoryView({
     }
 
     if (activeBuildSpec) {
-      updateBuildGhostContent(activeBuildSpec.defId);
+      updateBuildGhostContent(activeBuildSpec);
       if (buildGhost) {
         const { width: screenWidth, height: screenHeight } = getScreenSize();
         const pos = lastPointerPos || { x: screenWidth / 2, y: screenHeight / 2 };
