@@ -13,6 +13,7 @@ import {
 } from "./recipe-priority.js";
 import {
   INITIAL_POPULATION_DEFAULT,
+  POPULATION_ATTRACTION_PER_VACANCY_PER_YEAR,
   POPULATION_GROWTH_FULL_FEED_RATE,
   POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER,
   YEAR_END_SKILL_POINTS_NO_POPULATION_CHANGE,
@@ -716,6 +717,7 @@ function ensurePopulationTrackerState(state) {
       mealAttempts: 0,
       mealSuccesses: 0,
       faithGrowthStreak: 0,
+      attractionProgress: 0,
     };
   }
   const tracker = state.populationTracker;
@@ -728,6 +730,9 @@ function ensurePopulationTrackerState(state) {
     tracker.faithGrowthStreak,
     0
   );
+  tracker.attractionProgress = Number.isFinite(tracker.attractionProgress)
+    ? Math.max(0, tracker.attractionProgress)
+    : 0;
   if (tracker.mealSuccesses > tracker.mealAttempts) {
     tracker.mealSuccesses = tracker.mealAttempts;
   }
@@ -740,16 +745,100 @@ function getStructureLabel(structure) {
   return def?.name || structure.defId || "Housing";
 }
 
-function getResidentsHousingStructure(anchors, isTagUnlocked = null) {
+function getHousingCapacityForStructure(structure) {
+  if (!structure) return 0;
+  const def = hubStructureDefs?.[structure.defId];
+  return normalizePopulationCount(def?.housing?.vacancy, 0);
+}
+
+function listActiveHousingStructures(anchors, isTagUnlocked = null) {
   const list = Array.isArray(anchors) ? anchors : [];
+  const out = [];
   for (const structure of list) {
     if (!structure) continue;
     const tags = Array.isArray(structure.tags) ? structure.tags : [];
     if (!tags.includes("canHouse")) continue;
     if (isTagDisabled(structure, "canHouse", isTagUnlocked)) continue;
-    return structure;
+    out.push(structure);
   }
-  return null;
+  return out;
+}
+
+function computeHousingStats(
+  anchors,
+  isTagUnlocked = null,
+  population = 0
+) {
+  const activeHousingStructures = listActiveHousingStructures(
+    anchors,
+    isTagUnlocked
+  );
+  let housingCapacity = 0;
+  for (const structure of activeHousingStructures) {
+    housingCapacity += getHousingCapacityForStructure(structure);
+  }
+  const safePopulation = normalizePopulationCount(population, 0);
+  return {
+    activeHousingStructures,
+    housingCapacity: normalizePopulationCount(housingCapacity, 0),
+    housingVacancy: Math.max(0, housingCapacity - safePopulation),
+    population: safePopulation,
+  };
+}
+
+function syncHousingResidentsReport(
+  anchors,
+  isTagUnlocked = null,
+  population = 0
+) {
+  const stats = computeHousingStats(anchors, isTagUnlocked, population);
+  const list = Array.isArray(anchors) ? anchors : [];
+  for (const structure of list) {
+    if (!structure) continue;
+    const tags = Array.isArray(structure.tags) ? structure.tags : [];
+    if (!tags.includes("canHouse")) continue;
+    const isActive = !isTagDisabled(structure, "canHouse", isTagUnlocked);
+    const residents = ensureHubSystemState(structure, "residents");
+    if (!residents) continue;
+    residents.population = stats.population;
+    residents.housingCapacity = stats.housingCapacity;
+    residents.housingVacancy = stats.housingVacancy;
+    residents.structureHousingCapacity = isActive
+      ? getHousingCapacityForStructure(structure)
+      : 0;
+  }
+  return stats;
+}
+
+function applyYearlyHousingAttraction(tracker, housingVacancy) {
+  if (!tracker || typeof tracker !== "object") {
+    return { attracted: 0, attractionProgress: 0 };
+  }
+  const vacancy = normalizePopulationCount(housingVacancy, 0);
+  const attractionRate = Number.isFinite(POPULATION_ATTRACTION_PER_VACANCY_PER_YEAR)
+    ? Math.max(0, POPULATION_ATTRACTION_PER_VACANCY_PER_YEAR)
+    : 0;
+
+  if (vacancy <= 0 || attractionRate <= 0) {
+    tracker.attractionProgress = 0;
+    return { attracted: 0, attractionProgress: tracker.attractionProgress };
+  }
+
+  const existingProgress = Number.isFinite(tracker.attractionProgress)
+    ? Math.max(0, tracker.attractionProgress)
+    : 0;
+  const progressWithVacancy = existingProgress + vacancy * attractionRate;
+  const attracted = Math.min(vacancy, Math.floor(progressWithVacancy));
+  tracker.attractionProgress = Math.max(0, progressWithVacancy - attracted);
+
+  return {
+    attracted: normalizePopulationCount(attracted, 0),
+    attractionProgress: tracker.attractionProgress,
+  };
+}
+
+function getResidentsHousingStructure(anchors, isTagUnlocked = null) {
+  return listActiveHousingStructures(anchors, isTagUnlocked)[0] ?? null;
 }
 
 function normalizeTierId(value, fallback = "bronze") {
@@ -1078,32 +1167,77 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
   const attempts = normalizePopulationCount(tracker.mealAttempts, 0);
   const successes = normalizePopulationCount(tracker.mealSuccesses, 0);
   const misses = Math.max(0, attempts - successes);
+  const populationSystemsActive = previousPopulation > 0;
 
-  let nextPopulation = previousPopulation;
+  let populationAfterMeals = previousPopulation;
   let outcomeText = "population held steady";
   let outcomeKind = "populationUnchanged";
-  if (attempts > 0 && misses === 0) {
-    const growthRate = Number.isFinite(POPULATION_GROWTH_FULL_FEED_RATE)
-      ? Math.max(0, POPULATION_GROWTH_FULL_FEED_RATE)
-      : 0;
-    const growth = Math.max(1, Math.floor(previousPopulation * growthRate));
-    nextPopulation = previousPopulation + growth;
-    outcomeText = `full feeding growth (+${growth})`;
-    outcomeKind = "populationChanged";
-  } else if (attempts > 0 && successes === 0) {
-    const collapseMultiplier = Number.isFinite(POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
-      ? Math.max(0, POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
-      : 0.5;
-    nextPopulation = Math.floor(previousPopulation * collapseMultiplier);
-    outcomeText = "complete starvation collapse";
-    outcomeKind = "populationHalved";
-  } else if (attempts === 0) {
-    outcomeText = "no seasonal meal attempts";
+  if (populationSystemsActive) {
+    if (attempts > 0 && misses === 0) {
+      const growthRate = Number.isFinite(POPULATION_GROWTH_FULL_FEED_RATE)
+        ? Math.max(0, POPULATION_GROWTH_FULL_FEED_RATE)
+        : 0;
+      const growth = Math.max(1, Math.floor(previousPopulation * growthRate));
+      populationAfterMeals = previousPopulation + growth;
+      outcomeText = `full feeding growth (+${growth})`;
+      outcomeKind = "populationChanged";
+    } else if (attempts > 0 && successes === 0) {
+      const collapseMultiplier = Number.isFinite(POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
+        ? Math.max(0, POPULATION_COLLAPSE_ALL_FAIL_MULTIPLIER)
+        : 0.5;
+      populationAfterMeals = Math.floor(previousPopulation * collapseMultiplier);
+      outcomeText = "complete starvation collapse";
+      outcomeKind = "populationHalved";
+    } else if (attempts === 0) {
+      outcomeText = "no seasonal meal attempts";
+    } else {
+      outcomeText = "partial feeding";
+    }
   } else {
-    outcomeText = "partial feeding";
+    const housingBefore = computeHousingStats(
+      anchors,
+      isTagUnlocked,
+      previousPopulation
+    );
+    outcomeKind = "populationDormant";
+    outcomeText =
+      housingBefore.housingCapacity > 0
+        ? "housing available but no residents yet"
+        : "no active housing capacity";
   }
-  nextPopulation = normalizePopulationCount(nextPopulation, previousPopulation);
+  populationAfterMeals = normalizePopulationCount(
+    populationAfterMeals,
+    previousPopulation
+  );
+
+  const housingAfterMeals = computeHousingStats(
+    anchors,
+    isTagUnlocked,
+    populationAfterMeals
+  );
+  const attraction = applyYearlyHousingAttraction(
+    tracker,
+    housingAfterMeals.housingVacancy
+  );
+  const attractedPopulation = Math.min(
+    normalizePopulationCount(attraction.attracted, 0),
+    housingAfterMeals.housingVacancy
+  );
+  let nextPopulation = normalizePopulationCount(
+    populationAfterMeals + attractedPopulation,
+    populationAfterMeals
+  );
+  if (!populationSystemsActive && attractedPopulation > 0) {
+    outcomeKind = "populationAttracted";
+    outcomeText = `vacancy attraction (+${attractedPopulation})`;
+  }
+
   setPopulationCount(state, nextPopulation);
+  const housingAfterAttraction = syncHousingResidentsReport(
+    anchors,
+    isTagUnlocked,
+    nextPopulation
+  );
 
   const housingStructure = getResidentsHousingStructure(anchors, isTagUnlocked);
   const hasFaithHousing = !!housingStructure;
@@ -1114,7 +1248,7 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
   let faithOutcome = hasFaithHousing ? "faithUnchanged" : "faithUnavailable";
   let runCompleted = false;
 
-  if (hasFaithHousing) {
+  if (hasFaithHousing && populationSystemsActive) {
     if (outcomeKind === "populationChanged") {
       faithGrowthStreak += 1;
       if (faithGrowthStreak >= faithThreshold) {
@@ -1138,10 +1272,16 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
     setFaithTier(housingStructure, nextFaithTier);
   } else {
     faithGrowthStreak = 0;
+    if (hasFaithHousing) {
+      faithOutcome = "faithDormant";
+      setFaithTier(housingStructure, nextFaithTier);
+    }
   }
   tracker.faithGrowthStreak = faithGrowthStreak;
 
-  const skillPointsPerLeader = getYearEndSkillPointsAward(outcomeKind);
+  const skillPointsPerLeader = populationSystemsActive
+    ? getYearEndSkillPointsAward(outcomeKind)
+    : 0;
   const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   let leaderCount = 0;
   for (const pawn of pawns) {
@@ -1157,13 +1297,17 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
 
   const priorYear = Math.max(1, currentYear - 1);
   const faithSummaryText =
-    hasFaithHousing && previousFaithTier && nextFaithTier
+    populationSystemsActive && hasFaithHousing && previousFaithTier && nextFaithTier
       ? `, faith ${previousFaithTier} -> ${nextFaithTier}`
+      : "";
+  const attractionSummaryText =
+    populationSystemsActive && attractedPopulation > 0
+      ? `, +${attractedPopulation} attracted`
       : "";
   const yearlyEntry = pushGameEvent(state, {
     type: "populationYearlyUpdate",
     tSec,
-    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})${faithSummaryText}, +${skillPointsPerLeader} skill points to each leader`,
+    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})${attractionSummaryText}${faithSummaryText}, +${skillPointsPerLeader} skill points to each leader`,
     data: {
       year: priorYear,
       previousPopulation,
@@ -1172,6 +1316,10 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
       mealSuccesses: successes,
       mealMisses: misses,
       populationOutcome: outcomeKind,
+      attractedPopulation,
+      housingCapacity: housingAfterAttraction.housingCapacity,
+      housingVacancy: housingAfterAttraction.housingVacancy,
+      attractionProgress: tracker.attractionProgress,
       skillPointsPerLeader,
       leaderCount,
       totalSkillPointsAwarded,
@@ -1184,6 +1332,7 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
         outcome: faithOutcome,
         growthStreak: faithGrowthStreak,
         growthThreshold: faithThreshold,
+        active: populationSystemsActive,
         runCompleted,
       },
       yearEndPerformance: {
@@ -1192,6 +1341,10 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
         nextPopulation,
         populationDelta: nextPopulation - previousPopulation,
         populationOutcome: outcomeKind,
+        attractedPopulation,
+        housingCapacity: housingAfterAttraction.housingCapacity,
+        housingVacancy: housingAfterAttraction.housingVacancy,
+        attractionProgress: tracker.attractionProgress,
         mealAttempts: attempts,
         mealSuccesses: successes,
         mealMisses: misses,
@@ -1210,7 +1363,7 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
     },
   });
 
-  if (runCompleted && state?.runStatus?.complete !== true) {
+  if (populationSystemsActive && runCompleted && state?.runStatus?.complete !== true) {
     state.runStatus = {
       complete: true,
       reason: "faithCollapsedAtBronze",
@@ -1423,7 +1576,9 @@ export function stepHubSecond(state, tSec) {
   const isTagUnlocked = (tagId) =>
     typeof tagId === "string" && unlockedHubTags.has(tagId);
 
+  syncHousingResidentsReport(anchors, isTagUnlocked, getPopulationCount(state));
   runPopulationSeasonTick(state, tSec, anchors, isTagUnlocked);
+  syncHousingResidentsReport(anchors, isTagUnlocked, getPopulationCount(state));
   if (!anchors.length) return;
 
   const seasonKey = getCurrentSeasonKey(state);

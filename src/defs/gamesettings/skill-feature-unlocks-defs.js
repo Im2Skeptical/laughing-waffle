@@ -32,4 +32,9 @@ export const skillFeatureUnlockDefs = {
     name: "Inventory Skills Section",
     desc: "Shows the leader skills section in inventory windows.",
   },
+  "ui.inventory.prestige": {
+    id: "ui.inventory.prestige",
+    name: "Inventory Prestige Section",
+    desc: "Shows the leader prestige section in inventory windows.",
+  },
 };

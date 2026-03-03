@@ -398,15 +398,47 @@ function runLeaderInventorySectionCapabilityChecks() {
     "leader inventory capabilities should be gated by unlocked skills and recipes"
   );
 
-  state.pawns[0].unlockedSkillNodeIds = ["Memory"];
-  const memoryCaps = getLeaderInventorySectionCapabilities(state, leaderId);
-  assert.equal(memoryCaps.skills, true, "Memory should unlock Skills section");
-  assert.equal(memoryCaps.prestige, false, "Worship should still gate Prestige section");
+  state.skillRuntime = {
+    modifiers: {
+      global: {},
+      pawnById: {},
+    },
+    unlocks: {
+      recipes: [],
+      hubStructures: [],
+      envTags: [],
+      hubTags: [],
+      itemTags: [],
+      features: ["ui.inventory.skills"],
+    },
+  };
+  const skillsCaps = getLeaderInventorySectionCapabilities(state, leaderId);
+  assert.equal(
+    skillsCaps.skills,
+    true,
+    "ui.inventory.skills feature should unlock Skills section"
+  );
+  assert.equal(
+    skillsCaps.prestige,
+    false,
+    "ui.inventory.prestige feature should still gate Prestige section"
+  );
 
-  state.pawns[0].unlockedSkillNodeIds = ["Memory", "Worship"];
-  const worshipCaps = getLeaderInventorySectionCapabilities(state, leaderId);
-  assert.equal(worshipCaps.skills, true, "Memory should keep Skills section unlocked");
-  assert.equal(worshipCaps.prestige, true, "Worship should unlock Prestige section");
+  state.skillRuntime.unlocks.features = [
+    "ui.inventory.skills",
+    "ui.inventory.prestige",
+  ];
+  const prestigeCaps = getLeaderInventorySectionCapabilities(state, leaderId);
+  assert.equal(
+    prestigeCaps.skills,
+    true,
+    "ui.inventory.skills should keep Skills section unlocked"
+  );
+  assert.equal(
+    prestigeCaps.prestige,
+    true,
+    "ui.inventory.prestige should unlock Prestige section"
+  );
 
   state.skillRuntime = {
     modifiers: {
@@ -419,6 +451,7 @@ function runLeaderInventorySectionCapabilityChecks() {
       envTags: [],
       hubTags: [],
       itemTags: [],
+      features: [],
     },
   };
   const buildCaps = getLeaderInventorySectionCapabilities(state, leaderId);

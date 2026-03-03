@@ -292,6 +292,11 @@ function runScenarioMemoryFeatureBootstrapChecks() {
     true,
     "[skill-feature] pre-unlocked Memory should grant ui.inventory.skills during init"
   );
+  assert.equal(
+    hasSkillFeatureUnlock(state, "ui.inventory.prestige"),
+    true,
+    "[skill-feature] pre-unlocked Worship should grant ui.inventory.prestige during init"
+  );
 }
 
 function runMysteriousAncientTomeItemUseChecks() {

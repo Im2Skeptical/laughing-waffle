@@ -1059,7 +1059,9 @@ export function stepPawnSecond(state, tSec, options = {}) {
         pawn.leaderFaith.failedEatWarnActive = false;
       }
 
-      if (hungerAfter <= faithDecayThreshold) {
+      const shouldApplyFaithDecay =
+        hungerBefore <= faithDecayThreshold && hungerAfter <= faithDecayThreshold;
+      if (shouldApplyFaithDecay) {
         const decayTicks = accumulateLeaderFaithDecaySecond(pawn, 1);
         for (let tick = 0; tick < decayTicks; tick++) {
           const decay = applyLeaderFaithDecayTick(pawn);

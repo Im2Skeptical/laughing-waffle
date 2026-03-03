@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 
 import { ActionKinds, applyAction } from "../src/model/actions.js";
+import { SEASON_DURATION_SEC, SEASONS } from "../src/defs/gamesettings/gamerules-defs.js";
 import { hubStructureDefs } from "../src/defs/gamepieces/hub-structure-defs.js";
 import { cmdBuildDesignate } from "../src/model/commands/build-commands.js";
 import { updateGame, createInitialState } from "../src/model/game-model.js";
 import { getBuildProcess } from "../src/model/build-helpers.js";
+import { Inventory } from "../src/model/inventory-model.js";
 import { deserializeGameState, serializeGameState } from "../src/model/state.js";
 import {
   createTimelineFromInitialState,
   rebuildStateAtSecond,
   replaceActionsAtSecond,
 } from "../src/model/timeline/index.js";
+
+const YEAR_DURATION_SEC = Math.max(1, Math.floor(SEASON_DURATION_SEC * SEASONS.length));
 
 function assertOk(res, label) {
   assert.equal(res?.ok, true, `${label} failed: ${JSON.stringify(res)}`);
@@ -57,6 +61,82 @@ function advanceSeconds(state, seconds) {
   for (let i = 0; i < totalFrames; i += 1) {
     updateGame(1 / 60, state);
   }
+}
+
+function getLeader(state, index = 0) {
+  const leaders = (state?.pawns ?? []).filter((pawn) => pawn?.role === "leader");
+  return leaders[index] ?? null;
+}
+
+function countEventsByType(state, type) {
+  const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
+  let count = 0;
+  for (const entry of feed) {
+    if (entry?.type === type) count += 1;
+  }
+  return count;
+}
+
+function getYearlyPopulationEntry(state, year) {
+  const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
+  for (const entry of feed) {
+    if (entry?.type !== "populationYearlyUpdate") continue;
+    if (Math.floor(entry?.data?.year ?? -1) !== Math.floor(year)) continue;
+    return entry;
+  }
+  return null;
+}
+
+function advanceUntilYearlyPopulationEntry(state, year, maxSeconds = YEAR_DURATION_SEC + 4) {
+  const limit = Math.max(1, Math.floor(maxSeconds));
+  for (let i = 0; i < limit; i += 1) {
+    if (getYearlyPopulationEntry(state, year)) return true;
+    advanceSeconds(state, 1);
+  }
+  return !!getYearlyPopulationEntry(state, year);
+}
+
+function completeMudHousesUpgrade(state, { stockedFood = 0 } = {}) {
+  assertOk(
+    cmdBuildDesignate(state, {
+      defId: "mudHouses",
+      target: { hubCol: 3 },
+    }),
+    "designate mudHouses upgrade"
+  );
+  const structure = getStructureAtHubCol(state, 2);
+  const process = getBuildProcess(structure);
+  assert.ok(process, "expected mudHouses upgrade build process");
+
+  if (Array.isArray(process.requirements)) {
+    for (const req of process.requirements) {
+      if (!req || typeof req !== "object") continue;
+      req.progress = Math.max(0, Math.floor(req.amount ?? 0));
+    }
+  }
+  process.progress = Math.max(0, Math.floor((process.durationSec ?? 1) - 1));
+
+  if (stockedFood > 0) {
+    const structureInv = state?.ownerInventories?.[structure.instanceId];
+    assert.ok(structureInv, "expected housing inventory for food stock");
+    const added = Inventory.addNewItem(state, structureInv, {
+      kind: "roastedBarley",
+      quantity: stockedFood,
+      width: 1,
+      height: 1,
+      gridX: 0,
+      gridY: 0,
+    });
+    assert.ok(added, "failed to seed housing food stock");
+  }
+
+  state.paused = false;
+  advanceSeconds(state, 1);
+
+  const upgraded = getStructureAtHubCol(state, 2);
+  assert.ok(upgraded, "missing upgraded mudHouses structure");
+  assert.equal(upgraded.defId, "mudHouses", "upgrade completion expected mudHouses");
+  return upgraded;
 }
 
 function runUpgradeOnlyPlacementGateTest() {
@@ -219,6 +299,132 @@ function runUpgradeReplayParityTest() {
   }
 }
 
+function runPopulationDormantWithoutHousingTest() {
+  const state = createUpgradeScenarioState();
+  state.resources.population = 0;
+  const leader = getLeader(state, 0);
+  assert.ok(leader, "expected leader for dormant no-housing check");
+  const initialSkillPoints = Math.floor(leader.skillPoints ?? 0);
+
+  assert.equal(
+    advanceUntilYearlyPopulationEntry(state, 1),
+    true,
+    "expected year-1 yearly update to occur"
+  );
+
+  assert.equal(
+    Math.floor(state?.resources?.population ?? -1),
+    0,
+    "population should remain zero without housing"
+  );
+  assert.equal(
+    countEventsByType(state, "populationSeasonMeal"),
+    0,
+    "no residents should consume meals before attraction starts"
+  );
+  assert.equal(
+    Math.floor(leader.skillPoints ?? -1),
+    initialSkillPoints,
+    "leaders should not gain year-end skill points while population is dormant"
+  );
+
+  const yearly = getYearlyPopulationEntry(state, 1);
+  assert.ok(yearly, "expected year-1 population yearly update event");
+  assert.equal(
+    Math.floor(yearly?.data?.skillPointsPerLeader ?? -1),
+    0,
+    "yearly update should award zero skill points with dormant population"
+  );
+}
+
+function runPopulationAttractionAfterHousingUpgradeTest() {
+  const state = createUpgradeScenarioState();
+  state.resources.population = 0;
+  const leader = getLeader(state, 0);
+  assert.ok(leader, "expected leader for housing attraction checks");
+  const initialSkillPoints = Math.floor(leader.skillPoints ?? 0);
+
+  const mudHouses = completeMudHousesUpgrade(state, { stockedFood: 400 });
+
+  advanceSeconds(state, Math.max(1, YEAR_DURATION_SEC - 2));
+  assert.equal(
+    countEventsByType(state, "populationSeasonMeal"),
+    0,
+    "no seasonal resident meal checks should run before first attracted residents"
+  );
+
+  assert.equal(
+    advanceUntilYearlyPopulationEntry(state, 1, 6),
+    true,
+    "expected year-1 yearly update after housing upgrade"
+  );
+
+  const firstYear = getYearlyPopulationEntry(state, 1);
+  assert.ok(firstYear, "expected year-1 yearly population update after upgrade");
+  assert.ok(
+    Math.floor(firstYear?.data?.attractedPopulation ?? 0) > 0,
+    "housing vacancy should attract residents on year-1 update"
+  );
+  assert.equal(
+    Math.floor(firstYear?.data?.skillPointsPerLeader ?? -1),
+    0,
+    "first attraction year should not yet award population skill points"
+  );
+  assert.equal(
+    Math.floor(leader.skillPoints ?? -1),
+    initialSkillPoints,
+    "leader skill points should remain unchanged until population systems become active"
+  );
+
+  const residents = mudHouses?.systemState?.residents ?? null;
+  assert.ok(residents, "expected residents system report on mudHouses");
+  assert.equal(
+    Math.floor(residents?.housingCapacity ?? -1),
+    12,
+    "mudHouses should report configured housing capacity"
+  );
+  assert.equal(
+    Math.floor(residents?.population ?? -1),
+    Math.floor(state?.resources?.population ?? -2),
+    "residents system should report current population"
+  );
+  assert.equal(
+    Math.floor(residents?.housingVacancy ?? -1),
+    Math.max(0, 12 - Math.floor(state?.resources?.population ?? 0)),
+    "residents system should report current vacancy"
+  );
+  assert.ok(
+    countEventsByType(state, "populationSeasonMeal") > 0,
+    "seasonal resident meal checks should begin after first attraction"
+  );
+
+  assert.equal(
+    advanceUntilYearlyPopulationEntry(state, 2),
+    true,
+    "expected year-2 yearly update after population activation"
+  );
+
+  const secondYear = getYearlyPopulationEntry(state, 2);
+  assert.ok(secondYear, "expected year-2 yearly population update");
+  assert.ok(
+    Math.floor(secondYear?.data?.mealAttempts ?? 0) > 0,
+    "population meals should be active in year-2 aggregation"
+  );
+  assert.ok(
+    Math.floor(secondYear?.data?.skillPointsPerLeader ?? 0) > 0,
+    "year-2 update should award skill points after population activation"
+  );
+  assert.equal(
+    secondYear?.data?.faith?.active,
+    true,
+    "year-2 faith report should be active once population systems are running"
+  );
+  assert.ok(
+    Math.floor(leader.skillPoints ?? 0) > initialSkillPoints,
+    "leader skill points should increase once yearly population systems activate"
+  );
+}
+
 function run() {
   runUpgradeOnlyPlacementGateTest();
   runUpgradeDesignationFlowTest();
@@ -226,6 +432,8 @@ function run() {
   runUpgradeMaxInstanceGateTest();
   runUpgradeRejectUnderConstructionSourceTest();
   runUpgradeReplayParityTest();
+  runPopulationDormantWithoutHousingTest();
+  runPopulationAttractionAfterHousingUpgradeTest();
   console.log("[test] Build upgrade checks passed");
 }
 

@@ -49,6 +49,9 @@ export const hubStructureDefs = {
     defaultSpan: 2,
     maxInstances: 1,
     tags: ["canRest", "canHouse"],
+    housing: {
+      vacancy: 12,
+    },
     systems: {},
     inventory: { cols: 5, rows: 10 },
     build: {

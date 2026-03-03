@@ -3864,6 +3864,11 @@ export const skillNodes = {
         unlockType: "tag",
         tagDomain: "hub",
         tagId: "depositable"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "feature",
+        unlockId: "ui.inventory.prestige"
       }
     ]
   }

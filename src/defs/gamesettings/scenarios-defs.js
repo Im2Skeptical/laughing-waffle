@@ -85,7 +85,7 @@ export const setupDefs = {
         hubCol: 3, 
         role: "leader", 
         skillPoints: 30,
-        unlockedSkillNodeIds: ["Memory","Astronomy", "Crafting", "RitualShrine", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
+        unlockedSkillNodeIds: ["Memory","Astronomy", "Crafting", "Worship", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
       },
       { name: "Pawn 2", color: 0x9999ff, hubCol: 5, role: "leader" },
     ],
@@ -231,7 +231,7 @@ export const setupDefs = {
         hubCol: 4, 
         role: "leader", 
         skillPoints: 3,
-        //unlockedSkillNodeIds: ["Astronomy", "Crafting", "RitualShrine", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
+        //unlockedSkillNodeIds: ["Astronomy", "Crafting", "Worship", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
         unlockedSkillNodeIds: [""]
       },
       //{ name: "Pawn 2", color: 0x9999ff, hubCol: 3, role: "leader" },
@@ -241,14 +241,6 @@ export const setupDefs = {
       {
         owner: { type: "hubStructure", hubCol: 4 },
         items: [
-          { kind: "reeds", quantity: 20, gridX: 1, gridY: 0 },
-          { kind: "fibres", quantity: 20, gridX: 2, gridY: 0 },
-          { kind: "barley", quantity: 15, gridX: 0, gridY: 2 },
-          { kind: "basket", gridX: 16, gridY: 3 },
-          { kind: "barleyPorridge", gridX: 0, gridY: 9 },
-          { kind: "barleyPorridge", gridX: 2, gridY: 9 },
-          { kind: "barleyPorridge", gridX: 0, gridY: 8 },
-          { kind: "barleyPorridge", gridX: 2, gridY: 8 },
         ],
       },
       {
@@ -256,17 +248,6 @@ export const setupDefs = {
         items: [
           { kind: "moteOfEternity", quantity: 1, gridX: 0, gridY: 0 },
           { kind: "mysteriousAncientTome", quantity: 1, gridX: 1, gridY: 0 },
-          //{ kind: "reeds", quantity: 20, gridX: 1, gridY: 0 },
-          //{ kind: "straw", quantity: 20, gridX: 2, gridY: 0 },
-          //{ kind: "stone", quantity: 5, gridX: 3, gridY: 0 },
-        ],
-      },
-      {
-        owner: { type: "pawn", index: 1 },
-        items: [
-          { kind: "wheat", quantity: 20, gridX: 0, gridY: 0 },
-          { kind: "barley", quantity: 20, gridX: 1, gridY: 0 },
-          { kind: "almanacSystemsScroll", quantity: 1, gridX: 1, gridY: 0 },
         ],
       },
     ],

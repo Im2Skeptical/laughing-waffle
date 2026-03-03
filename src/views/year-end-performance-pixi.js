@@ -18,6 +18,8 @@ function formatSigned(value) {
 }
 
 function formatOutcomeLabel(outcome) {
+  if (outcome === "populationAttracted") return "Population attracted";
+  if (outcome === "populationDormant") return "Population dormant";
   if (outcome === "populationHalved") return "Population halved";
   if (outcome === "populationChanged") return "Population changed";
   return "Population unchanged";

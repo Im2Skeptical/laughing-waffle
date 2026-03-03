@@ -139,10 +139,19 @@ export function createProcessWidgetSignatures({
 
   function buildResidentsSignature(state, targetKey, target, entries) {
     const population = Math.max(0, Math.floor(state?.resources?.population ?? 0));
+    const residentsState = target?.systemState?.residents ?? {};
+    const housingCapacity = Math.max(
+      0,
+      Math.floor(residentsState?.housingCapacity ?? 0)
+    );
+    const housingVacancy = Math.max(
+      0,
+      Math.floor(residentsState?.housingVacancy ?? 0)
+    );
     const templateSig = buildRoutingTemplateSignature(target, "residents");
     const candidateSig = buildTemplateCandidateSignature(state, target, "residents");
     const baseSig = buildProcessSignature(state, targetKey, target, entries) || "empty";
-    return `residents:${targetKey}:${population}:${templateSig}:${candidateSig}:${baseSig}`;
+    return `residents:${targetKey}:${population}:${housingCapacity}:${housingVacancy}:${templateSig}:${candidateSig}:${baseSig}`;
   }
 
   function buildDepositSignature(state, targetKey, target, entries, poolSig = "none") {

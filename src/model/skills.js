@@ -609,12 +609,11 @@ export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
     };
   }
 
-  const unlockedSet = getUnlockedSkillSet(state, leaderPawn.id);
   const availability = computeAvailableRecipesAndBuildings(state);
   return {
     equipment: true,
     systems: true,
-    prestige: unlockedSet.has("Worship"),
+    prestige: hasSkillFeatureUnlock(state, "ui.inventory.prestige"),
     skills: hasSkillFeatureUnlock(state, "ui.inventory.skills"),
     build: availability.hubStructureIds.size > 0,
   };
