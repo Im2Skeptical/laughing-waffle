@@ -176,6 +176,105 @@ function runUnlockCommandReplayAndSerializationChecks() {
   );
 }
 
+function runSolarAstronomySeasonalDeckFeatureChecks() {
+  const stateBefore = createInitialState("devPlaytesting01");
+  const tree = skillTreeDefs?.systemColorMap ?? null;
+  assert.ok(tree, "[skill-feature] systemColorMap tree missing");
+  const leader = (stateBefore?.pawns ?? []).find((pawn) => pawn?.role === "leader");
+  assert.ok(leader, "[skill-feature] leader pawn missing in setup");
+  leader.skillPoints = 999;
+  stateBefore.paused = true;
+
+  assert.equal(
+    hasSkillFeatureUnlock(stateBefore, "ui.deck.seasonalColors"),
+    false,
+    "[skill-feature] seasonal deck colors feature should start locked in setup"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(stateBefore, "ui.disk.season"),
+    false,
+    "[skill-feature] season disk feature should start locked in setup"
+  );
+
+  const path = findPathNodeIds(tree.id, tree.startNodeId, "SolarAstronomy");
+  assert.ok(path && path.length > 0, "[skill-feature] no path from tree start to SolarAstronomy");
+  const initiallyUnlocked = new Set(
+    Array.isArray(leader.unlockedSkillNodeIds) ? leader.unlockedSkillNodeIds : []
+  );
+  const unlockSequence = path.filter((nodeId) => !initiallyUnlocked.has(nodeId));
+  assert.ok(
+    unlockSequence.length > 0 ||
+      hasSkillFeatureUnlock(stateBefore, "ui.deck.seasonalColors"),
+    "[skill-feature] expected SolarAstronomy path to require at least one unlock step"
+  );
+
+  for (const nodeId of unlockSequence) {
+    const unlockRes = applyAction(stateBefore, {
+      kind: ActionKinds.UNLOCK_SKILL_NODE,
+      payload: {
+        leaderPawnId: leader.id,
+        nodeId,
+      },
+    });
+    assert.equal(
+      unlockRes?.ok,
+      true,
+      `[skill-feature] failed to unlock ${nodeId}: ${JSON.stringify(unlockRes)}`
+    );
+  }
+
+  assert.equal(
+    hasSkillFeatureUnlock(stateBefore, "ui.deck.seasonalColors"),
+    true,
+    "[skill-feature] unlocking SolarAstronomy should grant ui.deck.seasonalColors"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(stateBefore, "ui.disk.season"),
+    true,
+    "[skill-feature] unlocking SolarAstronomy should still grant ui.disk.season"
+  );
+
+  const serialized = serializeGameState(stateBefore);
+  const restored = deserializeGameState(serialized);
+  assert.equal(
+    hasSkillFeatureUnlock(restored, "ui.deck.seasonalColors"),
+    true,
+    "[skill-feature] serialized/deserialized state should preserve ui.deck.seasonalColors"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(restored, "ui.disk.season"),
+    true,
+    "[skill-feature] serialized/deserialized state should preserve ui.disk.season"
+  );
+
+  const replaySeed = createInitialState("devPlaytesting01");
+  const replayLeader = (replaySeed?.pawns ?? []).find((pawn) => pawn?.role === "leader");
+  assert.ok(replayLeader, "[skill-feature] replay leader pawn missing in setup");
+  replayLeader.skillPoints = 999;
+  const timeline = createTimelineFromInitialState(replaySeed);
+  const replayActions = unlockSequence.map((nodeId) => ({
+    kind: ActionKinds.UNLOCK_SKILL_NODE,
+    payload: {
+      leaderPawnId: replayLeader.id,
+      nodeId,
+    },
+  }));
+  const replaceRes = replaceActionsAtSecond(timeline, 0, replayActions);
+  assert.equal(replaceRes?.ok, true, "[skill-feature] failed to stage replay action");
+  const rebuilt = rebuildStateAtSecond(timeline, 0);
+  assert.equal(rebuilt?.ok, true, "[skill-feature] rebuildStateAtSecond failed at t=0");
+  assert.equal(
+    hasSkillFeatureUnlock(rebuilt.state, "ui.deck.seasonalColors"),
+    true,
+    "[skill-feature] replay rebuild should preserve ui.deck.seasonalColors"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(rebuilt.state, "ui.disk.season"),
+    true,
+    "[skill-feature] replay rebuild should preserve ui.disk.season"
+  );
+}
+
 function runScenarioMemoryFeatureBootstrapChecks() {
   const state = createInitialState("devGym01");
   assert.equal(
@@ -266,6 +365,7 @@ function runMysteriousAncientTomeItemUseChecks() {
 function run() {
   runFeatureUnlockEffectOpChecks();
   runUnlockCommandReplayAndSerializationChecks();
+  runSolarAstronomySeasonalDeckFeatureChecks();
   runScenarioMemoryFeatureBootstrapChecks();
   runMysteriousAncientTomeItemUseChecks();
   console.log("[test] Skill feature unlock checks passed");

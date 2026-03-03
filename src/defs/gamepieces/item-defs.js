@@ -639,6 +639,28 @@ export const itemDefs = {
         eventMarkerModeOnOpen: "leaderFaith",
       },
     },
+    onUseRequires: {
+      timegraphWindowPast: true,
+    },
+    onUse: [
+      {
+        op: "AddSkillPointsIfSkillNodeUnlocked",
+        target: { ref: "pawn" },
+        nodeId: "LunarAstronomy",
+        amount: 4,
+      },
+      {
+        op: "GrantSkillNode",
+        target: { ref: "pawn" },
+        nodeId: "LunarAstronomy",
+        ignoreCost: true,
+        ignoreAdjacency: true,
+        ignoreRequirements: true,
+      },
+      {
+        op: "RemoveItem",
+      },
+    ],
     defaultWidth: 1,
     defaultHeight: 1,
     ui: {
@@ -647,9 +669,16 @@ export const itemDefs = {
         "Item id: {id}",
         "Owner: {ownerLabel}",
         "Quantity: {quantity}",
+        (_, ctx) =>
+          ctx?.timegraphWindowPast
+            ? "A fragment of eternity. It's glow has dimmed"
+            : "A fragment of eternity glowing with power",
         "Editable range: 0-240s",
         "Projection horizon: 240s",
-        "Click or tap to open/close this timegraph.",
+        (_, ctx) =>
+          ctx?.timegraphWindowPast
+            ? "Tap to consume it."
+            : "Click or tap to open/close this timegraph.",
       ],
     },
   },

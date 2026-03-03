@@ -28,6 +28,10 @@ import {
   getSkillNodes,
   getUnlockedSkillSet,
 } from "../model/skills.js";
+import {
+  isItemBeyondAbsoluteTimegraphWindow,
+  isItemUseCurrentlyAvailable,
+} from "../model/item-use-policy.js";
 import { getScrollTimegraphStateFromItem } from "../model/timegraph/edit-policy.js";
 import { isAnyDropboxOwnerId } from "../model/owner-id-protocol.js";
 import {
@@ -2715,8 +2719,11 @@ export function createInventoryView({
     const ownerLabel = getOwnerLabel
       ? getOwnerLabel(ownerId)
       : `Owner ${ownerId}`;
+    const state = typeof getState === "function" ? getState() : null;
+    const tSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    const timegraphWindowPast = isItemBeyondAbsoluteTimegraphWindow(item, tSec);
 
-    const ctx = { ownerId, ownerLabel };
+    const ctx = { ownerId, ownerLabel, tSec, timegraphWindowPast };
 
     const values = {
       id: item.id,
@@ -2728,6 +2735,8 @@ export function createInventoryView({
       tier: item.tier ?? def.defaultTier ?? "bronze",
       width: item.width ?? def.defaultWidth ?? 1,
       height: item.height ?? def.defaultHeight ?? 1,
+      tSec,
+      timegraphWindowPast,
     };
 
     const titleRaw =
@@ -3353,8 +3362,11 @@ export function createInventoryView({
     if (!item || typeof onUseItem !== "function") return false;
     const def = itemDefs?.[item.kind];
     if (!def || typeof def !== "object") return false;
-    if (Array.isArray(def.onUse)) return def.onUse.length > 0;
-    return !!(def.onUse && typeof def.onUse === "object");
+    const hasOnUse =
+      Array.isArray(def.onUse) ? def.onUse.length > 0 : !!(def.onUse && typeof def.onUse === "object");
+    if (!hasOnUse) return false;
+    const state = typeof getState === "function" ? getState() : null;
+    return isItemUseCurrentlyAvailable(state, item, def);
   }
 
   function hasScrollGraphTapUse(item) {

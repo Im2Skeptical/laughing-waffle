@@ -34,6 +34,7 @@ const EFFECT_OPS = new Set([
   "SetProp",
   "AddProp",
   "AddSkillPoints",
+  "AddSkillPointsIfSkillNodeUnlocked",
   "GrantSkillNode",
   "AddModifier",
   "MulModifier",

@@ -3737,7 +3737,7 @@ export const skillNodes = {
     ringId: "ring_02",
     treeId: "systemColorMap",
     name: "Solar Astronomy",
-    desc: "Reveals the season disk in the HUD.",
+    desc: "Reveals the season disk and seasonal event-deck colors in the HUD.",
     cost: 2,
     tags: [
       "Blue",
@@ -3761,6 +3761,11 @@ export const skillNodes = {
         op: "GrantUnlock",
         unlockType: "feature",
         unlockId: "ui.disk.season"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "feature",
+        unlockId: "ui.deck.seasonalColors"
       }
     ]
   },

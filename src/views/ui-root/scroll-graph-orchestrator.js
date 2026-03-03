@@ -178,6 +178,38 @@ export function createScrollGraphOrchestrator({
   const basePosition = normalizeScrollWindowBasePosition(scrollWindowBasePosition);
   let nextOpenSequence = 0;
 
+  function normalizeItemId(itemId) {
+    return Number.isFinite(itemId) ? Math.floor(itemId) : null;
+  }
+
+  function findItemByIdInState(state, itemId) {
+    const targetId = normalizeItemId(itemId);
+    if (targetId == null) return null;
+
+    const ownerInventories = state?.ownerInventories;
+    if (ownerInventories && typeof ownerInventories === "object") {
+      for (const inv of Object.values(ownerInventories)) {
+        if (!inv || !Array.isArray(inv.items)) continue;
+        const item =
+          inv.itemsById?.[targetId] ??
+          inv.items.find((candidate) => normalizeItemId(candidate?.id) === targetId);
+        if (item) return item;
+      }
+    }
+
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    for (const pawn of pawns) {
+      const equipment =
+        pawn?.equipment && typeof pawn.equipment === "object" ? pawn.equipment : null;
+      if (!equipment) continue;
+      for (const item of Object.values(equipment)) {
+        if (normalizeItemId(item?.id) === targetId) return item;
+      }
+    }
+
+    return null;
+  }
+
   function destroyWindowRecord(record) {
     if (!record) return;
     record.controller?.setActive?.(false);
@@ -414,10 +446,30 @@ export function createScrollGraphOrchestrator({
     }
   }
 
+  function closeWindowForItemId(itemId) {
+    const key = normalizeItemId(itemId);
+    if (key == null) return false;
+    const record = windowsByItemId.get(key);
+    if (!record) return false;
+    destroyWindowRecord(record);
+    windowsByItemId.delete(key);
+    return true;
+  }
+
   function update(nowMs = performance.now()) {
     const closedItemIds = [];
+    const state = runner.getState?.();
 
     for (const [itemId, record] of windowsByItemId.entries()) {
+      const liveItem = findItemByIdInState(state, itemId);
+      const liveScrollState = getScrollTimegraphStateFromItem(liveItem);
+      if (!liveScrollState) {
+        destroyWindowRecord(record);
+        closedItemIds.push(itemId);
+        continue;
+      }
+      record.scrollState = liveScrollState;
+
       const isOpen = record.view?.isOpen?.() === true;
       if (!isOpen) {
         destroyWindowRecord(record);
@@ -450,6 +502,7 @@ export function createScrollGraphOrchestrator({
     handleUseItem,
     handleInvalidate,
     update,
+    closeWindowForItemId,
     closeAllGraphs,
   };
 }

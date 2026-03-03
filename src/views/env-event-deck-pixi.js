@@ -116,6 +116,21 @@ function getSeasonTheme(state) {
   return SEASON_THEME[key] || SEASON_THEME.default;
 }
 
+function resolveSeasonalColoringEnabled(state, getSeasonalColoringEnabled) {
+  if (typeof getSeasonalColoringEnabled !== "function") return true;
+  return getSeasonalColoringEnabled(state) === true;
+}
+
+function getDeckTheme(state, seasonalColoringEnabled) {
+  if (!seasonalColoringEnabled) return SEASON_THEME.default;
+  return getSeasonTheme(state);
+}
+
+function getDeckThemeKey(state, seasonalColoringEnabled) {
+  if (!seasonalColoringEnabled) return "neutral";
+  return `season:${getSeasonKey(state)}`;
+}
+
 function getBoardRightX(screenWidth, boardCols) {
   const cols = Math.max(1, clampInt(boardCols, BOARD_COLS));
   const lastColX = getBoardColumnX(screenWidth, cols - 1);
@@ -379,6 +394,7 @@ export function createEnvEventDeckView({
   app,
   layer,
   getState,
+  getSeasonalColoringEnabled,
   getTimeline,
   getStateDataAtSecond,
   layout = ENV_EVENT_DECK_LAYOUT,
@@ -393,7 +409,7 @@ export function createEnvEventDeckView({
   let overflowBadge = null;
   let overflowText = null;
   let lastEnabled = null;
-  let lastSeasonKey = null;
+  let lastDeckThemeKey = null;
   let lastSeenSec = null;
 
   const activeMotions = [];
@@ -436,6 +452,7 @@ export function createEnvEventDeckView({
   function buildMotion({
     theme,
     defId,
+    allowEventColor = true,
     startX,
     startY,
     endX,
@@ -448,7 +465,9 @@ export function createEnvEventDeckView({
     arcHeight,
   }) {
     const label = getDrawEventLabel(defId);
-    const color = getDrawEventColor(defId, theme.accent);
+    const color = allowEventColor
+      ? getDrawEventColor(defId, theme.accent)
+      : theme.accent;
     const sprite = createFlightSprite({
       theme,
       color,
@@ -493,6 +512,7 @@ export function createEnvEventDeckView({
     direction,
     deckPos,
     theme,
+    seasonalColoringEnabled,
     motionCollector,
   }) {
     if (!drawEvent) return;
@@ -523,6 +543,7 @@ export function createEnvEventDeckView({
           buildMotion({
             theme,
             defId,
+            allowEventColor: seasonalColoringEnabled,
             startX,
             startY,
             endX,
@@ -546,6 +567,7 @@ export function createEnvEventDeckView({
         buildMotion({
           theme,
           defId,
+          allowEventColor: seasonalColoringEnabled,
           startX: deckPos.x,
           startY: deckPos.y,
           endX: peekX,
@@ -574,6 +596,7 @@ export function createEnvEventDeckView({
       buildMotion({
         theme,
         defId,
+        allowEventColor: seasonalColoringEnabled,
         startX,
         startY,
         endX,
@@ -601,7 +624,11 @@ export function createEnvEventDeckView({
       layout,
       sunMoonLayout,
     });
-    const theme = getSeasonTheme(state);
+    const seasonalColoringEnabled = resolveSeasonalColoringEnabled(
+      state,
+      getSeasonalColoringEnabled
+    );
+    const theme = getDeckTheme(state, seasonalColoringEnabled);
     const pending = [];
     for (const sec of crossed) {
       const drawEvent = resolveDrawEventAtSecond(sec);
@@ -611,6 +638,7 @@ export function createEnvEventDeckView({
         direction,
         deckPos,
         theme,
+        seasonalColoringEnabled,
         motionCollector: pending,
       });
     }
@@ -632,16 +660,20 @@ export function createEnvEventDeckView({
 
   function drawDeckStatic(state) {
     if (!deckBody || !timerRing || !deckLabel) return;
-    const theme = getSeasonTheme(state);
-    const seasonKey = getSeasonKey(state);
-    if (seasonKey !== lastSeasonKey) {
+    const seasonalColoringEnabled = resolveSeasonalColoringEnabled(
+      state,
+      getSeasonalColoringEnabled
+    );
+    const theme = getDeckTheme(state, seasonalColoringEnabled);
+    const deckThemeKey = getDeckThemeKey(state, seasonalColoringEnabled);
+    if (deckThemeKey !== lastDeckThemeKey) {
       drawDeckBody(
         deckBody,
         Number(layout?.width ?? 72),
         Number(layout?.height ?? 98),
         theme
       );
-      lastSeasonKey = seasonKey;
+      lastDeckThemeKey = deckThemeKey;
     }
     deckLabel.text = "Deck";
     deckLabel.style.fill = theme.cardEdge;

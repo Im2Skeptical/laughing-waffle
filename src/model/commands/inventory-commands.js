@@ -21,6 +21,7 @@ import {
   parseProcessDropboxOwnerId,
 } from "../owner-id-protocol.js";
 import { applyPrestigeDeposit } from "../prestige-system.js";
+import { isItemUseCurrentlyAvailable } from "../item-use-policy.js";
 import { canOwnerAcceptItem } from "./owner-acceptance.js";
 import {
   applyProcessDropboxLoad,
@@ -939,6 +940,9 @@ export function cmdUseItem(
       ? [onUseRaw]
       : [];
   if (!onUseEffects.length) return { ok: false, reason: "noUsableEffect" };
+  if (!isItemUseCurrentlyAvailable(state, item, itemDef)) {
+    return { ok: false, reason: "itemUseUnavailable" };
+  }
 
   const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
   const changed = runEffect(state, onUseEffects, {

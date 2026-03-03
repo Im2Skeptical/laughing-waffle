@@ -1298,11 +1298,6 @@ inventoryView = createInventoryView({
   setBuildPlacementPreview: (preview) =>
     boardView?.setDistributorBuildPreview?.(preview),
   onUseItem: (spec) => {
-    const scrollUseResult = scrollGraphOrchestrator?.handleUseItem?.(spec);
-    if (scrollUseResult?.handled === true) {
-      return scrollUseResult;
-    }
-
     const useResult = queueActionWhenPaused(() =>
       runner.dispatchAction(
         ActionKinds.INVENTORY_USE_ITEM,
@@ -1315,18 +1310,37 @@ inventoryView = createInventoryView({
       )
     );
 
-    if (
+    const useHandled =
       useResult?.ok === true &&
-      (useResult?.queued === true || useResult?.result === "itemUsed")
-    ) {
+      (useResult?.queued === true || useResult?.result === "itemUsed");
+    if (useHandled) {
+      if (useResult?.result === "itemUsed" && Number.isFinite(spec?.itemId)) {
+        scrollGraphOrchestrator?.closeWindowForItemId?.(spec.itemId);
+      }
       return { handled: true, result: useResult.result ?? "queued" };
     }
-    if (useResult?.ok === false && useResult.reason === "noUsableEffect") {
+
+    const fallbackToScroll =
+      useResult?.ok === false &&
+      (useResult.reason === "noUsableEffect" ||
+        useResult.reason === "itemUseUnavailable" ||
+        useResult.reason === "itemUseNoChange");
+    if (fallbackToScroll) {
+      const scrollUseResult = scrollGraphOrchestrator?.handleUseItem?.(spec);
+      if (scrollUseResult?.handled === true) {
+        return scrollUseResult;
+      }
+    }
+
+    if (
+      useResult?.ok === false &&
+      useResult.reason === "noUsableEffect"
+    ) {
       return { handled: false, reason: "noUsableEffect" };
     }
     return {
       handled: false,
-      reason: useResult?.reason || scrollUseResult?.reason || "itemUseFailed",
+      reason: useResult?.reason || "itemUseFailed",
     };
   },
 });
@@ -1796,6 +1810,8 @@ const envEventDeckView = createEnvEventDeckView({
   app,
   layer: uiLayers.controlsLayer,
   getState: () => runner.getState(),
+  getSeasonalColoringEnabled: (state) =>
+    hasSkillFeatureUnlock(state, "ui.deck.seasonalColors"),
   getTimeline: () => runner.getTimeline(),
   getStateDataAtSecond: (tSec) => {
     const tl = runner.getTimeline?.();

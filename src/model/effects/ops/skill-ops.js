@@ -126,6 +126,21 @@ function resolveUnlockType(effect) {
   return null;
 }
 
+function applySkillPointsDelta(leaderPawn, amountRaw) {
+  if (!leaderPawn) return false;
+  if (!Number.isFinite(amountRaw)) return false;
+  const amount = Math.floor(amountRaw);
+  if (amount === 0) return false;
+
+  const current = Number.isFinite(leaderPawn.skillPoints)
+    ? Math.max(0, Math.floor(leaderPawn.skillPoints))
+    : 0;
+  const next = Math.max(0, current + amount);
+  if (next === current) return false;
+  leaderPawn.skillPoints = next;
+  return true;
+}
+
 function resolveTagDomain(effect) {
   const domain = effect?.tagDomain ?? effect?.domain ?? effect?.tagKind;
   if (domain === "env" || domain === "hub" || domain === "item") return domain;
@@ -235,17 +250,23 @@ export function handleAddSkillPoints(state, effect, context) {
   if (!leaderPawn) return false;
 
   const amountRaw = resolveModifierAmount(effect);
-  if (!Number.isFinite(amountRaw)) return false;
-  const amount = Math.floor(amountRaw);
-  if (amount === 0) return false;
+  return applySkillPointsDelta(leaderPawn, amountRaw);
+}
 
-  const current = Number.isFinite(leaderPawn.skillPoints)
-    ? Math.max(0, Math.floor(leaderPawn.skillPoints))
-    : 0;
-  const next = Math.max(0, current + amount);
-  if (next === current) return false;
-  leaderPawn.skillPoints = next;
-  return true;
+export function handleAddSkillPointsIfSkillNodeUnlocked(state, effect, context) {
+  if (!state || !effect || typeof effect !== "object") return false;
+  const pawnId = resolvePawnId(effect, context);
+  if (pawnId == null) return false;
+  const leaderPawn = getLeaderPawnById(state, pawnId);
+  if (!leaderPawn) return false;
+
+  const nodeId = resolveSkillNodeId(effect);
+  if (!nodeId) return false;
+  const unlockedSet = getUnlockedSkillSet(state, leaderPawn.id);
+  if (!unlockedSet.has(nodeId)) return false;
+
+  const amountRaw = resolveModifierAmount(effect);
+  return applySkillPointsDelta(leaderPawn, amountRaw);
 }
 
 export function handleGrantSkillNode(state, effect, context) {

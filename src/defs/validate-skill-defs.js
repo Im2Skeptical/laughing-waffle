@@ -51,6 +51,7 @@ const EFFECT_OPS = new Set([
   "SetProp",
   "AddProp",
   "AddSkillPoints",
+  "AddSkillPointsIfSkillNodeUnlocked",
   "GrantSkillNode",
   "AddModifier",
   "MulModifier",
@@ -117,13 +118,23 @@ function validateSkillPointEffect(effect, contextLabel, errors) {
       ? effect.delta
       : null;
   if (!Number.isFinite(amount)) {
-    addIssue(errors, `${contextLabel}: AddSkillPoints requires numeric amount or delta.`);
+    addIssue(errors, `${contextLabel}: ${effect.op} requires numeric amount or delta.`);
   }
 }
 
 function validateSkillNodeGrantEffect(effect, contextLabel, errors) {
   if (typeof effect?.nodeId !== "string" || !effect.nodeId.length) {
     addIssue(errors, `${contextLabel}: GrantSkillNode requires non-empty nodeId.`);
+  }
+}
+
+function validateSkillPointIfNodeUnlockedEffect(effect, contextLabel, errors) {
+  validateSkillPointEffect(effect, contextLabel, errors);
+  if (typeof effect?.nodeId !== "string" || !effect.nodeId.length) {
+    addIssue(
+      errors,
+      `${contextLabel}: AddSkillPointsIfSkillNodeUnlocked requires non-empty nodeId.`
+    );
   }
 }
 
@@ -265,6 +276,8 @@ function validateNodeEffectList(
       validateSkillModifierEffect(effect, contextLabel, errors);
     } else if (op === "AddSkillPoints") {
       validateSkillPointEffect(effect, contextLabel, errors);
+    } else if (op === "AddSkillPointsIfSkillNodeUnlocked") {
+      validateSkillPointIfNodeUnlockedEffect(effect, contextLabel, errors);
     } else if (op === "GrantSkillNode") {
       validateSkillNodeGrantEffect(effect, contextLabel, errors);
     } else if (op === "GrantUnlock" || op === "RevokeUnlock") {
