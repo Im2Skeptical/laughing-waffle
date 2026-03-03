@@ -167,6 +167,11 @@ export function createBoardView(opts) {
   const ORDERS_BUTTON_BG_HOVER = 0xb7bfc8;
   const ORDERS_BUTTON_STROKE = 0xdbe2e8;
   const ORDERS_BUTTON_ICON = 0x4f5862;
+  const HOVER_VIEW_SCREEN_PAD = 8;
+  const HOVER_VIEW_Y_BIAS = 18;
+  const CARD_HEIGHT_TWEEN_SEC = 0.14;
+  const HOVER_SCALE_MIN = 0.55;
+  const CARD_BOTTOM_PAD = 10;
   const PROCESS_WIDGET_SYSTEM_IDS = new Set([
     "growth",
     "build",
@@ -291,7 +296,6 @@ export function createBoardView(opts) {
   let iconDistributorRangePreview = null;
   let lastPointerPos = null;
   let stagePointerMoveHandler = null;
-  let stageWheelHandler = null;
   let lastProcessedGameEventId = 0;
   let lastSeenEventSec = null;
   let eventSlotsLayoutKey = "";
@@ -877,12 +881,39 @@ export function createBoardView(opts) {
     return new Set(count > 0 ? enabled.slice(0, count) : []);
   }
 
-  function createTileActivityOverlay(color) {
+  function drawCardOuterBg(graphic, width, height, radius, color = 0x3a3a3a) {
+    if (!graphic) return;
+    graphic.clear();
+    graphic.beginFill(color);
+    graphic.drawRoundedRect(0, 0, Math.max(1, width), Math.max(1, height), radius);
+    graphic.endFill();
+  }
+
+  function drawCardInnerFill(graphic, width, height, radius, color) {
+    if (!graphic) return;
+    graphic.clear();
+    graphic.beginFill(color);
+    graphic.drawRoundedRect(
+      3,
+      3,
+      Math.max(0, width - 6),
+      Math.max(0, height - 6),
+      Math.max(0, radius - 2)
+    );
+    graphic.endFill();
+  }
+
+  function drawTileActivityOverlay(graphic, width, height, color) {
+    if (!graphic) return;
+    graphic.clear();
+    graphic.beginFill(color, 1);
+    graphic.drawRoundedRect(3, 3, Math.max(0, width - 6), Math.max(0, height - 6), 6);
+    graphic.endFill();
+  }
+
+  function createTileActivityOverlay(width, height, color) {
     const overlay = new PIXI.Graphics();
-    overlay
-      .beginFill(color, 1)
-      .drawRoundedRect(3, 3, TILE_WIDTH - 6, TILE_HEIGHT - 6, 6)
-      .endFill();
+    drawTileActivityOverlay(overlay, width, height, color);
     overlay.alpha = 0;
     overlay.visible = false;
     overlay.eventMode = "none";
@@ -1239,26 +1270,38 @@ export function createBoardView(opts) {
     paintStyleController?.unregisterPaintContainer?.(container);
   }
 
-  function createApOverlay(width, height, radius) {
-    const overlay = new PIXI.Graphics();
+  function drawApOverlay(overlay, width, height, radius) {
+    if (!overlay) return;
+    overlay.clear();
     overlay
       .beginFill(AP_OVERLAY_FILL, 0.5)
       .lineStyle(2, AP_OVERLAY_STROKE, 1)
-      .drawRoundedRect(1, 1, width - 2, height - 2, radius)
+      .drawRoundedRect(1, 1, Math.max(0, width - 2), Math.max(0, height - 2), radius)
       .endFill();
+  }
+
+  function createApOverlay(width, height, radius) {
+    const overlay = new PIXI.Graphics();
+    drawApOverlay(overlay, width, height, radius);
     overlay.alpha = 0;
     overlay.visible = false;
     overlay.eventMode = "none";
     return overlay;
   }
 
-  function createDistributorRangeOverlay(width, height, radius) {
-    const overlay = new PIXI.Graphics();
+  function drawDistributorRangeOverlay(overlay, width, height, radius) {
+    if (!overlay) return;
+    overlay.clear();
     overlay
       .lineStyle(2, DISTRIBUTOR_RANGE_OVERLAY_STROKE, 0.9)
       .beginFill(DISTRIBUTOR_RANGE_OVERLAY_FILL, 0.26)
       .drawRoundedRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4), radius)
       .endFill();
+  }
+
+  function createDistributorRangeOverlay(width, height, radius) {
+    const overlay = new PIXI.Graphics();
+    drawDistributorRangeOverlay(overlay, width, height, radius);
     overlay.visible = false;
     overlay.eventMode = "none";
     return overlay;
@@ -1289,16 +1332,29 @@ export function createBoardView(opts) {
     return overlay;
   }
 
-  function createPawnLandingOverlay(width, height, radius) {
-    const overlay = new PIXI.Graphics();
+  function drawPawnLandingOverlay(overlay, width, height, radius) {
+    if (!overlay) return;
+    overlay.clear();
     overlay
       .lineStyle(2, PAWN_LANDING_OVERLAY_STROKE, 0.95)
       .beginFill(PAWN_LANDING_OVERLAY_FILL, 0.3)
       .drawRoundedRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4), radius)
       .endFill();
+  }
+
+  function createPawnLandingOverlay(width, height, radius) {
+    const overlay = new PIXI.Graphics();
+    drawPawnLandingOverlay(overlay, width, height, radius);
     overlay.visible = false;
     overlay.eventMode = "none";
     return overlay;
+  }
+
+  function drawFocusOutline(graphic, width, height, radius = 6) {
+    if (!graphic) return;
+    graphic.clear();
+    graphic.lineStyle(2, 0x7fd0ff, 1);
+    graphic.drawRoundedRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4), radius);
   }
 
   function setPawnLandingOverlayVisible(view, active) {
@@ -1803,19 +1859,6 @@ export function createBoardView(opts) {
     lastPointerPos = { x: p.x, y: p.y };
   }
 
-  function clientToStagePoint(clientX, clientY) {
-    const canvas = app?.view;
-    const rect = canvas?.getBoundingClientRect?.();
-    if (!rect) return null;
-    const width = Number.isFinite(rect.width) ? rect.width : 0;
-    const height = Number.isFinite(rect.height) ? rect.height : 0;
-    if (width <= 0 || height <= 0) return null;
-    const x = ((clientX - rect.left) * app.screen.width) / width;
-    const y = ((clientY - rect.top) * app.screen.height) / height;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return { x, y };
-  }
-
   function setActiveHover(next) {
     if (!next?.view) return;
     if (activeHover?.view === next.view) return;
@@ -1868,12 +1911,13 @@ export function createBoardView(opts) {
     view.holdHover = false;
     view.holdHoverForOccupant = false;
     view.occupantHoverHoldSec = 0;
-    view.setHoverActive?.(false);
-    restoreFromHover(view.container);
     view.isHovered = false;
+    view.setHoverActive?.(false);
+    applyHoverScaleToView(view, 1);
+    resetHoverViewY(view);
+    restoreFromHover(view.container);
     view.hoverAnchor = null;
     updateTileTagLayoutForHoverState(view);
-    tagUi?.resetTagScroll?.(view);
     clearHoverContext();
     tooltipView?.hide?.();
     // Dropdown handles its own hide behavior.
@@ -1881,7 +1925,10 @@ export function createBoardView(opts) {
 
   function clearEventHover(view) {
     if (!view) return;
+    view.isHovered = false;
     view.setHoverActive?.(false);
+    applyHoverScaleToView(view, 1);
+    resetHoverViewY(view);
     restoreFromHover(view.container);
     clearHoverContext();
     tooltipView?.hide?.();
@@ -1889,7 +1936,10 @@ export function createBoardView(opts) {
 
   function clearEnvStructureHover(view) {
     if (!view) return;
+    view.isHovered = false;
     view.setHoverActive?.(false);
+    applyHoverScaleToView(view, 1);
+    resetHoverViewY(view);
     restoreFromHover(view.container);
     if (view.descText) {
       view.descText.visible = false;
@@ -1900,14 +1950,15 @@ export function createBoardView(opts) {
 
   function clearHubStructureHover(view) {
     if (!view) return;
-    view.setHoverActive?.(false);
-    restoreFromHover(view.container);
     view.holdHoverForOccupant = false;
     view.occupantHoverHoldSec = 0;
     view.isHovered = false;
+    view.setHoverActive?.(false);
+    applyHoverScaleToView(view, 1);
+    resetHoverViewY(view);
+    restoreFromHover(view.container);
     view.hoverAnchor = null;
-    updateHubStructureViewUi(view, view.structure);
-    hubTagUi?.resetTagScroll?.(view);
+    updateHubStructureViewUi(view, view.structure, { force: true });
     clearHoverContext();
     tooltipView?.hide?.();
     if (inventoryView && view.structureHasInventory?.()) {
@@ -1986,11 +2037,123 @@ export function createBoardView(opts) {
     return true;
   }
 
-  function updateTileTagLayoutForHoverState(view) {
-    if (!view) return;
-    if (view.ordersButton) {
-      view.ordersButton.visible = !!view.isHovered;
+  function resolveViewBaseY(view) {
+    if (Number.isFinite(view?.baseY)) return Math.floor(view.baseY);
+    if (Number.isFinite(view?.container?.y)) return Math.floor(view.container.y);
+    return 0;
+  }
+
+  function resetHoverViewY(view) {
+    if (!view?.container) return;
+    view.container.y = resolveViewBaseY(view);
+  }
+
+  function fitHoverViewY(view, baseHeight, bottomExtent = null, hoverScale = null) {
+    if (!view?.container) return;
+    const safeBaseHeight = Number.isFinite(baseHeight)
+      ? Math.max(1, Math.floor(baseHeight))
+      : 1;
+    const safeBottomExtent = Number.isFinite(bottomExtent)
+      ? Math.max(safeBaseHeight, bottomExtent)
+      : safeBaseHeight;
+    const screenHeight = Math.max(1, Math.floor(app?.screen?.height ?? 1));
+    const baseY = resolveViewBaseY(view);
+    const scale = Number.isFinite(hoverScale)
+      ? hoverScale
+      : Number.isFinite(view?.hoverScaleApplied)
+      ? view.hoverScaleApplied
+      : Number.isFinite(GAMEPIECE_HOVER_SCALE)
+      ? GAMEPIECE_HOVER_SCALE
+      : 1;
+    const halfBase = safeBaseHeight * 0.5;
+    const topOffset = (safeBaseHeight * scale - safeBaseHeight) * 0.5;
+    const scaledBottomOffset = (safeBottomExtent - halfBase) * scale;
+    const minY = HOVER_VIEW_SCREEN_PAD + topOffset;
+    const maxY =
+      screenHeight - HOVER_VIEW_SCREEN_PAD - halfBase - scaledBottomOffset;
+    const preferredY = baseY + HOVER_VIEW_Y_BIAS;
+    const nextY =
+      minY <= maxY
+        ? Math.max(minY, Math.min(maxY, preferredY))
+        : baseY;
+    view.container.y = Math.round(nextY);
+  }
+
+  function resolveAdaptiveHoverScale(heightPx) {
+    const baseScale = Number.isFinite(GAMEPIECE_HOVER_SCALE) ? GAMEPIECE_HOVER_SCALE : 1;
+    const h = Number.isFinite(heightPx) ? Math.max(1, heightPx) : 1;
+    const viewportHeight = Math.max(
+      1,
+      Math.floor(app?.screen?.height ?? VIEW_LAYOUT.skillTree?.viewport?.height ?? 1080)
+    );
+    const available = Math.max(1, viewportHeight - HOVER_VIEW_SCREEN_PAD * 2);
+    const fitScale = available / h;
+    return Math.max(HOVER_SCALE_MIN, Math.min(baseScale, fitScale));
+  }
+
+  function applyHoverScaleToView(view, scale) {
+    if (!view?.content) return;
+    const nextScale = Number.isFinite(scale) ? scale : 1;
+    if (view.hoverScaleApplied === nextScale && view.content.scale?.x === nextScale) return;
+    view.hoverScaleApplied = nextScale;
+    view.content.scale.set(nextScale);
+    const textNodes = Array.isArray(view.hoverTextNodes) ? view.hoverTextNodes : null;
+    if (textNodes) {
+      const targetResolution = view.isHovered
+        ? Math.max(BASE_TEXT_RESOLUTION, Math.ceil(BASE_TEXT_RESOLUTION * nextScale))
+        : BASE_TEXT_RESOLUTION;
+      setTextResolution(textNodes, targetResolution);
     }
+  }
+
+  function animateCardHeight(view, dt) {
+    if (!view) return false;
+    const target = Number.isFinite(view.cardHeightTarget)
+      ? Math.max(1, view.cardHeightTarget)
+      : Number.isFinite(view.baseCardHeight)
+      ? Math.max(1, view.baseCardHeight)
+      : null;
+    if (target == null) return false;
+    if (!Number.isFinite(view.cardHeightCurrent)) {
+      view.cardHeightCurrent = target;
+      return true;
+    }
+    const current = Math.max(1, view.cardHeightCurrent);
+    const diff = target - current;
+    if (Math.abs(diff) < 0.5) {
+      const snapped = Math.round(target);
+      if (Math.round(current) === snapped) return false;
+      view.cardHeightCurrent = snapped;
+      return true;
+    }
+    const stepDt = Number.isFinite(dt) ? Math.max(0, dt) : 1 / 60;
+    const t = Math.min(1, stepDt / CARD_HEIGHT_TWEEN_SEC);
+    view.cardHeightCurrent = current + diff * t;
+    return true;
+  }
+
+  function redrawTileCardVisuals(view) {
+    if (!view) return;
+    const height = Math.max(
+      1,
+      Math.round(
+        Number.isFinite(view.cardHeightCurrent)
+          ? view.cardHeightCurrent
+          : view.baseCardHeight ?? TILE_HEIGHT
+      )
+    );
+    drawCardOuterBg(view.baseBg, TILE_WIDTH, height, 8, 0x3a3a3a);
+    drawCardInnerFill(view.cardFill, TILE_WIDTH, height, 8, view.cardFillColor ?? 0x6f8a6f);
+    drawTileActivityOverlay(view.forageActivityOverlay, TILE_WIDTH, height, ACTIVITY_FORAGE_COLOR);
+    drawTileActivityOverlay(view.fishActivityOverlay, TILE_WIDTH, height, ACTIVITY_FISH_COLOR);
+    drawApOverlay(view.apOverlay, TILE_WIDTH, height, 8);
+    drawPawnLandingOverlay(view.pawnLandingOverlay, TILE_WIDTH, height, 8);
+    drawFocusOutline(view.focusOutline, TILE_WIDTH, height, 6);
+    view.cardHeight = height;
+  }
+
+  function updateTileTagLayoutForHoverState(view) {
+    if (!view) return { totalContentHeight: 0, expandedContentBottomY: 0 };
     const baseStartY = Number.isFinite(view.tagStartYBase)
       ? view.tagStartYBase
       : Number.isFinite(view.tagStartY)
@@ -1998,13 +2161,67 @@ export function createBoardView(opts) {
       : 0;
     view.tagStartY = baseStartY;
     view.tagContainer.y = view.tagStartY;
-    const defaultBottom = TILE_HEIGHT - 12;
-    if (view.ordersButton?.visible && Number.isFinite(view.ordersButton?.y)) {
-      view.tagMaxY = Math.max(view.tagStartY, view.ordersButton.y - ORDERS_BUTTON_TAG_GAP);
-    } else {
-      view.tagMaxY = Math.max(view.tagStartY, defaultBottom);
+    const metrics = tagUi?.layoutTagEntries?.(view) || {};
+    const totalContentHeight = Math.max(
+      0,
+      Number.isFinite(metrics.totalContentHeight)
+        ? metrics.totalContentHeight
+        : Number.isFinite(view.totalContentHeight)
+        ? view.totalContentHeight
+        : 0
+    );
+    const tagsBottom = view.tagStartY + totalContentHeight;
+    if (view.ordersButton) {
+      view.ordersButton.visible = !!view.isHovered;
+      view.ordersButton.y = tagsBottom + 4;
     }
-    tagUi?.layoutTagEntries?.(view);
+    const ordersBottom =
+      view.ordersButton?.visible && Number.isFinite(view.ordersButton?.y)
+        ? view.ordersButton.y + ORDERS_BUTTON_HEIGHT
+        : tagsBottom;
+    const requiredBottom = Math.max(tagsBottom, ordersBottom + CARD_BOTTOM_PAD);
+    view.hoverInfoBottomY = Math.max(view.baseCardHeight ?? TILE_HEIGHT, requiredBottom);
+    view.cardHeightTarget = view.isHovered
+      ? Math.max(view.baseCardHeight ?? TILE_HEIGHT, Math.ceil(requiredBottom))
+      : Math.max(1, view.baseCardHeight ?? TILE_HEIGHT);
+    return metrics;
+  }
+
+  function refreshTileHoverPresentation(view, dt = 0, { updateHoverContext = true } = {}) {
+    if (!view) return null;
+    updateTileTagLayoutForHoverState(view);
+    const heightChanged = animateCardHeight(view, dt);
+    if (heightChanged) {
+      redrawTileCardVisuals(view);
+      updateTileTagLayoutForHoverState(view);
+    }
+    if (!view.isHovered) {
+      applyHoverScaleToView(view, 1);
+      return null;
+    }
+    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
+    applyHoverScaleToView(view, hoverScale);
+    fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      TILE_WIDTH,
+      view.cardHeightCurrent,
+      hoverScale
+    );
+    view.hoverAnchor = anchor;
+    if (updateHoverContext) {
+      const anchorCol = Number.isFinite(view.tile?.col)
+        ? Math.floor(view.tile.col)
+        : Number.isFinite(view.col)
+        ? Math.floor(view.col)
+        : 0;
+      const span =
+        Number.isFinite(view.tile?.span) && view.tile.span > 0
+          ? Math.floor(view.tile.span)
+          : 1;
+      setHoverContext("tile", anchorCol, span, anchor);
+    }
+    return anchor;
   }
 
   function applyTileHover(view) {
@@ -2012,30 +2229,15 @@ export function createBoardView(opts) {
     const { title, desc } = getTileUi(view.tile);
     view.setHoverActive?.(true);
     elevateForHover(view.container);
-    const anchor = getScaledAnchorRect(
-      view.container,
-      TILE_WIDTH,
-      TILE_HEIGHT,
-      GAMEPIECE_HOVER_SCALE
-    );
-    const anchorCol = Number.isFinite(view.tile.col)
-      ? Math.floor(view.tile.col)
-      : view.col;
-    const span =
-      Number.isFinite(view.tile.span) && view.tile.span > 0
-        ? Math.floor(view.tile.span)
-        : 1;
     view.isHovered = true;
-    view.hoverAnchor = anchor;
-    updateTileTagLayoutForHoverState(view);
-    setHoverContext("tile", anchorCol, span, anchor);
+    const anchor = refreshTileHoverPresentation(view, 0, { updateHoverContext: true });
     tooltipView?.show?.(
       {
         title,
         lines: desc ? [desc] : [],
-        scale: GAMEPIECE_HOVER_SCALE,
+        scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
       },
-      anchor
+      anchor || view.hoverAnchor
     );
   }
 
@@ -2152,6 +2354,61 @@ export function createBoardView(opts) {
     }
   }
 
+  function refreshHubHoverPresentation(
+    view,
+    width,
+    span,
+    anchorCol,
+    dt = 0,
+    { updateHoverContext = true } = {}
+  ) {
+    if (!view) return null;
+    const baseHeight = Math.max(1, view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT);
+    const currentHeight = Number.isFinite(view.cardHeightCurrent)
+      ? view.cardHeightCurrent
+      : baseHeight;
+    const targetHeight = Number.isFinite(view.cardHeightTarget)
+      ? view.cardHeightTarget
+      : baseHeight;
+    const hasPendingAnimation = Math.abs(targetHeight - currentHeight) > 0.5;
+    if (!view.isHovered && !hasPendingAnimation) {
+      return null;
+    }
+    if (!view.isHovered) {
+      view.cardHeightTarget = baseHeight;
+      const changed = animateCardHeight(view, dt);
+      if (changed) {
+        redrawHubCardVisuals(view);
+      }
+      applyHoverScaleToView(view, 1);
+      return null;
+    }
+    updateHubStructureViewUi(view, view.structure, { force: true });
+    const heightChanged = animateCardHeight(view, dt);
+    if (heightChanged) {
+      redrawHubCardVisuals(view);
+      updateHubStructureViewUi(view, view.structure, { force: true });
+    }
+    if (!view.isHovered) {
+      applyHoverScaleToView(view, 1);
+      return null;
+    }
+    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
+    applyHoverScaleToView(view, hoverScale);
+    fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      width,
+      view.cardHeightCurrent,
+      hoverScale
+    );
+    view.hoverAnchor = anchor;
+    if (updateHoverContext) {
+      setHoverContext("hub", anchorCol, span, anchor);
+    }
+    return anchor;
+  }
+
   function applyHubStructureHover(view) {
     if (!view?.container || !view?.structure) return;
     const { title, lines } = getHubStructureUi(view.structure);
@@ -2163,37 +2420,168 @@ export function createBoardView(opts) {
         ? Math.floor(def.defaultSpan)
         : 1;
     const width = HUB_STRUCTURE_WIDTH * span + HUB_COL_GAP * (span - 1);
-    const height = HUB_STRUCTURE_HEIGHT;
-    view.setHoverActive?.(true);
-    elevateForHover(view.container);
-    const anchor = getScaledAnchorRect(
-      view.container,
-      width,
-      height,
-      GAMEPIECE_HOVER_SCALE
-    );
     const anchorCol = Number.isFinite(view.structure?.col)
       ? Math.floor(view.structure.col)
       : Number.isFinite(view.col)
       ? Math.floor(view.col)
       : 0;
+    view.setHoverActive?.(true);
+    elevateForHover(view.container);
     view.isHovered = true;
-    view.hoverAnchor = anchor;
-    updateHubStructureViewUi(view, view.structure);
-    setHoverContext("hub", anchorCol, span, anchor);
+    const anchor = refreshHubHoverPresentation(view, width, span, anchorCol, 0, {
+      updateHoverContext: true,
+    });
 
     tooltipView?.show?.(
-      { title, lines, scale: GAMEPIECE_HOVER_SCALE },
-      anchor
+      { title, lines, scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE },
+      anchor || view.hoverAnchor
     );
 
     if (inventoryView && view.structureHasInventory?.()) {
-      inventoryView.showOnHover(view.structure.instanceId, {
-        x: anchor.x,
-        y: anchor.y,
-        width: anchor.width,
-        height: anchor.height,
+      const bounds = anchor || view.hoverAnchor;
+      if (bounds) {
+        inventoryView.showOnHover(view.structure.instanceId, {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        });
+      }
+    }
+  }
+
+  function getHubHoverGeometry(view) {
+    const structure = view?.structure;
+    const def = structure?.defId ? hubStructureDefs[structure.defId] : null;
+    const span =
+      Number.isFinite(structure?.span) && structure.span > 0
+        ? Math.floor(structure.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const width = HUB_STRUCTURE_WIDTH * span + HUB_COL_GAP * (span - 1);
+    const anchorCol = Number.isFinite(structure?.col)
+      ? Math.floor(structure.col)
+      : Number.isFinite(view?.col)
+      ? Math.floor(view.col)
+      : 0;
+    return { width, span, anchorCol };
+  }
+
+  function getEnvStructureHoverGeometry(view) {
+    const structure = view?.structure;
+    const def = structure?.defId ? envStructureDefs[structure.defId] : null;
+    const span =
+      Number.isFinite(structure?.span) && structure.span > 0
+        ? Math.floor(structure.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const width = ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * (span - 1);
+    const anchorCol = Number.isFinite(structure?.col)
+      ? Math.floor(structure.col)
+      : Number.isFinite(view?.col)
+      ? Math.floor(view.col)
+      : 0;
+    return { width, span, anchorCol };
+  }
+
+  function updateDynamicCardLayouts(dt) {
+    const hoverView = activeHover?.view ?? null;
+    const hoverKind = activeHover?.kind ?? null;
+
+    for (const view of tileViews) {
+      if (!view) continue;
+      const isHoverFocus = hoverKind === "tile" && hoverView === view;
+      const anchor = refreshTileHoverPresentation(view, dt, {
+        updateHoverContext: isHoverFocus,
       });
+      if (!isHoverFocus || !anchor) continue;
+      const { title, desc } = getTileUi(view.tile);
+      tooltipView?.show?.(
+        {
+          title,
+          lines: desc ? [desc] : [],
+          scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
+        },
+        anchor
+      );
+    }
+
+    for (const view of hubStructureViews.values()) {
+      if (!view) continue;
+      const { width, span, anchorCol } = getHubHoverGeometry(view);
+      const isHoverFocus = hoverKind === "hub" && hoverView === view;
+      const anchor = refreshHubHoverPresentation(view, width, span, anchorCol, dt, {
+        updateHoverContext: isHoverFocus,
+      });
+      if (!isHoverFocus || !anchor) continue;
+      const { title, lines } = getHubStructureUi(view.structure);
+      tooltipView?.show?.(
+        {
+          title,
+          lines,
+          scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
+        },
+        anchor
+      );
+      if (inventoryView && view.structureHasInventory?.()) {
+        inventoryView.showOnHover(view.structure.instanceId, {
+          x: anchor.x,
+          y: anchor.y,
+          width: anchor.width,
+          height: anchor.height,
+        });
+      }
+    }
+
+    for (const view of envStructureViews.values()) {
+      if (!view) continue;
+      const { width, span, anchorCol } = getEnvStructureHoverGeometry(view);
+      const isHoverFocus = hoverKind === "envStructure" && hoverView === view;
+      const anchor = refreshEnvStructureHoverPresentation(view, width, span, anchorCol, dt, {
+        updateHoverContext: isHoverFocus,
+      });
+      if (!isHoverFocus || !anchor) continue;
+      const { title, desc } = getEnvStructureUi(view.structure);
+      tooltipView?.show?.(
+        {
+          title,
+          lines: desc ? [desc] : [],
+          scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
+        },
+        anchor
+      );
+    }
+
+    for (const view of eventViews.values()) {
+      if (!view) continue;
+      const eventCol = Number.isFinite(view.event?.col)
+        ? Math.floor(view.event.col)
+        : Number.isFinite(view.event?.envCol)
+        ? Math.floor(view.event.envCol)
+        : Number.isFinite(view.event?.hubCol)
+        ? Math.floor(view.event.hubCol)
+        : null;
+      const fallbackCol = eventCol != null ? eventCol : 0;
+      const span =
+        Number.isFinite(view.event?.span) && view.event.span > 0
+          ? Math.floor(view.event.span)
+          : 1;
+      const isHoverFocus = hoverKind === "event" && hoverView === view;
+      const anchor = refreshEventHoverPresentation(view, fallbackCol, span, dt, {
+        updateHoverContext: isHoverFocus,
+      });
+      if (!isHoverFocus || !anchor) continue;
+      const { title, desc } = getEventUi(view.event);
+      tooltipView?.show?.(
+        {
+          title,
+          lines: desc ? [desc] : [],
+          scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
+        },
+        anchor
+      );
     }
   }
 
@@ -2994,6 +3382,60 @@ export function createBoardView(opts) {
     return { def, title, desc, color };
   }
 
+  function redrawEnvStructureCard(view) {
+    if (!view) return;
+    const width = Math.max(1, Math.floor(view.cardWidth ?? ENV_STRUCTURE_WIDTH));
+    const height = Math.max(
+      1,
+      Math.floor(view.cardHeightCurrent ?? view.baseCardHeight ?? ENV_STRUCTURE_HEIGHT)
+    );
+    drawCardOuterBg(view.baseBg, width, height, 8, 0x2f2f2f);
+    drawCardInnerFill(view.cardFill, width, height, 8, view.cardFillColor ?? 0x5f6a73);
+  }
+
+  function refreshEnvStructureHoverPresentation(
+    view,
+    width,
+    span,
+    anchorCol,
+    dt = 0,
+    { updateHoverContext = true } = {}
+  ) {
+    if (!view) return null;
+    const baseHeight = Math.max(1, view.baseCardHeight ?? ENV_STRUCTURE_HEIGHT);
+    if (view.descText) {
+      view.descText.visible = !!view.isHovered;
+    }
+    const descBottom =
+      view.descText?.visible && Number.isFinite(view.descText?.y) && Number.isFinite(view.descText?.height)
+        ? view.descText.y + view.descText.height
+        : view.titleText.y + view.titleText.height;
+    const requiredBottom = Math.max(baseHeight, descBottom + CARD_BOTTOM_PAD);
+    view.hoverInfoBottomY = requiredBottom;
+    view.cardHeightTarget = view.isHovered ? requiredBottom : baseHeight;
+    const changed = animateCardHeight(view, dt);
+    if (changed) {
+      redrawEnvStructureCard(view);
+    }
+    if (!view.isHovered) {
+      applyHoverScaleToView(view, 1);
+      return null;
+    }
+    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
+    applyHoverScaleToView(view, hoverScale);
+    fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      width,
+      view.cardHeightCurrent,
+      hoverScale
+    );
+    if (updateHoverContext) {
+      setHoverContext("envStructure", anchorCol, span, anchor);
+    }
+    return anchor;
+  }
+
   function applyEnvStructureHover(view) {
     if (!view?.container || !view?.structure) return;
     const { title, desc } = getEnvStructureUi(view.structure);
@@ -3005,29 +3447,22 @@ export function createBoardView(opts) {
         ? Math.floor(def.defaultSpan)
         : 1;
     const width = ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * (span - 1);
-    const height = ENV_STRUCTURE_HEIGHT;
-    view.setHoverActive?.(true);
-    elevateForHover(view.container);
-    if (view.descText) {
-      view.descText.visible = true;
-    }
-    const anchor = getScaledAnchorRect(
-      view.container,
-      width,
-      height,
-      GAMEPIECE_HOVER_SCALE
-    );
     const anchorCol = Number.isFinite(view.structure?.col)
       ? Math.floor(view.structure.col)
       : Number.isFinite(view.col)
       ? Math.floor(view.col)
       : 0;
-    setHoverContext("envStructure", anchorCol, span, anchor);
+    view.setHoverActive?.(true);
+    elevateForHover(view.container);
+    view.isHovered = true;
+    const anchor = refreshEnvStructureHoverPresentation(view, width, span, anchorCol, 0, {
+      updateHoverContext: true,
+    });
     tooltipView?.show?.(
       {
         title,
         lines: desc ? [desc] : [],
-        scale: GAMEPIECE_HOVER_SCALE,
+        scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
       },
       anchor
     );
@@ -3177,15 +3612,39 @@ export function createBoardView(opts) {
     }
   }
 
-  function updateHubStructureViewUi(view, structureInst) {
+  function redrawHubCardVisuals(view) {
+    if (!view) return;
+    const width = Math.max(1, Math.floor(view.cardWidth ?? HUB_STRUCTURE_WIDTH));
+    const height = Math.max(
+      1,
+      Math.floor(view.cardHeightCurrent ?? view.cardHeight ?? view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT)
+    );
+    drawCardOuterBg(view.baseBg, width, height, 10, 0x3a3a3a);
+    drawCardInnerFill(view.cardFill, width, height, 10, view.cardFillColor ?? 0x336699);
+    drawApOverlay(view.apOverlay, width, height, 10);
+    drawPawnLandingOverlay(view.pawnLandingOverlay, width, height, 10);
+    drawDistributorRangeOverlay(view.distributorRangeOverlay, width, height, 10);
+    drawBuildPlacementOverlay(
+      view.buildPlacementOverlay,
+      width,
+      height,
+      10,
+      view.buildPlacementOverlayState ?? null
+    );
+    drawFocusOutline(view.focusOutline, width, height, 8);
+    view.cardHeight = height;
+  }
+
+  function updateHubStructureViewUi(view, structureInst, opts = null) {
     if (!view || !structureInst) return false;
+    const force = opts?.force === true;
     const ui = getHubStructureUi(structureInst);
     const buildActive = !!getBuildProcess(structureInst);
     const visibleLines = view.isHovered ? ui.lines : [];
     const signature = `${ui.title}|${visibleLines.join("|")}|${ui.color}|${
       view.isHovered ? 1 : 0
     }`;
-    if (signature === view.uiSignature) {
+    if (!force && signature === view.uiSignature) {
       if (view.cancelButton) {
         view.cancelButton.visible = buildActive;
       }
@@ -3196,14 +3655,10 @@ export function createBoardView(opts) {
     }
     view.uiSignature = signature;
 
-    if (view.cardFill && view.cardFillColor !== ui.color) {
-      view.cardFill.clear();
-      view.cardFill
-        .beginFill(ui.color)
-        .drawRoundedRect(3, 3, view.cardWidth - 6, view.cardHeight - 6, 8)
-        .endFill();
+    if (view.cardFillColor !== ui.color) {
       view.cardFillColor = ui.color;
     }
+    redrawHubCardVisuals(view);
 
     if (view.titleText) {
       view.titleText.text = ui.title;
@@ -3218,8 +3673,34 @@ export function createBoardView(opts) {
       view.lineTextNodes = [];
     }
 
-    let y = view.titleText.y + view.titleText.height + 2;
-    const maxLineY = view.cardHeight - 40;
+    let detailsBottomY = view.titleText.y + view.titleText.height + 2;
+    for (const meterView of view.meterViews || []) {
+      if (!Number.isFinite(meterView?.labelText?.y)) continue;
+      detailsBottomY = Math.max(detailsBottomY, meterView.labelText.y + 22);
+    }
+
+    view.tagStartY = detailsBottomY + 2;
+    view.tagContainer.y = view.tagStartY;
+    const tagMetrics = hubTagUi?.layoutTagEntries?.(view) || {};
+    const totalTagHeight = Math.max(
+      0,
+      Number.isFinite(tagMetrics.totalContentHeight)
+        ? tagMetrics.totalContentHeight
+        : Number.isFinite(view.totalContentHeight)
+        ? view.totalContentHeight
+        : 0
+    );
+    const tagsBottom = view.tagStartY + totalTagHeight;
+
+    if (view.ordersButton) {
+      view.ordersButton.visible = !!view.isHovered;
+      view.ordersButton.y = tagsBottom + 4;
+    }
+    const lineStartY =
+      view.ordersButton?.visible && Number.isFinite(view.ordersButton?.y)
+        ? view.ordersButton.y + ORDERS_BUTTON_HEIGHT + 2
+        : tagsBottom + 2;
+    let lineY = lineStartY;
     for (const line of visibleLines) {
       const t = new PIXI.Text(line, {
         fill: 0x000000,
@@ -3228,11 +3709,10 @@ export function createBoardView(opts) {
         wordWrapWidth: view.cardWidth - 12,
       });
       t.x = 6;
-      t.y = y;
+      t.y = lineY;
       view.contentInk.addChild(t);
       view.lineTextNodes.push(t);
-      y += t.height + 1;
-      if (y > maxLineY) break;
+      lineY += t.height + 1;
     }
 
     if (Array.isArray(view.hoverTextBaseNodes)) {
@@ -3257,21 +3737,20 @@ export function createBoardView(opts) {
       );
     }
 
-    if (view.ordersButton) {
-      view.ordersButton.visible = !!view.isHovered;
-      view.ordersButton.y = Math.max(
-        y + 4,
-        view.cardHeight - ORDERS_BUTTON_BOTTOM_PAD - ORDERS_BUTTON_HEIGHT
-      );
-    }
-    view.tagStartY = Math.min(y + 4, view.cardHeight - 12);
-    view.tagContainer.y = view.tagStartY;
-    const ordersTop =
+    const ordersBottom =
       view.ordersButton?.visible && Number.isFinite(view.ordersButton?.y)
-        ? view.ordersButton.y
-        : view.cardHeight - 12;
-    view.tagMaxY = Math.max(view.tagStartY, ordersTop - ORDERS_BUTTON_TAG_GAP);
-    hubTagUi?.layoutTagEntries?.(view);
+        ? view.ordersButton.y + ORDERS_BUTTON_HEIGHT
+        : tagsBottom;
+    let lineBottom = lineStartY;
+    for (const node of view.lineTextNodes || []) {
+      if (!Number.isFinite(node?.y) || !Number.isFinite(node?.height)) continue;
+      lineBottom = Math.max(lineBottom, node.y + node.height);
+    }
+    const requiredBottom = Math.max(tagsBottom, ordersBottom, lineBottom) + CARD_BOTTOM_PAD;
+    view.hoverInfoBottomY = Math.max(view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT, requiredBottom);
+    view.cardHeightTarget = view.isHovered
+      ? Math.max(view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT, Math.ceil(requiredBottom))
+      : Math.max(1, view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT);
 
     if (view.cancelButton) {
       view.cancelButton.visible = buildActive;
@@ -3305,22 +3784,24 @@ export function createBoardView(opts) {
       () => hoverTextNodes
     );
 
-    contentPaint.addChild(
-      new PIXI.Graphics()
-        .beginFill(0x3a3a3a)
-        .drawRoundedRect(0, 0, TILE_WIDTH, TILE_HEIGHT, 8)
-        .endFill()
-    );
+    const baseBg = new PIXI.Graphics();
+    drawCardOuterBg(baseBg, TILE_WIDTH, TILE_HEIGHT, 8, 0x3a3a3a);
+    contentPaint.addChild(baseBg);
 
-    contentPaint.addChild(
-      new PIXI.Graphics()
-        .beginFill(color)
-        .drawRoundedRect(3, 3, TILE_WIDTH - 6, TILE_HEIGHT - 6, 6)
-        .endFill()
-    );
+    const cardFill = new PIXI.Graphics();
+    drawCardInnerFill(cardFill, TILE_WIDTH, TILE_HEIGHT, 8, color);
+    contentPaint.addChild(cardFill);
 
-    const forageActivityOverlay = createTileActivityOverlay(ACTIVITY_FORAGE_COLOR);
-    const fishActivityOverlay = createTileActivityOverlay(ACTIVITY_FISH_COLOR);
+    const forageActivityOverlay = createTileActivityOverlay(
+      TILE_WIDTH,
+      TILE_HEIGHT,
+      ACTIVITY_FORAGE_COLOR
+    );
+    const fishActivityOverlay = createTileActivityOverlay(
+      TILE_WIDTH,
+      TILE_HEIGHT,
+      ACTIVITY_FISH_COLOR
+    );
     contentPaint.addChild(forageActivityOverlay);
     contentPaint.addChild(fishActivityOverlay);
 
@@ -3391,8 +3872,7 @@ export function createBoardView(opts) {
     contentInk.addChild(pawnLandingOverlay);
 
     const focusOutline = new PIXI.Graphics();
-    focusOutline.lineStyle(2, 0x7fd0ff, 1);
-    focusOutline.drawRoundedRect(2, 2, TILE_WIDTH - 4, TILE_HEIGHT - 4, 6);
+    drawFocusOutline(focusOutline, TILE_WIDTH, TILE_HEIGHT, 6);
     focusOutline.visible = false;
     contentInk.addChild(focusOutline);
 
@@ -3449,6 +3929,7 @@ export function createBoardView(opts) {
         container: cont,
         tile: tileInst,
         col,
+        baseY: pos.y,
       setHoverActive,
       tagContainer,
       tagStartY,
@@ -3459,12 +3940,8 @@ export function createBoardView(opts) {
       tagEntries: [],
       expandedTagId: null,
       hasTagToggle: false,
-      tagScrollOffsetY: 0,
-      tagScrollMaxY: 0,
-      tagMask: null,
-      tagOverflowTopFade: null,
-      tagOverflowBottomFade: null,
-      tagOverflowMoreText: null,
+      totalContentHeight: 0,
+      expandedContentBottomY: 0,
       pawnCount: 0,
       ignoreNextTagTap: false,
       tagDrag: null,
@@ -3479,6 +3956,17 @@ export function createBoardView(opts) {
         occupantHoverHoldSec: 0,
       contentPaint,
       contentInk,
+      content,
+      baseBg,
+      cardFill,
+      cardFillColor: color,
+      cardWidth: TILE_WIDTH,
+      baseCardHeight: TILE_HEIGHT,
+      cardHeight: TILE_HEIGHT,
+      cardHeightCurrent: TILE_HEIGHT,
+      cardHeightTarget: TILE_HEIGHT,
+      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverInfoBottomY: TILE_HEIGHT,
       pawnBadge,
       pawnText,
       feedbackLayer,
@@ -3553,6 +4041,95 @@ export function createBoardView(opts) {
     view.fishActivityTarget = activeTagIds.has("fishable") ? 1 : 0;
   }
 
+  function redrawEventCard(view) {
+    if (!view) return;
+    const width = Math.max(1, Math.floor(view.cardWidth ?? view.width ?? EVENT_WIDTH));
+    const height = Math.max(
+      1,
+      Math.floor(view.cardHeightCurrent ?? view.baseCardHeight ?? EVENT_HEIGHT)
+    );
+    drawCardOuterBg(view.baseBg, width, height, 8, 0x2f2f2f);
+    drawCardInnerFill(view.cardFill, width, height, 8, view.cardFillColor ?? 0x707070);
+    view.timerBorderBase?.clear?.();
+    view.timerBorderBase
+      ?.lineStyle?.(1, 0x111827, 0.85)
+      ?.drawRoundedRect?.(1, 1, Math.max(0, width - 2), Math.max(0, height - 2), 8);
+    view.timerDrainBorder?.clear?.();
+    view.timerDrainBorder
+      ?.lineStyle?.(3, view.timerDrainBorderColor ?? 0xffffff, 0.95)
+      ?.drawRoundedRect?.(1.5, 1.5, Math.max(0, width - 3), Math.max(0, height - 3), 7);
+    if (view.remainingText) {
+      const descBottom =
+        Number.isFinite(view.descText?.y) && Number.isFinite(view.descText?.height)
+          ? view.descText.y + view.descText.height
+          : 8;
+      view.remainingText.y = Math.max(descBottom + 2, height - 16);
+    }
+  }
+
+  function refreshEventHoverPresentation(
+    view,
+    col,
+    span,
+    dt = 0,
+    { updateHoverContext = true } = {}
+  ) {
+    if (!view) return null;
+    const baseHeight = Math.max(1, view.baseCardHeight ?? EVENT_HEIGHT);
+    const descBottom =
+      Number.isFinite(view.descText?.y) && Number.isFinite(view.descText?.height)
+        ? view.descText.y + view.descText.height
+        : 8;
+    const remainingBottom =
+      Number.isFinite(view.remainingText?.y) && Number.isFinite(view.remainingText?.height)
+        ? view.remainingText.y + view.remainingText.height
+        : descBottom;
+    const requiredBottom = Math.max(baseHeight, descBottom, remainingBottom) + CARD_BOTTOM_PAD;
+    view.hoverInfoBottomY = requiredBottom;
+    view.cardHeightTarget = view.isHovered ? requiredBottom : baseHeight;
+    const changed = animateCardHeight(view, dt);
+    if (changed) {
+      redrawEventCard(view);
+      updateEventRemaining(view, getGameState?.());
+    }
+    if (!view.isHovered) {
+      applyHoverScaleToView(view, 1);
+      return null;
+    }
+    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
+    applyHoverScaleToView(view, hoverScale);
+    fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
+    const anchor = getScaledAnchorRect(
+      view.container,
+      view.cardWidth ?? view.width ?? EVENT_WIDTH,
+      view.cardHeightCurrent,
+      hoverScale
+    );
+    if (updateHoverContext) {
+      setHoverContext("event", col, span, anchor);
+    }
+    return anchor;
+  }
+
+  function applyEventHover(view, col, span) {
+    if (!view?.container) return;
+    const { title, desc } = getEventUi(view.event);
+    view.setHoverActive?.(true);
+    elevateForHover(view.container);
+    view.isHovered = true;
+    const anchor = refreshEventHoverPresentation(view, col, span, 0, {
+      updateHoverContext: true,
+    });
+    tooltipView?.show?.(
+      {
+        title,
+        lines: desc ? [desc] : [],
+        scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
+      },
+      anchor
+    );
+  }
+
   // --------------------------------------------------------
   // Event view
   // --------------------------------------------------------
@@ -3584,19 +4161,13 @@ export function createBoardView(opts) {
       () => hoverTextNodes
     );
 
-    contentPaint.addChild(
-      new PIXI.Graphics()
-        .beginFill(0x2f2f2f)
-        .drawRoundedRect(0, 0, width, EVENT_HEIGHT, 8)
-        .endFill()
-    );
+    const baseBg = new PIXI.Graphics();
+    drawCardOuterBg(baseBg, width, EVENT_HEIGHT, 8, 0x2f2f2f);
+    contentPaint.addChild(baseBg);
 
-    contentPaint.addChild(
-      new PIXI.Graphics()
-        .beginFill(color)
-        .drawRoundedRect(3, 3, width - 6, EVENT_HEIGHT - 6, 6)
-        .endFill()
-    );
+    const cardFill = new PIXI.Graphics();
+    drawCardInnerFill(cardFill, width, EVENT_HEIGHT, 8, color);
+    contentPaint.addChild(cardFill);
 
     const timerBorderBase = new PIXI.Graphics();
     timerBorderBase
@@ -3648,14 +4219,30 @@ export function createBoardView(opts) {
 
     const view = {
       container: cont,
+      content,
       event: eventInst,
+      isHovered: false,
       width,
+      cardWidth: width,
+      baseCardHeight: EVENT_HEIGHT,
+      cardHeightCurrent: EVENT_HEIGHT,
+      cardHeightTarget: EVENT_HEIGHT,
+      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverInfoBottomY: EVENT_HEIGHT,
+      baseBg,
+      cardFill,
+      cardFillColor: color,
+      titleText,
+      descText,
+      timerBorderBase,
+      timerDrainBorderColor: drainBorderColor,
       remainingText,
       timerDrainBorder,
       timerDrainMask,
       hoverTextNodes,
       setHoverActive,
       contentPaint,
+      baseY: EVENT_ROW_Y,
     };
 
     cont.on("pointerenter", () => {
@@ -3667,23 +4254,7 @@ export function createBoardView(opts) {
         col,
         clear: () => clearEventHover(view),
       });
-      setHoverActive(true);
-      elevateForHover(cont);
-      const anchor = getScaledAnchorRect(
-        cont,
-        width,
-        EVENT_HEIGHT,
-        GAMEPIECE_HOVER_SCALE
-      );
-      setHoverContext("event", col, span, anchor);
-      tooltipView?.show?.(
-        {
-          title,
-          lines: desc ? [desc] : [],
-          scale: GAMEPIECE_HOVER_SCALE,
-        },
-        anchor
-      );
+      applyEventHover(view, col, span);
     });
 
     cont.on("pointerleave", () => {
@@ -3713,23 +4284,7 @@ export function createBoardView(opts) {
           col,
           clear: () => clearEventHover(view),
         });
-        setHoverActive(true);
-        elevateForHover(cont);
-        const anchor = getScaledAnchorRect(
-          cont,
-          width,
-          EVENT_HEIGHT,
-          GAMEPIECE_HOVER_SCALE
-        );
-        setHoverContext("event", col, span, anchor);
-        tooltipView?.show?.(
-          {
-            title,
-            lines: desc ? [desc] : [],
-            scale: GAMEPIECE_HOVER_SCALE,
-          },
-          anchor
-        );
+        applyEventHover(view, col, span);
       },
       onEnd: () => {
         if (activeHover?.view === view) {
@@ -3774,7 +4329,10 @@ export function createBoardView(opts) {
     }
 
     const ratio = clamp01(remaining / totalLifetimeSec);
-    const cardHeight = EVENT_HEIGHT;
+    const cardHeight = Math.max(
+      1,
+      Math.floor(view.cardHeightCurrent ?? view.baseCardHeight ?? EVENT_HEIGHT)
+    );
     const drainY = Math.floor((1 - ratio) * cardHeight);
     const maskHeight = Math.max(0, cardHeight - drainY);
     view.timerDrainBorder.visible = maskHeight > 0;
@@ -3783,7 +4341,7 @@ export function createBoardView(opts) {
     if (maskHeight > 0) {
       view.timerDrainMask
         .beginFill(0xffffff, 1)
-        .drawRect(0, drainY, view.width, maskHeight)
+        .drawRect(0, drainY, view.cardWidth ?? view.width ?? EVENT_WIDTH, maskHeight)
         .endFill();
     }
   }
@@ -3861,10 +4419,18 @@ export function createBoardView(opts) {
       content,
       structure: structureInst,
       col,
+      isHovered: false,
       titleText,
       descText,
+      baseBg,
       cardFill,
       cardFillColor: color,
+      cardWidth: width,
+      baseCardHeight: height,
+      cardHeightCurrent: height,
+      cardHeightTarget: height,
+      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverInfoBottomY: height,
       hoverTextNodes,
       setHoverActive,
       contentPaint,
@@ -3898,6 +4464,7 @@ export function createBoardView(opts) {
           ).x;
     cont.x = startX;
     cont.y = ENV_STRUCTURE_ROW_Y;
+    view.baseY = cont.y;
 
     envStructuresLayer.addChild(cont);
     setTextResolution(view.hoverTextNodes, BASE_TEXT_RESOLUTION);
@@ -3930,21 +4497,18 @@ export function createBoardView(opts) {
     if (!view || !structureInst) return;
     view.structure = structureInst;
     const { color, title, desc } = getEnvStructureUi(structureInst);
+    const def = envStructureDefs[structureInst.defId];
+    const span =
+      Number.isFinite(structureInst?.span) && structureInst.span > 0
+        ? Math.floor(structureInst.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+        ? Math.floor(def.defaultSpan)
+        : 1;
+    const width = ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * (span - 1);
+    view.cardWidth = width;
     if (view.cardFill && view.cardFillColor !== color) {
-      const def = envStructureDefs[structureInst.defId];
-      const span =
-        Number.isFinite(structureInst?.span) && structureInst.span > 0
-          ? Math.floor(structureInst.span)
-          : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
-          ? Math.floor(def.defaultSpan)
-          : 1;
-      const width = ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * (span - 1);
-      view.cardFill.clear();
-      view.cardFill
-        .beginFill(color)
-        .drawRoundedRect(3, 3, width - 6, ENV_STRUCTURE_HEIGHT - 6, 6)
-        .endFill();
       view.cardFillColor = color;
+      redrawEnvStructureCard(view);
     }
     if (view.titleText && view.titleText.text !== title) {
       view.titleText.text = title;
@@ -3988,16 +4552,12 @@ export function createBoardView(opts) {
       () => hoverTextNodes
     );
 
-    const baseBg = new PIXI.Graphics()
-      .beginFill(0x3a3a3a)
-      .drawRoundedRect(0, 0, width, height, 10)
-      .endFill();
+    const baseBg = new PIXI.Graphics();
+    drawCardOuterBg(baseBg, width, height, 10, 0x3a3a3a);
     contentPaint.addChild(baseBg);
 
-    const cardFill = new PIXI.Graphics()
-      .beginFill(color)
-      .drawRoundedRect(3, 3, width - 6, height - 6, 8)
-      .endFill();
+    const cardFill = new PIXI.Graphics();
+    drawCardInnerFill(cardFill, width, height, 10, color);
     contentPaint.addChild(cardFill);
 
     const titleText = new PIXI.Text(title, {
@@ -4091,8 +4651,7 @@ export function createBoardView(opts) {
     contentInk.addChild(buildPlacementOverlay);
 
     const focusOutline = new PIXI.Graphics();
-    focusOutline.lineStyle(2, 0x7fd0ff, 1);
-    focusOutline.drawRoundedRect(2, 2, width - 4, height - 4, 8);
+    drawFocusOutline(focusOutline, width, height, 8);
     focusOutline.visible = false;
     contentInk.addChild(focusOutline);
 
@@ -4177,12 +4736,8 @@ export function createBoardView(opts) {
       tagEntries: [],
       expandedTagId: null,
       hasTagToggle: false,
-      tagScrollOffsetY: 0,
-      tagScrollMaxY: 0,
-      tagMask: null,
-      tagOverflowTopFade: null,
-      tagOverflowBottomFade: null,
-      tagOverflowMoreText: null,
+      totalContentHeight: 0,
+      expandedContentBottomY: 0,
       ignoreNextTagTap: false,
       tagDrag: null,
       holdHoverForOccupant: false,
@@ -4191,10 +4746,16 @@ export function createBoardView(opts) {
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
+      baseBg,
       cardFill,
       cardFillColor: color,
       cardWidth: width,
+      baseCardHeight: height,
       cardHeight: height,
+      cardHeightCurrent: height,
+      cardHeightTarget: height,
+      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverInfoBottomY: height,
       uiSignature: null,
       apOverlay,
       apOverlayAlpha: 0,
@@ -4286,6 +4847,7 @@ export function createBoardView(opts) {
           );
     cont.x = pos.x;
     cont.y = pos.y;
+    view.baseY = cont.y;
 
     hubStructuresLayer.addChild(cont);
 
@@ -5007,6 +5569,7 @@ export function createBoardView(opts) {
     updateDistributorRangeOverlays();
     updateBuildPlacementOverlays();
     updatePlanFocus();
+    updateDynamicCardLayouts(dt);
     processTileRollFeedbackEvents(s);
     updateTileActivityOverlays(dt);
     updateTileRollFeedbackFx(dt);
@@ -5044,28 +5607,6 @@ export function createBoardView(opts) {
     if (!stagePointerMoveHandler) {
       stagePointerMoveHandler = (ev) => trackPointerPos(ev);
       app.stage.on("pointermove", stagePointerMoveHandler);
-    }
-    if (!stageWheelHandler) {
-      stageWheelHandler = (ev) => {
-        if (!activeHover?.view) return;
-        if (activeTagDrag || activeHubTagDrag) return;
-        const stagePoint = clientToStagePoint(ev.clientX, ev.clientY);
-        if (!stagePoint) return;
-        const hoverView = activeHover.view;
-        if (!isPointerInsideView(hoverView, stagePoint, 2)) return;
-        let handled = false;
-        if (activeHover.kind === "tile") {
-          handled = tagUi?.scrollTagEntries?.(hoverView, ev.deltaY) === true;
-        } else if (activeHover.kind === "hub") {
-          handled = hubTagUi?.scrollTagEntries?.(hoverView, ev.deltaY) === true;
-        }
-        if (!handled) return;
-        ev.preventDefault?.();
-        ev.stopPropagation?.();
-      };
-      app?.view?.addEventListener?.("wheel", stageWheelHandler, {
-        passive: false,
-      });
     }
     ensureEventExpiryFxLayerAttached();
     const state = getGameState?.();

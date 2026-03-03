@@ -11,7 +11,7 @@ import {
   hasSkillFeatureUnlock,
 } from "../../model/skills.js";
 import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
-import { TILE_WIDTH, TILE_HEIGHT } from "../layout-pixi.js";
+import { TILE_WIDTH } from "../layout-pixi.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
@@ -81,8 +81,6 @@ const SYSTEM_BAR_RATIO_QUANT = 100;
 const TAG_ACTION_COG_FILL = 0xa7afb8;
 const TAG_ACTION_COG_STROKE = 0xdbe2e8;
 const TAG_ACTION_COG_ICON = 0x4f5862;
-const TAG_OVERFLOW_FADE_HEIGHT = 14;
-const TAG_OVERFLOW_TEXT = "More...";
 
 const TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 const TIER_METAL_GRADIENTS = Object.freeze({
@@ -936,6 +934,11 @@ export function createTagUi(opts) {
       ev?.stopPropagation?.();
       if (view.ignoreNextTagTap) {
         view.ignoreNextTagTap = false;
+        return;
+      }
+      const nextTagId = view.expandedTagId === entry.tagId ? null : entry.tagId;
+      if (applyExpandedTag(view, nextTagId)) {
+        layoutTagEntries(view);
       }
     });
 
@@ -1015,98 +1018,17 @@ export function createTagUi(opts) {
     }
   }
 
-  function ensureTagOverflowDecor(view) {
-    if (!view) return;
-    if (!view.tagMask) {
-      view.tagMask = new PIXI.Graphics();
-      view.contentInk?.addChild?.(view.tagMask);
-      if (view.tagContainer) {
-        view.tagContainer.mask = view.tagMask;
-      }
-    }
-    if (!view.tagOverflowTopFade) {
-      view.tagOverflowTopFade = new PIXI.Graphics();
-      view.contentInk?.addChild?.(view.tagOverflowTopFade);
-    }
-    if (!view.tagOverflowBottomFade) {
-      view.tagOverflowBottomFade = new PIXI.Graphics();
-      view.contentInk?.addChild?.(view.tagOverflowBottomFade);
-    }
-    if (!view.tagOverflowMoreText) {
-      view.tagOverflowMoreText = new PIXI.Text(TAG_OVERFLOW_TEXT, {
-        fill: MUCHA_UI_COLORS.ink.secondary,
-        fontSize: 9,
-      });
-      view.tagOverflowMoreText.visible = false;
-      view.tagOverflowMoreText.eventMode = "none";
-      view.contentInk?.addChild?.(view.tagOverflowMoreText);
-      setTextResolution?.([view.tagOverflowMoreText], baseTextResolution);
-    }
-  }
-
-  function updateTagOverflowDecor(view, maxHeight, contentHeight) {
-    ensureTagOverflowDecor(view);
-    const mask = view.tagMask;
-    const topFade = view.tagOverflowTopFade;
-    const bottomFade = view.tagOverflowBottomFade;
-    const moreText = view.tagOverflowMoreText;
-    if (!mask || !topFade || !bottomFade || !moreText) return;
-
-    const x = Number.isFinite(view.tagContainer?.x) ? view.tagContainer.x : 0;
-    const y = Number.isFinite(view.tagStartY) ? view.tagStartY : 0;
-    const width = TAG_PILL_WIDTH;
-    const height = Math.max(0, Math.floor(maxHeight));
-    const scrollMax = Math.max(0, Math.floor(view.tagScrollMaxY ?? 0));
-    const scroll = Math.max(0, Math.floor(view.tagScrollOffsetY ?? 0));
-    const hasOverflow = scrollMax > 0 && contentHeight > maxHeight + 1;
-    const showTop = hasOverflow && scroll > 0;
-    const showBottom = hasOverflow && scroll < scrollMax;
-    const fadeHeight = Math.min(TAG_OVERFLOW_FADE_HEIGHT, height);
-
-    mask.clear();
-    if (height > 0) {
-      mask.beginFill(0xffffff, 1);
-      mask.drawRect(x, y, width, height);
-      mask.endFill();
-    }
-
-    topFade.clear();
-    if (showTop && fadeHeight > 0) {
-      topFade.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.7);
-      topFade.drawRect(x, y, width, fadeHeight);
-      topFade.endFill();
-    }
-
-    bottomFade.clear();
-    if (showBottom && fadeHeight > 0) {
-      bottomFade.beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.75);
-      bottomFade.drawRect(x, y + Math.max(0, height - fadeHeight), width, fadeHeight);
-      bottomFade.endFill();
-    }
-
-    moreText.visible = showBottom;
-    if (showBottom) {
-      moreText.x = x + Math.max(0, Math.floor((width - moreText.width) / 2));
-      moreText.y = y + Math.max(0, height - moreText.height - 1);
-    }
-  }
-
   function layoutTagEntries(view) {
     const entries = view.tagEntries || [];
-    const tagMaxY =
-      typeof view.tagMaxY === "number" ? view.tagMaxY : TILE_HEIGHT - 12;
-    const maxHeight = Math.max(0, tagMaxY - view.tagStartY);
-    if (!Number.isFinite(view.tagScrollOffsetY)) {
-      view.tagScrollOffsetY = 0;
-    }
-
+    const allowExpandedSystems = view?.isHovered === true;
     let totalContentHeight = 0;
+    let expandedContentBottomY = 0;
     for (const entry of entries) {
       if (!entry) continue;
       const rowScale = entry.rowScale ?? 1;
       const rowHeight = TAG_PILL_HEIGHT * rowScale;
       let entryHeight = rowHeight;
-      if (entry.expanded && entry.systemRows.length > 0) {
+      if (allowExpandedSystems && entry.expanded && entry.systemRows.length > 0) {
         let sysY = 0;
         for (const row of entry.systemRows) {
           row.container.visible = true;
@@ -1124,53 +1046,27 @@ export function createTagUi(opts) {
       }
       entry.height = entryHeight;
       totalContentHeight += entryHeight + TAG_PILL_GAP;
+      if (entry.expanded) {
+        expandedContentBottomY = Math.max(expandedContentBottomY, totalContentHeight);
+      }
     }
     if (totalContentHeight > 0) totalContentHeight -= TAG_PILL_GAP;
 
-    view.tagScrollMaxY = Math.max(0, totalContentHeight - maxHeight);
-    const scrollOffsetY = Math.max(
-      0,
-      Math.min(view.tagScrollOffsetY ?? 0, view.tagScrollMaxY)
-    );
-    view.tagScrollOffsetY = scrollOffsetY;
-
     let y = 0;
-    const viewportTop = scrollOffsetY;
-    const viewportBottom = scrollOffsetY + maxHeight;
     for (const entry of entries) {
       if (!entry) continue;
       const entryHeight = entry.height ?? TAG_PILL_HEIGHT;
-      const entryTop = y;
-      const entryBottom = y + entryHeight;
-      entry.container.visible =
-        maxHeight > 0 && entryBottom >= viewportTop && entryTop <= viewportBottom;
+      entry.container.visible = true;
       entry.container.x = 0;
-      entry.container.y = y - scrollOffsetY;
+      entry.container.y = y;
       y += entryHeight + TAG_PILL_GAP;
     }
-
-    updateTagOverflowDecor(view, maxHeight, totalContentHeight);
-  }
-
-  function scrollTagEntries(view, deltaY = 0) {
-    if (!view || !Number.isFinite(deltaY)) return false;
-    const maxScroll = Math.max(0, Math.floor(view.tagScrollMaxY ?? 0));
-    if (maxScroll <= 0) return false;
-    const prev = Math.max(0, Math.floor(view.tagScrollOffsetY ?? 0));
-    const next = Math.max(0, Math.min(maxScroll, prev + Math.floor(deltaY)));
-    if (next === prev) return false;
-    view.tagScrollOffsetY = next;
-    layoutTagEntries(view);
-    return true;
-  }
-
-  function resetTagScroll(view) {
-    if (!view) return false;
-    const prev = Math.max(0, Math.floor(view.tagScrollOffsetY ?? 0));
-    if (prev === 0) return false;
-    view.tagScrollOffsetY = 0;
-    layoutTagEntries(view);
-    return true;
+    view.totalContentHeight = Math.max(0, totalContentHeight);
+    view.expandedContentBottomY = Math.max(0, expandedContentBottomY);
+    return {
+      totalContentHeight: view.totalContentHeight,
+      expandedContentBottomY: view.expandedContentBottomY,
+    };
   }
 
   function drawSystemBar(row, ratio, color) {
@@ -1424,16 +1320,29 @@ export function createTagUi(opts) {
     }
   }
 
-  function syncExpandedTagToActive(view, activeTagId) {
-    const nextTagId =
-      typeof activeTagId === "string" && activeTagId.length > 0 ? activeTagId : null;
-    if (view.expandedTagId === nextTagId) return false;
-    view.expandedTagId = nextTagId;
-    view.tagScrollOffsetY = 0;
+  function applyExpandedTag(view, nextTagId) {
+    const normalizedTagId =
+      typeof nextTagId === "string" && nextTagId.length > 0 ? nextTagId : null;
+    if (view.expandedTagId === normalizedTagId) return false;
+    view.expandedTagId = normalizedTagId;
     for (const entry of view.tagEntries || []) {
       entry.setExpanded(entry.tagId === view.expandedTagId);
     }
     return true;
+  }
+
+  function syncExpandedTagToActive(view, activeTagId) {
+    const nextTagId =
+      typeof activeTagId === "string" && activeTagId.length > 0 ? activeTagId : null;
+    const previousActiveTagId =
+      typeof view.lastAutoExpandedActiveTagId === "string" &&
+      view.lastAutoExpandedActiveTagId.length > 0
+        ? view.lastAutoExpandedActiveTagId
+        : null;
+    view.lastAutoExpandedActiveTagId = nextTagId;
+    if (!nextTagId) return false;
+    if (previousActiveTagId === nextTagId) return false;
+    return applyExpandedTag(view, nextTagId);
   }
 
   function updateTagEntries(view, tileInst) {
@@ -1494,8 +1403,11 @@ export function createTagUi(opts) {
         : 0;
     const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
     const activeTagId = pawnCount > 0 ? enabledTags[0] ?? null : null;
-    view.expandedTagId = activeTagId;
-    view.tagScrollOffsetY = 0;
+    if (!view.expandedTagId && activeTagId) {
+      view.expandedTagId = activeTagId;
+    }
+    view.lastAutoExpandedActiveTagId =
+      typeof activeTagId === "string" && activeTagId.length > 0 ? activeTagId : null;
 
     for (const tagId of tags) {
       const entry = buildTagEntry(view, tagId, tileInst);
@@ -1530,7 +1442,5 @@ export function createTagUi(opts) {
     rebuildTileTags,
     updateTagEntries,
     layoutTagEntries,
-    scrollTagEntries,
-    resetTagScroll,
   };
 }
