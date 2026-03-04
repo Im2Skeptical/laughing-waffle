@@ -1317,6 +1317,12 @@ inventoryView = createInventoryView({
       if (useResult?.result === "itemUsed" && Number.isFinite(spec?.itemId)) {
         scrollGraphOrchestrator?.closeWindowForItemId?.(spec.itemId);
       }
+      if (useResult?.queued === true) {
+        const scrollUseResult = scrollGraphOrchestrator?.handleUseItem?.(spec);
+        if (scrollUseResult?.handled === true) {
+          return scrollUseResult;
+        }
+      }
       return { handled: true, result: useResult.result ?? "queued" };
     }
 
