@@ -900,7 +900,6 @@ export function createHubTagUi(opts) {
 
   function layoutTagEntries(view) {
     const entries = view.tagEntries || [];
-    const allowExpandedSystems = view?.isHovered === true;
     let totalContentHeight = 0;
     let expandedContentBottomY = 0;
     for (const entry of entries) {
@@ -908,7 +907,7 @@ export function createHubTagUi(opts) {
       const rowScale = entry.rowScale ?? 1;
       const rowHeight = TAG_PILL_HEIGHT * rowScale;
       let entryHeight = rowHeight;
-      if (allowExpandedSystems && entry.expanded && entry.systemRows.length > 0) {
+      if (entry.expanded && entry.systemRows.length > 0) {
         let sysY = 0;
         for (const row of entry.systemRows) {
           row.container.visible = true;

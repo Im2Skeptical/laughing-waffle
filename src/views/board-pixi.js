@@ -2181,9 +2181,10 @@ export function createBoardView(opts) {
         : tagsBottom;
     const requiredBottom = Math.max(tagsBottom, ordersBottom + CARD_BOTTOM_PAD);
     view.hoverInfoBottomY = Math.max(view.baseCardHeight ?? TILE_HEIGHT, requiredBottom);
-    view.cardHeightTarget = view.isHovered
-      ? Math.max(view.baseCardHeight ?? TILE_HEIGHT, Math.ceil(requiredBottom))
-      : Math.max(1, view.baseCardHeight ?? TILE_HEIGHT);
+    view.cardHeightTarget = Math.max(
+      view.baseCardHeight ?? TILE_HEIGHT,
+      Math.ceil(requiredBottom)
+    );
     return metrics;
   }
 
@@ -2375,10 +2376,11 @@ export function createBoardView(opts) {
       return null;
     }
     if (!view.isHovered) {
-      view.cardHeightTarget = baseHeight;
+      updateHubStructureViewUi(view, view.structure, { force: true });
       const changed = animateCardHeight(view, dt);
       if (changed) {
         redrawHubCardVisuals(view);
+        updateHubStructureViewUi(view, view.structure, { force: true });
       }
       applyHoverScaleToView(view, 1);
       return null;
@@ -3748,9 +3750,10 @@ export function createBoardView(opts) {
     }
     const requiredBottom = Math.max(tagsBottom, ordersBottom, lineBottom) + CARD_BOTTOM_PAD;
     view.hoverInfoBottomY = Math.max(view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT, requiredBottom);
-    view.cardHeightTarget = view.isHovered
-      ? Math.max(view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT, Math.ceil(requiredBottom))
-      : Math.max(1, view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT);
+    view.cardHeightTarget = Math.max(
+      view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT,
+      Math.ceil(requiredBottom)
+    );
 
     if (view.cancelButton) {
       view.cancelButton.visible = buildActive;
