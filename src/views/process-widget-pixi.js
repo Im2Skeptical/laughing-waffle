@@ -2176,7 +2176,7 @@ export function createProcessWidgetView({
 
     const priority = getRecipePriorityForTarget(target, "growth", state);
     const recipeEntryMap = buildRecipeEntryMap(entries, { systemId: "growth" });
-    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap);
+    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap, state);
     if (win) {
       win.recipeFocusId = resolvedFocus;
     }
@@ -3031,7 +3031,38 @@ export function createProcessWidgetView({
     };
   }
 
-  function resolveRecipeFocusId(_win, priority, recipeEntryMap) {
+  function normalizeRecipeFocusId(value) {
+    return typeof value === "string" && value.length > 0 ? value : null;
+  }
+
+  function isRecipeFocusIdValid(focusId, priority, recipeEntryMap) {
+    const resolved = normalizeRecipeFocusId(focusId);
+    if (!resolved) return false;
+    const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
+    if (ordered.includes(resolved)) return true;
+    return recipeEntryMap?.has?.(resolved) === true;
+  }
+
+  function getActiveRecipeProgressSignature(priority, recipeEntryMap) {
+    const enabled = getEnabledRecipeIds(priority);
+    const parts = [];
+    for (const recipeId of enabled) {
+      const entry = recipeEntryMap.get(recipeId);
+      if (!entry || !isRecipeEntryProgressable(entry)) continue;
+      const process = entry.process;
+      if (!process) continue;
+      const progress = Number.isFinite(process.progress)
+        ? Math.max(0, Math.floor(process.progress))
+        : 0;
+      const duration = Number.isFinite(process.durationSec)
+        ? Math.max(1, Math.floor(process.durationSec))
+        : 1;
+      parts.push(`${recipeId}:${process.id ?? "process"}:${progress}/${duration}`);
+    }
+    return parts.length > 0 ? parts.join("|") : "idle";
+  }
+
+  function chooseAutoRecipeFocusId(priority, recipeEntryMap) {
     const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
     const enabled = getEnabledRecipeIds(priority);
     for (const recipeId of enabled) {
@@ -3047,6 +3078,41 @@ export function createProcessWidgetView({
       if (recipeEntryMap.has(recipeId)) return recipeId;
     }
     return ordered[0] || null;
+  }
+
+  function resolveRecipeFocusId(win, priority, recipeEntryMap, state) {
+    const currentFocusId = normalizeRecipeFocusId(win?.recipeFocusId);
+    const currentFocusValid = isRecipeFocusIdValid(
+      currentFocusId,
+      priority,
+      recipeEntryMap
+    );
+    const isPaused = state?.paused === true;
+    const activeProgressSig = getActiveRecipeProgressSignature(priority, recipeEntryMap);
+    const hasActiveWork = activeProgressSig !== "idle";
+
+    if (currentFocusValid) {
+      if (isPaused || !hasActiveWork) {
+        return currentFocusId;
+      }
+      if (win?.recipeFocusMode === "manual") {
+        const manualSig =
+          typeof win.recipeAutoFocusProgressSig === "string"
+            ? win.recipeAutoFocusProgressSig
+            : "";
+        if (manualSig === activeProgressSig) {
+          return currentFocusId;
+        }
+      }
+    }
+
+    const autoFocusId = chooseAutoRecipeFocusId(priority, recipeEntryMap);
+    if (autoFocusId && win && !isPaused && hasActiveWork) {
+      win.recipeFocusMode = "auto";
+      win.recipeAutoFocusProgressSig = activeProgressSig;
+    }
+    if (autoFocusId) return autoFocusId;
+    return currentFocusValid ? currentFocusId : null;
   }
 
   function layoutRecipePriorityPills(view) {
@@ -3219,6 +3285,15 @@ export function createProcessWidgetView({
           pillView.ignoreNextTap = false;
           return;
         }
+        if (win && typeof recipeId === "string" && recipeId.length > 0) {
+          win.recipeFocusId = recipeId;
+          win.recipeFocusMode = "manual";
+          win.recipeAutoFocusProgressSig = getActiveRecipeProgressSignature(
+            priority,
+            recipeEntryMap
+          );
+          win.lastSignature = null;
+        }
       });
 
       pillContainer.addChild(row);
@@ -3272,7 +3347,7 @@ export function createProcessWidgetView({
 
     const priority = getRecipePriorityForTarget(target, systemId, state);
     const recipeEntryMap = buildRecipeEntryMap(entries, { systemId });
-    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap);
+    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap, state);
     if (win) {
       win.recipeFocusId = resolvedFocus;
     }
