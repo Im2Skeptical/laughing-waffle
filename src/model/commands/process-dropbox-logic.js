@@ -16,6 +16,7 @@ import {
 import { ensureHubSystemState } from "./system-state-helpers.js";
 import {
   ensureRecipePriorityState,
+  getEnabledRecipeIds,
   getTopEnabledRecipeId,
 } from "../recipe-priority.js";
 
@@ -248,6 +249,97 @@ function isRecipeSystemIdleProcess(process, target, systemId) {
   return !selectedRecipeId;
 }
 
+function isPriorityRecipeDropboxSystem(systemId) {
+  return systemId === "fireplace" || systemId === "workspace";
+}
+
+function listPriorityRecipeProcesses(target, systemId) {
+  if (!target || !isPriorityRecipeDropboxSystem(systemId)) return [];
+  const systemState = target?.systemState?.[systemId] ?? null;
+  const processes = Array.isArray(systemState?.processes) ? systemState.processes : [];
+  if (processes.length <= 0) return [];
+  const priority = ensureRecipePriorityState(systemState, {
+    systemId,
+    state: null,
+    includeLocked: true,
+  });
+  const orderedEnabled = getEnabledRecipeIds(priority);
+  if (orderedEnabled.length <= 0) return [];
+
+  const processByType = new Map();
+  for (const process of processes) {
+    const type = typeof process?.type === "string" ? process.type : null;
+    if (!type || processByType.has(type)) continue;
+    processByType.set(type, process);
+  }
+
+  const ordered = [];
+  for (const recipeId of orderedEnabled) {
+    const process = processByType.get(recipeId);
+    if (process) ordered.push(process);
+  }
+  return ordered;
+}
+
+function evaluatePriorityRecipeDropboxItem(state, target, systemId, itemKind, quantity) {
+  const orderedProcesses = listPriorityRecipeProcesses(target, systemId);
+  if (orderedProcesses.length <= 0) {
+    return null;
+  }
+
+  let cap = 0;
+  let anyMatching = false;
+  for (const process of orderedProcesses) {
+    const requirements = getRequirementsViewForProcess(
+      state,
+      process,
+      target,
+      systemId
+    );
+    const match = getRequirementCapForItem(requirements, itemKind);
+    if (match.anyMatching) {
+      anyMatching = true;
+      cap += Math.max(0, Math.floor(match.cap ?? 0));
+    }
+  }
+
+  if (!anyMatching) {
+    return { status: "invalid", reason: "dropboxItemNotRequired", cap: 0 };
+  }
+  if (cap <= 0) {
+    return { status: "capped", reason: "dropboxRequirementCapReached", cap: 0 };
+  }
+  return {
+    status: "valid",
+    reason: "dropboxLoaded",
+    cap: Math.min(cap, quantity),
+    instant: false,
+    kind: "process",
+  };
+}
+
+function applyPriorityRecipeDropboxItem(state, target, systemId, item, maxUnits) {
+  const orderedProcesses = listPriorityRecipeProcesses(target, systemId);
+  if (orderedProcesses.length <= 0) return null;
+  let remaining = Math.max(0, Math.floor(maxUnits ?? 0));
+  let moved = 0;
+  for (const process of orderedProcesses) {
+    if (remaining <= 0) break;
+    const requirements = ensureMutableProcessRequirements(
+      state,
+      process,
+      target,
+      systemId
+    );
+    const consumed = applyRequirementUnitsForItem(requirements, item.kind, remaining);
+    if (consumed <= 0) continue;
+    recordRequirementConsumption(process, item, consumed);
+    moved += consumed;
+    remaining -= consumed;
+  }
+  return moved;
+}
+
 function resolveDropboxContext(state, toOwnerId) {
   if (isBasketDropboxOwnerId(toOwnerId)) {
     const parsed = parseBasketDropboxOwnerId(toOwnerId);
@@ -464,6 +556,25 @@ export function evaluateProcessDropboxDrop(state, spec = {}) {
     return { status: "invalid", reason: "dropboxNoRecipeSelected", cap: 0 };
   }
 
+  if (isPriorityRecipeDropboxSystem(ctx.systemId)) {
+    const priorityResult = evaluatePriorityRecipeDropboxItem(
+      state,
+      ctx.target,
+      ctx.systemId,
+      itemKind,
+      quantity
+    );
+    if (priorityResult) {
+      if (priorityResult.status === "valid") {
+        return {
+          ...priorityResult,
+          processId: process.id,
+        };
+      }
+      return priorityResult;
+    }
+  }
+
   const requirements = getRequirementsViewForProcess(
     state,
     process,
@@ -567,18 +678,37 @@ export function applyProcessDropboxLoadFromItem(state, spec = {}) {
   if (!found?.process || !found?.target) {
     return { ok: false, reason: "dropboxNoProcess" };
   }
-  const requirements = ensureMutableProcessRequirements(
-    state,
-    found.process,
-    found.target,
-    found.systemId
-  );
   const maxUnits = Math.min(requested, Math.max(0, Math.floor(evalRes.cap ?? 0)));
-  const moved = applyRequirementUnitsForItem(requirements, item.kind, maxUnits);
+  let moved = 0;
+  let usedPriorityDistribution = false;
+  if (isPriorityRecipeDropboxSystem(found.systemId)) {
+    const priorityMoved = applyPriorityRecipeDropboxItem(
+      state,
+      found.target,
+      found.systemId,
+      item,
+      maxUnits
+    );
+    if (priorityMoved != null) {
+      moved = priorityMoved;
+      usedPriorityDistribution = true;
+    }
+  }
+  if (!usedPriorityDistribution) {
+    const requirements = ensureMutableProcessRequirements(
+      state,
+      found.process,
+      found.target,
+      found.systemId
+    );
+    moved = applyRequirementUnitsForItem(requirements, item.kind, maxUnits);
+    if (moved > 0) {
+      recordRequirementConsumption(found.process, item, moved);
+    }
+  }
   if (moved <= 0) {
     return { ok: false, reason: "dropboxRequirementCapReached" };
   }
-  recordRequirementConsumption(found.process, item, moved);
   return {
     ok: true,
     result: "dropboxLoaded",

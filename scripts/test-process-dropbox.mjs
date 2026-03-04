@@ -74,14 +74,24 @@ function addProcessHost(
     defId = "hearth",
     systemId = "fireplace",
     process,
+    processes,
     selectedRecipeId,
+    recipePriority,
   }
 ) {
+  const processList = Array.isArray(processes)
+    ? processes.filter((entry) => entry && typeof entry === "object")
+    : process && typeof process === "object"
+      ? [process]
+      : [];
   const systemState = {
-    processes: [process],
+    processes: processList,
   };
   if (selectedRecipeId !== undefined) {
     systemState.selectedRecipeId = selectedRecipeId;
+  }
+  if (recipePriority !== undefined) {
+    systemState.recipePriority = recipePriority;
   }
   const host = {
     instanceId: structureId,
@@ -133,6 +143,69 @@ function runProcessRequirementCapPartialTest() {
   const process = state.hub.anchors[0].systemState.build.processes[0];
   assert.equal(getProcessRequirementProgress(process, "reeds"), 1);
   assert.equal(state.ownerInventories[dropboxOwnerId], undefined);
+}
+
+function runPriorityOrderDistributionTest() {
+  const state = makeState();
+  const fromOwnerId = 108;
+  const firstProcessId = "proc-priority-first";
+  const secondProcessId = "proc-priority-second";
+  const dropboxOwnerId = `inv:dropbox:process:${secondProcessId}`;
+
+  const fromInv = ensureInventory(state, fromOwnerId, 6, 6);
+  const reeds = addItem(state, fromInv, "reeds", 5);
+
+  addProcessHost(state, {
+    structureId: 910,
+    systemId: "workspace",
+    selectedRecipeId: "weaveBasket",
+    recipePriority: {
+      ordered: ["weaveBasket", "craftProphecyPopulationScroll"],
+      enabled: {
+        weaveBasket: true,
+        craftProphecyPopulationScroll: true,
+      },
+    },
+    processes: [
+      {
+        id: firstProcessId,
+        type: "weaveBasket",
+        mode: "work",
+        durationSec: 5,
+        progress: 0,
+        requirements: [
+          { kind: "item", itemId: "reeds", amount: 3, progress: 0, consume: true },
+        ],
+      },
+      {
+        id: secondProcessId,
+        type: "craftProphecyPopulationScroll",
+        mode: "work",
+        durationSec: 5,
+        progress: 0,
+        requirements: [
+          { kind: "item", itemId: "reeds", amount: 1, progress: 0, consume: true },
+        ],
+      },
+    ],
+  });
+
+  const res = cmdMoveProcessDropboxItem(state, {
+    fromOwnerId,
+    toOwnerId: dropboxOwnerId,
+    itemId: reeds.id,
+    targetGX: 0,
+    targetGY: 0,
+    viaProcessDropbox: true,
+  });
+
+  assert.equal(res?.ok, true, `expected priority distribution success, got ${JSON.stringify(res)}`);
+  assert.equal(res?.moved, 4);
+  assert.equal(res?.partial, true);
+  assert.equal(getItemById(fromInv, reeds.id)?.quantity ?? 0, 1);
+  const processes = state.hub.anchors[0].systemState.workspace.processes;
+  assert.equal(getProcessRequirementProgress(processes[0], "reeds"), 3);
+  assert.equal(getProcessRequirementProgress(processes[1], "reeds"), 1);
 }
 
 function runNonRequiredRejectionTest() {
@@ -485,6 +558,7 @@ runHubInstantDropboxTest();
 runDepositProcessInstantDropboxTest();
 runEquippedCapGateTest();
 runDragStatusEvaluatorTest();
+runPriorityOrderDistributionTest();
 runNoRecipeSelectedStatusTest();
 
 console.log("[test] Process dropbox command checks passed");
