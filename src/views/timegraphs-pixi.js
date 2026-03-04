@@ -46,6 +46,10 @@ const EVENT_MARKER_SEVERITY_ORDER = {
   normal: 0,
   critical: 1,
 };
+const ITEM_UNAVAILABLE_ZONE_ALPHA = Math.min(
+  1,
+  TIME_STATE_GRAPH_BG_ALPHA * 3.5
+);
 
 function normalizeHistoryZoneSegments(rawSegments, { minSec, maxSec, historyEndSec }) {
   const min = Math.max(0, Math.floor(minSec ?? 0));
@@ -922,7 +926,7 @@ export function createMetricGraphView({
       ? Math.max(0, Math.floor(editableBounds.minEditableSec))
       : 0;
 
-    function drawZone(startSec, endSec, color) {
+    function drawZone(startSec, endSec, color, alpha = TIME_STATE_GRAPH_BG_ALPHA) {
       const start = Math.max(minSec, Math.min(maxSec, startSec));
       const end = Math.max(minSec, Math.min(maxSec, endSec));
       if (!(end > start)) return;
@@ -931,7 +935,7 @@ export function createMetricGraphView({
       const left = Math.max(plot.x, Math.min(x0, x1));
       const right = Math.min(plot.x + plot.w, Math.max(x0, x1));
       if (!(right > left)) return;
-      plotG.beginFill(color, TIME_STATE_GRAPH_BG_ALPHA);
+      plotG.beginFill(color, alpha);
       plotG.drawRect(left, plot.y, right - left, plot.h);
       plotG.endFill();
     }
@@ -977,7 +981,12 @@ export function createMetricGraphView({
     }
     drawZone(historyEndSec, maxSec, TIME_STATE_COLORS.forecast);
     for (const zone of itemUnavailableZones) {
-      drawZone(zone.startSec, zone.endSec, TIME_STATE_COLORS.itemUnavailable);
+      drawZone(
+        zone.startSec,
+        zone.endSec,
+        TIME_STATE_COLORS.itemUnavailable,
+        ITEM_UNAVAILABLE_ZONE_ALPHA
+      );
     }
 
     // Grid

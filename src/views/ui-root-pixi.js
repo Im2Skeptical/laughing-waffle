@@ -308,8 +308,9 @@ let stateTintTargetG = 1;
 let stateTintTargetB = 1;
 let stateTintTargetAlpha = 0;
 const STATE_TINT_TRANSITION_SEC = 0.28;
+const RUN_LOST_TINT_ALPHA_MULTIPLIER = 10;
 const liveSeenYearEndEventIds = new Set();
-const liveSeenRunCompleteEventIds = new Set();
+let lastRunCompletePopupCursorKey = "";
 const FULL_VIEW_REBUILD_REASONS = new Set([
   "init",
   "saveLoad",
@@ -543,10 +544,15 @@ function updateStateTintOverlay(frameDt = 1 / 60) {
     } else {
       const color = TIME_STATE_COLORS[key];
       const rgb = toColorRgb01(color);
+      const alphaMultiplier =
+        key === "runLost" ? RUN_LOST_TINT_ALPHA_MULTIPLIER : 1;
       stateTintTargetR = rgb.r;
       stateTintTargetG = rgb.g;
       stateTintTargetB = rgb.b;
-      stateTintTargetAlpha = TIME_STATE_FILTER_ALPHA;
+      stateTintTargetAlpha = Math.min(
+        1,
+        TIME_STATE_FILTER_ALPHA * alphaMultiplier
+      );
       if (stateTintCurrentAlpha <= 0.0001) {
         stateTintCurrentR = stateTintTargetR;
         stateTintCurrentG = stateTintTargetG;
@@ -1038,14 +1044,14 @@ function hasRunCompleteData(entry) {
   );
 }
 
-function getLatestRunCompleteEventAtSecond(state, tSec) {
+function getLatestRunCompleteEventAtOrBeforeSecond(state, tSec) {
   const targetSec = Math.max(0, Math.floor(tSec ?? 0));
   const feed = Array.isArray(state?.gameEventFeed) ? state.gameEventFeed : [];
   for (let i = feed.length - 1; i >= 0; i--) {
     const entry = feed[i];
     if (!hasRunCompleteData(entry)) continue;
     const entrySec = Number.isFinite(entry.tSec) ? Math.floor(entry.tSec) : -1;
-    if (entrySec !== targetSec) continue;
+    if (entrySec > targetSec) continue;
     return {
       id: Number.isFinite(entry.id) ? Math.floor(entry.id) : null,
       tSec: entrySec,
@@ -1065,18 +1071,23 @@ function syncRunCompletePopup() {
 
   const previewing = runner.isPreviewing?.() ?? false;
   const tSec = Number.isFinite(state.tSec) ? Math.floor(state.tSec) : 0;
-  const runCompleteEntry = getLatestRunCompleteEventAtSecond(state, tSec);
+  const runCompleteEntry = getLatestRunCompleteEventAtOrBeforeSecond(state, tSec);
 
   if (previewing) {
     if (runCompleteView?.isOpen?.()) {
       runCompleteView.close("scrub");
     }
+    lastRunCompletePopupCursorKey = "";
     return;
   }
 
-  if (!runCompleteEntry || !Number.isFinite(runCompleteEntry.id)) return;
-  if (liveSeenRunCompleteEventIds.has(runCompleteEntry.id)) return;
-  liveSeenRunCompleteEventIds.add(runCompleteEntry.id);
+  if (!runCompleteEntry || !Number.isFinite(runCompleteEntry.id)) {
+    lastRunCompletePopupCursorKey = "";
+    return;
+  }
+  const cursorKey = `${runCompleteEntry.id}|${tSec}`;
+  if (lastRunCompletePopupCursorKey === cursorKey) return;
+  lastRunCompletePopupCursorKey = cursorKey;
   runCompleteView?.openForEntry?.(runCompleteEntry, { source: "live" });
 }
 
