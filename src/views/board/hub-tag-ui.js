@@ -203,6 +203,100 @@ export function createHubTagUi(opts) {
     return { enabledCount: enabled.length, topId };
   }
 
+  function getRecipeProcesses(structure, systemId) {
+    const processes = structure?.systemState?.[systemId]?.processes;
+    return Array.isArray(processes) ? processes : [];
+  }
+
+  function getActiveRecipeProcess(structure, systemId) {
+    const processes = getRecipeProcesses(structure, systemId).filter(
+      (proc) => proc && typeof proc === "object"
+    );
+    if (processes.length <= 0) return null;
+    const summary = getRecipePrioritySummary(
+      systemId,
+      structure?.systemState?.[systemId] || {}
+    );
+    if (summary?.topId) {
+      const topMatch = processes.find((proc) => proc?.type === summary.topId);
+      if (topMatch) return topMatch;
+    }
+    return (
+      processes.find(
+        (proc) => typeof proc?.type === "string" && proc.type.length > 0
+      ) || null
+    );
+  }
+
+  function formatRecipeRequirementLabel(req) {
+    if (!req || typeof req !== "object") return "Material";
+    const itemId =
+      typeof req.kind === "string" && req.kind.length > 0
+        ? req.kind
+        : typeof req.itemId === "string" && req.itemId.length > 0
+          ? req.itemId
+          : null;
+    if (!itemId) return "Material";
+    const def = itemDefs?.[itemId];
+    return def?.name || itemId;
+  }
+
+  function buildRowsForRecipeSystem(structure, systemId) {
+    if (!isRecipeSystem(systemId)) return [{ kind: "recipeIdle", recipeId: null }];
+
+    const activeProcess = getActiveRecipeProcess(structure, systemId);
+    if (activeProcess) {
+      const recipeId =
+        typeof activeProcess.type === "string" && activeProcess.type.length > 0
+          ? activeProcess.type
+          : null;
+      return [{ kind: "recipeProgress", recipeId }];
+    }
+
+    const summary = getRecipePrioritySummary(
+      systemId,
+      structure?.systemState?.[systemId] || {}
+    );
+    const topRecipeId = summary?.topId ?? null;
+    if (!topRecipeId) return [{ kind: "recipeIdle", recipeId: null }];
+
+    const recipeDef = recipeDefs?.[topRecipeId] || null;
+    const inputs = Array.isArray(recipeDef?.inputs) ? recipeDef.inputs : [];
+    const rows = inputs
+      .map((req, index) => {
+        const amount = Math.max(0, Math.floor(req?.qty ?? req?.amount ?? 0));
+        if (amount <= 0) return null;
+        return {
+          kind: "recipeRequirement",
+          recipeId: topRecipeId,
+          index,
+          amount,
+          label: formatRecipeRequirementLabel(req),
+        };
+      })
+      .filter(Boolean);
+
+    if (rows.length <= 0) {
+      return [{ kind: "recipeIdle", recipeId: topRecipeId }];
+    }
+    return rows;
+  }
+
+  function getRecipeRowSignature(systemId, rows) {
+    return [
+      systemId || "recipe",
+      ...(Array.isArray(rows) ? rows : []).map((row) =>
+        [
+          row?.kind || "row",
+          row?.recipeId || "",
+          Number.isFinite(row?.index) ? row.index : "",
+          Number.isFinite(row?.amount) ? row.amount : "",
+          row?.label || "",
+        ].join(":")
+      ),
+    ].join("|");
+  }
+
   function getTagTooltipLines(tagId) {
     const def = hubTagDefs[tagId];
     const lines = [];
@@ -675,6 +769,16 @@ export function createHubTagUi(opts) {
       buildKind: opts?.kind ?? null,
       buildReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
       buildLabel: opts?.label ?? null,
+      recipeKind: opts?.kind ?? null,
+      recipeId:
+        typeof opts?.recipeId === "string" && opts.recipeId.length > 0
+          ? opts.recipeId
+          : null,
+      recipeReqIndex: Number.isFinite(opts?.index) ? opts.index : null,
+      recipeReqAmount: Number.isFinite(opts?.amount)
+        ? Math.max(0, Math.floor(opts.amount))
+        : 0,
+      recipeLabel: opts?.label ?? null,
       storageItemId: opts?.storageItemId ?? null,
       storageLabel: opts?.storageLabel ?? null,
       processWidgetSystemId,
@@ -764,6 +868,8 @@ export function createHubTagUi(opts) {
     const systemRows = [];
     let sysY = 0;
     let buildRowSignature = null;
+    let recipeRowSignature = null;
+    let recipeSystemId = null;
     if (tagId === "build" && structure) {
       const rows = buildRowsForBuildProcess(structure);
       buildRowSignature = getBuildRowSignature(rows);
@@ -775,50 +881,64 @@ export function createHubTagUi(opts) {
         sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
       }
     } else {
-      for (const systemId of systems) {
-        if (systemId === "deposit") continue;
-        if (systemId === "storage") {
-          const itemIds = listStorageItemIds(structure);
-          if (itemIds.length === 0) {
-              const rowEntry = buildSystemRow(view, "storage", {
-                storageItemId: null,
-                storageLabel: "Storage",
-                uiOverride: getSystemUi("storage"),
-                processSystemId: "deposit",
-                allowProcessWidgetOpen: !isHousingTag(tagId),
-              });
-            rowEntry.container.y = sysY;
-            systemContainer.addChild(rowEntry.container);
-            systemRows.push(rowEntry);
-            sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
-          } else {
-            for (const itemId of itemIds) {
-              const def = itemId ? itemDefs?.[itemId] : null;
-              const label = def?.name || itemId || "Pool";
-              const icon = label ? label.slice(0, 1).toUpperCase() : "S";
-              const color = def?.color ?? getSystemUi("storage").color;
-              const rowEntry = buildSystemRow(view, "storage", {
-                storageItemId: itemId,
-                storageLabel: label,
-                uiOverride: { label, icon, color },
-                processSystemId: "deposit",
-                allowProcessWidgetOpen: !isHousingTag(tagId),
-              });
+      const firstRecipeSystemId = systems.find((systemId) => isRecipeSystem(systemId));
+      if (structure && firstRecipeSystemId) {
+        recipeSystemId = firstRecipeSystemId;
+        const rows = buildRowsForRecipeSystem(structure, recipeSystemId);
+        recipeRowSignature = getRecipeRowSignature(recipeSystemId, rows);
+        for (const rowSpec of rows) {
+          const rowEntry = buildSystemRow(view, recipeSystemId, rowSpec);
+          rowEntry.container.y = sysY;
+          systemContainer.addChild(rowEntry.container);
+          systemRows.push(rowEntry);
+          sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+        }
+      } else {
+        for (const systemId of systems) {
+          if (systemId === "deposit") continue;
+          if (systemId === "storage") {
+            const itemIds = listStorageItemIds(structure);
+            if (itemIds.length === 0) {
+                const rowEntry = buildSystemRow(view, "storage", {
+                  storageItemId: null,
+                  storageLabel: "Storage",
+                  uiOverride: getSystemUi("storage"),
+                  processSystemId: "deposit",
+                  allowProcessWidgetOpen: !isHousingTag(tagId),
+                });
               rowEntry.container.y = sysY;
               systemContainer.addChild(rowEntry.container);
               systemRows.push(rowEntry);
               sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+            } else {
+              for (const itemId of itemIds) {
+                const def = itemId ? itemDefs?.[itemId] : null;
+                const label = def?.name || itemId || "Pool";
+                const icon = label ? label.slice(0, 1).toUpperCase() : "S";
+                const color = def?.color ?? getSystemUi("storage").color;
+                const rowEntry = buildSystemRow(view, "storage", {
+                  storageItemId: itemId,
+                  storageLabel: label,
+                  uiOverride: { label, icon, color },
+                  processSystemId: "deposit",
+                  allowProcessWidgetOpen: !isHousingTag(tagId),
+                });
+                rowEntry.container.y = sysY;
+                systemContainer.addChild(rowEntry.container);
+                systemRows.push(rowEntry);
+                sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+              }
             }
+            continue;
           }
-          continue;
+          const rowEntry = buildSystemRow(view, systemId, {
+            allowProcessWidgetOpen: !isHousingTag(tagId),
+          });
+          rowEntry.container.y = sysY;
+          systemContainer.addChild(rowEntry.container);
+          systemRows.push(rowEntry);
+          sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
         }
-        const rowEntry = buildSystemRow(view, systemId, {
-          allowProcessWidgetOpen: !isHousingTag(tagId),
-        });
-        rowEntry.container.y = sysY;
-        systemContainer.addChild(rowEntry.container);
-        systemRows.push(rowEntry);
-        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
       }
     }
 
@@ -843,6 +963,8 @@ export function createHubTagUi(opts) {
       systemHeight: sysY > 0 ? sysY - SYSTEM_ROW_GAP : 0,
       height: TAG_PILL_HEIGHT,
       buildRowSignature,
+      recipeRowSignature,
+      recipeSystemId,
       storageSignature: systems.includes("storage") ? getStorageSignature(structure) : null,
     };
 
@@ -1001,6 +1123,47 @@ export function createHubTagUi(opts) {
     }
 
     if (isRecipeSystem(systemId)) {
+      if (row.recipeKind === "recipeRequirement") {
+        const required = Math.max(0, Math.floor(row.recipeReqAmount ?? 0));
+        const label = row.recipeLabel || "Material";
+        renderSystemRowBar(
+          row,
+          `${label} 0/${required}`,
+          0,
+          row.uiColor
+        );
+        return;
+      }
+      if (row.recipeKind === "recipeProgress") {
+        const process = getActiveRecipeProcess(structure, systemId);
+        const progress = Math.max(0, Math.floor(process?.progress ?? 0));
+        const duration = Math.max(1, Math.floor(process?.durationSec ?? 1));
+        const recipeId =
+          typeof process?.type === "string" && process.type.length > 0
+            ? process.type
+            : row.recipeId;
+        const recipeName = formatRecipeName(recipeId);
+        renderSystemRowBar(
+          row,
+          `${recipeName} ${progress}/${duration}`,
+          duration > 0 ? progress / duration : 0,
+          row.uiColor
+        );
+        return;
+      }
+      if (row.recipeKind === "recipeIdle") {
+        if (!row.recipeId) {
+          renderSystemRowBar(row, "No recipes", 0, row.uiColor);
+          return;
+        }
+        renderSystemRowBar(
+          row,
+          `${formatRecipeName(row.recipeId)} ready`,
+          1,
+          row.uiColor
+        );
+        return;
+      }
       const systemState = structure?.systemState?.[systemId] || {};
       const summary = getRecipePrioritySummary(systemId, systemState);
       if (summary.enabledCount <= 0) {
@@ -1082,6 +1245,21 @@ export function createHubTagUi(opts) {
       const desired = buildRowsForBuildProcess(structure);
       const signature = getBuildRowSignature(desired);
       if (signature !== buildEntry.buildRowSignature) {
+        rebuildStructureTags(view, structure);
+        return;
+      }
+    }
+    for (const entry of view.tagEntries || []) {
+      if (
+        !entry ||
+        typeof entry.recipeRowSignature !== "string" ||
+        !entry.recipeSystemId
+      ) {
+        continue;
+      }
+      const desired = buildRowsForRecipeSystem(structure, entry.recipeSystemId);
+      const signature = getRecipeRowSignature(entry.recipeSystemId, desired);
+      if (signature !== entry.recipeRowSignature) {
         rebuildStructureTags(view, structure);
         return;
       }
