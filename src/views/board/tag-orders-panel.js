@@ -18,6 +18,8 @@ const TOGGLE_WIDTH = 92;
 const TOGGLE_HEIGHT = 32;
 const EDGE_MARGIN = 16;
 const POPUP_GAP = 12;
+const AUTO_CLOSE_OUTSIDE_PAD = 8;
+const AUTO_CLOSE_OUTSIDE_MS = 140;
 
 function clamp(value, minValue, maxValue) {
   if (!Number.isFinite(value)) return minValue;
@@ -139,6 +141,8 @@ export function createTagOrdersPanel(opts = {}) {
   let anchorRect = null;
   let modelSignature = "";
   let outsideHandler = null;
+  let outsideMoveHandler = null;
+  let outsideSinceMs = -1;
 
   function setOpenVisible(open) {
     root.visible = !!open;
@@ -345,24 +349,73 @@ export function createTagOrdersPanel(opts = {}) {
     layoutPanel(model);
   }
 
-  function bindOutsideHandler() {
+  function isPointInsideRect(point, rect, pad = 0) {
+    if (!point || !rect) return false;
+    const safePad = Number.isFinite(pad) ? Math.max(0, pad) : 0;
+    const x = Number.isFinite(point.x) ? point.x : NaN;
+    const y = Number.isFinite(point.y) ? point.y : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const minX = (Number.isFinite(rect.x) ? rect.x : 0) - safePad;
+    const minY = (Number.isFinite(rect.y) ? rect.y : 0) - safePad;
+    const maxX =
+      (Number.isFinite(rect.x) ? rect.x : 0) +
+      (Number.isFinite(rect.width) ? rect.width : 0) +
+      safePad;
+    const maxY =
+      (Number.isFinite(rect.y) ? rect.y : 0) +
+      (Number.isFinite(rect.height) ? rect.height : 0) +
+      safePad;
+    return x >= minX && x <= maxX && y >= minY && y <= maxY;
+  }
+
+  function bindOutsideHandlers() {
     if (outsideHandler) {
       app.stage.off("pointerdown", outsideHandler);
       outsideHandler = null;
     }
+    if (outsideMoveHandler) {
+      app.stage.off("pointermove", outsideMoveHandler);
+      outsideMoveHandler = null;
+    }
+
     outsideHandler = (ev) => {
       if (!isOpen()) return;
       const p = ev?.data?.global;
       if (!p) return;
       const bounds = panel.getBounds();
-      const inside =
-        p.x >= bounds.x &&
-        p.x <= bounds.x + bounds.width &&
-        p.y >= bounds.y &&
-        p.y <= bounds.y + bounds.height;
-      if (!inside) close();
+      if (!isPointInsideRect(p, bounds)) close();
     };
+
+    outsideMoveHandler = (ev) => {
+      if (!isOpen()) return;
+      const p = ev?.data?.global;
+      if (!p) return;
+
+      const bounds = panel.getBounds();
+      const insidePanel = isPointInsideRect(p, bounds);
+      const insideAnchor = isPointInsideRect(p, anchorRect, AUTO_CLOSE_OUTSIDE_PAD);
+      if (insidePanel || insideAnchor) {
+        outsideSinceMs = -1;
+        return;
+      }
+
+      const now = Date.now();
+      if (outsideSinceMs < 0) {
+        outsideSinceMs = now;
+        return;
+      }
+      if (now - outsideSinceMs >= AUTO_CLOSE_OUTSIDE_MS) {
+        close();
+      }
+    };
+
+    outsideSinceMs = -1;
     app.stage.on("pointerdown", outsideHandler);
+    app.stage.on("pointermove", outsideMoveHandler);
+  }
+
+  function bindOutsideHandler() {
+    bindOutsideHandlers();
   }
 
   function openForTarget({ kind, col, anchorRect: nextAnchor } = {}) {
@@ -401,6 +454,11 @@ export function createTagOrdersPanel(opts = {}) {
       app.stage.off("pointerdown", outsideHandler);
       outsideHandler = null;
     }
+    if (outsideMoveHandler) {
+      app.stage.off("pointermove", outsideMoveHandler);
+      outsideMoveHandler = null;
+    }
+    outsideSinceMs = -1;
     setOpenVisible(false);
   }
 
