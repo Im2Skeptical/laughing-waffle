@@ -224,6 +224,51 @@ function findItemUseSecondInTimeline(timeline, itemId) {
   return earliest;
 }
 
+function parseSnapshotStateData(stateData) {
+  if (!stateData) return null;
+  if (typeof stateData === "object") return stateData;
+  if (typeof stateData !== "string") return null;
+  try {
+    return JSON.parse(stateData);
+  } catch (_) {
+    return null;
+  }
+}
+
+function snapshotContainsItemById(snapshot, itemId) {
+  const targetId = Number.isFinite(itemId) ? Math.floor(itemId) : null;
+  if (!snapshot || targetId == null) return false;
+
+  const ownerInventories = snapshot?.ownerInventories;
+  if (ownerInventories && typeof ownerInventories === "object") {
+    for (const inv of Object.values(ownerInventories)) {
+      if (!inv || !Array.isArray(inv.items)) continue;
+      const item =
+        inv.itemsById?.[targetId] ??
+        inv.items.find((candidate) => {
+          const id = Number.isFinite(candidate?.id) ? Math.floor(candidate.id) : null;
+          return id === targetId;
+        });
+      if (item) return true;
+    }
+  }
+
+  const pawns = Array.isArray(snapshot?.pawns) ? snapshot.pawns : [];
+  for (const pawn of pawns) {
+    const equipment =
+      pawn?.equipment && typeof pawn.equipment === "object"
+        ? pawn.equipment
+        : null;
+    if (!equipment) continue;
+    for (const item of Object.values(equipment)) {
+      const id = Number.isFinite(item?.id) ? Math.floor(item.id) : null;
+      if (id === targetId) return true;
+    }
+  }
+
+  return false;
+}
+
 export function createScrollGraphOrchestrator({
   runner,
   interactionController,
@@ -261,6 +306,33 @@ export function createScrollGraphOrchestrator({
     if (usedSec != null) return toSafeSec(usedSec, 0);
 
     return persisted;
+  }
+
+  function resolveItemUnavailableStartSecFromSnapshots(record) {
+    if (!record || !record.controller) return null;
+
+    const baseWindow = resolveWindowSpecForScroll(runner, record.scrollState);
+    const minSec = toSafeSec(baseWindow?.minSec, 0);
+    const maxWindowSec = toSafeSec(baseWindow?.maxSec, minSec);
+    const historyEndSec = toSafeSec(runner.getTimeline?.()?.historyEndSec, maxWindowSec);
+    const maxSec = Math.max(maxWindowSec, historyEndSec);
+
+    let seenPresent = false;
+    for (let sec = minSec; sec <= maxSec; sec += 1) {
+      const stateData = record.controller.getStateDataAt?.(sec);
+      if (!stateData) continue;
+      const snapshot = parseSnapshotStateData(stateData);
+      if (!snapshot) continue;
+      const hasItem = snapshotContainsItemById(snapshot, record.itemId);
+      if (hasItem) {
+        seenPresent = true;
+        continue;
+      }
+      if (seenPresent) {
+        return sec;
+      }
+    }
+    return null;
   }
 
   function findItemByIdInState(state, itemId) {
@@ -573,6 +645,13 @@ export function createScrollGraphOrchestrator({
 
       record.controller?.setActive?.(true);
       record.controller?.update?.();
+      if (!Number.isFinite(record.itemUnavailableStartSec)) {
+        const inferredUnavailableSec =
+          resolveItemUnavailableStartSecFromSnapshots(record);
+        if (Number.isFinite(inferredUnavailableSec)) {
+          record.itemUnavailableStartSec = toSafeSec(inferredUnavailableSec, 0);
+        }
+      }
       record.view?.render?.();
     }
 
