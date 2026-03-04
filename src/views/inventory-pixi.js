@@ -20,6 +20,8 @@ import {
   PRESTIGE_COST_PER_FOLLOWER,
   HUNGER_THRESHOLD,
   SECONDS_BELOW_HUNGER_THRESHOLD,
+  PAWN_AI_HUNGER_START_EAT,
+  LEADER_FAITH_HUNGER_DECAY_THRESHOLD,
 } from "../defs/gamesettings/gamerules-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
@@ -101,6 +103,9 @@ const LEADER_SYSTEMS_BAR_BG = MUCHA_UI_COLORS.surfaces.panelDeep;
 const LEADER_SYSTEMS_BAR_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const LEADER_SYSTEMS_BAR_TEXT = MUCHA_UI_COLORS.ink.secondary;
 const LEADER_SYSTEMS_BAR_RADIUS = 7;
+const LEADER_SYSTEMS_THRESHOLD_SEEK_COLOR = 0xd3ac6f;
+const LEADER_SYSTEMS_THRESHOLD_FAITH_COLOR = 0xe95f5f;
+const LEADER_SYSTEMS_THRESHOLD_LABEL_Y_OFFSET = 9;
 const LEADER_SYSTEMS_ICON_BORDER = MUCHA_UI_COLORS.surfaces.borderSoft;
 const LEADER_SYSTEMS_FALLBACK_COLOR = MUCHA_UI_COLORS.surfaces.border;
 const LEADER_FAITH_SYSTEM_ID = "leaderFaith";
@@ -968,6 +973,70 @@ export function createInventoryView({
     row.barFill.endFill();
   }
 
+  function clampSystemThreshold(value, maxValue) {
+    const max = Number.isFinite(maxValue) ? Math.max(1, Math.floor(maxValue)) : 100;
+    const raw = Number.isFinite(value) ? Math.floor(value) : 0;
+    return Math.max(0, Math.min(max, raw));
+  }
+
+  function drawLeaderHungerThresholdMarkers(row, leader) {
+    const marker = row?.thresholdMarker;
+    if (!marker) return;
+    marker.clear();
+    if (row.systemId !== "hunger") {
+      if (row.seekThresholdLabel) row.seekThresholdLabel.visible = false;
+      if (row.faithThresholdLabel) row.faithThresholdLabel.visible = false;
+      return;
+    }
+
+    const hungerState = leader?.systemState?.hunger;
+    const hungerMax = Number.isFinite(hungerState?.max)
+      ? Math.max(1, Math.floor(hungerState.max))
+      : 100;
+    const seekThreshold = clampSystemThreshold(PAWN_AI_HUNGER_START_EAT, hungerMax);
+    const faithThreshold = clampSystemThreshold(
+      LEADER_FAITH_HUNGER_DECAY_THRESHOLD,
+      hungerMax
+    );
+    const markerSpecs = [
+      {
+        value: seekThreshold,
+        color: LEADER_SYSTEMS_THRESHOLD_SEEK_COLOR,
+        label: "S",
+        text: row.seekThresholdLabel,
+      },
+      {
+        value: faithThreshold,
+        color: LEADER_SYSTEMS_THRESHOLD_FAITH_COLOR,
+        label: "F",
+        text: row.faithThresholdLabel,
+      },
+    ];
+
+    let previousX = null;
+    for (const spec of markerSpecs) {
+      const ratio = clamp01(spec.value / hungerMax);
+      const rawX = row.barX + row.barWidth * ratio;
+      let markerX = Math.max(row.barX + 1, Math.min(row.barX + row.barWidth - 1, rawX));
+      if (previousX != null && Math.abs(markerX - previousX) < 6) {
+        markerX = Math.min(row.barX + row.barWidth - 1, markerX + 6);
+      }
+      previousX = markerX;
+
+      marker.lineStyle(1.5, spec.color, 0.95);
+      marker.moveTo(markerX, row.barY - 1);
+      marker.lineTo(markerX, row.barY + LEADER_SYSTEMS_BAR_HEIGHT + 1);
+
+      if (spec.text) {
+        spec.text.text = spec.label;
+        spec.text.style.fill = spec.color;
+        spec.text.x = Math.round(markerX - spec.text.width / 2);
+        spec.text.y = row.barY - LEADER_SYSTEMS_THRESHOLD_LABEL_Y_OFFSET;
+        spec.text.visible = true;
+      }
+    }
+  }
+
   function buildLeaderSystemTooltipLines(leader, systemId) {
     const lines = [];
     const ui = getLeaderSystemUi(systemId);
@@ -1010,6 +1079,18 @@ export function createInventoryView({
 
       if (systemId === "hunger" && Number.isFinite(sysState.belowThresholdSec)) {
         lines.push(`Below threshold: ${Math.max(0, Math.floor(sysState.belowThresholdSec))}s`);
+      }
+      if (systemId === "hunger") {
+        const hungerMax = Number.isFinite(sysState.max)
+          ? Math.max(1, Math.floor(sysState.max))
+          : 100;
+        const seekThreshold = clampSystemThreshold(PAWN_AI_HUNGER_START_EAT, hungerMax);
+        const faithThreshold = clampSystemThreshold(
+          LEADER_FAITH_HUNGER_DECAY_THRESHOLD,
+          hungerMax
+        );
+        lines.push(`Seek food at: ${seekThreshold}/${hungerMax}`);
+        lines.push(`Faith decay at: ${faithThreshold}/${hungerMax}`);
       }
     }
     lines.push(`Tier: ${getLeaderSystemTier(leader, systemId)}`);
@@ -1085,8 +1166,27 @@ export function createInventoryView({
         LEADER_SYSTEMS_BAR_RADIUS
       )
       .endFill();
+    const thresholdMarker = new PIXI.Graphics();
     const barFill = new PIXI.Graphics();
-    container.addChild(barBg, barFill);
+    container.addChild(barBg, barFill, thresholdMarker);
+
+    const seekThresholdLabel = new PIXI.Text("", {
+      fill: LEADER_SYSTEMS_THRESHOLD_SEEK_COLOR,
+      fontSize: 8,
+      fontWeight: "bold",
+    });
+    applyTextResolution(seekThresholdLabel, uiScale);
+    seekThresholdLabel.visible = false;
+    container.addChild(seekThresholdLabel);
+
+    const faithThresholdLabel = new PIXI.Text("", {
+      fill: LEADER_SYSTEMS_THRESHOLD_FAITH_COLOR,
+      fontSize: 8,
+      fontWeight: "bold",
+    });
+    applyTextResolution(faithThresholdLabel, uiScale);
+    faithThresholdLabel.visible = false;
+    container.addChild(faithThresholdLabel);
 
     const labelText = new PIXI.Text("", {
       fill: LEADER_SYSTEMS_BAR_TEXT,
@@ -1104,6 +1204,9 @@ export function createInventoryView({
       icon,
       labelText,
       barFill,
+      thresholdMarker,
+      seekThresholdLabel,
+      faithThresholdLabel,
       barX,
       barY,
       barWidth,
@@ -1190,6 +1293,7 @@ export function createInventoryView({
       const visual = getLeaderSystemRowVisual(leader, row.systemId);
       row.labelText.text = visual.label;
       drawLeaderSystemsBarFill(row, visual.ratio, row.uiColor);
+      drawLeaderHungerThresholdMarkers(row, leader);
     }
   }
 
