@@ -217,9 +217,11 @@ export function createPawnsView(opts) {
     const scale = Number.isFinite(hover.scale) ? hover.scale : 1;
     const cx = Number.isFinite(hover.centerX) ? hover.centerX : pos.x;
     const cy = Number.isFinite(hover.centerY) ? hover.centerY : pos.y;
+    const offsetY = Number.isFinite(hover.offsetY) ? hover.offsetY : 0;
+    const adjustedY = pos.y + offsetY;
     return {
       x: cx + (pos.x - cx) * scale,
-      y: cy + (pos.y - cy) * scale,
+      y: cy + (adjustedY - cy) * scale,
       scale,
     };
   }

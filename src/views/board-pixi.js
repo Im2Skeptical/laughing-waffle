@@ -1786,10 +1786,12 @@ export function createBoardView(opts) {
     return { content, contentPaint, contentInk, setActive };
   }
 
-  function getScaledAnchorRect(container, width, height, scale) {
+  function getScaledAnchorRect(container, width, height, scale, baseY = null) {
     const s = Number.isFinite(scale) ? scale : 1;
     const cx = container.x + width / 2;
     const cy = container.y + height / 2;
+    const anchorBaseY = Number.isFinite(baseY) ? baseY : container.y;
+    const offsetY = container.y - anchorBaseY;
     const scaledWidth = width * s;
     const scaledHeight = height * s;
     return {
@@ -1800,6 +1802,7 @@ export function createBoardView(opts) {
       scale: s,
       centerX: cx,
       centerY: cy,
+      offsetY,
     };
   }
 
@@ -1836,6 +1839,7 @@ export function createBoardView(opts) {
       centerX: anchor.centerX,
       centerY: anchor.centerY,
       scale: anchor.scale,
+      offsetY: Number.isFinite(anchor?.offsetY) ? anchor.offsetY : 0,
       anchor,
     });
   }
@@ -2207,7 +2211,8 @@ export function createBoardView(opts) {
       view.container,
       TILE_WIDTH,
       view.cardHeightCurrent,
-      hoverScale
+      hoverScale,
+      resolveViewBaseY(view)
     );
     view.hoverAnchor = anchor;
     if (updateHoverContext) {
@@ -2402,7 +2407,8 @@ export function createBoardView(opts) {
       view.container,
       width,
       view.cardHeightCurrent,
-      hoverScale
+      hoverScale,
+      resolveViewBaseY(view)
     );
     view.hoverAnchor = anchor;
     if (updateHoverContext) {
@@ -3430,7 +3436,8 @@ export function createBoardView(opts) {
       view.container,
       width,
       view.cardHeightCurrent,
-      hoverScale
+      hoverScale,
+      resolveViewBaseY(view)
     );
     if (updateHoverContext) {
       setHoverContext("envStructure", anchorCol, span, anchor);
@@ -4106,7 +4113,8 @@ export function createBoardView(opts) {
       view.container,
       view.cardWidth ?? view.width ?? EVENT_WIDTH,
       view.cardHeightCurrent,
-      hoverScale
+      hoverScale,
+      resolveViewBaseY(view)
     );
     if (updateHoverContext) {
       setHoverContext("event", col, span, anchor);
