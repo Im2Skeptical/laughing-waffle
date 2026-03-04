@@ -459,16 +459,20 @@ export function createScrollGraphOrchestrator({
   function update(nowMs = performance.now()) {
     const closedItemIds = [];
     const state = runner.getState?.();
+    const cursorSec = toSafeSec(state?.tSec, 0);
+    const historyEndSec = toSafeSec(runner.getTimeline?.()?.historyEndSec, cursorSec);
+    const browsingPast = cursorSec < historyEndSec;
 
     for (const [itemId, record] of windowsByItemId.entries()) {
       const liveItem = findItemByIdInState(state, itemId);
       const liveScrollState = getScrollTimegraphStateFromItem(liveItem);
-      if (!liveScrollState) {
+      if (liveScrollState) {
+        record.scrollState = liveScrollState;
+      } else if (!browsingPast || !record.scrollState) {
         destroyWindowRecord(record);
         closedItemIds.push(itemId);
         continue;
       }
-      record.scrollState = liveScrollState;
 
       const isOpen = record.view?.isOpen?.() === true;
       if (!isOpen) {

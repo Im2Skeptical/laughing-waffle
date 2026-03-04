@@ -1326,11 +1326,7 @@ inventoryView = createInventoryView({
       return { handled: true, result: useResult.result ?? "queued" };
     }
 
-    const fallbackToScroll =
-      useResult?.ok === false &&
-      (useResult.reason === "noUsableEffect" ||
-        useResult.reason === "itemUseUnavailable" ||
-        useResult.reason === "itemUseNoChange");
+    const fallbackToScroll = useResult?.ok === false;
     if (fallbackToScroll) {
       const scrollUseResult = scrollGraphOrchestrator?.handleUseItem?.(spec);
       if (scrollUseResult?.handled === true) {
