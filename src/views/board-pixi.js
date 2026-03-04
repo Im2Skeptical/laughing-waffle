@@ -1921,6 +1921,7 @@ export function createBoardView(opts) {
     resetHoverViewY(view);
     restoreFromHover(view.container);
     view.hoverAnchor = null;
+    view.hoverUiAnchor = null;
     updateTileTagLayoutForHoverState(view);
     clearHoverContext();
     tooltipView?.hide?.();
@@ -1962,6 +1963,7 @@ export function createBoardView(opts) {
     resetHoverViewY(view);
     restoreFromHover(view.container);
     view.hoverAnchor = null;
+    view.hoverUiAnchor = null;
     updateHubStructureViewUi(view, view.structure, { force: true });
     clearHoverContext();
     tooltipView?.hide?.();
@@ -2214,7 +2216,15 @@ export function createBoardView(opts) {
       hoverScale,
       resolveViewBaseY(view)
     );
+    const uiAnchor = getScaledAnchorRect(
+      view.container,
+      TILE_WIDTH,
+      Math.max(1, view.baseCardHeight ?? TILE_HEIGHT),
+      hoverScale,
+      resolveViewBaseY(view)
+    );
     view.hoverAnchor = anchor;
+    view.hoverUiAnchor = uiAnchor;
     if (updateHoverContext) {
       const anchorCol = Number.isFinite(view.tile?.col)
         ? Math.floor(view.tile.col)
@@ -2225,9 +2235,9 @@ export function createBoardView(opts) {
         Number.isFinite(view.tile?.span) && view.tile.span > 0
           ? Math.floor(view.tile.span)
           : 1;
-      setHoverContext("tile", anchorCol, span, anchor);
+      setHoverContext("tile", anchorCol, span, uiAnchor);
     }
-    return anchor;
+    return uiAnchor;
   }
 
   function applyTileHover(view) {
@@ -2243,7 +2253,7 @@ export function createBoardView(opts) {
         lines: desc ? [desc] : [],
         scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE,
       },
-      anchor || view.hoverAnchor
+      anchor || view.hoverUiAnchor || view.hoverAnchor
     );
   }
 
@@ -2410,11 +2420,19 @@ export function createBoardView(opts) {
       hoverScale,
       resolveViewBaseY(view)
     );
+    const uiAnchor = getScaledAnchorRect(
+      view.container,
+      width,
+      baseHeight,
+      hoverScale,
+      resolveViewBaseY(view)
+    );
     view.hoverAnchor = anchor;
+    view.hoverUiAnchor = uiAnchor;
     if (updateHoverContext) {
-      setHoverContext("hub", anchorCol, span, anchor);
+      setHoverContext("hub", anchorCol, span, uiAnchor);
     }
-    return anchor;
+    return uiAnchor;
   }
 
   function applyHubStructureHover(view) {
@@ -2442,11 +2460,11 @@ export function createBoardView(opts) {
 
     tooltipView?.show?.(
       { title, lines, scale: view.hoverScaleApplied ?? GAMEPIECE_HOVER_SCALE },
-      anchor || view.hoverAnchor
+      anchor || view.hoverUiAnchor || view.hoverAnchor
     );
 
     if (inventoryView && view.structureHasInventory?.()) {
-      const bounds = anchor || view.hoverAnchor;
+      const bounds = anchor || view.hoverUiAnchor || view.hoverAnchor;
       if (bounds) {
         inventoryView.showOnHover(view.structure.instanceId, {
           x: bounds.x,
@@ -3439,10 +3457,18 @@ export function createBoardView(opts) {
       hoverScale,
       resolveViewBaseY(view)
     );
+    const uiAnchor = getScaledAnchorRect(
+      view.container,
+      width,
+      baseHeight,
+      hoverScale,
+      resolveViewBaseY(view)
+    );
+    view.hoverUiAnchor = uiAnchor;
     if (updateHoverContext) {
-      setHoverContext("envStructure", anchorCol, span, anchor);
+      setHoverContext("envStructure", anchorCol, span, uiAnchor);
     }
-    return anchor;
+    return uiAnchor;
   }
 
   function applyEnvStructureHover(view) {
@@ -3960,6 +3986,7 @@ export function createBoardView(opts) {
         titleText,
         isHovered: false,
         hoverAnchor: null,
+        hoverUiAnchor: null,
         holdHover: false,
         hoverHoldMove: null,
         holdHoverForOccupant: false,
@@ -4116,10 +4143,18 @@ export function createBoardView(opts) {
       hoverScale,
       resolveViewBaseY(view)
     );
+    const uiAnchor = getScaledAnchorRect(
+      view.container,
+      view.cardWidth ?? view.width ?? EVENT_WIDTH,
+      baseHeight,
+      hoverScale,
+      resolveViewBaseY(view)
+    );
+    view.hoverUiAnchor = uiAnchor;
     if (updateHoverContext) {
-      setHoverContext("event", col, span, anchor);
+      setHoverContext("event", col, span, uiAnchor);
     }
-    return anchor;
+    return uiAnchor;
   }
 
   function applyEventHover(view, col, span) {
@@ -4754,6 +4789,7 @@ export function createBoardView(opts) {
       holdHoverForOccupant: false,
       occupantHoverHoldSec: 0,
       hoverAnchor: null,
+      hoverUiAnchor: null,
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,

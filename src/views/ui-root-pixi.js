@@ -1,10 +1,13 @@
 // src/views/ui-root-pixi.js
 
-
+//
 // Scenario Selector - Options for boot are in scenario-defs.js
+//
 
-//const BOOT_SETUP_ID = "devGym01";
-const BOOT_SETUP_ID = "devPlaytesting01";
+const BOOT_SETUP_ID = "devGym01";
+//const BOOT_SETUP_ID = "devPlaytesting01";
+
+//
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { ActionKinds } from "../model/actions.js";
@@ -308,7 +311,7 @@ let stateTintTargetG = 1;
 let stateTintTargetB = 1;
 let stateTintTargetAlpha = 0;
 const STATE_TINT_TRANSITION_SEC = 0.28;
-const RUN_LOST_TINT_ALPHA_MULTIPLIER = 10;
+const RUN_LOST_TINT_ALPHA_MULTIPLIER = 5;
 const liveSeenYearEndEventIds = new Set();
 let lastRunCompletePopupCursorKey = "";
 const FULL_VIEW_REBUILD_REASONS = new Set([

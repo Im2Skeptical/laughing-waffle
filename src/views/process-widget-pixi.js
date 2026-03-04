@@ -11,6 +11,7 @@ import {
   resolveEndpointTarget,
   resolveFixedEndpointId,
 } from "../model/process-framework.js";
+import { evaluateProcessRequirementAvailability } from "../model/process-requirement-availability.js";
 import {
   buildBasketDropboxOwnerId,
   buildHubDropboxOwnerId,
@@ -150,6 +151,7 @@ const COLORS = {
   dropboxInvalidBorder: 0xff6a6a,
   dropboxCappedBg: 0x6f4f1f,
   dropboxCappedBorder: 0xffbf5a,
+  dangerBorder: MUCHA_UI_COLORS.intent.dangerPop,
 };
 
 function addRecipeGateEntry(map, recipeId, nodeName) {
@@ -1072,16 +1074,158 @@ export function createProcessWidgetView({
     return `Progress ${progress}/${duration}${reqText}`;
   }
 
-  function isRecipeEntryProgressable(entry) {
-    const process = entry?.process || null;
-    if (!process) return false;
-    const reqs = Array.isArray(process.requirements) ? process.requirements : [];
+  function areProcessRequirementsComplete(process) {
+    const reqs = Array.isArray(process?.requirements) ? process.requirements : [];
     for (const req of reqs) {
       const amount = Math.max(0, Math.floor(req?.amount ?? 0));
       const progress = Math.max(0, Math.floor(req?.progress ?? 0));
       if (progress < amount) return false;
     }
     return true;
+  }
+
+  function canRecipeEntryAdvanceNow(entry, availability = null) {
+    const process = entry?.process || null;
+    if (!process) return false;
+
+    const requirementRows = Array.isArray(availability?.requirements)
+      ? availability.requirements
+      : null;
+    if (requirementRows && requirementRows.length > 0) {
+      let hasIncompleteRequirement = false;
+      for (const row of requirementRows) {
+        const required = Math.max(0, Math.floor(row?.required ?? 0));
+        const loaded = Math.max(0, Math.floor(row?.loaded ?? 0));
+        if (loaded >= required) continue;
+        hasIncompleteRequirement = true;
+        const reachableFromInputs = Math.max(
+          0,
+          Math.floor(row?.reachableFromInputs ?? 0)
+        );
+        if (reachableFromInputs > 0) return true;
+      }
+      if (hasIncompleteRequirement) return false;
+      return true;
+    }
+
+    return areProcessRequirementsComplete(process);
+  }
+
+  function evaluateRecipeEntryRequirementAvailability(
+    state,
+    target,
+    systemId,
+    recipeId,
+    recipeEntryMap
+  ) {
+    if (!state || !target || !systemId || !recipeId) return null;
+    const activeEntry = recipeEntryMap?.get?.(recipeId) || null;
+    const resolvedEntry = activeEntry || buildRecipePreviewEntry(target, systemId, recipeId);
+    if (!resolvedEntry?.process || !resolvedEntry?.processDef) return null;
+
+    const routingTemplate = target?.systemState?.[systemId]?.routingTemplate || null;
+    const useTemplateRouting =
+      resolvedEntry?.preview === true ||
+      !(recipeEntryMap?.has?.(recipeId) === true) ||
+      !resolvedEntry?.process?.routing;
+    const routingStateOverride = useTemplateRouting
+      ? routingTemplate
+      : resolvedEntry.process.routing;
+
+    return evaluateProcessRequirementAvailability({
+      state,
+      target,
+      process: resolvedEntry.process,
+      processDef: resolvedEntry.processDef,
+      routingStateOverride,
+      context: { leaderId: resolvedEntry?.process?.leaderId ?? null },
+    });
+  }
+
+  function buildRequirementAvailabilitySignatureForRecipe(recipeId, availability) {
+    const prefix = typeof recipeId === "string" && recipeId.length > 0 ? recipeId : "none";
+    if (!availability || !Array.isArray(availability.requirements)) {
+      return `${prefix}:none`;
+    }
+    const reqParts = availability.requirements.map((entry) => {
+      const required = Math.max(0, Math.floor(entry?.required ?? 0));
+      const loaded = Math.max(0, Math.floor(entry?.loaded ?? 0));
+      const reachableFromInputs = Math.max(
+        0,
+        Math.floor(entry?.reachableFromInputs ?? 0)
+      );
+      const accessibleTotal = Math.max(0, Math.floor(entry?.accessibleTotal ?? 0));
+      const shortfall = Math.max(0, Math.floor(entry?.shortfall ?? 0));
+      const materialKey = String(entry?.materialKey || "unknown");
+      return `${materialKey}:${loaded}/${required}:${reachableFromInputs}:${accessibleTotal}:${shortfall}`;
+    });
+    return `${prefix}:${availability.canFulfillAll === false ? 0 : 1}:${
+      reqParts.length > 0 ? reqParts.join(",") : "none"
+    }`;
+  }
+
+  function buildRecipeAvailabilityForPriority({
+    state,
+    target,
+    systemId,
+    priority,
+    recipeEntryMap,
+  } = {}) {
+    const byRecipeId = new Map();
+    const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
+    const signatureParts = [];
+
+    for (const recipeId of ordered) {
+      if (typeof recipeId !== "string" || recipeId.length <= 0) continue;
+      const availability = evaluateRecipeEntryRequirementAvailability(
+        state,
+        target,
+        systemId,
+        recipeId,
+        recipeEntryMap
+      );
+      if (availability) byRecipeId.set(recipeId, availability);
+      signatureParts.push(
+        buildRequirementAvailabilitySignatureForRecipe(recipeId, availability)
+      );
+    }
+
+    return {
+      byRecipeId,
+      signature: signatureParts.length > 0 ? signatureParts.join("|") : "none",
+    };
+  }
+
+  function buildRequirementRowsFromAvailability(availability) {
+    if (!availability || !Array.isArray(availability.requirements)) return null;
+    const rowsByKey = new Map();
+    for (const entry of availability.requirements) {
+      const req = entry?.requirement || null;
+      if (!req) continue;
+      let fallbackKey = "unknown:";
+      if (req.kind === "item") fallbackKey = `item:${req.itemId || ""}`;
+      else if (req.kind === "tag") fallbackKey = `tag:${req.tag || ""}`;
+      else if (req.kind === "resource") {
+        fallbackKey = `resource:${req.resource || ""}`;
+      }
+      const key = String(entry?.materialKey || fallbackKey);
+      if (!rowsByKey.has(key)) {
+        rowsByKey.set(key, {
+          label: formatRequirementLabel(req),
+          progress: 0,
+          amount: 0,
+          accessibleTotal: 0,
+        });
+      }
+      const row = rowsByKey.get(key);
+      row.progress += Math.max(0, Math.floor(entry?.loaded ?? 0));
+      row.amount += Math.max(0, Math.floor(entry?.required ?? 0));
+      row.accessibleTotal = Math.max(
+        row.accessibleTotal,
+        Math.max(0, Math.floor(entry?.accessibleTotal ?? 0))
+      );
+    }
+    return Array.from(rowsByKey.values());
   }
 
   function getRecipeSkillGateText(recipeId, unlocked, { systemId = null } = {}) {
@@ -1639,12 +1783,29 @@ export function createProcessWidgetView({
     bg.endFill();
   }
 
-  function drawModuleBox(bg, width, height) {
+  function drawModuleBox(bg, width, height, style = null) {
+    const borderColor = Number.isFinite(style?.borderColor)
+      ? style.borderColor
+      : COLORS.moduleBorder;
+    const borderAlpha = Number.isFinite(style?.borderAlpha)
+      ? style.borderAlpha
+      : 0.9;
+    const fillColor = Number.isFinite(style?.fillColor)
+      ? style.fillColor
+      : COLORS.moduleBg;
+    const fillAlpha = Number.isFinite(style?.fillAlpha) ? style.fillAlpha : 0.95;
+
     bg.clear();
-    bg.lineStyle(1, COLORS.moduleBorder, 0.9);
-    bg.beginFill(COLORS.moduleBg, 0.95);
+    bg.lineStyle(1, borderColor, borderAlpha);
+    bg.beginFill(fillColor, fillAlpha);
     bg.drawRoundedRect(0, 0, width, height, MODULE_RADIUS);
     bg.endFill();
+    bg.__moduleBoxStyle = {
+      borderColor,
+      borderAlpha,
+      fillColor,
+      fillAlpha,
+    };
   }
 
   function drawDrawerBox(bg, width, height) {
@@ -1667,7 +1828,14 @@ export function createProcessWidgetView({
     if (!Array.isArray(moduleViews) || !container) return;
     const bg = container.children?.[0];
     if (!bg || typeof bg.clear !== "function") return;
-    moduleViews.push({ bg, width });
+    moduleViews.push({
+      bg,
+      width,
+      style:
+        bg.__moduleBoxStyle && typeof bg.__moduleBoxStyle === "object"
+          ? { ...bg.__moduleBoxStyle }
+          : null,
+    });
   }
 
   function stretchModuleViews(moduleViews, targetHeight) {
@@ -1676,7 +1844,13 @@ export function createProcessWidgetView({
     for (const view of moduleViews) {
       if (!view?.bg || typeof view.bg.clear !== "function") continue;
       const width = Number.isFinite(view.width) ? Math.max(1, Math.floor(view.width)) : 1;
-      drawModuleBox(view.bg, width, height);
+      const style =
+        view.style && typeof view.style === "object"
+          ? view.style
+          : view.bg.__moduleBoxStyle && typeof view.bg.__moduleBoxStyle === "object"
+            ? view.bg.__moduleBoxStyle
+            : null;
+      drawModuleBox(view.bg, width, height, style);
     }
   }
 
@@ -2176,7 +2350,21 @@ export function createProcessWidgetView({
 
     const priority = getRecipePriorityForTarget(target, "growth", state);
     const recipeEntryMap = buildRecipeEntryMap(entries, { systemId: "growth" });
-    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap, state);
+    const recipeAvailability = buildRecipeAvailabilityForPriority({
+      state,
+      target,
+      systemId: "growth",
+      priority,
+      recipeEntryMap,
+    });
+    const availabilityByRecipeId = recipeAvailability.byRecipeId;
+    const resolvedFocus = resolveRecipeFocusId(
+      win,
+      priority,
+      recipeEntryMap,
+      state,
+      availabilityByRecipeId
+    );
     if (win) {
       win.recipeFocusId = resolvedFocus;
     }
@@ -2203,6 +2391,7 @@ export function createProcessWidgetView({
           win: recipeViewState,
           priority,
           recipeEntryMap,
+          availabilityByRecipeId,
         }),
       output: ({ container, width }) =>
         buildGrowthOutputModule({
@@ -3035,6 +3224,16 @@ export function createProcessWidgetView({
     return typeof value === "string" && value.length > 0 ? value : null;
   }
 
+  function getRecipeFocusTimelineSignature(state) {
+    const tSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    const simStep = Number.isFinite(state?.simStepIndex)
+      ? Math.floor(state.simStepIndex)
+      : 0;
+    const year = Number.isFinite(state?.year) ? Math.floor(state.year) : 0;
+    const season = typeof state?.season === "string" ? state.season : "";
+    return `${tSec}:${simStep}:${year}:${season}`;
+  }
+
   function isRecipeFocusIdValid(focusId, priority, recipeEntryMap) {
     const resolved = normalizeRecipeFocusId(focusId);
     if (!resolved) return false;
@@ -3043,12 +3242,18 @@ export function createProcessWidgetView({
     return recipeEntryMap?.has?.(resolved) === true;
   }
 
-  function getActiveRecipeProgressSignature(priority, recipeEntryMap) {
+  function getActiveRecipeProgressSignature(
+    priority,
+    recipeEntryMap,
+    availabilityByRecipeId = null
+  ) {
     const enabled = getEnabledRecipeIds(priority);
     const parts = [];
     for (const recipeId of enabled) {
       const entry = recipeEntryMap.get(recipeId);
-      if (!entry || !isRecipeEntryProgressable(entry)) continue;
+      if (!entry) continue;
+      const availability = availabilityByRecipeId?.get?.(recipeId) || null;
+      if (!canRecipeEntryAdvanceNow(entry, availability)) continue;
       const process = entry.process;
       if (!process) continue;
       const progress = Number.isFinite(process.progress)
@@ -3062,13 +3267,18 @@ export function createProcessWidgetView({
     return parts.length > 0 ? parts.join("|") : "idle";
   }
 
-  function chooseAutoRecipeFocusId(priority, recipeEntryMap) {
+  function chooseAutoRecipeFocusId(
+    priority,
+    recipeEntryMap,
+    availabilityByRecipeId = null
+  ) {
     const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
     const enabled = getEnabledRecipeIds(priority);
     for (const recipeId of enabled) {
       const entry = recipeEntryMap.get(recipeId);
       if (!entry) continue;
-      if (isRecipeEntryProgressable(entry)) return recipeId;
+      const availability = availabilityByRecipeId?.get?.(recipeId) || null;
+      if (canRecipeEntryAdvanceNow(entry, availability)) return recipeId;
     }
     for (const recipeId of enabled) {
       if (recipeEntryMap.has(recipeId)) return recipeId;
@@ -3080,7 +3290,13 @@ export function createProcessWidgetView({
     return ordered[0] || null;
   }
 
-  function resolveRecipeFocusId(win, priority, recipeEntryMap, state) {
+  function resolveRecipeFocusId(
+    win,
+    priority,
+    recipeEntryMap,
+    state,
+    availabilityByRecipeId = null
+  ) {
     const currentFocusId = normalizeRecipeFocusId(win?.recipeFocusId);
     const currentFocusValid = isRecipeFocusIdValid(
       currentFocusId,
@@ -3088,26 +3304,63 @@ export function createProcessWidgetView({
       recipeEntryMap
     );
     const isPaused = state?.paused === true;
-    const activeProgressSig = getActiveRecipeProgressSignature(priority, recipeEntryMap);
+    const timelineSig = getRecipeFocusTimelineSignature(state);
+    const hadTimelineSig = typeof win?.recipeLastTimelineSig === "string";
+    const timelineChanged = hadTimelineSig && win.recipeLastTimelineSig !== timelineSig;
+    const hadPauseState = typeof win?.recipeLastPaused === "boolean";
+    const wasPaused = hadPauseState ? win.recipeLastPaused === true : isPaused;
+    const justUnpaused = hadPauseState && wasPaused && !isPaused;
+    if (win && typeof win === "object") {
+      win.recipeLastPaused = isPaused;
+      win.recipeLastTimelineSig = timelineSig;
+    }
+    const activeProgressSig = getActiveRecipeProgressSignature(
+      priority,
+      recipeEntryMap,
+      availabilityByRecipeId
+    );
     const hasActiveWork = activeProgressSig !== "idle";
+    const autoFocusId = chooseAutoRecipeFocusId(
+      priority,
+      recipeEntryMap,
+      availabilityByRecipeId
+    );
 
-    if (currentFocusValid) {
-      if (isPaused || !hasActiveWork) {
-        return currentFocusId;
-      }
-      if (win?.recipeFocusMode === "manual") {
-        const manualSig =
-          typeof win.recipeAutoFocusProgressSig === "string"
-            ? win.recipeAutoFocusProgressSig
-            : "";
-        if (manualSig === activeProgressSig) {
-          return currentFocusId;
+    if (justUnpaused && hasActiveWork) {
+      if (autoFocusId) {
+        if (win && typeof win === "object") {
+          win.recipeFocusMode = "auto";
+          win.recipeAutoFocusProgressSig = activeProgressSig;
         }
+        return autoFocusId;
       }
     }
 
-    const autoFocusId = chooseAutoRecipeFocusId(priority, recipeEntryMap);
-    if (autoFocusId && win && !isPaused && hasActiveWork) {
+    if (isPaused && timelineChanged) {
+      if (autoFocusId) {
+        if (win && typeof win === "object") {
+          win.recipeFocusMode = "auto";
+          win.recipeAutoFocusProgressSig = activeProgressSig;
+        }
+        return autoFocusId;
+      }
+      return currentFocusValid ? currentFocusId : null;
+    }
+
+    if (isPaused) {
+      if (currentFocusValid) return currentFocusId;
+      return autoFocusId || null;
+    }
+
+    if (!isPaused && hasActiveWork && autoFocusId) {
+      if (win && typeof win === "object") {
+        win.recipeFocusMode = "auto";
+        win.recipeAutoFocusProgressSig = activeProgressSig;
+      }
+      return autoFocusId;
+    }
+
+    if (autoFocusId && win && !isPaused && !hasActiveWork) {
       win.recipeFocusMode = "auto";
       win.recipeAutoFocusProgressSig = activeProgressSig;
     }
@@ -3148,6 +3401,7 @@ export function createProcessWidgetView({
     win,
     priority,
     recipeEntryMap,
+    availabilityByRecipeId,
   }) {
     if (!container || !target || !systemId) return 0;
     const viewState =
@@ -3160,7 +3414,6 @@ export function createProcessWidgetView({
     const ordered = Array.isArray(priority?.ordered) ? priority.ordered : [];
     const enabledMap =
       priority?.enabled && typeof priority.enabled === "object" ? priority.enabled : {};
-    const focusedIndex = ordered.indexOf(viewState.recipeFocusId);
 
     const bg = new PIXI.Graphics();
     container.addChild(bg);
@@ -3223,12 +3476,8 @@ export function createProcessWidgetView({
       const enabled = enabledMap[recipeId] !== false;
       const isFocused = viewState.recipeFocusId === recipeId;
       const processEntry = recipeEntryMap.get(recipeId);
-      const blockedByRequirements = enabled && processEntry && !isRecipeEntryProgressable(processEntry);
-      const isSkipped =
-        focusedIndex > 0 &&
-        enabled &&
-        blockedByRequirements &&
-        ordered.indexOf(recipeId) < focusedIndex;
+      const availability = availabilityByRecipeId?.get?.(recipeId) || null;
+      const blockedByMaterials = availability?.canFulfillAll === false;
       const row = new PIXI.Container();
       row.eventMode = "static";
       row.cursor = "grab";
@@ -3240,8 +3489,8 @@ export function createProcessWidgetView({
         : isFocused
           ? COLORS.pillEnabled
           : COLORS.moduleBg;
-      const borderColor = isSkipped
-        ? MUCHA_UI_COLORS.intent.dangerPop
+      const borderColor = blockedByMaterials
+        ? COLORS.dangerBorder
         : isFocused
           ? COLORS.progressFill
           : COLORS.moduleBorder;
@@ -3290,7 +3539,8 @@ export function createProcessWidgetView({
           win.recipeFocusMode = "manual";
           win.recipeAutoFocusProgressSig = getActiveRecipeProgressSignature(
             priority,
-            recipeEntryMap
+            recipeEntryMap,
+            availabilityByRecipeId
           );
           win.lastSignature = null;
         }
@@ -3347,7 +3597,21 @@ export function createProcessWidgetView({
 
     const priority = getRecipePriorityForTarget(target, systemId, state);
     const recipeEntryMap = buildRecipeEntryMap(entries, { systemId });
-    const resolvedFocus = resolveRecipeFocusId(win, priority, recipeEntryMap, state);
+    const recipeAvailability = buildRecipeAvailabilityForPriority({
+      state,
+      target,
+      systemId,
+      priority,
+      recipeEntryMap,
+    });
+    const availabilityByRecipeId = recipeAvailability.byRecipeId;
+    const resolvedFocus = resolveRecipeFocusId(
+      win,
+      priority,
+      recipeEntryMap,
+      state,
+      availabilityByRecipeId
+    );
     if (win) {
       win.recipeFocusId = resolvedFocus;
     }
@@ -3367,6 +3631,13 @@ export function createProcessWidgetView({
       const isPreview =
         !recipeEntryMap.has(resolvedFocus) ||
         selectedEntry?.preview === true;
+      const selectedAvailability =
+        typeof resolvedFocus === "string" && resolvedFocus.length > 0
+          ? availabilityByRecipeId.get(resolvedFocus) || null
+          : null;
+      const requirementRows = buildRequirementRowsFromAvailability(
+        selectedAvailability
+      );
       const built = buildProcessCard(
         state,
         target,
@@ -3402,6 +3673,15 @@ export function createProcessWidgetView({
                 win,
                 priority,
                 recipeEntryMap,
+                availabilityByRecipeId,
+              }),
+            requirements: ({ container, width, reqs }) =>
+              buildRequirementsModule({
+                container,
+                width,
+                reqs,
+                rowsOverride: requirementRows,
+                hasShortage: selectedAvailability?.canFulfillAll === false,
               }),
           },
         }
@@ -3460,6 +3740,7 @@ export function createProcessWidgetView({
               win,
               priority,
               recipeEntryMap,
+              availabilityByRecipeId,
             }),
         },
       }
@@ -3478,6 +3759,14 @@ export function createProcessWidgetView({
   ) {
     const priority = getRecipePriorityForTarget(target, systemId, state);
     const prioritySig = buildRecipePrioritySignature(priority);
+    const recipeEntryMap = buildRecipeEntryMap(entries, { systemId });
+    const availabilityBundle = buildRecipeAvailabilityForPriority({
+      state,
+      target,
+      systemId,
+      priority,
+      recipeEntryMap,
+    });
     const focusId =
       typeof recipeFocusId === "string" && recipeFocusId.length > 0
         ? recipeFocusId
@@ -3489,7 +3778,8 @@ export function createProcessWidgetView({
       entries,
       systemId,
       prioritySig,
-      focusId
+      focusId,
+      availabilityBundle.signature
     );
   }
 

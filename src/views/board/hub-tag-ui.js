@@ -16,6 +16,8 @@ import {
   getTopEnabledRecipeId,
   normalizeRecipePriority,
 } from "../../model/recipe-priority.js";
+import { getProcessDefForInstance } from "../../model/process-framework.js";
+import { evaluateProcessRequirementAvailability } from "../../model/process-requirement-availability.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
@@ -200,12 +202,65 @@ export function createHubTagUi(opts) {
           });
     const enabled = getEnabledRecipeIds(priority);
     const topId = getTopEnabledRecipeId(priority);
-    return { enabledCount: enabled.length, topId };
+    return {
+      enabledCount: enabled.length,
+      topId,
+      enabledIds: enabled,
+    };
   }
 
   function getRecipeProcesses(structure, systemId) {
     const processes = structure?.systemState?.[systemId]?.processes;
     return Array.isArray(processes) ? processes : [];
+  }
+
+  function areProcessRequirementsComplete(process) {
+    const reqs = Array.isArray(process?.requirements) ? process.requirements : [];
+    for (const req of reqs) {
+      const amount = Math.max(0, Math.floor(req?.amount ?? 0));
+      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+      if (progress < amount) return false;
+    }
+    return true;
+  }
+
+  function canRecipeProcessAdvanceNow(state, structure, process) {
+    if (!process || typeof process !== "object") return false;
+    if (!state || !structure) return areProcessRequirementsComplete(process);
+
+    const processDef = getProcessDefForInstance(process, structure, {
+      leaderId: process?.leaderId ?? null,
+    });
+    if (!processDef) return areProcessRequirementsComplete(process);
+
+    const availability = evaluateProcessRequirementAvailability({
+      state,
+      target: structure,
+      process,
+      processDef,
+      context: { leaderId: process?.leaderId ?? null },
+    });
+    const rows = Array.isArray(availability?.requirements)
+      ? availability.requirements
+      : null;
+    if (rows && rows.length > 0) {
+      let hasIncompleteRequirement = false;
+      for (const row of rows) {
+        const required = Math.max(0, Math.floor(row?.required ?? 0));
+        const loaded = Math.max(0, Math.floor(row?.loaded ?? 0));
+        if (loaded >= required) continue;
+        hasIncompleteRequirement = true;
+        const reachableFromInputs = Math.max(
+          0,
+          Math.floor(row?.reachableFromInputs ?? 0)
+        );
+        if (reachableFromInputs > 0) return true;
+      }
+      if (hasIncompleteRequirement) return false;
+      return true;
+    }
+
+    return true;
   }
 
   function getActiveRecipeProcess(structure, systemId) {
@@ -217,6 +272,16 @@ export function createHubTagUi(opts) {
       systemId,
       structure?.systemState?.[systemId] || {}
     );
+
+    const state = getGameState?.() || null;
+
+    const enabledIds = Array.isArray(summary?.enabledIds) ? summary.enabledIds : [];
+    for (const recipeId of enabledIds) {
+      const match = processes.find((proc) => proc?.type === recipeId);
+      if (!match) continue;
+      if (canRecipeProcessAdvanceNow(state, structure, match)) return match;
+    }
+
     if (summary?.topId) {
       const topMatch = processes.find((proc) => proc?.type === summary.topId);
       if (topMatch) return topMatch;

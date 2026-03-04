@@ -676,7 +676,13 @@ export function createProcessWidgetCardModules({
     return height;
   }
 
-  function buildRequirementsModule({ container, width, reqs }) {
+  function buildRequirementsModule({
+    container,
+    width,
+    reqs,
+    rowsOverride = null,
+    hasShortage = false,
+  }) {
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
@@ -690,7 +696,7 @@ export function createProcessWidgetCardModules({
     container.addChild(title);
 
     let y = title.y + 14;
-    const rows = getRequirementRows(reqs);
+    const rows = Array.isArray(rowsOverride) ? rowsOverride : getRequirementRows(reqs);
     if (rows.length === 0) {
       const none = new PIXI.Text("None", {
         fill: COLORS.moduleSub,
@@ -702,12 +708,32 @@ export function createProcessWidgetCardModules({
       y += 12;
     } else {
       for (const row of rows) {
-        const label = new PIXI.Text(`${row.label} ${row.progress}/${row.amount}`, {
+        const reachable = Number.isFinite(row.accessibleTotal)
+          ? Math.max(0, Math.floor(row.accessibleTotal))
+          : null;
+        const label = new PIXI.Text(String(row.label || "Material"), {
           fill: COLORS.moduleSub,
           fontSize: 10,
         });
-        const requirementText = `${row.label} ${row.progress}/${row.amount}`;
-        fitTextToWidth(label, requirementText, Math.max(20, width - MODULE_PAD * 2));
+        let reachText = null;
+        let reachWidth = 0;
+        if (reachable != null) {
+          const reachLabel = `Reach ${reachable}`;
+          reachText = new PIXI.Text(reachLabel, {
+            fill: COLORS.moduleSub,
+            fontSize: 9,
+            fontWeight: "bold",
+          });
+          reachWidth = Math.ceil(reachText.width) + 6;
+          reachText.x = Math.max(MODULE_PAD, width - MODULE_PAD - reachText.width);
+          reachText.y = y + 1;
+          container.addChild(reachText);
+        }
+        fitTextToWidth(
+          label,
+          String(row.label || "Material"),
+          Math.max(20, width - MODULE_PAD * 2 - reachWidth)
+        );
         label.x = MODULE_PAD;
         label.y = y;
         container.addChild(label);
@@ -726,12 +752,31 @@ export function createProcessWidgetCardModules({
           radius: 6,
         });
 
+        const progressText = new PIXI.Text(
+          `${Math.max(0, Math.floor(row.progress ?? 0))}/${Math.max(
+            0,
+            Math.floor(row.amount ?? 0)
+          )}`,
+          {
+            fill: COLORS.moduleText,
+            fontSize: 9,
+            fontWeight: "bold",
+            stroke: COLORS.progressBg,
+            strokeThickness: 2,
+          }
+        );
+        progressText.x = MODULE_PAD + Math.max(0, Math.floor((barWidth - progressText.width) / 2));
+        progressText.y = barY + Math.max(0, Math.floor((barHeight - progressText.height) / 2));
+        container.addChild(progressText);
+
         y += 24;
       }
     }
 
     const height = Math.max(58, y + MODULE_PAD - 2);
-    drawModuleBox(bg, width, height);
+    drawModuleBox(bg, width, height, {
+      borderColor: hasShortage ? COLORS.dangerBorder : COLORS.moduleBorder,
+    });
     return height;
   }
 
