@@ -229,16 +229,57 @@ export function createHubTagUi(opts) {
   }
 
   function formatRecipeRequirementLabel(req) {
-    if (!req || typeof req !== "object") return "Material";
-    const itemId =
-      typeof req.kind === "string" && req.kind.length > 0
-        ? req.kind
-        : typeof req.itemId === "string" && req.itemId.length > 0
-          ? req.itemId
+    return formatBuildRequirementLabel(req);
+  }
+
+  function formatRecipeModeLabel(mode) {
+    return mode === "time" ? "Time" : "Work";
+  }
+
+  function getTopRecipeIdForSystem(structure, systemId) {
+    const summary = getRecipePrioritySummary(
+      systemId,
+      structure?.systemState?.[systemId] || {}
+    );
+    return summary?.topId ?? null;
+  }
+
+  function resolveRecipeContextForTag(tagId, structure) {
+    let systemId = null;
+    if (tagId === "canCraft") systemId = "workspace";
+    if (tagId === "canCook") systemId = "fireplace";
+    if (!systemId) return null;
+
+    const activeProcess = getActiveRecipeProcess(structure, systemId);
+    const topRecipeId = getTopRecipeIdForSystem(structure, systemId);
+    const activeRecipeId =
+      typeof activeProcess?.type === "string" && activeProcess.type.length > 0
+        ? activeProcess.type
+        : null;
+    const recipeId = activeRecipeId || topRecipeId || null;
+    return {
+      systemId,
+      recipeId,
+      activeProcess,
+    };
+  }
+
+  function formatRecipeOutputLine(recipeId) {
+    const outputs = Array.isArray(recipeDefs?.[recipeId]?.outputs)
+      ? recipeDefs[recipeId].outputs
+      : [];
+    if (outputs.length <= 0) return null;
+    const first = outputs[0];
+    const kind =
+      typeof first?.kind === "string" && first.kind.length > 0
+        ? first.kind
+        : typeof first?.itemId === "string" && first.itemId.length > 0
+          ? first.itemId
           : null;
-    if (!itemId) return "Material";
-    const def = itemDefs?.[itemId];
-    return def?.name || itemId;
+    if (!kind) return null;
+    const itemName = itemDefs?.[kind]?.name || kind;
+    const qty = Math.max(1, Math.floor(first?.qty ?? first?.amount ?? 1));
+    return qty > 1 ? `Produces: ${itemName} x${qty}` : `Produces: ${itemName}`;
   }
 
   function buildRowsForRecipeSystem(structure, systemId) {
@@ -250,14 +291,40 @@ export function createHubTagUi(opts) {
         typeof activeProcess.type === "string" && activeProcess.type.length > 0
           ? activeProcess.type
           : null;
-      return [{ kind: "recipeProgress", recipeId }];
+      const reqs = Array.isArray(activeProcess.requirements)
+        ? activeProcess.requirements
+        : [];
+      const remainingReqs = reqs
+        .map((req, index) => {
+          const amount = Math.max(0, Math.floor(req?.amount ?? 0));
+          if (amount <= 0) return null;
+          const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+          if (progress >= amount) return null;
+          return {
+            kind: "recipeRequirement",
+            recipeId,
+            index,
+            amount,
+            progress,
+            label: formatRecipeRequirementLabel(req),
+          };
+        })
+        .filter(Boolean);
+      if (remainingReqs.length > 0) {
+        return remainingReqs;
+      }
+      return [
+        {
+          kind: "recipeLabor",
+          recipeId,
+          mode: activeProcess.mode === "time" ? "time" : "work",
+          progress: Math.max(0, Math.floor(activeProcess.progress ?? 0)),
+          duration: Math.max(1, Math.floor(activeProcess.durationSec ?? 1)),
+        },
+      ];
     }
 
-    const summary = getRecipePrioritySummary(
-      systemId,
-      structure?.systemState?.[systemId] || {}
-    );
-    const topRecipeId = summary?.topId ?? null;
+    const topRecipeId = getTopRecipeIdForSystem(structure, systemId);
     if (!topRecipeId) return [{ kind: "recipeIdle", recipeId: null }];
 
     const recipeDef = recipeDefs?.[topRecipeId] || null;
@@ -271,13 +338,22 @@ export function createHubTagUi(opts) {
           recipeId: topRecipeId,
           index,
           amount,
+          progress: 0,
           label: formatRecipeRequirementLabel(req),
         };
       })
       .filter(Boolean);
 
     if (rows.length <= 0) {
-      return [{ kind: "recipeIdle", recipeId: topRecipeId }];
+      return [
+        {
+          kind: "recipeLabor",
+          recipeId: topRecipeId,
+          mode: "work",
+          progress: 0,
+          duration: Math.max(1, Math.floor(recipeDef?.durationSec ?? 1)),
+        },
+      ];
     }
     return rows;
   }
@@ -291,16 +367,25 @@ export function createHubTagUi(opts) {
           row?.recipeId || "",
           Number.isFinite(row?.index) ? row.index : "",
           Number.isFinite(row?.amount) ? row.amount : "",
+          Number.isFinite(row?.progress) ? row.progress : "",
+          Number.isFinite(row?.duration) ? row.duration : "",
+          row?.mode || "",
           row?.label || "",
         ].join(":")
       ),
     ].join("|");
   }
 
-  function getTagTooltipLines(tagId) {
+  function getTagTooltipLines(tagId, structure = null) {
     const def = hubTagDefs[tagId];
     const lines = [];
     if (def?.ui?.description) lines.push(def.ui.description);
+    const recipeContext = resolveRecipeContextForTag(tagId, structure);
+    if (recipeContext?.recipeId) {
+      lines.push(`Recipe: ${formatRecipeName(recipeContext.recipeId)}`);
+      const outputLine = formatRecipeOutputLine(recipeContext.recipeId);
+      if (outputLine) lines.push(outputLine);
+    }
     return lines;
   }
 
@@ -778,6 +863,16 @@ export function createHubTagUi(opts) {
       recipeReqAmount: Number.isFinite(opts?.amount)
         ? Math.max(0, Math.floor(opts.amount))
         : 0,
+      recipeReqProgress: Number.isFinite(opts?.progress)
+        ? Math.max(0, Math.floor(opts.progress))
+        : 0,
+      recipeDuration: Number.isFinite(opts?.duration)
+        ? Math.max(1, Math.floor(opts.duration))
+        : 1,
+      recipeProgress: Number.isFinite(opts?.progress)
+        ? Math.max(0, Math.floor(opts.progress))
+        : 0,
+      recipeMode: opts?.mode === "time" ? "time" : "work",
       recipeLabel: opts?.label ?? null,
       storageItemId: opts?.storageItemId ?? null,
       storageLabel: opts?.storageLabel ?? null,
@@ -986,7 +1081,7 @@ export function createHubTagUi(opts) {
     }
 
     row.on("pointerover", () => {
-      const lines = getTagTooltipLines(tagId);
+      const lines = getTagTooltipLines(tagId, structure);
       if (lines.length && tooltipView) {
         tooltipView.show(
           {
@@ -1125,27 +1220,23 @@ export function createHubTagUi(opts) {
     if (isRecipeSystem(systemId)) {
       if (row.recipeKind === "recipeRequirement") {
         const required = Math.max(0, Math.floor(row.recipeReqAmount ?? 0));
+        const progress = Math.max(0, Math.floor(row.recipeReqProgress ?? 0));
         const label = row.recipeLabel || "Material";
         renderSystemRowBar(
           row,
-          `${label} 0/${required}`,
-          0,
+          `${label} ${progress}/${required}`,
+          required > 0 ? progress / required : 0,
           row.uiColor
         );
         return;
       }
-      if (row.recipeKind === "recipeProgress") {
-        const process = getActiveRecipeProcess(structure, systemId);
-        const progress = Math.max(0, Math.floor(process?.progress ?? 0));
-        const duration = Math.max(1, Math.floor(process?.durationSec ?? 1));
-        const recipeId =
-          typeof process?.type === "string" && process.type.length > 0
-            ? process.type
-            : row.recipeId;
-        const recipeName = formatRecipeName(recipeId);
+      if (row.recipeKind === "recipeLabor") {
+        const progress = Math.max(0, Math.floor(row.recipeProgress ?? 0));
+        const duration = Math.max(1, Math.floor(row.recipeDuration ?? 1));
+        const modeLabel = formatRecipeModeLabel(row.recipeMode);
         renderSystemRowBar(
           row,
-          `${recipeName} ${progress}/${duration}`,
+          `${modeLabel} ${progress}/${duration}`,
           duration > 0 ? progress / duration : 0,
           row.uiColor
         );
@@ -1156,26 +1247,10 @@ export function createHubTagUi(opts) {
           renderSystemRowBar(row, "No recipes", 0, row.uiColor);
           return;
         }
-        renderSystemRowBar(
-          row,
-          `${formatRecipeName(row.recipeId)} ready`,
-          1,
-          row.uiColor
-        );
+        renderSystemRowBar(row, "Work 0/0", 0, row.uiColor);
         return;
       }
-      const systemState = structure?.systemState?.[systemId] || {};
-      const summary = getRecipePrioritySummary(systemId, systemState);
-      if (summary.enabledCount <= 0) {
-        renderSystemRowBar(row, "No recipes", 0, row.uiColor);
-        return;
-      }
-      renderSystemRowBar(
-        row,
-        `${summary.enabledCount} on: ${formatRecipeName(summary.topId)}`,
-        1,
-        row.uiColor
-      );
+      renderSystemRowBar(row, "Work 0/0", 0, row.uiColor);
       return;
     }
 
