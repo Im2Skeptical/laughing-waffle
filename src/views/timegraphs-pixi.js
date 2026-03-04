@@ -106,6 +106,39 @@ function normalizeHistoryZoneSegments(rawSegments, { minSec, maxSec, historyEndS
   return out;
 }
 
+function normalizeItemUnavailableZones(rawSegments, { minSec, maxSec }) {
+  const min = Math.max(0, Math.floor(minSec ?? 0));
+  const max = Math.max(min, Math.floor(maxSec ?? min));
+  const list = Array.isArray(rawSegments) ? rawSegments : [];
+  const zones = [];
+
+  for (const entry of list) {
+    const kind = String(entry?.kind ?? "");
+    if (kind !== "itemUnavailable") continue;
+    const startSec = Math.max(min, Math.floor(entry?.startSec ?? min));
+    const endSec = Math.min(max, Math.floor(entry?.endSec ?? startSec));
+    if (endSec <= startSec) continue;
+    zones.push({ startSec, endSec });
+  }
+  if (!zones.length) return [];
+
+  zones.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
+  const out = [];
+  for (const zone of zones) {
+    const prev = out[out.length - 1];
+    if (!prev) {
+      out.push({ ...zone });
+      continue;
+    }
+    if (zone.startSec <= prev.endSec) {
+      prev.endSec = Math.max(prev.endSec, zone.endSec);
+      continue;
+    }
+    out.push({ ...zone });
+  }
+  return out;
+}
+
 function getSeriesValue(point, seriesId) {
   if (point?.values && point.values[seriesId] != null) {
     const v = point.values[seriesId];
@@ -929,6 +962,10 @@ export function createMetricGraphView({
         : defaultHistoryZones,
       { minSec, maxSec, historyEndSec }
     );
+    const itemUnavailableZones = normalizeItemUnavailableZones(
+      customHistoryZones,
+      { minSec, maxSec }
+    );
     for (const zone of historyZones) {
       if (zone.kind === "fixedHistory") {
         drawZone(zone.startSec, zone.endSec, TIME_STATE_COLORS.fixedHistory);
@@ -939,6 +976,9 @@ export function createMetricGraphView({
       }
     }
     drawZone(historyEndSec, maxSec, TIME_STATE_COLORS.forecast);
+    for (const zone of itemUnavailableZones) {
+      drawZone(zone.startSec, zone.endSec, TIME_STATE_COLORS.itemUnavailable);
+    }
 
     // Grid
     plotG.lineStyle(1, TIMEGRAPH_THEME.gridMajor, 0.5);

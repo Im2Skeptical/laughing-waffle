@@ -399,6 +399,8 @@ export const TIME_STATE_COLORS = Object.freeze({
   editableHistory: 0xb48a57, // ochre
   forecast: 0x7f9879, // muted sage
   paused: 0xb9a780, // muted parchment amber
+  itemUnavailable: 0x434343, // dark gray
+  runLost: 0x434343, // dark gray
 });
 export const TIME_STATE_GRAPH_BG_ALPHA = 0.2;
 export const TIME_STATE_FILTER_ALPHA = 0.12;

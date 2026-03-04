@@ -20,6 +20,7 @@ const SCROLL_WINDOW_HEIGHT_PX = 176;
 const SCROLL_STAGE_WIDTH_PX = 2424;
 const SCROLL_STAGE_HEIGHT_PX = 1080;
 const SCROLL_WINDOW_MARGIN_PX = 8;
+const ACTION_KIND_INVENTORY_USE_ITEM = "inventoryUseItem";
 
 function resolveWindowSpecForScroll(runner, scrollState) {
   const timeline = runner.getTimeline?.();
@@ -69,7 +70,12 @@ function resolveControllerHorizonOverride(scrollState) {
   return null;
 }
 
-function resolveHistoryZoneSegmentsForScroll(runner, scrollState, zoneSpec) {
+function resolveHistoryZoneSegmentsForScroll(
+  runner,
+  scrollState,
+  zoneSpec,
+  itemUnavailableStartSec = null
+) {
   const minSec = toSafeSec(zoneSpec?.minSec, 0);
   const maxSec = toSafeSec(zoneSpec?.maxSec, minSec);
   const historyEndSec = toSafeSec(zoneSpec?.historyEndSec, 0);
@@ -79,16 +85,41 @@ function resolveHistoryZoneSegmentsForScroll(runner, scrollState, zoneSpec) {
   const absoluteRange = getAbsoluteEditableRangeFromScrollState(scrollState);
   const extraEditableRanges = absoluteRange ? [absoluteRange] : [];
 
-  return computeHistoryZoneSegments({
+  const segments = computeHistoryZoneSegments({
     minSec,
     maxSec,
     historyEndSec,
     baseMinEditableSec,
     extraEditableRanges,
   });
+
+  if (!Number.isFinite(itemUnavailableStartSec)) {
+    return segments;
+  }
+  const unavailableStartSec = Math.max(
+    minSec,
+    toSafeSec(itemUnavailableStartSec, minSec)
+  );
+  if (unavailableStartSec >= maxSec) {
+    return segments;
+  }
+  return [
+    ...segments,
+    {
+      kind: "itemUnavailable",
+      startSec: unavailableStartSec,
+      endSec: maxSec,
+    },
+  ];
 }
 
-function applyScrollConfigToView(runner, view, scrollState, fixedWindowSpec = null) {
+function applyScrollConfigToView(
+  runner,
+  view,
+  scrollState,
+  fixedWindowSpec = null,
+  getItemUnavailableStartSec = null
+) {
   if (fixedWindowSpec) {
     view.setWindowSpecResolver?.(() => fixedWindowSpec);
   } else {
@@ -100,7 +131,14 @@ function applyScrollConfigToView(runner, view, scrollState, fixedWindowSpec = nu
     resolveCommitPolicy(runner, scrollState, commitSpec)
   );
   view.setHistoryZoneResolver?.((zoneSpec) =>
-    resolveHistoryZoneSegmentsForScroll(runner, scrollState, zoneSpec)
+    resolveHistoryZoneSegmentsForScroll(
+      runner,
+      scrollState,
+      zoneSpec,
+      typeof getItemUnavailableStartSec === "function"
+        ? getItemUnavailableStartSec()
+        : null
+    )
   );
 }
 
@@ -166,6 +204,26 @@ function buildFrozenSeriesSnapshot(controller, minSec, maxSec) {
   };
 }
 
+function findItemUseSecondInTimeline(timeline, itemId) {
+  if (!Number.isFinite(itemId)) return null;
+  const targetItemId = Math.floor(itemId);
+  const actions = Array.isArray(timeline?.actions) ? timeline.actions : [];
+  let earliest = null;
+  for (const action of actions) {
+    if (action?.kind !== ACTION_KIND_INVENTORY_USE_ITEM) continue;
+    const payloadItemId = Number.isFinite(action?.payload?.itemId)
+      ? Math.floor(action.payload.itemId)
+      : null;
+    if (payloadItemId !== targetItemId) continue;
+    const tSec = Number.isFinite(action?.tSec) ? Math.floor(action.tSec) : null;
+    if (tSec == null) continue;
+    if (earliest == null || tSec < earliest) {
+      earliest = tSec;
+    }
+  }
+  return earliest;
+}
+
 export function createScrollGraphOrchestrator({
   runner,
   interactionController,
@@ -180,6 +238,29 @@ export function createScrollGraphOrchestrator({
 
   function normalizeItemId(itemId) {
     return Number.isFinite(itemId) ? Math.floor(itemId) : null;
+  }
+
+  function resolveItemUnavailableStartSec(record, state, liveItem) {
+    const persisted =
+      Number.isFinite(record?.itemUnavailableStartSec)
+        ? toSafeSec(record.itemUnavailableStartSec, 0)
+        : null;
+    if (liveItem) return persisted;
+
+    const runStatus =
+      state?.runStatus && typeof state.runStatus === "object"
+        ? state.runStatus
+        : null;
+    const runCompleteSec =
+      runStatus?.complete === true && Number.isFinite(runStatus?.tSec)
+        ? toSafeSec(runStatus.tSec, 0)
+        : null;
+    if (runCompleteSec != null) return runCompleteSec;
+
+    const usedSec = findItemUseSecondInTimeline(runner.getTimeline?.(), record?.itemId);
+    if (usedSec != null) return toSafeSec(usedSec, 0);
+
+    return persisted;
   }
 
   function findItemByIdInState(state, itemId) {
@@ -261,7 +342,8 @@ export function createScrollGraphOrchestrator({
       runner,
       record.view,
       record.scrollState,
-      fixedWindowSpec
+      fixedWindowSpec,
+      () => record.itemUnavailableStartSec
     );
   }
 
@@ -325,6 +407,7 @@ export function createScrollGraphOrchestrator({
       ownerIdAtOpen,
       subjectId,
       scrollState,
+      itemUnavailableStartSec: null,
       mode,
       openedAtSeq: nextOpenSequence,
       controller,
@@ -442,6 +525,7 @@ export function createScrollGraphOrchestrator({
 
   function handleInvalidate(reason) {
     for (const record of windowsByItemId.values()) {
+      record.itemUnavailableStartSec = null;
       record.controller?.handleInvalidate?.(reason);
     }
   }
@@ -459,20 +543,22 @@ export function createScrollGraphOrchestrator({
   function update(nowMs = performance.now()) {
     const closedItemIds = [];
     const state = runner.getState?.();
-    const cursorSec = toSafeSec(state?.tSec, 0);
-    const historyEndSec = toSafeSec(runner.getTimeline?.()?.historyEndSec, cursorSec);
-    const browsingPast = cursorSec < historyEndSec;
 
     for (const [itemId, record] of windowsByItemId.entries()) {
       const liveItem = findItemByIdInState(state, itemId);
       const liveScrollState = getScrollTimegraphStateFromItem(liveItem);
       if (liveScrollState) {
         record.scrollState = liveScrollState;
-      } else if (!browsingPast || !record.scrollState) {
+      } else if (!record.scrollState) {
         destroyWindowRecord(record);
         closedItemIds.push(itemId);
         continue;
       }
+      record.itemUnavailableStartSec = resolveItemUnavailableStartSec(
+        record,
+        state,
+        liveItem
+      );
 
       const isOpen = record.view?.isOpen?.() === true;
       if (!isOpen) {

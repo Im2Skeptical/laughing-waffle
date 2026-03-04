@@ -494,15 +494,27 @@ function lerp(from, to, t) {
 function resolveTimeStateKey() {
   const timeline = runner.getTimeline?.();
   const cursorState = runner.getCursorState?.();
+  const viewState = runner.getState?.();
   const preview = runner.getPreviewStatus?.();
+  const sec =
+    preview?.active && Number.isFinite(preview?.previewSec)
+      ? Math.max(0, Math.floor(preview.previewSec))
+      : Math.max(0, Math.floor(cursorState?.tSec ?? 0));
+  const runStatus =
+    viewState?.runStatus && typeof viewState.runStatus === "object"
+      ? viewState.runStatus
+      : null;
+  const runLostSec =
+    runStatus?.complete === true && Number.isFinite(runStatus?.tSec)
+      ? Math.max(0, Math.floor(runStatus.tSec))
+      : null;
+  if (runLostSec != null && sec >= runLostSec) {
+    return "runLost";
+  }
   if (preview?.isForecastPreview) return "forecast";
 
   const historyEndSec = Math.max(0, Math.floor(timeline?.historyEndSec ?? 0));
   const cursorSec = Math.max(0, Math.floor(cursorState?.tSec ?? 0));
-  const sec =
-    preview?.active && Number.isFinite(preview?.previewSec)
-      ? Math.max(0, Math.floor(preview.previewSec))
-      : cursorSec;
 
   // Live frontier is un-tinted unless explicitly paused.
   if (sec >= historyEndSec) {
