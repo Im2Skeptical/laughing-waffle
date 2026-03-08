@@ -3,6 +3,7 @@ import { envSystemDefs } from "../../../defs/gamesystems/env-systems-defs.js";
 import { cloneSerializable } from "../core/clone.js";
 import { getSystemTierLadder } from "../core/system-state.js";
 import { resolveBoardTargets } from "../core/targets-board.js";
+import { setTagDisabled, setTagHidden } from "../../tag-state.js";
 
 export function handleAddTag(state, effect, context) {
   const tagId = effect.tag;
@@ -53,6 +54,14 @@ export function handleDisableTag(state, effect, context) {
 
 export function handleEnableTag(state, effect, context) {
   return handleToggleTag(state, effect, context, false);
+}
+
+export function handleHideTag(state, effect, context) {
+  return handleToggleTagHidden(state, effect, context, true);
+}
+
+export function handleRevealTag(state, effect, context) {
+  return handleToggleTagHidden(state, effect, context, false);
 }
 
 export function handleRemoveTag(state, effect, context) {
@@ -245,80 +254,18 @@ function handleToggleTag(state, effect, context, disable) {
   return changed;
 }
 
-function readTagDisableState(entry, source = "event") {
-  const isObj = entry && typeof entry === "object";
-  const disabledBy = isObj && entry.disabledBy && typeof entry.disabledBy === "object"
-    ? entry.disabledBy
-    : null;
+function handleToggleTagHidden(state, effect, context, hidden) {
+  const tagId = effect.tag;
+  if (!tagId || typeof tagId !== "string") return false;
 
-  let playerDisabled = disabledBy?.player === true;
-  let eventDisabledCount = Number.isFinite(disabledBy?.eventCount)
-    ? Math.max(0, Math.floor(disabledBy.eventCount))
-    : 0;
+  const targets = resolveBoardTargets(state, effect.target, context);
+  if (!targets.length) return false;
 
-  // Legacy migration: old saves only had `disabled: true` with no source metadata.
-  if (!disabledBy && isObj && entry.disabled === true) {
-    if (source === "event") eventDisabledCount = 1;
-    else playerDisabled = true;
-  }
-
-  const disabled = playerDisabled || eventDisabledCount > 0;
-  return { playerDisabled, eventDisabledCount, disabled };
-}
-
-function setTagDisabled(target, tagId, disabled, source = "event") {
-  if (!target || !tagId) return false;
-  const entry =
-    target.tagStates && typeof target.tagStates === "object"
-      ? target.tagStates[tagId]
-      : null;
-  const prev = readTagDisableState(entry, source);
-
-  let playerDisabled = prev.playerDisabled;
-  let eventDisabledCount = prev.eventDisabledCount;
-  const nextDisabledFlag = disabled === true;
-  if (source === "event") {
-    if (nextDisabledFlag) eventDisabledCount += 1;
-    else eventDisabledCount = Math.max(0, eventDisabledCount - 1);
-  } else {
-    playerDisabled = nextDisabledFlag;
-  }
-
-  const nextDisabled = playerDisabled || eventDisabledCount > 0;
-  const changed =
-    nextDisabled !== prev.disabled ||
-    playerDisabled !== prev.playerDisabled ||
-    eventDisabledCount !== prev.eventDisabledCount;
-
-  if (nextDisabled) {
-    if (!target.tagStates || typeof target.tagStates !== "object") {
-      target.tagStates = {};
-    }
-    const nextEntry = entry && typeof entry === "object" ? entry : {};
-    nextEntry.disabledBy = {
-      player: playerDisabled === true,
-      eventCount: eventDisabledCount,
-    };
-    nextEntry.disabled = true;
-    target.tagStates[tagId] = nextEntry;
-  } else if (entry && typeof entry === "object") {
-    if (entry.disabled) delete entry.disabled;
-    if (entry.disabledBy) delete entry.disabledBy;
-    if (Object.keys(entry).length === 0) {
-      delete target.tagStates[tagId];
-    } else if (target.tagStates && typeof target.tagStates === "object") {
-      target.tagStates[tagId] = entry;
-    }
-  } else if (target.tagStates && typeof target.tagStates === "object") {
-    delete target.tagStates[tagId];
-  }
-
-  if (
-    target.tagStates &&
-    typeof target.tagStates === "object" &&
-    Object.keys(target.tagStates).length === 0
-  ) {
-    delete target.tagStates;
+  let changed = false;
+  for (const target of targets) {
+    if (!target) continue;
+    if (!Array.isArray(target.tags) || !target.tags.includes(tagId)) continue;
+    if (setTagHidden(target, tagId, hidden, "discovery")) changed = true;
   }
 
   return changed;

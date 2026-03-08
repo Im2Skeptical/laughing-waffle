@@ -4,8 +4,8 @@
 // Scenario Selector - Options for boot are in scenario-defs.js
 //
 
-const BOOT_SETUP_ID = "devGym01";
-//const BOOT_SETUP_ID = "devPlaytesting01";
+//const BOOT_SETUP_ID = "devGym01";
+const BOOT_SETUP_ID = "devPlaytesting01";
 
 //
 
@@ -50,8 +50,8 @@ import {
   TIME_STATE_FILTER_ALPHA,
   TILE_HEIGHT,
   TILE_ROW_Y,
-  getBoardColumnCenterX,
-  getHubColumnCenterX,
+  getBoardColumnCenterXForVisibleCols,
+  getHubColumnCenterXForVisibleCols,
 } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
@@ -80,6 +80,7 @@ import {
 import {
   hasSkillFeatureUnlock,
 } from "../model/skills.js";
+import { getVisibleEnvColCount, isHubVisible } from "../model/state.js";
 import { createProjectionParityProbe } from "./ui-root/projection-parity.js";
 import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
 import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
@@ -1489,12 +1490,10 @@ const pawnsView = createPawnsView({
   onPawnDropped({ pawnId, dropPos }) {
     if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();
-    const envCols = Number.isFinite(state?.board?.cols)
-      ? Math.floor(state.board.cols)
-      : BOARD_COLS;
-    const hubCols = Array.isArray(state?.hub?.slots)
+    const envCols = getVisibleEnvColCount(state);
+    const hubCols = isHubVisible(state) && Array.isArray(state?.hub?.slots)
       ? state.hub.slots.length
-      : HUB_COLS;
+      : 0;
 
     const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
     const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT / 2;
@@ -1503,13 +1502,14 @@ const pawnsView = createPawnsView({
     const targetRow = distToTile <= distToHub ? "env" : "hub";
 
     const colCount = targetRow === "env" ? envCols : hubCols;
-    const getCenterX =
-      targetRow === "env" ? getBoardColumnCenterX : getHubColumnCenterX;
 
     let bestIndex = null;
     let bestDist2 = Infinity;
     for (let col = 0; col < colCount; col++) {
-      const cx = getCenterX(app.screen.width, col);
+      const cx =
+        targetRow === "env"
+          ? getBoardColumnCenterXForVisibleCols(app.screen.width, col, envCols)
+          : getHubColumnCenterXForVisibleCols(app.screen.width, col, hubCols);
       const dx = dropPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {

@@ -2,6 +2,111 @@
 // Env tag registry (data only).
 
 export const envTagDefs = {
+  explore: {
+    id: "explore",
+    kind: "envTag",
+    ui: { name: "Explore", description: "Survey the area and uncover what is here." },
+    systems: ["build"],
+    intents: [
+      {
+        id: "explore_work",
+        verb: "Explore",
+        cost: {
+          charges: [
+            {
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
+              amount: { const: 1 },
+              clampMin: 0,
+            },
+          ],
+        },
+        effect: [
+          {
+            op: "CreateWorkProcess",
+            system: "build",
+            queueKey: "processes",
+            processType: "explore",
+            mode: "work",
+            durationSec: 5,
+            uniqueType: true,
+            completionEffects: [
+              { op: "RevealDiscovery", target: { ref: "self" } },
+              { op: "SpawnDropPackage", tableKey: "forageDrops", rollCount: 15 },
+              {
+                op: "ExposeDiscovery",
+                target: {
+                  ref: "self",
+                  layer: "tile",
+                  area: { kind: "adjacent", radius: 1 },
+                },
+              },
+              { op: "RemoveTag", tag: "explore", target: { ref: "self" } },
+            ],
+          },
+          {
+            op: "AdvanceWorkProcess",
+            system: "build",
+            queueKey: "processes",
+            processType: "explore",
+            mode: "work",
+            amount: 1,
+          },
+        ],
+      },
+    ],
+    passives: [],
+  },
+  delve: {
+    id: "delve",
+    kind: "envTag",
+    ui: { name: "Delve", description: "Search the ruins for a way into the hidden hub." },
+    systems: ["build"],
+    intents: [
+      {
+        id: "delve_work",
+        verb: "Delve",
+        cost: {
+          charges: [
+            {
+              kind: "system",
+              target: { ref: "pawn" },
+              system: "stamina",
+              key: "cur",
+              amount: { const: 1 },
+              clampMin: 0,
+            },
+          ],
+        },
+        effect: [
+          {
+            op: "CreateWorkProcess",
+            system: "build",
+            queueKey: "processes",
+            processType: "delve",
+            mode: "work",
+            durationSec: 5,
+            uniqueType: true,
+            completionEffects: [
+              { op: "SetDiscoveryState", key: "hubVisible", value: true },
+              { op: "RemoveTag", tag: "delve", target: { ref: "self" } },
+            ],
+          },
+          {
+            op: "AdvanceWorkProcess",
+            system: "build",
+            queueKey: "processes",
+            processType: "delve",
+            mode: "work",
+            amount: 1,
+          },
+        ],
+      },
+    ],
+    passives: [],
+  },
   build: {
     id: "build",
     kind: "envTag",

@@ -3,6 +3,8 @@
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
+import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
+import { envSystemDefs } from "../defs/gamesystems/env-systems-defs.js";
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { createEmptyLeaderEquipment } from "./equipment-rules.js";
 import {
@@ -20,6 +22,8 @@ import {
   buildSeasonDeckForCurrentSeason,
   rebuildBoardOccupancy,
   buildPawnSystemDefaults,
+  ensureDiscoveryState,
+  ensureLocationNamesState,
 } from "./state.js";
 import {
   getDefaultSkillPointsForPawnDefId,
@@ -41,6 +45,79 @@ const DEV =
 function cloneSerializable(value) {
   if (value == null) return null;
   return JSON.parse(JSON.stringify(value));
+}
+
+function applyInstanceOverrides(instance, spec) {
+  if (!instance || !spec || typeof spec !== "object") return instance;
+  for (const key of ["tier", "tags", "tagStates", "props", "systemTiers", "systemState"]) {
+    if (!Object.prototype.hasOwnProperty.call(spec, key)) continue;
+    instance[key] = cloneSerializable(spec[key]);
+  }
+  return instance;
+}
+
+function ensureEnvTagSystems(instance) {
+  if (!instance || !Array.isArray(instance.tags)) return;
+  if (!instance.systemTiers || typeof instance.systemTiers !== "object") {
+    instance.systemTiers = {};
+  }
+  if (!instance.systemState || typeof instance.systemState !== "object") {
+    instance.systemState = {};
+  }
+  for (const tagId of instance.tags) {
+    const tagDef = envTagDefs?.[tagId];
+    const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
+    for (const systemId of systems) {
+      if (instance.systemTiers[systemId] == null) {
+        const sysDef = envSystemDefs?.[systemId];
+        if (typeof sysDef?.defaultTier === "string") {
+          instance.systemTiers[systemId] = sysDef.defaultTier;
+        }
+      }
+      if (!instance.systemState[systemId] && envSystemDefs?.[systemId]?.stateDefaults) {
+        instance.systemState[systemId] = cloneSerializable(
+          envSystemDefs[systemId].stateDefaults
+        );
+      }
+    }
+  }
+}
+
+function applySetupLocationNames(state, setup) {
+  const raw = setup?.locationNames;
+  if (!raw || typeof raw !== "object") return;
+  const locationNames = ensureLocationNamesState(state);
+  if (typeof raw.region === "string" && raw.region.trim().length > 0) {
+    locationNames.region = raw.region.trim();
+  }
+  if (typeof raw.hub === "string" && raw.hub.trim().length > 0) {
+    locationNames.hub = raw.hub.trim();
+  }
+}
+
+function applySetupDiscoveryState(state, setup) {
+  const raw = setup?.discovery;
+  if (!raw || typeof raw !== "object") return;
+  const discovery = ensureDiscoveryState(state);
+  if (Array.isArray(raw.envCols)) {
+    const max = Math.min(discovery.envCols.length, raw.envCols.length);
+    for (let col = 0; col < max; col++) {
+      const entry = raw.envCols[col];
+      if (!entry || typeof entry !== "object") continue;
+      if (typeof entry.exposed === "boolean") {
+        discovery.envCols[col].exposed = entry.exposed;
+      }
+      if (typeof entry.revealed === "boolean") {
+        discovery.envCols[col].revealed = entry.revealed;
+      }
+    }
+  }
+  if (typeof raw.hubVisible === "boolean") {
+    discovery.hubVisible = raw.hubVisible;
+  }
+  if (typeof raw.hubRenameUnlocked === "boolean") {
+    discovery.hubRenameUnlocked = raw.hubRenameUnlocked;
+  }
 }
 
 function getSetupSkillProgressionDefs(setup) {
@@ -166,6 +243,8 @@ export function createInitialState(scenario = "devGym01", seed = null) {
     state.hub = { cols: hubCols, slots: [] };
   }
   state.hub.cols = hubCols;
+  applySetupLocationNames(state, setup);
+  applySetupDiscoveryState(state, setup);
 
   // hub structures
   state.hub.slots = buildHubSlots(setup, hubCols, state);
@@ -443,9 +522,10 @@ function buildHubSlots(setup, hubCols, state) {
     }
     if (blocked) continue;
 
-      const structure = makeHubStructureInstance(spec.defId, state, {
+    const structure = makeHubStructureInstance(spec.defId, state, {
         tier: typeof spec.tier === "string" ? spec.tier : null,
-      });
+    });
+    applyInstanceOverrides(structure, spec);
     slots[hubCol] = {
       x: spec.x,
       y: spec.y,
@@ -526,6 +606,8 @@ function buildEnvStructureAnchors(setup, boardCols, state) {
     const inst = makeEnvStructureInstance(rawDefId, state, col, span, {
       tier: typeof spec?.tier === "string" ? spec.tier : null,
     });
+    applyInstanceOverrides(inst, spec);
+    ensureEnvTagSystems(inst);
     anchors.push(inst);
     for (let offset = 0; offset < span; offset++) {
       occupiedBy[col + offset] = inst.instanceId;
@@ -555,7 +637,10 @@ function buildTileAnchors(setup, boardCols, state) {
       const col = getColIndex(spec, i, boardCols);
       const span =
         Number.isFinite(spec.span) && spec.span > 0 ? Math.floor(spec.span) : 1;
-      anchors.push(makeEnvTileInstance(spec.defId, state, col, span));
+      const inst = makeEnvTileInstance(spec.defId, state, col, span);
+      applyInstanceOverrides(inst, spec);
+      ensureEnvTagSystems(inst);
+      anchors.push(inst);
     }
     return anchors;
   }

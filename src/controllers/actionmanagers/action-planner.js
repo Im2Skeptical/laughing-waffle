@@ -34,6 +34,8 @@ import {
   hasEnvTagUnlock,
   hasHubTagUnlock,
 } from "../../model/skills.js";
+import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
+import { isEnvColExposed, isHubVisible } from "../../model/state.js";
 
 function clonePlacement(p) {
   return p ? { ...p } : null;
@@ -281,6 +283,36 @@ function normalizeBuildHubCol(target) {
     target.hub ??
     null;
   return Number.isFinite(raw) ? Math.floor(raw) : null;
+}
+
+function hasPlannerVisibleEnvTagUnlock(state, tagId) {
+  return isDiscoveryAlwaysVisibleEnvTag(tagId) || hasEnvTagUnlock(state, tagId);
+}
+
+function validatePawnMoveTarget(state, { toHubCol, toEnvCol } = {}) {
+  if (Number.isFinite(toEnvCol)) {
+    const col = Math.floor(toEnvCol);
+    if (!isEnvColExposed(state, col)) {
+      return { ok: false, reason: "envColHidden" };
+    }
+    const tile = state?.board?.occ?.tile?.[col] ?? null;
+    if (!tile) return { ok: false, reason: "noTile" };
+    const tags = Array.isArray(tile.tags) ? tile.tags : [];
+    for (const tag of tags) {
+      const def = envTagDefs[tag];
+      const aff = Array.isArray(def?.affordances) ? def.affordances : [];
+      if (aff.includes("noOccupy")) {
+        return { ok: false, reason: "tileBlocked" };
+      }
+    }
+    return { ok: true };
+  }
+
+  if (Number.isFinite(toHubCol) && !isHubVisible(state)) {
+    return { ok: false, reason: "hubHidden" };
+  }
+
+  return { ok: true };
 }
 
 export function createActionPlanner({
@@ -1129,19 +1161,8 @@ export function createActionPlanner({
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
     }
-    if (Number.isFinite(toEnvCol)) {
-      const col = Math.floor(toEnvCol);
-      const tile = state?.board?.occ?.tile?.[col] ?? null;
-      if (!tile) return { ok: false, reason: "noTile" };
-      const tags = Array.isArray(tile.tags) ? tile.tags : [];
-      for (const tag of tags) {
-        const def = envTagDefs[tag];
-        const aff = Array.isArray(def?.affordances) ? def.affordances : [];
-        if (aff.includes("noOccupy")) {
-          return { ok: false, reason: "tileBlocked" };
-        }
-      }
-    }
+    const targetCheck = validatePawnMoveTarget(state, { toHubCol, toEnvCol });
+    if (!targetCheck.ok) return targetCheck;
 
     const subjectKey = `pawn:${resolvedPawnId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
@@ -1211,6 +1232,8 @@ export function createActionPlanner({
     if (!Number.isFinite(toHubCol) && !Number.isFinite(toEnvCol)) {
       return { ok: false, reason: "badTarget" };
     }
+    const targetCheck = validatePawnMoveTarget(state, { toHubCol, toEnvCol });
+    if (!targetCheck.ok) return targetCheck;
 
     const subjectKey = `pawn:${resolvedPawnId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
@@ -1441,7 +1464,7 @@ export function createActionPlanner({
     }
     for (let i = 0; i < existingTags.length; i++) {
       const tagId = existingTags[i];
-      if (hasEnvTagUnlock(state, tagId)) continue;
+      if (hasPlannerVisibleEnvTagUnlock(state, tagId)) continue;
       if (nextTags[i] !== tagId) return { ok: false, reason: "tagLocked" };
     }
 
@@ -1533,7 +1556,9 @@ export function createActionPlanner({
     if (!tile) return { ok: false, reason: "noTile" };
     const tags = Array.isArray(tile.tags) ? tile.tags : [];
     if (!tags.includes(tagId)) return { ok: false, reason: "tagNotOnTile" };
-    if (!hasEnvTagUnlock(state, tagId)) return { ok: false, reason: "tagLocked" };
+    if (!hasPlannerVisibleEnvTagUnlock(state, tagId)) {
+      return { ok: false, reason: "tagLocked" };
+    }
 
     const subjectKey = `tileTagToggle:${col}:${tagId}`;
     const existing = intents.get(subjectKey) || baselineIntents.get(subjectKey);
@@ -1626,7 +1651,7 @@ export function createActionPlanner({
     }
     const state = getStateSafe();
     const tile = state?.board?.occ?.tile?.[col];
-    if (!hasEnvTagUnlock(state, tagId)) return true;
+    if (!hasPlannerVisibleEnvTagUnlock(state, tagId)) return true;
     return tile?.tagStates?.[tagId]?.disabled === true;
   }
 

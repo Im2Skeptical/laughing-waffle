@@ -6,6 +6,7 @@ const EFFECT_OPS = new Set([
   "stackItem",
   "splitStack",
   "AddResource",
+  "ExposeDiscovery",
   "TransformItem",
   "RemoveItem",
   "ExpireItemChance",
@@ -14,6 +15,7 @@ const EFFECT_OPS = new Set([
   "RemoveTag",
   "DisableTag",
   "EnableTag",
+  "HideTag",
   "SetSystemTier",
   "UpgradeSystemTier",
   "SetSystemState",
@@ -28,10 +30,13 @@ const EFFECT_OPS = new Set([
   "ConsumeItem",
   "TransferUnits",
   "SpawnItem",
+  "SpawnDropPackage",
   "SpawnFromDropTable",
   "CreateWorkProcess",
   "AdvanceWorkProcess",
   "SetProp",
+  "SetDiscoveryState",
+  "SetLocationName",
   "AddProp",
   "AddSkillPoints",
   "AddSkillPointsIfSkillNodeUnlocked",
@@ -40,6 +45,8 @@ const EFFECT_OPS = new Set([
   "MulModifier",
   "GrantUnlock",
   "RevokeUnlock",
+  "RevealDiscovery",
+  "RevealTag",
 ]);
 
 const TARGETING_KEYS = new Set([
@@ -126,7 +133,14 @@ function validateEffectSpec(effectSpec, contextLabel, tagIds, systemIds, eventId
       continue;
     }
 
-    if (op === "AddTag" || op === "RemoveTag" || op === "DisableTag" || op === "EnableTag") {
+    if (
+      op === "AddTag" ||
+      op === "RemoveTag" ||
+      op === "DisableTag" ||
+      op === "EnableTag" ||
+      op === "HideTag" ||
+      op === "RevealTag"
+    ) {
       if (!effect.tag || typeof effect.tag !== "string") {
         addIssue(errors, `${contextLabel}: ${op} missing tag.`);
       } else if (!tagIds.has(effect.tag)) {

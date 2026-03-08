@@ -18,6 +18,7 @@ import {
 } from "../../model/recipe-priority.js";
 import { getProcessDefForInstance } from "../../model/process-framework.js";
 import { evaluateProcessRequirementAvailability } from "../../model/process-requirement-availability.js";
+import { isTagHidden } from "../../model/tag-state.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
@@ -457,7 +458,7 @@ export function createHubTagUi(opts) {
   function isTagDisabled(structure, tagId) {
     if (!isTagUnlocked(tagId)) return true;
     const entry = structure?.tagStates?.[tagId];
-    return entry?.disabled === true;
+    return entry?.disabled === true || isTagHidden(structure, tagId);
   }
 
   function isTagPlayerDisabled(structure, tagId) {
@@ -482,7 +483,10 @@ export function createHubTagUi(opts) {
   function getStructureTags(structure) {
     const tags = Array.isArray(structure?.tags) ? structure.tags : [];
     return tags.filter(
-      (tagId) => isTagUnlocked(tagId) && !isTagPlayerDisabled(structure, tagId)
+      (tagId) =>
+        isTagUnlocked(tagId) &&
+        !isTagHidden(structure, tagId) &&
+        !isTagPlayerDisabled(structure, tagId)
     );
   }
 
@@ -577,6 +581,11 @@ export function createHubTagUi(opts) {
       `Diamond: ${totals.byTier.diamond}`,
     ];
     tooltipView.show({ title, lines, scale }, bounds);
+  }
+
+  function setChildTooltipHoverActive(view, active) {
+    if (!view || typeof view !== "object") return;
+    view.childTooltipHoverActive = !!active;
   }
 
   function getBuildProcess(structure) {
@@ -947,6 +956,7 @@ export function createHubTagUi(opts) {
     };
 
     icon.on("pointerover", () => {
+      setChildTooltipHoverActive(view, true);
       onSystemIconHover?.(view, processWidgetSystemId);
       if (systemId === "storage") {
         showStorageTooltip(
@@ -958,6 +968,7 @@ export function createHubTagUi(opts) {
       }
     });
     icon.on("pointerout", () => {
+      setChildTooltipHoverActive(view, false);
       onSystemIconOut?.(view, processWidgetSystemId);
       if (systemId === "storage") {
         tooltipView?.hide?.();
@@ -988,6 +999,7 @@ export function createHubTagUi(opts) {
     const row = new PIXI.Container();
     row.eventMode = "static";
     row.cursor = "grab";
+    row.hitArea = new PIXI.Rectangle(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT);
     container.addChild(row);
 
     const bg = new PIXI.Graphics()
@@ -1146,6 +1158,7 @@ export function createHubTagUi(opts) {
     }
 
     row.on("pointerover", () => {
+      setChildTooltipHoverActive(view, true);
       const lines = getTagTooltipLines(tagId, structure);
       if (lines.length && tooltipView) {
         tooltipView.show(
@@ -1159,6 +1172,7 @@ export function createHubTagUi(opts) {
       }
     });
     row.on("pointerout", () => {
+      setChildTooltipHoverActive(view, false);
       tooltipView?.hide?.();
     });
     row.on("pointerdown", (ev) => {

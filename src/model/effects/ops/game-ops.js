@@ -15,9 +15,11 @@ import { resolveEffectDef } from "../core/registry.js";
 import { ensureSystemState } from "../core/system-state.js";
 import { TIER_ASC, TIER_DESC, getTierRank } from "../core/tiers.js";
 import { resolveOwnerTargets } from "../core/targets-owner.js";
+import { resolveBoardTargets } from "../core/targets-board.js";
 import { pushGameEvent } from "../../event-feed.js";
 import { rememberDroppedItemKind } from "../../persistent-memory.js";
 import { findEquippedPoolProviderEntry } from "../../item-def-rules.js";
+import { ensureDiscoveryState, ensureLocationNamesState } from "../../state.js";
 
 export function handleAddResource(state, effect) {
   const key = effect.resource;
@@ -25,6 +27,80 @@ export function handleAddResource(state, effect) {
   if (!key || typeof amt !== "number") return false;
 
   state.resources[key] = (state.resources[key] ?? 0) + amt;
+  return true;
+}
+
+export function handleExposeDiscovery(state, effect, context) {
+  const discovery = ensureDiscoveryState(state);
+  const targets = resolveBoardTargets(state, effect.target, context);
+  if (!targets.length) return false;
+
+  let changed = false;
+  for (const target of targets) {
+    const col = Number.isFinite(target?.col) ? Math.floor(target.col) : null;
+    const span =
+      Number.isFinite(target?.span) && target.span > 0
+        ? Math.floor(target.span)
+        : 1;
+    if (col == null) continue;
+    for (let offset = 0; offset < span; offset++) {
+      const envCol = col + offset;
+      if (envCol < 0 || envCol >= discovery.envCols.length) continue;
+      if (discovery.envCols[envCol]?.exposed === true) continue;
+      discovery.envCols[envCol].exposed = true;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+export function handleRevealDiscovery(state, effect, context) {
+  const discovery = ensureDiscoveryState(state);
+  const targets = resolveBoardTargets(state, effect.target, context);
+  if (!targets.length) return false;
+
+  let changed = false;
+  for (const target of targets) {
+    const col = Number.isFinite(target?.col) ? Math.floor(target.col) : null;
+    const span =
+      Number.isFinite(target?.span) && target.span > 0
+        ? Math.floor(target.span)
+        : 1;
+    if (col == null) continue;
+    for (let offset = 0; offset < span; offset++) {
+      const envCol = col + offset;
+      if (envCol < 0 || envCol >= discovery.envCols.length) continue;
+      const entry = discovery.envCols[envCol];
+      if (entry.exposed !== true || entry.revealed !== true) {
+        entry.exposed = true;
+        entry.revealed = true;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+export function handleSetDiscoveryState(state, effect) {
+  const discovery = ensureDiscoveryState(state);
+  const key = typeof effect?.key === "string" ? effect.key : null;
+  if (!key || !Object.prototype.hasOwnProperty.call(discovery, key)) return false;
+  const nextValue = effect?.value;
+  if (typeof discovery[key] !== "boolean" || typeof nextValue !== "boolean") {
+    return false;
+  }
+  if (discovery[key] === nextValue) return false;
+  discovery[key] = nextValue;
+  return true;
+}
+
+export function handleSetLocationName(state, effect) {
+  const area = effect?.area === "region" ? "region" : effect?.area === "hub" ? "hub" : null;
+  const name = typeof effect?.name === "string" ? effect.name.trim() : "";
+  if (!area || !name) return false;
+  const locationNames = ensureLocationNamesState(state);
+  if (locationNames[area] === name) return false;
+  locationNames[area] = name;
   return true;
 }
 
@@ -439,6 +515,61 @@ export function handleSpawnFromDropTable(state, effect, context) {
   }
 
   // Spawn success should still return "changed" (true only if something was added).
+  return changed;
+}
+
+export function handleSpawnDropPackage(state, effect, context) {
+  if (!context || context.kind !== "game") return false;
+  if (typeof state?.rngNextFloat !== "function") return false;
+
+  const rollCount = Number.isFinite(effect?.rollCount)
+    ? Math.max(0, Math.floor(effect.rollCount))
+    : 15;
+  if (rollCount <= 0) return false;
+
+  const tableKey =
+    typeof effect?.tableKey === "string" && effect.tableKey.length > 0
+      ? effect.tableKey
+      : "forageDrops";
+  const source = context.source;
+  const table = resolveDropTableForTile(source, tableKey);
+  if (!table.length) return false;
+
+  const targets = resolveOwnerTargets(state, resolveDropTarget(effect, context), context);
+  if (!targets.length) return false;
+
+  let changed = false;
+  const tileDefId = typeof source?.defId === "string" ? source.defId : null;
+  const tags = Array.isArray(source?.tags) ? source.tags : [];
+  for (let i = 0; i < rollCount; i++) {
+    const entry = selectWeightedEntry(state, table, { tags });
+    if (!entry || !passesDropChance(state, entry) || !entry.kind) continue;
+    const kind = entry.kind;
+    if (!itemDefs[kind]) continue;
+    const quantity = rollDropQuantity(state, entry);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const tier =
+      typeof entry.tier === "string"
+        ? entry.tier
+        : itemDefs[kind]?.defaultTier ?? "bronze";
+    let totalAdded = 0;
+    for (const target of targets) {
+      const ownerId = typeof target === "object" ? target.id : target;
+      if (ownerId == null) continue;
+      totalAdded += addTieredUnits(state, ownerId, kind, tier, quantity);
+    }
+    if (totalAdded > 0) {
+      changed = true;
+      if (tileDefId) {
+        rememberDroppedItemKind(state, {
+          tableKey,
+          tileDefId,
+          itemKind: kind,
+        });
+      }
+    }
+  }
+
   return changed;
 }
 

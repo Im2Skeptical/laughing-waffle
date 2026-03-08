@@ -307,8 +307,39 @@ function runMysteriousAncientTomeItemUseChecks() {
 
   const ownerInv = state?.ownerInventories?.[leader.id];
   assert.ok(ownerInv, "[skill-feature] leader inventory missing");
-  const tome = (ownerInv.items || []).find((item) => item?.kind === "mysteriousAncientTome");
-  assert.ok(tome, "[skill-feature] mysteriousAncientTome missing from leader inventory");
+  assert.equal(
+    (ownerInv.items || []).some((item) => item?.kind === "mysteriousAncientTome"),
+    false,
+    "[skill-feature] leader should not start with mysteriousAncientTome in inventory"
+  );
+
+  const templeRuins =
+    state?.hub?.occ?.[4] ?? state?.hub?.slots?.[4]?.structure ?? null;
+  assert.ok(templeRuins, "[skill-feature] Temple Ruins missing from playtesting setup");
+  const templeInv = state?.ownerInventories?.[templeRuins.instanceId];
+  assert.ok(templeInv, "[skill-feature] Temple Ruins inventory missing");
+  const tome = (templeInv.items || []).find((item) => item?.kind === "mysteriousAncientTome");
+  assert.ok(tome, "[skill-feature] mysteriousAncientTome missing from Temple Ruins inventory");
+
+  const moveRes = applyAction(state, {
+    kind: ActionKinds.INVENTORY_MOVE,
+    payload: {
+      fromOwnerId: templeRuins.instanceId,
+      toOwnerId: leader.id,
+      itemId: tome.id,
+      targetGX: 0,
+      targetGY: 0,
+    },
+    apCost: 0,
+  });
+  assert.equal(
+    moveRes?.ok,
+    true,
+    `[skill-feature] failed to move mysteriousAncientTome to leader inventory: ${JSON.stringify(moveRes)}`
+  );
+
+  const movedTome = (ownerInv.items || []).find((item) => item?.kind === "mysteriousAncientTome");
+  assert.ok(movedTome, "[skill-feature] mysteriousAncientTome should be movable from Temple Ruins");
 
   assert.equal(
     hasSkillFeatureUnlock(state, "ui.log.event"),
@@ -323,7 +354,7 @@ function runMysteriousAncientTomeItemUseChecks() {
     kind: ActionKinds.INVENTORY_USE_ITEM,
     payload: {
       ownerId: leader.id,
-      itemId: tome.id,
+      itemId: movedTome.id,
     },
   });
   assert.equal(
@@ -361,7 +392,7 @@ function runMysteriousAncientTomeItemUseChecks() {
     "[skill-feature] mysteriousAncientTome should add +2 skill points"
   );
   assert.equal(
-    (ownerInv.items || []).some((item) => item?.id === tome.id),
+    (ownerInv.items || []).some((item) => item?.id === movedTome.id),
     false,
     "[skill-feature] mysteriousAncientTome should be consumed on use"
   );

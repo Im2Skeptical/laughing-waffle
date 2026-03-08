@@ -10,7 +10,10 @@ import {
   hasEnvTagUnlock,
   hasSkillFeatureUnlock,
 } from "../../model/skills.js";
+import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
 import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
+import { isEnvColRevealed } from "../../model/state.js";
+import { isTagHidden } from "../../model/tag-state.js";
 import { TILE_WIDTH } from "../layout-pixi.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
@@ -239,26 +242,41 @@ export function createTagUi(opts) {
 
   function isTagUnlocked(tagId) {
     if (typeof tagId !== "string" || !tagId.length) return false;
+    if (isDiscoveryAlwaysVisibleEnvTag(tagId)) return true;
     const state = getGameState?.();
     if (!state) return true;
     return hasEnvTagUnlock(state, tagId);
   }
 
+  function isTileRevealed(tileInst) {
+    const col = Number.isFinite(tileInst?.col) ? Math.floor(tileInst.col) : null;
+    const state = getGameState?.();
+    if (!state || col == null) return true;
+    return isEnvColRevealed(state, col);
+  }
+
+  function isTagVisible(tileInst, tagId) {
+    if (!isTagUnlocked(tagId)) return false;
+    if (isTagHidden(tileInst, tagId)) return false;
+    if (!isTileRevealed(tileInst) && tagId !== "explore") return false;
+    return true;
+  }
+
   function getVisibleTags(tileInst) {
     const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
     return tags.filter(
-      (tagId) => isTagUnlocked(tagId) && !isTagPlayerDisabled(tileInst, tagId)
+      (tagId) => isTagVisible(tileInst, tagId) && !isTagPlayerDisabled(tileInst, tagId)
     );
   }
 
   function isTagDisabled(tileInst, tagId) {
-    if (!isTagUnlocked(tagId)) return true;
+    if (!isTagVisible(tileInst, tagId)) return true;
     const entry = tileInst?.tagStates?.[tagId];
-    return entry?.disabled === true;
+    return entry?.disabled === true || isTagHidden(tileInst, tagId);
   }
 
   function isTagPlayerDisabled(tileInst, tagId) {
-    if (!isTagUnlocked(tagId)) return true;
+    if (!isTagVisible(tileInst, tagId)) return true;
     const entry = tileInst?.tagStates?.[tagId];
     if (!entry || typeof entry !== "object") return false;
     const disabledBy =
@@ -655,6 +673,11 @@ export function createTagUi(opts) {
     tooltipView.show({ title: label, lines, scale }, bounds);
   }
 
+  function setChildTooltipHoverActive(view, active) {
+    if (!view || typeof view !== "object") return;
+    view.childTooltipHoverActive = !!active;
+  }
+
   function flashSystemRow(row) {
     if (!row?.flashOverlay) return;
     if (row.flashTimeout) {
@@ -781,6 +804,7 @@ export function createTagUi(opts) {
     };
 
     icon.on("pointerover", () => {
+      setChildTooltipHoverActive(view, true);
       onSystemIconHover?.(view, processWidgetSystemId);
       showTooltipForSystem(
         view.tile,
@@ -790,6 +814,7 @@ export function createTagUi(opts) {
       );
     });
     icon.on("pointerout", () => {
+      setChildTooltipHoverActive(view, false);
       onSystemIconOut?.(view, processWidgetSystemId);
       tooltipView?.hide?.();
     });
@@ -814,6 +839,7 @@ export function createTagUi(opts) {
     const row = new PIXI.Container();
     row.eventMode = "static";
     row.cursor = "pointer";
+    row.hitArea = new PIXI.Rectangle(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT);
     container.addChild(row);
 
     const bg = new PIXI.Graphics()
@@ -916,6 +942,7 @@ export function createTagUi(opts) {
     }
 
     row.on("pointerover", () => {
+      setChildTooltipHoverActive(view, true);
       showTooltipForTag(
         view.tile,
         tagId,
@@ -924,6 +951,7 @@ export function createTagUi(opts) {
       );
     });
     row.on("pointerout", () => {
+      setChildTooltipHoverActive(view, false);
       tooltipView?.hide?.();
     });
     row.on("pointerdown", (ev) => {

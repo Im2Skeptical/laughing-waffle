@@ -41,6 +41,22 @@ export const hubStructureDefs = {
       description: "Rest here to regain stamina.",
     },
   },
+  templeRuins: {
+    id: "templeRuins",
+    kind: "hubStructure",
+    name: "Temple Ruins",
+    color: 0x676258,
+    defaultSpan: 2,
+    maxInstances: 1,
+    tags: ["build"],
+    systems: {},
+    inventory: { cols: 5, rows: 10 },
+    ui: {
+      title: "Temple Ruins",
+      lines: ["A collapsed sanctuary waits to be reclaimed."],
+      description: "Rebuild the ruins into a shelter.",
+    },
+  },
   mudHouses: {
     id: "mudHouses",
     kind: "hubStructure",

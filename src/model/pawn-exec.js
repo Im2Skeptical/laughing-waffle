@@ -39,6 +39,7 @@ import {
   findEquippedPoolProviderEntry,
   ownerHasEquippedPoolProvider,
 } from "./item-def-rules.js";
+import { isTagHidden } from "./tag-state.js";
 
 const HUB_DISTRIBUTOR_TAG = "distributor";
 const REST_SPOT_AFFORDANCE = "restSpot";
@@ -90,6 +91,7 @@ function resolveDistributorRange(anchor, baseRange) {
 function isTagDisabled(target, tagId, isTagUnlocked = null) {
   if (!target || !tagId) return false;
   if (isTagUnlocked && !isTagUnlocked(tagId)) return true;
+  if (isTagHidden(target, tagId)) return true;
   const entry = target.tagStates?.[tagId];
   return entry?.disabled === true;
 }

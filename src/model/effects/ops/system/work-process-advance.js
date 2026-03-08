@@ -3,6 +3,7 @@ import { clamp } from "../../core/clamp.js";
 import { resolveEffectDef } from "../../core/registry.js";
 import { ensureSystemState, getTierValueForSystem } from "../../core/system-state.js";
 import { handleSpawnItem } from "../game-ops.js";
+import { runEffect } from "../../index.js";
 import {
   getProcessDefForInstance,
   ensureProcessRoutingState,
@@ -87,6 +88,22 @@ function resetProcessForRepeat(process) {
     }
   }
   return changed;
+}
+
+function runProcessCompletionEffects(state, target, process, context) {
+  const completionEffects = process?.completionEffects;
+  if (!completionEffects) return false;
+  return runEffect(state, completionEffects, {
+    ...(context || {}),
+    source: target,
+    ownerId:
+      context?.ownerId ??
+      process?.ownerId ??
+      (Number.isFinite(target?.instanceId) ? target.instanceId : null),
+    leaderId:
+      context?.leaderId ??
+      (Number.isFinite(process?.leaderId) ? Math.floor(process.leaderId) : null),
+  });
 }
 
 function advanceSingleProcess({
@@ -239,12 +256,18 @@ function advanceSingleProcess({
         }
       }
     }
+    if (runProcessCompletionEffects(state, target, process, context)) {
+      changed = true;
+    }
     changed = true;
     return { changed, keep: false, progressed: true };
   }
 
   if (policy === "build") {
     if (finalizeBuildProcess(state, target, process)) {
+      changed = true;
+    }
+    if (runProcessCompletionEffects(state, target, process, context)) {
       changed = true;
     }
     return { changed, keep: false, progressed: true };
@@ -273,6 +296,9 @@ function advanceSingleProcess({
   }
 
   const shouldRepeat = policy === "repeat" || process.repeat === true;
+  if (runProcessCompletionEffects(state, target, process, context)) {
+    changed = true;
+  }
   if (shouldRepeat) {
     if (resetProcessForRepeat(process)) {
       changed = true;

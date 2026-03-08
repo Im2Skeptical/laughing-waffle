@@ -102,6 +102,10 @@ export function handleCreateWorkProcess(state, effect, context) {
       process.outputs = effect.outputs.map((out) => ({ ...out }));
     }
 
+    if (effect.completionEffects) {
+      process.completionEffects = cloneSerializable(effect.completionEffects);
+    }
+
     if (effect.captureSystem && effect.captureKey) {
       const captureState = ensureSystemState(target, effect.captureSystem);
       const captureValue = captureState[effect.captureKey];

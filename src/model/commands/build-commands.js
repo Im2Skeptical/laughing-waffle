@@ -155,8 +155,14 @@ export function cmdCancelBuild(state, payload = {}) {
 
   const structure = state.hub?.occ?.[col] ?? state.hub?.slots?.[col]?.structure ?? null;
   if (!structure) return { ok: false, reason: "noHubStructure" };
-  if (!isStructureUnderConstruction(structure)) {
+  const buildProcess = isStructureUnderConstruction(structure)
+    ? structure?.systemState?.build?.processes?.find((process) => process?.type === "build") ?? null
+    : null;
+  if (!buildProcess) {
     return { ok: false, reason: "notUnderConstruction" };
+  }
+  if (buildProcess.allowCancel === false) {
+    return { ok: false, reason: "buildCancelLocked" };
   }
 
   const anchorCol = Number.isFinite(structure.col) ? Math.floor(structure.col) : col;

@@ -11,7 +11,16 @@ import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
 import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { validateHubConstructionPlacement } from "../model/build-helpers.js";
+import { isDiscoveryAlwaysVisibleEnvTag } from "../model/discovery.js";
+import {
+  getVisibleEnvColCount,
+  isEnvColExposed,
+  isEnvColRevealed,
+  isHubRenameUnlocked,
+  isHubVisible,
+} from "../model/state.js";
 import { hasEnvTagUnlock, hasHubTagUnlock } from "../model/skills.js";
+import { isTagHidden } from "../model/tag-state.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
@@ -26,8 +35,10 @@ import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
 import {
   VIEW_LAYOUT,
   BOARD_COLS,
+  BOARD_COL_WIDTH,
   BOARD_COL_GAP,
   HUB_COLS,
+  HUB_COL_WIDTH,
   HUB_COL_GAP,
   TILE_WIDTH,
   TILE_HEIGHT,
@@ -46,12 +57,6 @@ import {
   EVENT_ROW_Y,
   ENV_STRUCTURE_ROW_Y,
   HUB_STRUCTURE_ROW_Y,
-  getBoardColumnX,
-  getBoardColumnCenterXs,
-  getHubColumnX,
-  getHubColumnCenterXs,
-  layoutBoardColPos,
-  layoutHubColPos,
 } from "./layout-pixi.js";
 
 /**
@@ -357,6 +362,7 @@ export function createBoardView(opts) {
 
   function isEnvTagVisible(tagId) {
     if (typeof tagId !== "string" || !tagId.length) return false;
+    if (isDiscoveryAlwaysVisibleEnvTag(tagId)) return true;
     const state = getGameState?.();
     if (!state) return true;
     return hasEnvTagUnlock(state, tagId);
@@ -367,6 +373,35 @@ export function createBoardView(opts) {
     const state = getGameState?.();
     if (!state) return true;
     return hasHubTagUnlock(state, tagId);
+  }
+
+  function getVisibleBoardCols(state = getGameState?.()) {
+    const visible = getVisibleEnvColCount(state);
+    return Math.max(0, Math.min(Number.isFinite(state?.board?.cols) ? Math.floor(state.board.cols) : BOARD_COLS, visible));
+  }
+
+  function getVisibleHubCols(state = getGameState?.()) {
+    if (!isHubVisible(state)) return 0;
+    return Array.isArray(state?.hub?.slots) ? state.hub.slots.length : HUB_COLS;
+  }
+
+  function isTileRevealed(tileInst, state = getGameState?.()) {
+    const col = Number.isFinite(tileInst?.col) ? Math.floor(tileInst.col) : null;
+    if (state == null || col == null) return true;
+    return isEnvColRevealed(state, col);
+  }
+
+  function isTileTagRenderable(tileInst, tagId, state = getGameState?.()) {
+    if (!isEnvTagVisible(tagId)) return false;
+    if (isTagHidden(tileInst, tagId)) return false;
+    if (!isTileRevealed(tileInst, state) && tagId !== "explore") return false;
+    return true;
+  }
+
+  function isHubTagRenderable(structureInst, tagId) {
+    if (!isHubTagVisible(tagId)) return false;
+    if (isTagHidden(structureInst, tagId)) return false;
+    return true;
   }
 
   function getTileAtCol(state, envCol) {
@@ -392,12 +427,12 @@ export function createBoardView(opts) {
   }
 
   function isVisibleEnabledTileTag(tileInst, tagId) {
-    if (!isEnvTagVisible(tagId)) return false;
+    if (!isTileTagRenderable(tileInst, tagId)) return false;
     return !isTagStatePlayerDisabled(tileInst?.tagStates?.[tagId]);
   }
 
   function isVisibleEnabledHubTag(structureInst, tagId) {
-    if (!isHubTagVisible(tagId)) return false;
+    if (!isHubTagRenderable(structureInst, tagId)) return false;
     return !isTagStatePlayerDisabled(structureInst?.tagStates?.[tagId]);
   }
 
@@ -703,8 +738,13 @@ export function createBoardView(opts) {
     const width = EVENT_WIDTH * span + BOARD_COL_GAP * (span - 1);
     const x =
       span > 1
-        ? getBoardColumnX(app.screen.width, col)
-        : layoutBoardColPos(app.screen.width, col, EVENT_WIDTH, EVENT_ROW_Y).x;
+        ? getBoardColumnXForVisibleCols(app.screen.width, col)
+        : layoutBoardColPosForVisibleCols(
+            app.screen.width,
+            col,
+            EVENT_WIDTH,
+            EVENT_ROW_Y
+          ).x;
     return {
       x,
       y: EVENT_ROW_Y,
@@ -1367,13 +1407,121 @@ export function createBoardView(opts) {
     return Math.max(1, Math.floor(app?.screen?.width ?? 1));
   }
 
+  function resolveColumnStartX(screenWidth, totalWidth, anchorX, offsetX = 0) {
+    const width = Math.max(1, Math.floor(screenWidth));
+    const safeTotal = Math.max(0, Math.floor(totalWidth));
+    const anchor = String(anchorX || "left").toLowerCase();
+    if (anchor === "center" || anchor === "middle") {
+      return Math.round(width * 0.5 - safeTotal * 0.5 + offsetX);
+    }
+    if (anchor === "right" || anchor === "end") {
+      return Math.round(width - safeTotal + offsetX);
+    }
+    return Math.round(offsetX);
+  }
+
+  function getBoardColumnXForVisibleCols(screenWidth, col, cols = getVisibleBoardCols()) {
+    const safeCols = Math.max(0, Number.isFinite(cols) ? Math.floor(cols) : 0);
+    const index = Math.max(0, Number.isFinite(col) ? Math.floor(col) : 0);
+    const totalWidth =
+      safeCols <= 0 ? 0 : safeCols * BOARD_COL_WIDTH + (safeCols - 1) * BOARD_COL_GAP;
+    return (
+      resolveColumnStartX(
+        screenWidth,
+        totalWidth,
+        VIEW_LAYOUT.playfield?.region?.anchorX || "center",
+        Number(VIEW_LAYOUT.playfield?.region?.offsetX || 0)
+      ) +
+      index * (BOARD_COL_WIDTH + BOARD_COL_GAP)
+    );
+  }
+
+  function getHubColumnXForVisibleCols(screenWidth, col, cols = getVisibleHubCols()) {
+    const safeCols = Math.max(0, Number.isFinite(cols) ? Math.floor(cols) : 0);
+    const index = Math.max(0, Number.isFinite(col) ? Math.floor(col) : 0);
+    const totalWidth =
+      safeCols <= 0 ? 0 : safeCols * HUB_COL_WIDTH + (safeCols - 1) * HUB_COL_GAP;
+    return (
+      resolveColumnStartX(
+        screenWidth,
+        totalWidth,
+        VIEW_LAYOUT.playfield?.hub?.anchorX || "center",
+        Number(VIEW_LAYOUT.playfield?.hub?.offsetX || 0)
+      ) +
+      index * (HUB_COL_WIDTH + HUB_COL_GAP)
+    );
+  }
+
+  function getBoardColumnCenterXsForVisibleCols(
+    screenWidth,
+    cols = getVisibleBoardCols(),
+    pieceWidth = TILE_WIDTH
+  ) {
+    const safeCols = Math.max(0, Number.isFinite(cols) ? Math.floor(cols) : 0);
+    const width = Math.max(1, Number.isFinite(pieceWidth) ? Math.floor(pieceWidth) : TILE_WIDTH);
+    const values = new Array(safeCols);
+    for (let col = 0; col < safeCols; col += 1) {
+      values[col] = getBoardColumnXForVisibleCols(screenWidth, col, safeCols) + width * 0.5;
+    }
+    return values;
+  }
+
+  function getHubColumnCenterXsForVisibleCols(
+    screenWidth,
+    cols = getVisibleHubCols(),
+    pieceWidth = HUB_STRUCTURE_WIDTH
+  ) {
+    const safeCols = Math.max(0, Number.isFinite(cols) ? Math.floor(cols) : 0);
+    const width = Math.max(
+      1,
+      Number.isFinite(pieceWidth) ? Math.floor(pieceWidth) : HUB_STRUCTURE_WIDTH
+    );
+    const values = new Array(safeCols);
+    for (let col = 0; col < safeCols; col += 1) {
+      values[col] = getHubColumnXForVisibleCols(screenWidth, col, safeCols) + width * 0.5;
+    }
+    return values;
+  }
+
+  function layoutBoardColPosForVisibleCols(
+    screenWidth,
+    col,
+    width,
+    rowY,
+    cols = getVisibleBoardCols()
+  ) {
+    const safeWidth = Number.isFinite(width) ? width : BOARD_COL_WIDTH;
+    return {
+      x: getBoardColumnXForVisibleCols(screenWidth, col, cols) + (BOARD_COL_WIDTH - safeWidth) / 2,
+      y: rowY,
+    };
+  }
+
+  function layoutHubColPosForVisibleCols(
+    screenWidth,
+    col,
+    width,
+    rowY,
+    cols = getVisibleHubCols()
+  ) {
+    const safeWidth = Number.isFinite(width) ? width : HUB_COL_WIDTH;
+    return {
+      x: getHubColumnXForVisibleCols(screenWidth, col, cols) + (HUB_COL_WIDTH - safeWidth) / 2,
+      y: rowY,
+    };
+  }
+
   function getDropTargetCenterXs(envCols, hubCols) {
     const screenWidth = getScreenWidthInt();
     const safeEnvCols = Number.isFinite(envCols) ? Math.max(0, Math.floor(envCols)) : 0;
     const safeHubCols = Number.isFinite(hubCols) ? Math.max(0, Math.floor(hubCols)) : 0;
     return {
-      envCenters: getBoardColumnCenterXs(screenWidth, safeEnvCols, TILE_WIDTH),
-      hubCenters: getHubColumnCenterXs(screenWidth, safeHubCols, HUB_STRUCTURE_WIDTH),
+      envCenters: getBoardColumnCenterXsForVisibleCols(screenWidth, safeEnvCols, TILE_WIDTH),
+      hubCenters: getHubColumnCenterXsForVisibleCols(
+        screenWidth,
+        safeHubCols,
+        HUB_STRUCTURE_WIDTH
+      ),
     };
   }
 
@@ -1915,6 +2063,7 @@ export function createBoardView(opts) {
     view.holdHover = false;
     view.holdHoverForOccupant = false;
     view.occupantHoverHoldSec = 0;
+    view.childTooltipHoverActive = false;
     view.isHovered = false;
     view.setHoverActive?.(false);
     applyHoverScaleToView(view, 1);
@@ -1957,6 +2106,7 @@ export function createBoardView(opts) {
     if (!view) return;
     view.holdHoverForOccupant = false;
     view.occupantHoverHoldSec = 0;
+    view.childTooltipHoverActive = false;
     view.isHovered = false;
     view.setHoverActive?.(false);
     applyHoverScaleToView(view, 1);
@@ -2242,7 +2392,7 @@ export function createBoardView(opts) {
 
   function applyTileHover(view) {
     if (!view?.container || !view?.tile) return;
-    const { title, desc } = getTileUi(view.tile);
+    const { title, desc } = getTileUi(view.tile, getGameState?.());
     view.setHoverActive?.(true);
     elevateForHover(view.container);
     view.isHovered = true;
@@ -2437,7 +2587,7 @@ export function createBoardView(opts) {
 
   function applyHubStructureHover(view) {
     if (!view?.container || !view?.structure) return;
-    const { title, lines } = getHubStructureUi(view.structure);
+    const { title, lines } = getHubStructureUi(view.structure, getGameState?.());
     const def = hubStructureDefs[view.structure.defId];
     const span =
       Number.isFinite(view.structure?.span) && view.structure.span > 0
@@ -2523,7 +2673,8 @@ export function createBoardView(opts) {
         updateHoverContext: isHoverFocus,
       });
       if (!isHoverFocus || !anchor) continue;
-      const { title, desc } = getTileUi(view.tile);
+      if (view.childTooltipHoverActive) continue;
+      const { title, desc } = getTileUi(view.tile, getGameState?.());
       tooltipView?.show?.(
         {
           title,
@@ -2542,7 +2693,8 @@ export function createBoardView(opts) {
         updateHoverContext: isHoverFocus,
       });
       if (!isHoverFocus || !anchor) continue;
-      const { title, lines } = getHubStructureUi(view.structure);
+      if (view.childTooltipHoverActive) continue;
+      const { title, lines } = getHubStructureUi(view.structure, getGameState?.());
       tooltipView?.show?.(
         {
           title,
@@ -2569,7 +2721,7 @@ export function createBoardView(opts) {
         updateHoverContext: isHoverFocus,
       });
       if (!isHoverFocus || !anchor) continue;
-      const { title, desc } = getEnvStructureUi(view.structure);
+      const { title, desc } = getEnvStructureUi(view.structure, getGameState?.());
       tooltipView?.show?.(
         {
           title,
@@ -2739,9 +2891,12 @@ export function createBoardView(opts) {
   }
 
   function promptForAreaRename(areaKind) {
+    const state = getGameState?.();
+    if (areaKind === "hub" && !isHubRenameUnlocked(state)) {
+      return { ok: false, reason: "renameLocked" };
+    }
     const promptFn = globalThis?.prompt;
     if (typeof promptFn !== "function") return { ok: false, reason: "noPrompt" };
-    const state = getGameState?.();
     const currentName = getAreaDisplayName(state, areaKind);
     const promptLabel =
       areaKind === "hub" ? "Name this Hub..." : "Name this region ...";
@@ -2757,6 +2912,7 @@ export function createBoardView(opts) {
     const container = new PIXI.Container();
     container.eventMode = "static";
     container.cursor = "pointer";
+    container.headerEnabled = true;
 
     const paintLayer = new PIXI.Container();
     const inkLayer = new PIXI.Container();
@@ -2789,6 +2945,7 @@ export function createBoardView(opts) {
     });
     container.on("pointertap", (ev) => {
       ev?.stopPropagation?.();
+      if (container.headerEnabled !== true) return;
       onRename?.();
     });
     paintBg.alpha = 0.94;
@@ -2911,12 +3068,20 @@ export function createBoardView(opts) {
     const chrome = ensureAreaChrome();
     if (!chrome || !app?.screen) return;
     const screenWidth = Math.max(1, Math.floor(app.screen.width));
-    const safeEnvCols = Math.max(1, Number.isFinite(envCols) ? Math.floor(envCols) : BOARD_COLS);
-    const safeHubCols = Math.max(1, Number.isFinite(hubCols) ? Math.floor(hubCols) : HUB_COLS);
+    const safeEnvCols = Math.max(0, Number.isFinite(envCols) ? Math.floor(envCols) : BOARD_COLS);
+    const safeHubCols = Math.max(0, Number.isFinite(hubCols) ? Math.floor(hubCols) : HUB_COLS);
+    const hubShown = safeHubCols > 0;
+    const hubRenameEnabled = isHubRenameUnlocked(state);
 
-    const regionStartX = getBoardColumnX(screenWidth, 0);
+    const regionStartX = getBoardColumnXForVisibleCols(
+      screenWidth,
+      0,
+      Math.max(1, safeEnvCols)
+    );
     const regionEndX =
-      getBoardColumnX(screenWidth, safeEnvCols - 1) + TILE_WIDTH;
+      safeEnvCols > 0
+        ? getBoardColumnXForVisibleCols(screenWidth, safeEnvCols - 1, safeEnvCols) + TILE_WIDTH
+        : regionStartX;
     const regionPanelX = Math.round(
       regionStartX - REGION_BOARD_PAD_X + REGION_BOARD_OFFSET_X
     );
@@ -2934,8 +3099,12 @@ export function createBoardView(opts) {
         REGION_BOARD_PAD_BOTTOM
     );
 
-    const hubStartX = getHubColumnX(screenWidth, 0);
-    const hubEndX = getHubColumnX(screenWidth, safeHubCols - 1) + HUB_STRUCTURE_WIDTH;
+    const hubStartX = getHubColumnXForVisibleCols(screenWidth, 0, Math.max(1, safeHubCols));
+    const hubEndX =
+      safeHubCols > 0
+        ? getHubColumnXForVisibleCols(screenWidth, safeHubCols - 1, safeHubCols) +
+          HUB_STRUCTURE_WIDTH
+        : hubStartX;
     const hubPanelX = Math.round(
       hubStartX - HUB_BOARD_PAD_X + HUB_BOARD_OFFSET_X
     );
@@ -3073,6 +3242,12 @@ export function createBoardView(opts) {
       chrome.hubHeader.text.text = hubName;
       chrome.hubName = hubName;
     }
+
+    chrome.hubBoardContainer.visible = hubShown;
+    chrome.hubHeader.container.visible = hubShown;
+    chrome.hubHeader.container.eventMode = hubShown ? "static" : "none";
+    chrome.hubHeader.container.headerEnabled = hubRenameEnabled;
+    chrome.hubHeader.container.cursor = hubRenameEnabled ? "pointer" : "default";
   }
 
   function dispatchTagOrder(envCol, tagIds) {
@@ -3352,14 +3527,17 @@ export function createBoardView(opts) {
     };
   }
 
-  function getTileUi(tileInst) {
+  function getTileUi(tileInst, state = getGameState?.()) {
     const def = envTileDefs[tileInst.defId];
-    const title = def?.name || tileInst.defId || "Tile";
-    const desc = def?.ui?.description || "";
+    const revealed = isTileRevealed(tileInst, state);
+    const title = revealed ? def?.name || tileInst.defId || "Tile" : "???";
+    const desc = revealed ? def?.ui?.description || "" : "";
     const uiColor = def?.ui?.color;
-    const color = Number.isFinite(uiColor)
-      ? uiColor
-      : def?.color ?? 0x6f8a6f;
+    const color = revealed
+      ? Number.isFinite(uiColor)
+        ? uiColor
+        : def?.color ?? 0x6f8a6f
+      : 0x6a6863;
     const tags = Array.isArray(tileInst.tags) ? tileInst.tags : [];
     return { def, title, desc, color, tags };
   }
@@ -3369,6 +3547,7 @@ export function createBoardView(opts) {
     const state = getGameState?.();
     const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
     if (tile) {
+      if (!isEnvColRevealed(state, col)) return "???";
       const def = envTileDefs[tile.defId];
       return def?.name || tile.defId || `Tile ${col}`;
     }
@@ -3473,7 +3652,7 @@ export function createBoardView(opts) {
 
   function applyEnvStructureHover(view) {
     if (!view?.container || !view?.structure) return;
-    const { title, desc } = getEnvStructureUi(view.structure);
+    const { title, desc } = getEnvStructureUi(view.structure, getGameState?.());
     const def = envStructureDefs[view.structure.defId];
     const span =
       Number.isFinite(view.structure?.span) && view.structure.span > 0
@@ -3503,19 +3682,19 @@ export function createBoardView(opts) {
     );
   }
 
-  function getEnvStructureUi(structureInst) {
+  function getEnvStructureUi(structureInst, state = getGameState?.()) {
     const def = envStructureDefs[structureInst.defId];
     const ui = def?.ui || {};
     const title =
       (typeof ui.title === "function"
-        ? ui.title(structureInst, def)
+        ? ui.title(structureInst, def, state)
         : ui.title) ||
       def?.name ||
       structureInst.defId ||
       "Structure";
     const desc =
       (typeof ui.description === "function"
-        ? ui.description(structureInst, def)
+        ? ui.description(structureInst, def, state)
         : ui.description) || "";
     const uiColor = ui?.color;
     const color = Number.isFinite(uiColor)
@@ -3533,15 +3712,16 @@ export function createBoardView(opts) {
     return processes.find((proc) => proc?.type === "build") ?? null;
   }
 
-  function getHubStructureUi(structureInst) {
+  function getHubStructureUi(structureInst, state = getGameState?.()) {
     const def = hubStructureDefs[structureInst.defId];
     const buildProcess = getBuildProcess(structureInst);
     if (buildProcess) {
+      const preserveStructureTitle = buildProcess?.preserveStructureTitle === true;
       const name = def?.name || structureInst.defId || "Structure";
       return {
         def,
-        title: `${name} (Construction)`,
-        lines: ["Build in progress."],
+        title: preserveStructureTitle ? name : `${name} (Construction)`,
+        lines: [preserveStructureTitle ? "Rebuilding..." : "Build in progress."],
         color: 0x6f6f6f,
         meters: [],
       };
@@ -3549,7 +3729,7 @@ export function createBoardView(opts) {
     const ui = def?.ui || {};
     const title =
       (typeof ui.title === "function"
-        ? ui.title(structureInst, def)
+        ? ui.title(structureInst, def, state)
         : ui.title) ||
       def?.name ||
       structureInst.defId;
@@ -3673,15 +3853,16 @@ export function createBoardView(opts) {
   function updateHubStructureViewUi(view, structureInst, opts = null) {
     if (!view || !structureInst) return false;
     const force = opts?.force === true;
-    const ui = getHubStructureUi(structureInst);
-    const buildActive = !!getBuildProcess(structureInst);
+    const buildProcess = getBuildProcess(structureInst);
+    const ui = getHubStructureUi(structureInst, getGameState?.());
+    const buildActive = !!buildProcess;
     const visibleLines = view.isHovered ? ui.lines : [];
     const signature = `${ui.title}|${visibleLines.join("|")}|${ui.color}|${
       view.isHovered ? 1 : 0
     }`;
     if (!force && signature === view.uiSignature) {
       if (view.cancelButton) {
-        view.cancelButton.visible = buildActive;
+        view.cancelButton.visible = buildActive && buildProcess?.allowCancel !== false;
       }
       if (view.ordersButton) {
         view.ordersButton.visible = !!view.isHovered;
@@ -3789,7 +3970,7 @@ export function createBoardView(opts) {
     );
 
     if (view.cancelButton) {
-      view.cancelButton.visible = buildActive;
+      view.cancelButton.visible = buildActive && buildProcess?.allowCancel !== false;
     }
 
     return true;
@@ -3800,7 +3981,7 @@ export function createBoardView(opts) {
   // --------------------------------------------------------
 
   function buildTileView(tileInst, col) {
-    const { title, color } = getTileUi(tileInst);
+    const { title, color } = getTileUi(tileInst, getGameState?.());
 
     const cont = new PIXI.Container();
     cont.eventMode = "static";
@@ -3955,7 +4136,12 @@ export function createBoardView(opts) {
       });
     });
 
-    const pos = layoutBoardColPos(app.screen.width, col, TILE_WIDTH, TILE_ROW_Y);
+    const pos = layoutBoardColPosForVisibleCols(
+      app.screen.width,
+      col,
+      TILE_WIDTH,
+      TILE_ROW_Y
+    );
     cont.x = pos.x;
     cont.y = pos.y;
 
@@ -3991,6 +4177,7 @@ export function createBoardView(opts) {
         hoverHoldMove: null,
         holdHoverForOccupant: false,
         occupantHoverHoldSec: 0,
+        childTooltipHoverActive: false,
       contentPaint,
       contentInk,
       content,
@@ -4060,6 +4247,14 @@ export function createBoardView(opts) {
   function updateTileView(view, tileInst, pawnCount) {
     view.tile = tileInst;
     view.pawnCount = pawnCount;
+    const ui = getTileUi(tileInst, getGameState?.());
+    if (view.cardFill && view.cardFillColor !== ui.color) {
+      view.cardFillColor = ui.color;
+      redrawTileCardVisuals(view);
+    }
+    if (view.titleText && view.titleText.text !== ui.title) {
+      view.titleText.text = ui.title;
+    }
     const signature = getVisibleTileTagSignature(tileInst);
     if (signature !== view.tagSignature) {
       tagUi?.rebuildTileTags?.(view, tileInst);
@@ -4311,8 +4506,13 @@ export function createBoardView(opts) {
 
     const startX =
       span > 1
-        ? getBoardColumnX(app.screen.width, col)
-        : layoutBoardColPos(app.screen.width, col, EVENT_WIDTH, EVENT_ROW_Y).x;
+        ? getBoardColumnXForVisibleCols(app.screen.width, col)
+        : layoutBoardColPosForVisibleCols(
+            app.screen.width,
+            col,
+            EVENT_WIDTH,
+            EVENT_ROW_Y
+          ).x;
     cont.x = startX;
     cont.y = EVENT_ROW_Y;
 
@@ -4398,7 +4598,7 @@ export function createBoardView(opts) {
   // --------------------------------------------------------
 
   function buildEnvStructureView(structureInst, col) {
-    const { def, title, desc, color } = getEnvStructureUi(structureInst);
+    const { def, title, desc, color } = getEnvStructureUi(structureInst, getGameState?.());
     const span =
       Number.isFinite(structureInst.span) && structureInst.span > 0
         ? Math.floor(structureInst.span)
@@ -4502,8 +4702,8 @@ export function createBoardView(opts) {
 
     const startX =
       span > 1
-        ? getBoardColumnX(app.screen.width, col)
-        : layoutBoardColPos(
+        ? getBoardColumnXForVisibleCols(app.screen.width, col)
+        : layoutBoardColPosForVisibleCols(
             app.screen.width,
             col,
             ENV_STRUCTURE_WIDTH,
@@ -4543,7 +4743,7 @@ export function createBoardView(opts) {
   function updateEnvStructureView(view, structureInst) {
     if (!view || !structureInst) return;
     view.structure = structureInst;
-    const { color, title, desc } = getEnvStructureUi(structureInst);
+    const { color, title, desc } = getEnvStructureUi(structureInst, getGameState?.());
     const def = envStructureDefs[structureInst.defId];
     const span =
       Number.isFinite(structureInst?.span) && structureInst.span > 0
@@ -4571,7 +4771,7 @@ export function createBoardView(opts) {
 
   function buildHubStructureView(structureInst, col, opts = {}) {
     const { title, lines, color, meters } =
-      getHubStructureUi(structureInst);
+      getHubStructureUi(structureInst, getGameState?.());
     const visibleLines = [];
     const span =
       Number.isFinite(structureInst.span) && structureInst.span > 0
@@ -4707,7 +4907,11 @@ export function createBoardView(opts) {
     cancelButton.cursor = "pointer";
     cancelButton.x = Math.max(6, width - 58);
     cancelButton.y = 6;
-    cancelButton.visible = !!getBuildProcess(structureInst);
+    {
+      const initialBuildProcess = getBuildProcess(structureInst);
+      cancelButton.visible =
+        !!initialBuildProcess && initialBuildProcess.allowCancel !== false;
+    }
 
     const cancelBg = new PIXI.Graphics()
       .beginFill(0x8a1f2a, 0.9)
@@ -4787,6 +4991,7 @@ export function createBoardView(opts) {
       expandedContentBottomY: 0,
       ignoreNextTagTap: false,
       tagDrag: null,
+      childTooltipHoverActive: false,
       holdHoverForOccupant: false,
       occupantHoverHoldSec: 0,
       hoverAnchor: null,
@@ -4886,8 +5091,8 @@ export function createBoardView(opts) {
 
     const pos =
       span > 1
-        ? { x: getHubColumnX(app.screen.width, col), y: HUB_STRUCTURE_ROW_Y }
-        : layoutHubColPos(
+        ? { x: getHubColumnXForVisibleCols(app.screen.width, col), y: HUB_STRUCTURE_ROW_Y }
+        : layoutHubColPosForVisibleCols(
             app.screen.width,
             col,
             HUB_STRUCTURE_WIDTH,
@@ -4937,6 +5142,7 @@ export function createBoardView(opts) {
     const pawnCounts = Array.isArray(pawnCountsByCol)
       ? pawnCountsByCol
       : getPawnCounts(state, cols, 0).env;
+    const screenWidth = getScreenWidthInt();
 
     for (let col = 0; col < cols; col++) {
       const tileInst = tileOcc?.[col] || null;
@@ -4965,14 +5171,36 @@ export function createBoardView(opts) {
 
       const activeView = tileViews[col];
       if (activeView) {
+        const pos = layoutBoardColPosForVisibleCols(
+          screenWidth,
+          col,
+          TILE_WIDTH,
+          TILE_ROW_Y,
+          cols
+        );
+        activeView.container.x = pos.x;
+        activeView.container.y = pos.y;
+        activeView.baseY = pos.y;
         updateTileView(activeView, tileInst, pawnCounts[col] || 0);
       }
     }
+
+    for (let col = cols; col < tileViews.length; col += 1) {
+      const view = tileViews[col];
+      if (!view) continue;
+      if (activeHover?.view === view) clearActiveHover(view);
+      clearTileRollFxForCol(col);
+      unregisterPaintForHoverView(view);
+      removeFromParent(view.container);
+      tileViews[col] = undefined;
+    }
+    tileViews.length = cols;
   }
 
   function syncEvents(state, cols) {
     const occ = state?.board?.occ?.event;
     const seen = new Set();
+    const screenWidth = getScreenWidthInt();
 
     syncEventSlots(cols);
 
@@ -5010,6 +5238,23 @@ export function createBoardView(opts) {
 
       const view = eventViews.get(id);
       if (view) {
+        const span =
+          Number.isFinite(eventInst?.span) && eventInst.span > 0
+            ? Math.floor(eventInst.span)
+            : 1;
+        const startX =
+          span > 1
+            ? getBoardColumnXForVisibleCols(screenWidth, col, cols)
+            : layoutBoardColPosForVisibleCols(
+                screenWidth,
+                col,
+                EVENT_WIDTH,
+                EVENT_ROW_Y,
+                cols
+              ).x;
+        view.container.x = startX;
+        view.container.y = EVENT_ROW_Y;
+        view.baseY = EVENT_ROW_Y;
         view.event = eventInst;
         updateEventRemaining(view, state);
       }
@@ -5028,6 +5273,7 @@ export function createBoardView(opts) {
   function syncEnvStructures(state, cols) {
     const occ = state?.board?.occ?.envStructure;
     const seen = new Set();
+    const screenWidth = getScreenWidthInt();
 
     syncEnvStructureSlots(cols);
 
@@ -5057,6 +5303,26 @@ export function createBoardView(opts) {
 
       const view = envStructureViews.get(id);
       if (view) {
+        const def = envStructureDefs[structureInst.defId];
+        const span =
+          Number.isFinite(structureInst?.span) && structureInst.span > 0
+            ? Math.floor(structureInst.span)
+            : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+            ? Math.floor(def.defaultSpan)
+            : 1;
+        const startX =
+          span > 1
+            ? getBoardColumnXForVisibleCols(screenWidth, col, cols)
+            : layoutBoardColPosForVisibleCols(
+                screenWidth,
+                col,
+                ENV_STRUCTURE_WIDTH,
+                ENV_STRUCTURE_ROW_Y,
+                cols
+              ).x;
+        view.container.x = startX;
+        view.container.y = ENV_STRUCTURE_ROW_Y;
+        view.baseY = ENV_STRUCTURE_ROW_Y;
         updateEnvStructureView(view, structureInst);
       }
     }
@@ -5081,7 +5347,7 @@ export function createBoardView(opts) {
       .endFill();
     cont.addChild(bg);
 
-    const pos = layoutBoardColPos(
+    const pos = layoutBoardColPosForVisibleCols(
       app.screen.width,
       col,
       EVENT_WIDTH,
@@ -5106,7 +5372,7 @@ export function createBoardView(opts) {
         view = buildEventSlotView(col);
         eventSlotViews[col] = view;
       } else {
-        const pos = layoutBoardColPos(
+        const pos = layoutBoardColPosForVisibleCols(
           screenWidth,
           col,
           EVENT_WIDTH,
@@ -5135,7 +5401,7 @@ export function createBoardView(opts) {
       .endFill();
     cont.addChild(bg);
 
-    const pos = layoutBoardColPos(
+    const pos = layoutBoardColPosForVisibleCols(
       app.screen.width,
       col,
       ENV_STRUCTURE_WIDTH,
@@ -5160,7 +5426,7 @@ export function createBoardView(opts) {
         view = buildEnvStructureSlotView(col);
         envStructureSlotViews[col] = view;
       } else {
-        const pos = layoutBoardColPos(
+        const pos = layoutBoardColPosForVisibleCols(
           screenWidth,
           col,
           ENV_STRUCTURE_WIDTH,
@@ -5223,7 +5489,7 @@ export function createBoardView(opts) {
     );
     cont.addChild(buildPlacementOverlay);
 
-    const pos = layoutHubColPos(
+    const pos = layoutHubColPosForVisibleCols(
       app.screen.width,
       col,
       HUB_STRUCTURE_WIDTH,
@@ -5260,7 +5526,7 @@ export function createBoardView(opts) {
         view = buildHubSlotView(col);
         hubSlotViews[col] = view;
       } else {
-        const pos = layoutHubColPos(
+        const pos = layoutHubColPosForVisibleCols(
           screenWidth,
           col,
           HUB_STRUCTURE_WIDTH,
@@ -5281,6 +5547,7 @@ export function createBoardView(opts) {
   function syncHubStructures(state, cols, pawnCountsByHub = null) {
     const occ = state?.hub?.occ;
     const seen = new Set();
+    const screenWidth = getScreenWidthInt();
     const pawnCounts = Array.isArray(pawnCountsByHub)
       ? pawnCountsByHub
       : getPawnCounts(state, 0, cols).hub;
@@ -5329,6 +5596,30 @@ export function createBoardView(opts) {
 
     for (const view of hubStructureViews.values()) {
       const col = Number.isFinite(view.col) ? view.col : 0;
+      const structure = view.structure;
+      const def = structure ? hubStructureDefs[structure.defId] : null;
+      const span =
+        Number.isFinite(structure?.span) && structure.span > 0
+          ? Math.floor(structure.span)
+          : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+          ? Math.floor(def.defaultSpan)
+          : 1;
+      const pos =
+        span > 1
+          ? {
+              x: getHubColumnXForVisibleCols(screenWidth, col, cols),
+              y: HUB_STRUCTURE_ROW_Y,
+            }
+          : layoutHubColPosForVisibleCols(
+              screenWidth,
+              col,
+              HUB_STRUCTURE_WIDTH,
+              HUB_STRUCTURE_ROW_Y,
+              cols
+            );
+      view.container.x = pos.x;
+      view.container.y = pos.y;
+      view.baseY = pos.y;
       view.pawnCount = pawnCounts[col] || 0;
       updateHubStructureViewUi(view, view.structure);
       if (view.meterViews.length > 0) {
@@ -5463,10 +5754,8 @@ export function createBoardView(opts) {
     lastProcessedGameEventId = getMaxEventFeedId(s?.gameEventFeed);
     if (!s?.board) return;
 
-    const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
-    const hubCols = Array.isArray(s?.hub?.slots)
-      ? s.hub.slots.length
-      : HUB_COLS;
+    const cols = getVisibleBoardCols(s);
+    const hubCols = getVisibleHubCols(s);
     ensureEventExpiryFxLayerAttached();
     const pawnCounts = getPawnCounts(s, cols, hubCols);
     syncEvents(s, cols);
@@ -5490,12 +5779,8 @@ export function createBoardView(opts) {
     const isPawnDrag = drag?.type === "pawn" && drag?.id != null;
     const pawnId = isPawnDrag ? drag.id : null;
     const state = getGameState?.();
-    const envCols = Number.isFinite(state?.board?.cols)
-      ? Math.floor(state.board.cols)
-      : BOARD_COLS;
-    const hubCols = Array.isArray(state?.hub?.slots)
-      ? state.hub.slots.length
-      : HUB_COLS;
+    const envCols = getVisibleBoardCols(state);
+    const hubCols = getVisibleHubCols(state);
 
     if (!isPawnDrag) {
       apAffordabilityCache.signature = "";
@@ -5603,10 +5888,8 @@ export function createBoardView(opts) {
       return;
     }
 
-    const cols = Number.isFinite(s.board.cols) ? s.board.cols : BOARD_COLS;
-    const hubCols = Array.isArray(s?.hub?.slots)
-      ? s.hub.slots.length
-      : HUB_COLS;
+    const cols = getVisibleBoardCols(s);
+    const hubCols = getVisibleHubCols(s);
     syncEventExpiryFxFromTimelineState(s, cols);
     const pawnCounts = getPawnCounts(s, cols, hubCols);
     syncEvents(s, cols);
@@ -5659,12 +5942,8 @@ export function createBoardView(opts) {
     ensureEventExpiryFxLayerAttached();
     const state = getGameState?.();
     if (state?.board) {
-      const cols = Number.isFinite(state.board.cols)
-        ? Math.floor(state.board.cols)
-        : BOARD_COLS;
-      const hubCols = Array.isArray(state?.hub?.slots)
-        ? state.hub.slots.length
-        : HUB_COLS;
+      const cols = getVisibleBoardCols(state);
+      const hubCols = getVisibleHubCols(state);
       syncAreaChrome(state, cols, hubCols);
     }
     lastProcessedGameEventId = Math.max(

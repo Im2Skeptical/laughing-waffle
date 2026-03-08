@@ -35,6 +35,15 @@ const DEFAULT_LOCATION_NAMES = Object.freeze({
   region: "Region",
   hub: "Hub",
 });
+const DEFAULT_DISCOVERY_ENTRY = Object.freeze({
+  exposed: true,
+  revealed: true,
+});
+const DEFAULT_DISCOVERY_STATE = Object.freeze({
+  envCols: [],
+  hubVisible: true,
+  hubRenameUnlocked: true,
+});
 
 // Board contract: layers.*.anchors are authoritative placements.
 // board.occ.* is derived in rebuildBoardOccupancy and stripped on serialize.
@@ -136,6 +145,83 @@ export function ensureLocationNamesState(state) {
     hub,
   };
   return state.locationNames;
+}
+
+export function ensureDiscoveryState(state) {
+  if (!state || typeof state !== "object") {
+    return {
+      envCols: [],
+      hubVisible: DEFAULT_DISCOVERY_STATE.hubVisible,
+      hubRenameUnlocked: DEFAULT_DISCOVERY_STATE.hubRenameUnlocked,
+    };
+  }
+  const raw =
+    state.discovery && typeof state.discovery === "object" && !Array.isArray(state.discovery)
+      ? state.discovery
+      : {};
+  const boardCols = Number.isFinite(state?.board?.cols)
+    ? Math.max(0, Math.floor(state.board.cols))
+    : 0;
+  const envCols = new Array(boardCols);
+  const rawEnvCols = Array.isArray(raw.envCols) ? raw.envCols : [];
+  for (let col = 0; col < boardCols; col++) {
+    const entry =
+      rawEnvCols[col] && typeof rawEnvCols[col] === "object" ? rawEnvCols[col] : null;
+    envCols[col] = {
+      exposed:
+        typeof entry?.exposed === "boolean"
+          ? entry.exposed
+          : DEFAULT_DISCOVERY_ENTRY.exposed,
+      revealed:
+        typeof entry?.revealed === "boolean"
+          ? entry.revealed
+          : DEFAULT_DISCOVERY_ENTRY.revealed,
+    };
+  }
+  state.discovery = {
+    envCols,
+    hubVisible:
+      typeof raw.hubVisible === "boolean"
+        ? raw.hubVisible
+        : DEFAULT_DISCOVERY_STATE.hubVisible,
+    hubRenameUnlocked:
+      typeof raw.hubRenameUnlocked === "boolean"
+        ? raw.hubRenameUnlocked
+        : DEFAULT_DISCOVERY_STATE.hubRenameUnlocked,
+  };
+  return state.discovery;
+}
+
+export function isEnvColExposed(state, envCol) {
+  const discovery = ensureDiscoveryState(state);
+  const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+  if (col == null || col < 0 || col >= discovery.envCols.length) return false;
+  return discovery.envCols[col]?.exposed === true;
+}
+
+export function isEnvColRevealed(state, envCol) {
+  const discovery = ensureDiscoveryState(state);
+  const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+  if (col == null || col < 0 || col >= discovery.envCols.length) return false;
+  return discovery.envCols[col]?.revealed === true;
+}
+
+export function getVisibleEnvColCount(state) {
+  const discovery = ensureDiscoveryState(state);
+  let count = 0;
+  for (const entry of discovery.envCols) {
+    if (entry?.exposed !== true) break;
+    count += 1;
+  }
+  return count;
+}
+
+export function isHubVisible(state) {
+  return ensureDiscoveryState(state).hubVisible === true;
+}
+
+export function isHubRenameUnlocked(state) {
+  return ensureDiscoveryState(state).hubRenameUnlocked === true;
 }
 
 export function ensureHubState(state) {
@@ -434,6 +520,14 @@ export function createEmptyState(seed = 123456789) {
     board: createBoardState(),
     hub: createHubState(),
     locationNames: { ...DEFAULT_LOCATION_NAMES },
+    discovery: {
+      envCols: new Array(BOARD_COLS).fill(null).map(() => ({
+        exposed: DEFAULT_DISCOVERY_ENTRY.exposed,
+        revealed: DEFAULT_DISCOVERY_ENTRY.revealed,
+      })),
+      hubVisible: DEFAULT_DISCOVERY_STATE.hubVisible,
+      hubRenameUnlocked: DEFAULT_DISCOVERY_STATE.hubRenameUnlocked,
+    },
     nextHubStructureInstanceId: 1,
     nextEnvStructureInstanceId: 1,
 
@@ -1025,6 +1119,7 @@ export function deserializeGameState(data) {
   if (state.envSlotsEnabled != null) delete state.envSlotsEnabled;
   if (!state.hub || typeof state.hub !== "object") state.hub = createHubState();
   ensureLocationNamesState(state);
+  ensureDiscoveryState(state);
   const pawns = ensurePawnCollectionState(state);
   if (!state.seasons) state.seasons = SEASONS;
   if (!state.ownerInventories) state.ownerInventories = {};
@@ -1059,6 +1154,7 @@ export function deserializeGameState(data) {
     }
   }
   ensureBoardState(state);
+  ensureDiscoveryState(state);
   ensureHubState(state);
   let nextFollowerIndex = Number.isFinite(state.nextFollowerCreationOrderIndex)
     ? Math.floor(state.nextFollowerCreationOrderIndex)

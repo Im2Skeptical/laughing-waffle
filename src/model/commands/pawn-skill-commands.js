@@ -2,7 +2,7 @@ import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC } from "../../defs/gamesettings/gamerules-defs.js";
 import { runEffect } from "../effects/index.js";
 import { adjustFollowerCount } from "../prestige-system.js";
-import { ensurePawnAI } from "../state.js";
+import { ensurePawnAI, isEnvColExposed, isHubVisible } from "../state.js";
 import { evaluateSkillNodeUnlock, getSkillNodeUnlockEffects } from "../skills.js";
 import { getApCapForSecond } from "./ap-helpers.js";
 import { getPawnById } from "./inventory-helpers.js";
@@ -130,6 +130,9 @@ export function cmdPlacePawn(state, payload = {}) {
   let nextHubCol = null;
 
   if (isEnvTarget) {
+    if (!isEnvColExposed(state, col)) {
+      return { ok: false, reason: "envColHidden" };
+    }
     const tile = state?.board?.occ?.tile?.[col] ?? null;
     if (!tile) return { ok: false, reason: "noTile" };
     const tags = Array.isArray(tile.tags) ? tile.tags : [];
@@ -142,6 +145,9 @@ export function cmdPlacePawn(state, payload = {}) {
     }
     nextEnvCol = col;
   } else {
+    if (!isHubVisible(state)) {
+      return { ok: false, reason: "hubHidden" };
+    }
     let hubTargetCol = col;
     const hubOcc = state?.hub?.occ;
     if (Array.isArray(hubOcc)) {

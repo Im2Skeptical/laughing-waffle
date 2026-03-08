@@ -18,6 +18,7 @@ import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
 import { ensureRecipePriorityState, getEnabledRecipeIds } from "./recipe-priority.js";
 import { computeGlobalSkillMods } from "./skills.js";
+import { isTagHidden } from "./tag-state.js";
 
 function chooseArticle(noun) {
   if (!noun || typeof noun !== "string") return "A";
@@ -139,6 +140,7 @@ function requirementsPass(requires, seasonKey, tile, hasPawn, isTagUnlocked = nu
     for (const tag of requiredTags) {
       if (!tileTags.includes(tag)) return false;
       if (isTagUnlocked && !isTagUnlocked(tag)) return false;
+      if (isTagHidden(tile, tag)) return false;
     }
   }
 
@@ -225,6 +227,7 @@ function buildIntentExecutionContexts(intent, baseContext, tile, state) {
 function isTagDisabled(tile, tagId, isTagUnlocked = null) {
   if (!tile || !tagId) return false;
   if (isTagUnlocked && !isTagUnlocked(tagId)) return true;
+  if (isTagHidden(tile, tagId)) return true;
   const entry = tile.tagStates?.[tagId];
   return entry?.disabled === true;
 }
@@ -318,7 +321,9 @@ function matchesTileWhere(tile, whereSpec, isTagUnlocked = null) {
 
   const tags = Array.isArray(tile.tags) ? tile.tags : [];
   const hasVisibleTag = (tag) =>
-    tags.includes(tag) && (!isTagUnlocked || isTagUnlocked(tag));
+    tags.includes(tag) &&
+    (!isTagUnlocked || isTagUnlocked(tag)) &&
+    !isTagHidden(tile, tag);
   const hasTag = whereSpec.hasTag;
   if (typeof hasTag === "string") {
     if (!hasVisibleTag(hasTag)) return false;

@@ -186,7 +186,8 @@ export const setupDefs = {
         "none"
       ],
       defaultUnlockedEnvTags: [
-        "none"
+        "explore",
+        "delve"
       ],
       defaultUnlockedHubTags: [
         "canRest", "build", "canHouse"
@@ -197,38 +198,90 @@ export const setupDefs = {
 
     resources: { gold: 0, grain: 0, food: 0, population: 0 },
 
+    locationNames: {
+      hub: "Ancient Ruins",
+    },
+
+    discovery: {
+      envCols: [
+        { exposed: true, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+      ],
+      hubVisible: false,
+      hubRenameUnlocked: false,
+    },
+
     board: {
       cols: 12,
       tiles: [
-        "tile_hinterland",
-        "tile_levee",
-        "tile_wetlands",
-        "tile_floodplains",
-        "tile_floodplains",
-        "tile_floodplains",
-        "tile_river",
-        "tile_floodplains",
-        "tile_floodplains",
-        "tile_wetlands",
-        "tile_levee",
-        "tile_hinterland",
+        { defId: "tile_hinterland", tags: ["explore", "forageable", "herdable"] },
+        { defId: "tile_levee", tags: ["explore", "delve", "forageable"] },
+        { defId: "tile_wetlands", tags: ["explore", "forageable", "fishable"] },
+        { defId: "tile_floodplains", tags: ["explore", "farmable", "forageable"] },
+        { defId: "tile_floodplains", tags: ["explore", "farmable", "forageable"] },
+        { defId: "tile_floodplains", tags: ["explore", "farmable", "forageable"] },
+        { defId: "tile_river", tags: ["explore", "fishable"] },
+        { defId: "tile_floodplains", tags: ["explore", "farmable", "forageable"] },
+        { defId: "tile_floodplains", tags: ["explore", "farmable", "forageable"] },
+        { defId: "tile_wetlands", tags: ["explore", "forageable", "fishable"] },
+        { defId: "tile_levee", tags: ["explore", "forageable"] },
+        { defId: "tile_hinterland", tags: ["explore", "forageable", "herdable"] },
       ],
-      envStructures: [{ defId: "hubPortal", col: 1 }],
+      envStructures: [{ defId: "ancientRuins", col: 1 }],
     },
 
     hub: {
       cols: 10,
       structures: [
-        { defId: "makeshiftShelter", hubCol: 4 },
-        //{ defId: "hearth", hubCol: 6 },
-
+        {
+          defId: "templeRuins",
+          hubCol: 4,
+          tags: ["build"],
+          systemTiers: {
+            build: "bronze",
+          },
+          systemState: {
+            build: {
+              processes: [
+                {
+                  id: "proc_templeRuins_rebuild_0",
+                  type: "build",
+                  mode: "work",
+                  startSec: 0,
+                  durationSec: 5,
+                  progress: 0,
+                  completionPolicy: "build",
+                  buildKind: "hubStructure",
+                  buildDefId: "makeshiftShelter",
+                  requirements: [],
+                  preserveStructureTitle: true,
+                  allowCancel: false,
+                  completionEffects: [
+                    { op: "SetLocationName", area: "hub", name: "Hub" },
+                    { op: "SetDiscoveryState", key: "hubRenameUnlocked", value: true },
+                  ],
+                },
+              ],
+            },
+          },
+        },
       ],
     },
 
     pawns: [
       { name: "Pawn 1", 
         color: 0xff9999, 
-        hubCol: 4, 
+        envCol: 0, 
         role: "leader", 
         skillPoints: 3,
         //unlockedSkillNodeIds: ["Astronomy", "Crafting", "Worship", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
@@ -241,14 +294,13 @@ export const setupDefs = {
       {
         owner: { type: "hubStructure", hubCol: 4 },
         items: [
+          { kind: "moteOfEternity", quantity: 1, gridX: 0, gridY: 0 },
+          { kind: "mysteriousAncientTome", quantity: 1, gridX: 1, gridY: 0 },
         ],
       },
       {
         owner: { type: "pawn", index: 0 },
-        items: [
-          { kind: "moteOfEternity", quantity: 1, gridX: 0, gridY: 0 },
-          { kind: "mysteriousAncientTome", quantity: 1, gridX: 1, gridY: 0 },
-        ],
+        items: [],
       },
     ],
   },

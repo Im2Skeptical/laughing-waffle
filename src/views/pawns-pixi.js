@@ -11,7 +11,11 @@
 
 import {
   BOARD_COLS,
+  BOARD_COL_WIDTH,
+  BOARD_COL_GAP,
   HUB_COLS,
+  HUB_COL_WIDTH,
+  HUB_COL_GAP,
   HUB_STRUCTURE_WIDTH,
   HUB_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_ROW_Y,
@@ -19,10 +23,7 @@ import {
   TILE_WIDTH,
   TILE_ROW_Y,
   CHARACTER_ROW_OFFSET_Y,
-  getBoardColumnCenterXs,
-  getHubColumnCenterXs,
-  layoutBoardColPos,
-  layoutHubStructurePos,
+  VIEW_LAYOUT,
   GAMEPIECE_HOVER_SCALE,
   GAMEPIECE_SHADOW_COLOR,
   GAMEPIECE_SHADOW_ALPHA,
@@ -34,6 +35,7 @@ import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { getVisibleEnvColCount, isEnvColRevealed, isHubVisible } from "../model/state.js";
 
 export function createPawnsView(opts) {
   const {
@@ -145,16 +147,16 @@ export function createPawnsView(opts) {
 
   function getEnvColsSafe() {
     const s = getStateSafe();
-    const cols = Number.isFinite(s?.board?.cols) ? Math.floor(s.board.cols) : null;
-    return cols != null ? cols : BOARD_COLS;
+    return getVisibleEnvColCount(s) || 0;
   }
 
   function getHubColsSafe() {
+    const s = getStateSafe();
+    if (!isHubVisible(s)) return 0;
     if (typeof getHubSlots === "function") {
       const slots = getHubSlots() || [];
       if (Array.isArray(slots) && slots.length > 0) return slots.length;
     }
-    const s = getStateSafe();
     const slots = s?.hub?.slots;
     if (Array.isArray(slots) && slots.length > 0) return slots.length;
     return HUB_COLS;
@@ -325,9 +327,53 @@ export function createPawnsView(opts) {
     return { envCol, hubCol };
   }
 
+  function resolveColumnStartX(screenWidth, totalWidth, anchorX, offsetX = 0) {
+    const width = Math.max(1, Math.floor(screenWidth));
+    const safeTotal = Math.max(0, Math.floor(totalWidth));
+    const anchor = String(anchorX || "left").toLowerCase();
+    if (anchor === "center" || anchor === "middle") {
+      return Math.round(width * 0.5 - safeTotal * 0.5 + offsetX);
+    }
+    if (anchor === "right" || anchor === "end") {
+      return Math.round(width - safeTotal + offsetX);
+    }
+    return Math.round(offsetX);
+  }
+
+  function getBoardColumnXForVisibleCols(screenWidth, col, cols) {
+    const safeCols = Math.max(0, Number.isFinite(cols) ? Math.floor(cols) : 0);
+    const totalWidth =
+      safeCols <= 0 ? 0 : safeCols * BOARD_COL_WIDTH + (safeCols - 1) * BOARD_COL_GAP;
+    return (
+      resolveColumnStartX(
+        screenWidth,
+        totalWidth,
+        VIEW_LAYOUT.playfield?.region?.anchorX || "center",
+        Number(VIEW_LAYOUT.playfield?.region?.offsetX || 0)
+      ) +
+      Math.max(0, Math.floor(col)) * (BOARD_COL_WIDTH + BOARD_COL_GAP)
+    );
+  }
+
+  function getHubColumnXForVisibleCols(screenWidth, col, cols) {
+    const safeCols = Math.max(0, Number.isFinite(cols) ? Math.floor(cols) : 0);
+    const totalWidth =
+      safeCols <= 0 ? 0 : safeCols * HUB_COL_WIDTH + (safeCols - 1) * HUB_COL_GAP;
+    return (
+      resolveColumnStartX(
+        screenWidth,
+        totalWidth,
+        VIEW_LAYOUT.playfield?.hub?.anchorX || "center",
+        Number(VIEW_LAYOUT.playfield?.hub?.offsetX || 0)
+      ) +
+      Math.max(0, Math.floor(col)) * (HUB_COL_WIDTH + HUB_COL_GAP)
+    );
+  }
+
   function formatTileName(envCol, state) {
     const col = Math.floor(envCol);
     const tile = state?.board?.occ?.tile?.[col];
+    if (!isEnvColRevealed(state, col)) return "???";
     const def = tile ? envTileDefs[tile.defId] : null;
     return def?.name || tile?.defId || `Tile ${col}`;
   }
@@ -345,9 +391,18 @@ export function createPawnsView(opts) {
 
   function getDropTargetCenterXs(envCols, hubCols) {
     const screenWidth = Math.max(1, Math.floor(app?.screen?.width ?? 1));
+    const envCenters = new Array(Math.max(0, envCols));
+    for (let col = 0; col < envCenters.length; col += 1) {
+      envCenters[col] = getBoardColumnXForVisibleCols(screenWidth, col, envCols) + TILE_WIDTH / 2;
+    }
+    const hubCenters = new Array(Math.max(0, hubCols));
+    for (let col = 0; col < hubCenters.length; col += 1) {
+      hubCenters[col] =
+        getHubColumnXForVisibleCols(screenWidth, col, hubCols) + HUB_STRUCTURE_WIDTH / 2;
+    }
     return {
-      envCenters: getBoardColumnCenterXs(screenWidth, envCols, TILE_WIDTH),
-      hubCenters: getHubColumnCenterXs(screenWidth, hubCols, HUB_STRUCTURE_WIDTH),
+      envCenters,
+      hubCenters,
     };
   }
 
@@ -452,9 +507,9 @@ export function createPawnsView(opts) {
       return { x: 200 + (hubCol ?? 0) * 220, y: 380 };
     }
 
-    const pos = layoutHubStructurePos(app.screen.width, hubCol);
-    const centerX = pos.x + HUB_STRUCTURE_WIDTH / 2;
-    const topY = pos.y;
+    const x = getHubColumnXForVisibleCols(app.screen.width, hubCol, cols);
+    const centerX = x + HUB_STRUCTURE_WIDTH / 2;
+    const topY = HUB_STRUCTURE_ROW_Y;
     return { x: centerX, y: topY - CHARACTER_ROW_OFFSET_Y };
   }
 
@@ -464,14 +519,9 @@ export function createPawnsView(opts) {
     if (!cols || envCol == null || envCol < 0 || envCol >= cols) {
       return { x: 200 + (envCol ?? 0) * 220, y: 220 };
     }
-    const pos = layoutBoardColPos(
-      app.screen.width,
-      envCol,
-      TILE_WIDTH,
-      TILE_ROW_Y
-    );
-    const centerX = pos.x + TILE_WIDTH / 2;
-    const topY = pos.y;
+    const x = getBoardColumnXForVisibleCols(app.screen.width, envCol, cols);
+    const centerX = x + TILE_WIDTH / 2;
+    const topY = TILE_ROW_Y;
     return { x: centerX, y: topY - CHARACTER_ROW_OFFSET_Y };
   }
 

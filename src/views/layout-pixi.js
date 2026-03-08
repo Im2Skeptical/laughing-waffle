@@ -472,6 +472,64 @@ export function getHubColumnCenterX(screenWidth, col) {
   return getHubColumnX(screenWidth, col) + HUB_COL_WIDTH / 2;
 }
 
+export function getBoardColumnXForVisibleCols(screenWidth, col, cols = BOARD_COLS) {
+  const count = Number.isFinite(cols) ? Math.max(0, Math.floor(cols)) : BOARD_COLS;
+  const totalWidth =
+    count <= 0 ? 0 : count * BOARD_COL_WIDTH + (count - 1) * BOARD_COL_GAP;
+  const rect = resolveAnchoredRect({
+    screenWidth,
+    screenHeight: VIEWPORT_DESIGN_HEIGHT,
+    width: totalWidth,
+    height: 0,
+    anchorX: REGION_LAYOUT.anchorX || "center",
+    anchorY: "top",
+    offsetX: toNumber(REGION_LAYOUT.offsetX, 0),
+    offsetY: 0,
+  });
+  return rect.x + Math.max(0, Math.floor(col)) * (BOARD_COL_WIDTH + BOARD_COL_GAP);
+}
+
+export function getHubColumnXForVisibleCols(screenWidth, col, cols = HUB_COLS) {
+  const count = Number.isFinite(cols) ? Math.max(0, Math.floor(cols)) : HUB_COLS;
+  const totalWidth =
+    count <= 0 ? 0 : count * HUB_COL_WIDTH + (count - 1) * HUB_COL_GAP;
+  const rect = resolveAnchoredRect({
+    screenWidth,
+    screenHeight: VIEWPORT_DESIGN_HEIGHT,
+    width: totalWidth,
+    height: 0,
+    anchorX: HUB_LAYOUT.anchorX || "center",
+    anchorY: "top",
+    offsetX: toNumber(HUB_LAYOUT.offsetX, 0),
+    offsetY: 0,
+  });
+  return rect.x + Math.max(0, Math.floor(col)) * (HUB_COL_WIDTH + HUB_COL_GAP);
+}
+
+export function getBoardColumnCenterXForVisibleCols(
+  screenWidth,
+  col,
+  cols = BOARD_COLS,
+  pieceWidth = BOARD_COL_WIDTH
+) {
+  const width = Number.isFinite(pieceWidth)
+    ? Math.max(1, Math.floor(pieceWidth))
+    : BOARD_COL_WIDTH;
+  return getBoardColumnXForVisibleCols(screenWidth, col, cols) + width * 0.5;
+}
+
+export function getHubColumnCenterXForVisibleCols(
+  screenWidth,
+  col,
+  cols = HUB_COLS,
+  pieceWidth = HUB_COL_WIDTH
+) {
+  const width = Number.isFinite(pieceWidth)
+    ? Math.max(1, Math.floor(pieceWidth))
+    : HUB_COL_WIDTH;
+  return getHubColumnXForVisibleCols(screenWidth, col, cols) + width * 0.5;
+}
+
 export function getBoardColumnCenterXs(
   screenWidth,
   cols = BOARD_COLS,
@@ -514,6 +572,38 @@ export function getHubColumnCenterXs(
   return values;
 }
 
+export function getBoardColumnCenterXsForVisibleCols(
+  screenWidth,
+  cols = BOARD_COLS,
+  pieceWidth = BOARD_COL_WIDTH
+) {
+  const count = Number.isFinite(cols) ? Math.max(0, Math.floor(cols)) : BOARD_COLS;
+  const width = Number.isFinite(pieceWidth)
+    ? Math.max(1, Math.floor(pieceWidth))
+    : BOARD_COL_WIDTH;
+  const values = new Array(count);
+  for (let col = 0; col < count; col++) {
+    values[col] = getBoardColumnCenterXForVisibleCols(screenWidth, col, count, width);
+  }
+  return values;
+}
+
+export function getHubColumnCenterXsForVisibleCols(
+  screenWidth,
+  cols = HUB_COLS,
+  pieceWidth = HUB_COL_WIDTH
+) {
+  const count = Number.isFinite(cols) ? Math.max(0, Math.floor(cols)) : HUB_COLS;
+  const width = Number.isFinite(pieceWidth)
+    ? Math.max(1, Math.floor(pieceWidth))
+    : HUB_COL_WIDTH;
+  const values = new Array(count);
+  for (let col = 0; col < count; col++) {
+    values[col] = getHubColumnCenterXForVisibleCols(screenWidth, col, count, width);
+  }
+  return values;
+}
+
 export function layoutBoardColPos(screenWidth, col, width, rowY) {
   const colX = getBoardColumnX(screenWidth, col);
   const w = width ?? BOARD_COL_WIDTH;
@@ -525,6 +615,24 @@ export function layoutBoardColPos(screenWidth, col, width, rowY) {
 
 export function layoutHubColPos(screenWidth, col, width, rowY) {
   const colX = getHubColumnX(screenWidth, col);
+  const w = width ?? HUB_COL_WIDTH;
+  return {
+    x: colX + (HUB_COL_WIDTH - w) / 2,
+    y: rowY,
+  };
+}
+
+export function layoutBoardColPosForVisibleCols(screenWidth, col, width, rowY, cols = BOARD_COLS) {
+  const colX = getBoardColumnXForVisibleCols(screenWidth, col, cols);
+  const w = width ?? BOARD_COL_WIDTH;
+  return {
+    x: colX + (BOARD_COL_WIDTH - w) / 2,
+    y: rowY,
+  };
+}
+
+export function layoutHubColPosForVisibleCols(screenWidth, col, width, rowY, cols = HUB_COLS) {
+  const colX = getHubColumnXForVisibleCols(screenWidth, col, cols);
   const w = width ?? HUB_COL_WIDTH;
   return {
     x: colX + (HUB_COL_WIDTH - w) / 2,

@@ -5,6 +5,9 @@ import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
+import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
+import { isEnvColRevealed, isHubVisible } from "../../model/state.js";
+import { isTagHidden } from "../../model/tag-state.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
 
@@ -65,11 +68,14 @@ function resolveEnvTarget(state, col) {
   const tile = state?.board?.occ?.tile?.[envCol] || null;
   if (!tile) return null;
   const def = envTileDefs?.[tile?.defId];
-  const title = def?.name || tile?.defId || `Tile ${envCol}`;
+  const title = isEnvColRevealed(state, envCol)
+    ? def?.name || tile?.defId || `Tile ${envCol}`
+    : "???";
   return { target: tile, col: envCol, title };
 }
 
 function resolveHubTarget(state, col) {
+  if (!isHubVisible(state)) return null;
   const hubCol = toSafeInt(col, -1);
   if (hubCol < 0) return null;
   const structure =
@@ -175,7 +181,15 @@ export function createTagOrdersPanel(opts = {}) {
     const rowsModel = [];
     for (const tagId of tags) {
       if (typeof tagId !== "string" || tagId.length <= 0) continue;
-      if (isUnlocked?.(tagId) !== true) continue;
+      if (
+        kind === "env"
+          ? isDiscoveryAlwaysVisibleEnvTag(tagId) !== true && isUnlocked?.(tagId) !== true
+          : isUnlocked?.(tagId) !== true
+      ) {
+        continue;
+      }
+      if (kind === "env" && !isEnvColRevealed(state, col) && tagId !== "explore") continue;
+      if (isTagHidden(target, tagId)) continue;
       const tagName = defs?.[tagId]?.ui?.name || tagId;
       const disabled = target?.tagStates?.[tagId]?.disabled === true;
       rowsModel.push({ tagId, tagName, disabled });
