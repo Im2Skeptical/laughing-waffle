@@ -275,7 +275,7 @@ export const VIEW_LAYOUT = {
       anchorX: "center",
       offsetX: 0,
       anchorY: "top",
-      offsetY: 664,
+      offsetY: 690,
       cols: 10,
       colWidth: 112,
       colGap: 8,

@@ -4117,10 +4117,11 @@ export function createBoardView(opts) {
       Number.isFinite(view.descText?.y) && Number.isFinite(view.descText?.height)
         ? view.descText.y + view.descText.height
         : 8;
-    const remainingBottom =
-      Number.isFinite(view.remainingText?.y) && Number.isFinite(view.remainingText?.height)
-        ? view.remainingText.y + view.remainingText.height
-        : descBottom;
+    const remainingHeight = Number.isFinite(view.remainingText?.height)
+      ? view.remainingText.height
+      : 0;
+    const remainingFlowBottom = descBottom + 2 + remainingHeight;
+    const remainingBottom = Math.max(descBottom, remainingFlowBottom);
     const requiredBottom = Math.max(baseHeight, descBottom, remainingBottom) + CARD_BOTTOM_PAD;
     view.hoverInfoBottomY = requiredBottom;
     view.cardHeightTarget = view.isHovered ? requiredBottom : baseHeight;
