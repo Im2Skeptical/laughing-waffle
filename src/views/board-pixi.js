@@ -3251,7 +3251,7 @@ export function createBoardView(opts) {
   }
 
   function dispatchTagOrder(envCol, tagIds) {
-    const run = () => {
+    const runWhenPaused = () => {
       const tileName = getTileNameByCol(envCol);
       const ghostSpec = {
         description: `Tags > ${tileName} reorder`,
@@ -3275,33 +3275,42 @@ export function createBoardView(opts) {
       }
       return res ?? { ok: true };
     };
+    const runWhenLive = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      return dispatchAction(
+        ActionKinds.SET_TILE_TAG_ORDER,
+        { envCol, tagIds },
+        { apCost: getTilePlanCost() }
+      );
+    };
     if (typeof queueActionWhenPaused === "function") {
-      return queueActionWhenPaused(run);
+      return queueActionWhenPaused({ runWhenPaused, runWhenLive });
     }
     if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
       return { ok: false, reason: "mustBePaused" };
     }
-    return run();
+    return runWhenPaused();
   }
 
   function dispatchTileTagToggle({ envCol, tagId, disabled } = {}) {
     if (!isEnvTagVisible(tagId)) return { ok: false, reason: "tagLocked" };
-    const run = () => {
+    const resolveNextDisabled = () => {
+      let nextDisabled = disabled;
+      if (typeof nextDisabled === "boolean") return nextDisabled;
+      if (actionPlanner?.getTileTagTogglePreview) {
+        const cur = actionPlanner.getTileTagTogglePreview({ envCol, tagId });
+        return cur == null ? true : !cur;
+      }
+      const state = getGameState?.();
+      const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
+      const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
+      const cur = tile?.tagStates?.[tagId]?.disabled === true;
+      return !cur;
+    };
+    const runWhenPaused = () => {
       const tileName = getTileNameByCol(envCol);
       const tagName = envTagDefs?.[tagId]?.ui?.name || tagId || "Tag";
-      let nextDisabled = disabled;
-      if (typeof nextDisabled !== "boolean") {
-        if (actionPlanner?.getTileTagTogglePreview) {
-          const cur = actionPlanner.getTileTagTogglePreview({ envCol, tagId });
-          nextDisabled = cur == null ? true : !cur;
-        } else {
-          const state = getGameState?.();
-          const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
-          const tile = col != null ? state?.board?.occ?.tile?.[col] : null;
-          const cur = tile?.tagStates?.[tagId]?.disabled === true;
-          nextDisabled = !cur;
-        }
-      }
+      const nextDisabled = resolveNextDisabled();
       if (actionPlanner?.setTileTagToggleIntent) {
         const res = actionPlanner.setTileTagToggleIntent({
           envCol,
@@ -3334,13 +3343,21 @@ export function createBoardView(opts) {
       }
       return res ?? { ok: true };
     };
+    const runWhenLive = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      return dispatchAction(
+        ActionKinds.TOGGLE_TILE_TAG,
+        { envCol, tagId, disabled: resolveNextDisabled() },
+        { apCost: getTilePlanCost() }
+      );
+    };
     if (typeof queueActionWhenPaused === "function") {
-      return queueActionWhenPaused(run);
+      return queueActionWhenPaused({ runWhenPaused, runWhenLive });
     }
     if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
       return { ok: false, reason: "mustBePaused" };
     }
-    return run();
+    return runWhenPaused();
   }
   // Tag + system UI helpers live in board/board-tag-ui.js.
 
@@ -3349,7 +3366,7 @@ export function createBoardView(opts) {
   }
 
   function dispatchHubTagOrder(hubCol, tagIds) {
-    const run = () => {
+    const runWhenPaused = () => {
       if (actionPlanner?.setHubTagOrderIntent) {
         return actionPlanner.setHubTagOrderIntent({ hubCol, tagIds });
       }
@@ -3361,56 +3378,72 @@ export function createBoardView(opts) {
       );
       return { ok: true };
     };
+    const runWhenLive = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      return dispatchAction(
+        ActionKinds.SET_HUB_TAG_ORDER,
+        { hubCol, tagIds },
+        { apCost: getHubPlanCost() }
+      );
+    };
     if (typeof queueActionWhenPaused === "function") {
-      return queueActionWhenPaused(run);
+      return queueActionWhenPaused({ runWhenPaused, runWhenLive });
     }
     if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
       return { ok: false, reason: "mustBePaused" };
     }
-    return run();
+    return runWhenPaused();
   }
 
   function dispatchHubTagToggle({ hubCol, tagId, disabled } = {}) {
     if (!isHubTagVisible(tagId)) return { ok: false, reason: "tagLocked" };
-    const run = () => {
+    const resolveNextDisabled = () => {
       let nextDisabled = disabled;
-      if (typeof nextDisabled !== "boolean") {
-        if (actionPlanner?.getHubTagTogglePreview) {
-          const cur = actionPlanner.getHubTagTogglePreview({ hubCol, tagId });
-          nextDisabled = cur == null ? true : !cur;
-        } else {
-          const state = getGameState?.();
-          const col = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
-          const structure =
-            col != null
-              ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure
-              : null;
-          const cur = structure?.tagStates?.[tagId]?.disabled === true;
-          nextDisabled = !cur;
-        }
+      if (typeof nextDisabled === "boolean") return nextDisabled;
+      if (actionPlanner?.getHubTagTogglePreview) {
+        const cur = actionPlanner.getHubTagTogglePreview({ hubCol, tagId });
+        return cur == null ? true : !cur;
       }
+      const state = getGameState?.();
+      const col = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
+      const structure =
+        col != null
+          ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure
+          : null;
+      const cur = structure?.tagStates?.[tagId]?.disabled === true;
+      return !cur;
+    };
+    const runWhenPaused = () => {
       if (actionPlanner?.setHubTagToggleIntent) {
         return actionPlanner.setHubTagToggleIntent({
           hubCol,
           tagId,
-          disabled: nextDisabled,
+          disabled: resolveNextDisabled(),
         });
       }
       if (!dispatchAction) return { ok: false, reason: "noDispatch" };
       dispatchAction(
         ActionKinds.TOGGLE_HUB_TAG,
-        { hubCol, tagId, disabled: nextDisabled },
+        { hubCol, tagId, disabled: resolveNextDisabled() },
         { apCost: 5 }
       );
       return { ok: true };
     };
+    const runWhenLive = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      return dispatchAction(
+        ActionKinds.TOGGLE_HUB_TAG,
+        { hubCol, tagId, disabled: resolveNextDisabled() },
+        { apCost: getHubPlanCost() }
+      );
+    };
     if (typeof queueActionWhenPaused === "function") {
-      return queueActionWhenPaused(run);
+      return queueActionWhenPaused({ runWhenPaused, runWhenLive });
     }
     if (interaction?.isPlanningPhase && !interaction.isPlanningPhase()) {
       return { ok: false, reason: "mustBePaused" };
     }
-    return run();
+    return runWhenPaused();
   }
 
   function endHubTagDrag(view, commit, globalPos = null) {

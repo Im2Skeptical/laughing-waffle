@@ -42,6 +42,8 @@ export function createDebugOverlay({
   onLoadScenario,
   onOpenSystemGraph,
   onToggleApGraph,
+  onToggleAutoPauseOnPlayerAction,
+  getAutoPauseOnPlayerActionEnabled,
   onToggleFullscreen,
   isFullscreenAvailable,
   getIsFullscreen,
@@ -434,6 +436,13 @@ export function createDebugOverlay({
   });
 
   addSectionTitle("Tools");
+  const autoPauseBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    label: "Autopause On Action: OFF",
+  });
+  cursorY += 28;
   const graphBtn = createButton({
     x: CONTENT_X,
     y: cursorY,
@@ -456,6 +465,9 @@ export function createDebugOverlay({
   });
   cursorY += 32;
 
+  autoPauseBtn.container.on("pointerdown", () =>
+    onToggleAutoPauseOnPlayerAction?.()
+  );
   graphBtn.container.on("pointerdown", () => onOpenSystemGraph?.());
   apGraphBtn.container.on("pointerdown", () => onToggleApGraph?.());
   clearTimelineBtn.container.on("pointerdown", () => onClearTimeline?.());
@@ -738,6 +750,16 @@ export function createDebugOverlay({
 
       updatePerfRows();
       updateParityRow();
+
+      const autoPauseEnabled =
+        typeof getAutoPauseOnPlayerActionEnabled === "function"
+          ? getAutoPauseOnPlayerActionEnabled() === true
+          : false;
+      autoPauseBtn.text.text = `Autopause On Action: ${
+        autoPauseEnabled ? "ON" : "OFF"
+      }`;
+      autoPauseBtn.text.x = Math.round((autoPauseBtn.width - autoPauseBtn.text.width) * 0.5);
+      autoPauseBtn.bg.tint = autoPauseEnabled ? 0x2f9b4c : 0xffffff;
     },
   };
 }

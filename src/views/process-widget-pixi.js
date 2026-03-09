@@ -1534,7 +1534,7 @@ export function createProcessWidgetView({
       cost: descriptor.targetKind === "env" ? getTilePlanCost() : getHubPlanCost(),
     };
 
-    const run = () => {
+    const runWhenPaused = () => {
       if (descriptor.targetKind === "env") {
         const envCol = getEnvCol(target);
         if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
@@ -1601,11 +1601,31 @@ export function createProcessWidgetView({
       }
       return res ?? { ok: true };
     };
+    const runWhenLive = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      if (descriptor.targetKind === "env") {
+        const envCol = getEnvCol(target);
+        if (!Number.isFinite(envCol)) return { ok: false, reason: "badEnvCol" };
+        return dispatchAction(
+          ActionKinds.TOGGLE_TILE_TAG,
+          { envCol, tagId: descriptor.tagId, disabled: nextDisabled },
+          { apCost: getTilePlanCost() }
+        );
+      }
+
+      const hubCol = getHubCol(target);
+      if (!Number.isFinite(hubCol)) return { ok: false, reason: "badHubCol" };
+      return dispatchAction(
+        ActionKinds.TOGGLE_HUB_TAG,
+        { hubCol, tagId: descriptor.tagId, disabled: nextDisabled },
+        { apCost: getHubPlanCost() }
+      );
+    };
 
     const result =
       typeof queueActionWhenPaused === "function"
-        ? queueActionWhenPaused(run)
-        : run();
+        ? queueActionWhenPaused({ runWhenPaused, runWhenLive })
+        : runWhenPaused();
     invalidateAllSignatures();
     return result;
   }

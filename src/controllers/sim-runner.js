@@ -29,7 +29,7 @@ import {
   syncPhaseToPaused,
   getCurrentSeasonKey,
 } from "../model/state.js";
-import { applyAction } from "../model/actions.js";
+import { ActionKinds, applyAction } from "../model/actions.js";
 import { canonicalizeSnapshot } from "../model/canonicalize.js";
 import {
   clonePersistentKnowledge,
@@ -181,12 +181,14 @@ export function createSimRunner({
     if (!timeline) return { ok: false, reason: "noTimeline" };
     const sec = Math.max(0, Math.floor(tSec ?? 0));
     const historyEndSec = Math.floor(timeline.historyEndSec ?? 0);
+    const revision = Math.floor(timeline.revision ?? 0);
     const baseRef = timeline.baseStateData;
 
     if (
       plannerBoundaryCache &&
       plannerBoundaryCache.tSec === sec &&
       plannerBoundaryCache.historyEndSec === historyEndSec &&
+      plannerBoundaryCache.revision === revision &&
       plannerBoundaryCache.baseStateDataRef === baseRef &&
       plannerBoundaryCache.stateData != null
     ) {
@@ -210,6 +212,7 @@ export function createSimRunner({
     plannerBoundaryCache = {
       tSec: sec,
       historyEndSec,
+      revision,
       baseStateDataRef: baseRef,
       stateData,
     };
@@ -462,12 +465,30 @@ export function createSimRunner({
     syncPhaseToPaused(cursorState);
 
     seekPlaybackIndex(desiredSec);
-    playbackActive = desiredSec < Math.floor(timeline.historyEndSec ?? 0);
+    playbackActive = desiredSec < getPlaybackCeilingSec();
     actionPlanner.resetToTimeline?.();
 
     onRebuildViews?.("saveLoad");
     onInvalidate?.("saveLoad");
     return { ok: true, meta };
+  }
+
+  function getLastTimelineActionSec() {
+    const actions = Array.isArray(timeline?.actions) ? timeline.actions : [];
+    if (!actions.length) return -1;
+    return Math.max(0, Math.floor(actions[actions.length - 1]?.tSec ?? -1));
+  }
+
+  function getPlaybackCeilingSec() {
+    const historyEndSec = Math.max(0, Math.floor(timeline?.historyEndSec ?? 0));
+    return Math.max(historyEndSec, getLastTimelineActionSec());
+  }
+
+  function isImmediateActionKind(kind) {
+    return (
+      kind === ActionKinds.DEBUG_SET_CAP ||
+      kind === ActionKinds.DEBUG_QUEUE_ENV_EVENT
+    );
   }
 
   function seekPlaybackIndex(targetSec) {
@@ -592,7 +613,7 @@ export function createSimRunner({
     }
     syncTimelineMaxReachedHistoryEndSec(t);
 
-    playbackActive = t < prevHistoryEnd;
+    playbackActive = t < Math.max(prevHistoryEnd, getLastTimelineActionSec());
     seekPlaybackIndex(t);
 
     if (typeof opts.paused === "boolean") {
@@ -795,6 +816,104 @@ export function createSimRunner({
       return Array.isArray(list) ? list : [];
     }
     return (tl.actions || []).filter((action) => Math.floor(action.tSec ?? 0) === sec);
+  }
+
+  function validateReplayActionsAtSecond(tSec, orderedActionsAtSec, reason = "schedule") {
+    const boundaryRes = getPlannerBoundaryStateData(tSec);
+    if (!boundaryRes?.ok || boundaryRes?.stateData == null) {
+      return {
+        ok: false,
+        reason: boundaryRes?.reason ?? "boundaryMissing",
+        detail: boundaryRes?.detail ?? null,
+      };
+    }
+
+    const validationState = deserializeGameState(boundaryRes.stateData);
+    canonicalizeSnapshot(validationState);
+    validationState.paused = false;
+
+    for (const action of orderedActionsAtSec) {
+      const res = applyAction(validationState, action, { isReplay: true });
+      if (res?.ok) continue;
+      return {
+        ok: false,
+        reason: res?.reason ?? "actionFailed",
+        detail: res?.detail ?? res ?? null,
+        tSec,
+        commitReason: reason,
+      };
+    }
+
+    return { ok: true };
+  }
+
+  function scheduleActionsAtSecond(actionsAtSec, tSec, opts = {}) {
+    if (!timeline || !cursorState) return { ok: false, reason: "noState" };
+    const sec = Math.max(0, Math.floor(tSec ?? 0));
+    const gate = getEditWindowStatusForSecond(sec);
+    if (!gate.ok) {
+      return {
+        ok: false,
+        reason: gate.reason,
+        ...gate,
+      };
+    }
+
+    const scheduledActions = (Array.isArray(actionsAtSec) ? actionsAtSec : [])
+      .filter((action) => action && typeof action === "object" && action.kind)
+      .map((action) => ({
+        ...action,
+        tSec: sec,
+      }));
+    if (!scheduledActions.length) {
+      return { ok: false, reason: "noActions" };
+    }
+
+    const existingAtSec = getActionsAtSecond(timeline, sec);
+    const orderedAtSec = existingAtSec.concat(scheduledActions);
+    const validation = validateReplayActionsAtSecond(
+      sec,
+      orderedAtSec,
+      opts.reason || "schedule"
+    );
+    if (!validation?.ok) return validation;
+
+    const replaceRes = replaceActionsAtSecond(timeline, sec, orderedAtSec, {
+      truncateFuture: false,
+    });
+    if (!replaceRes?.ok) return replaceRes || { ok: false, reason: "replace" };
+
+    clearPlannerBoundaryCache();
+    seekPlaybackIndex(Math.floor(cursorState.tSec ?? 0));
+    playbackActive = Math.floor(cursorState.tSec ?? 0) < getPlaybackCeilingSec();
+
+    onRebuildViews?.("actionScheduled");
+    onInvalidate?.("actionScheduled");
+
+    return {
+      ok: true,
+      scheduled: true,
+      tSec: sec,
+      count: scheduledActions.length,
+    };
+  }
+
+  function scheduleActionsAtNextSecond(actionsAtSec, opts = {}) {
+    const currentSec = Math.max(0, Math.floor(cursorState?.tSec ?? 0));
+    return scheduleActionsAtSecond(actionsAtSec, currentSec + 1, opts);
+  }
+
+  function scheduleActionAtNextSecond(kind, payload, opts = {}) {
+    return scheduleActionsAtNextSecond(
+      [
+        {
+          kind,
+          payload,
+          apCost: opts.apCost,
+        },
+      ],
+      opts
+    );
   }
 
   function commitPlannerActions(reason) {
@@ -1113,10 +1232,10 @@ export function createSimRunner({
         // --- LIVE REPLAY INJECTION ---
         if (!isPhysicallyPaused && playbackActive) {
           const simStep = Math.floor(cursorState.simStepIndex ?? 0);
-          const historyEnd = timeline.historyEndSec ?? 0;
+          const playbackCeilingSec = getPlaybackCeilingSec();
           const currentTSec = Math.floor(simStep / TICKS_PER_SEC);
 
-          if (currentTSec > historyEnd) {
+          if (currentTSec > playbackCeilingSec) {
             playbackActive = false;
           }
 
@@ -1191,6 +1310,15 @@ export function createSimRunner({
       }
 
       dragPreviewState = null;
+      if (!cursorState?.paused && !isImmediateActionKind(kind)) {
+        return finishDispatch(
+          scheduleActionAtNextSecond(kind, payload, {
+            apCost: opts.apCost,
+            reason: "dispatchLive",
+          })
+        );
+      }
+
       const tSec = Math.floor(cursorState.tSec ?? 0);
       const gate = getEditWindowStatusForSecond(tSec);
       if (!gate.ok) {
@@ -1257,6 +1385,7 @@ export function createSimRunner({
       if (!rec.ok) return finishDispatch(rec);
 
       seekPlaybackIndex(tSec);
+      playbackActive = tSec < getPlaybackCeilingSec();
       maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
       syncTimelineMaxReachedHistoryEndSec();
 
@@ -1395,6 +1524,8 @@ export function createSimRunner({
     },
     isPausePending: () => !!pauseRequested,
     getActionPlanner: () => actionPlanner,
+    scheduleActionAtNextSecond,
+    scheduleActionsAtNextSecond,
     clearPlannerActionsAtCursor,
     saveToSlot,
     loadFromSlot,

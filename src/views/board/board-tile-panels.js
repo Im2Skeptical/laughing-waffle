@@ -63,7 +63,7 @@ export function createTilePanels(opts) {
             )
           ),
         };
-        const run = () => {
+        const runWhenPaused = () => {
           if (actionPlanner?.setTileCropSelectionIntent) {
             const res = actionPlanner.setTileCropSelectionIntent({
               envCol,
@@ -86,11 +86,26 @@ export function createTilePanels(opts) {
           );
           return { ok: true };
         };
+        const runWhenLive = () => {
+          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+          return dispatchAction(
+            ActionKinds.SET_TILE_CROP_SELECTION,
+            { envCol, cropId: nextCrop },
+            {
+              apCost: Math.max(
+                0,
+                Math.floor(
+                  INTENT_AP_COSTS?.tilePlan ?? INTENT_AP_COSTS?.tileCropSelect ?? 0
+                )
+              ),
+            }
+          );
+        };
         if (typeof queueActionWhenPaused === "function") {
-          queueActionWhenPaused(run);
+          queueActionWhenPaused({ runWhenPaused, runWhenLive });
           return;
         }
-        run();
+        runWhenPaused();
       },
     });
   }

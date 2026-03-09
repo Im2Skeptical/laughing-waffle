@@ -7,7 +7,7 @@
   "scripts": {
     "start": "serve",
     "build": "node scripts/build-check.mjs",
-    "test": "node scripts/test-defs.mjs && node scripts/test-process-dropbox.mjs && node scripts/test-process-requirement-availability.mjs && node scripts/test-consume-item-basket.mjs && node scripts/test-env-intent-fallback.mjs && node scripts/test-event-log-controller.mjs && node scripts/test-hosting-paths.mjs && node scripts/test-playfield-shader-uniforms.mjs && node scripts/test-build-upgrades.mjs && node scripts/test-dev-playtesting-sequence.mjs && node scripts/test-timeline-scrub-regressions.mjs && node scripts/test-skill-feature-unlocks.mjs",
+    "test": "node scripts/test-defs.mjs && node scripts/test-process-dropbox.mjs && node scripts/test-process-requirement-availability.mjs && node scripts/test-consume-item-basket.mjs && node scripts/test-env-intent-fallback.mjs && node scripts/test-event-log-controller.mjs && node scripts/test-hosting-paths.mjs && node scripts/test-playfield-shader-uniforms.mjs && node scripts/test-build-upgrades.mjs && node scripts/test-dev-playtesting-sequence.mjs && node scripts/test-timeline-scrub-regressions.mjs && node scripts/test-skill-feature-unlocks.mjs && node scripts/test-live-action-scheduling.mjs",
     "verify": "npm run test && npm run build",
     "skill:apply-export": "node scripts/apply-skill-editor-export.mjs"
   },

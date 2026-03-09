@@ -101,7 +101,7 @@ export function createHubPanels(opts) {
           cost: getHubPlanCost(),
         };
 
-        const run = () => {
+        const runWhenPaused = () => {
           const sameSelection = (selectedId ?? null) === (nextRecipe ?? null);
           if (sameSelection) {
             if (!dispatchAction) return { ok: false, reason: "noDispatch" };
@@ -134,12 +134,21 @@ export function createHubPanels(opts) {
           );
           return { ok: true };
         };
+        const runWhenLive = () => {
+          if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+          const sameSelection = (selectedId ?? null) === (nextRecipe ?? null);
+          return dispatchAction(
+            ActionKinds.SET_HUB_RECIPE_SELECTION,
+            { hubCol, systemId, recipeId: nextRecipe },
+            { apCost: sameSelection ? 0 : getHubPlanCost() }
+          );
+        };
 
         if (typeof queueActionWhenPaused === "function") {
-          queueActionWhenPaused(run);
+          queueActionWhenPaused({ runWhenPaused, runWhenLive });
           return;
         }
-        run();
+        runWhenPaused();
       },
     });
   }

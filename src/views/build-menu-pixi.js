@@ -3,6 +3,7 @@
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { INTENT_AP_COSTS } from "../defs/gamesettings/action-costs-defs.js";
+import { ActionKinds } from "../model/actions.js";
 import { computeAvailableRecipesAndBuildings } from "../model/skills.js";
 import {
   HUB_COLS,
@@ -69,6 +70,7 @@ export function createBuildMenuView(opts) {
     actionPlanner,
     queueActionWhenPaused,
     requestPauseForAction,
+    scheduleActionsAtNextSecond,
     flashActionGhost,
   } = opts;
 
@@ -274,7 +276,7 @@ export function createBuildMenuView(opts) {
     const buildKey = `hub:${col}`;
     const target = { hubCol: col };
 
-    const run = () => {
+    const runWhenPaused = () => {
       let moveSet = false;
       let moveRes = { ok: true };
       if (!alreadyThere) {
@@ -310,11 +312,43 @@ export function createBuildMenuView(opts) {
       activeBuildDefId = null;
       return buildRes;
     };
+    const runWhenLive = () => {
+      if (typeof scheduleActionsAtNextSecond !== "function") {
+        return { ok: false, reason: "noScheduleActions" };
+      }
+      const actions = [];
+      if (!alreadyThere) {
+        actions.push({
+          kind: ActionKinds.PLACE_PAWN,
+          payload: {
+            pawnId: leader.id,
+            toHubCol: col,
+          },
+          apCost: INTENT_AP_COSTS?.pawnMove ?? 0,
+        });
+      }
+      actions.push({
+        kind: ActionKinds.BUILD_DESIGNATE,
+        payload: {
+          buildKey,
+          defId,
+          target,
+        },
+        apCost: INTENT_AP_COSTS?.buildDesignate ?? 0,
+      });
+      const res = scheduleActionsAtNextSecond(actions, {
+        reason: "buildMenuLive",
+      });
+      if (res?.ok) {
+        activeBuildDefId = null;
+      }
+      return res;
+    };
 
     if (typeof queueActionWhenPaused === "function") {
-      return queueActionWhenPaused(run);
+      return queueActionWhenPaused({ runWhenPaused, runWhenLive });
     }
-    return run();
+    return runWhenPaused();
   }
 
   function onStagePointerDown(ev) {

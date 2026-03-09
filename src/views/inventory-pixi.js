@@ -16,6 +16,7 @@ import {
   LEADER_EQUIPMENT_SLOT_LABELS,
   LEADER_EQUIPMENT_SLOT_ORDER,
 } from "../defs/gamesystems/equipment-slot-defs.js";
+import { ActionKinds } from "../model/actions.js";
 import {
   PRESTIGE_COST_PER_FOLLOWER,
   HUNGER_THRESHOLD,
@@ -243,6 +244,7 @@ export function createInventoryView({
   adjustFollowerCount,
   queueActionWhenPaused,
   requestPauseForAction,
+  scheduleActionsAtNextSecond,
   setApDragWarning,
   discardItemFromOwner,
   flashActionGhost,
@@ -1940,7 +1942,7 @@ export function createInventoryView({
     const buildKey = `hub:${col}`;
     const target = { hubCol: col };
 
-    const run = () => {
+    const runWhenPaused = () => {
       let moveSet = false;
       let moveRes = { ok: true };
       if (!alreadyThere) {
@@ -1976,11 +1978,43 @@ export function createInventoryView({
       clearActiveBuildForOwner(ownerId);
       return buildRes;
     };
+    const runWhenLive = () => {
+      if (typeof scheduleActionsAtNextSecond !== "function") {
+        return { ok: false, reason: "noScheduleActions" };
+      }
+      const actions = [];
+      if (!alreadyThere) {
+        actions.push({
+          kind: ActionKinds.PLACE_PAWN,
+          payload: {
+            pawnId: leader.id,
+            toHubCol: col,
+          },
+          apCost: INTENT_AP_COSTS?.pawnMove ?? 0,
+        });
+      }
+      actions.push({
+        kind: ActionKinds.BUILD_DESIGNATE,
+        payload: {
+          buildKey,
+          defId,
+          target,
+        },
+        apCost: INTENT_AP_COSTS?.buildDesignate ?? 0,
+      });
+      const res = scheduleActionsAtNextSecond(actions, {
+        reason: "inventoryBuildLive",
+      });
+      if (res?.ok) {
+        clearActiveBuildForOwner(ownerId);
+      }
+      return res;
+    };
 
     if (typeof queueActionWhenPaused === "function") {
-      return queueActionWhenPaused(run);
+      return queueActionWhenPaused({ runWhenPaused, runWhenLive });
     }
-    return run();
+    return runWhenPaused();
   }
 
   function updateApOverlayAlpha(win, dt) {

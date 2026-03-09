@@ -372,6 +372,10 @@ const pausedActionQueue = createPausedActionQueue({ runner });
 const requestPauseForAction = pausedActionQueue.requestPauseForAction;
 const queueActionWhenPaused = pausedActionQueue.queueActionWhenPaused;
 const flushQueuedActions = pausedActionQueue.flushQueuedActions;
+const setAutoPauseOnPlayerAction =
+  pausedActionQueue.setAutoPauseOnPlayerAction;
+const isAutoPauseOnPlayerActionEnabled =
+  pausedActionQueue.isAutoPauseOnPlayerActionEnabled;
 
 const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
@@ -1273,6 +1277,13 @@ inventoryView = createInventoryView({
           { apCost: 0 }
         );
       }
+      if (runner.getCursorState?.()?.paused !== true) {
+        return runner.dispatchAction(
+          ActionKinds.INVENTORY_MOVE,
+          payload,
+          { apCost: 0 }
+        );
+      }
       return actionPlanner?.setItemTransferIntent?.(payload) || {
         ok: false,
         reason: "noPlanner",
@@ -1319,6 +1330,8 @@ inventoryView = createInventoryView({
       return res;
     }),
   requestPauseForAction,
+  scheduleActionsAtNextSecond: (actions, opts) =>
+    runner.scheduleActionsAtNextSecond?.(actions, opts),
   setApDragWarning,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
@@ -1521,20 +1534,36 @@ const pawnsView = createPawnsView({
 
     if (targetRow === "env") {
       return queueActionWhenPaused(
-        () =>
-          actionPlanner?.setPawnMoveIntent?.({
-            pawnId,
-            toEnvCol: bestIndex,
-          }) || { ok: false, reason: "noPlanner" }
+        {
+          runWhenPaused: () =>
+            actionPlanner?.setPawnMoveIntent?.({
+              pawnId,
+              toEnvCol: bestIndex,
+            }) || { ok: false, reason: "noPlanner" },
+          runWhenLive: () =>
+            runner.scheduleActionAtNextSecond?.(
+              ActionKinds.PLACE_PAWN,
+              { pawnId, toEnvCol: bestIndex },
+              { apCost: 0, reason: "pawnMoveLive" }
+            ) || { ok: false, reason: "noRunner" },
+        }
       );
     }
 
     return queueActionWhenPaused(
-      () =>
-        actionPlanner?.setPawnMoveIntent?.({
-          pawnId,
-          toHubCol: bestIndex,
-        }) || { ok: false, reason: "noPlanner" }
+      {
+        runWhenPaused: () =>
+          actionPlanner?.setPawnMoveIntent?.({
+            pawnId,
+            toHubCol: bestIndex,
+          }) || { ok: false, reason: "noPlanner" },
+        runWhenLive: () =>
+          runner.scheduleActionAtNextSecond?.(
+            ActionKinds.PLACE_PAWN,
+            { pawnId, toHubCol: bestIndex },
+            { apCost: 0, reason: "pawnMoveLive" }
+          ) || { ok: false, reason: "noRunner" },
+      }
     );
   },
 });
@@ -2045,6 +2074,10 @@ const debugView = createDebugOverlay({
   },
   onOpenSystemGraph: () => openSystemGraphFromDebug(),
   onToggleApGraph: () => toggleApGraph(),
+  onToggleAutoPauseOnPlayerAction: () =>
+    setAutoPauseOnPlayerAction(!isAutoPauseOnPlayerActionEnabled?.()),
+  getAutoPauseOnPlayerActionEnabled: () =>
+    isAutoPauseOnPlayerActionEnabled?.() === true,
   onToggleFullscreen: () => {
     void toggleFullscreen();
   },

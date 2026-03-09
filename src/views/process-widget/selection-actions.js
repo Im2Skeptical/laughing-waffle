@@ -136,7 +136,7 @@ export function createProcessWidgetSelectionActions({
       cost: getTilePlanCost?.() ?? 0,
     };
 
-    const run = () => {
+    const runWhenPaused = () => {
       if (actionPlanner?.setTileCropSelectionIntent) {
         const res = actionPlanner.setTileCropSelectionIntent({
           envCol,
@@ -163,12 +163,24 @@ export function createProcessWidgetSelectionActions({
       );
       return { ok: true };
     };
+    const runWhenLive = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      return dispatchAction(
+        ActionKinds.SET_TILE_CROP_SELECTION,
+        {
+          envCol,
+          cropId: topCropId,
+          recipePriority: normalizedNext,
+        },
+        { apCost: unchanged || forceFree ? 0 : getTilePlanCost?.() ?? 0 }
+      );
+    };
 
     if (typeof queueActionWhenPaused === "function") {
-      queueActionWhenPaused(run);
+      queueActionWhenPaused({ runWhenPaused, runWhenLive });
       return { ok: true, queued: true };
     }
-    return run();
+    return runWhenPaused();
   }
 
   function setTileCropPriority(target, nextPriority, opts = {}) {
@@ -243,7 +255,7 @@ export function createProcessWidgetSelectionActions({
       cost: getHubPlanCost?.() ?? 0,
     };
 
-    const run = () => {
+    const runWhenPaused = () => {
       if (actionPlanner?.setHubRecipeSelectionIntent) {
         const res = actionPlanner.setHubRecipeSelectionIntent({
           hubCol,
@@ -267,12 +279,20 @@ export function createProcessWidgetSelectionActions({
       );
       return { ok: true };
     };
+    const runWhenLive = () => {
+      if (!dispatchAction) return { ok: false, reason: "noDispatch" };
+      return dispatchAction(
+        ActionKinds.SET_HUB_RECIPE_SELECTION,
+        { hubCol, systemId, recipePriority: normalizedNext },
+        { apCost: unchanged || forceFree ? 0 : getHubPlanCost?.() ?? 0 }
+      );
+    };
 
     if (typeof queueActionWhenPaused === "function") {
-      queueActionWhenPaused(run);
+      queueActionWhenPaused({ runWhenPaused, runWhenLive });
       return { ok: true, queued: true };
     }
-    return run();
+    return runWhenPaused();
   }
 
   function setHubRecipePriority(target, systemId, nextPriority, opts = {}) {
