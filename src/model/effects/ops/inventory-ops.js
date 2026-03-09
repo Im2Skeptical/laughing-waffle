@@ -6,6 +6,7 @@ import {
 } from "../../inventory-model.js";
 import { bumpInvVersion } from "../core/inventory-version.js";
 import { cloneSerializable } from "../core/clone.js";
+import { resolveInventoryTransferPlan } from "../../commands/inventory-helpers.js";
 
 export function handleMoveItem(state, effect, context) {
   if (!context || context.kind !== "inventoryMove") return false;
@@ -214,21 +215,19 @@ function handleMoveItemInternal(state, effect, context) {
   }
 
   if (stackTarget && canStackItems(stackTarget, item)) {
-    if (fromOwnerId !== toOwnerId) {
-      return { ok: false, reason: "crossOwnerStackNotSupported" };
+    if (fromOwnerId === toOwnerId) {
+      const ctx = { kind: "inventoryStack", state, events, out: null };
+      const out = handleStackItemInternal(
+        state,
+        {
+          ownerId: toOwnerId,
+          sourceItemId: item.id,
+          targetItemId: stackTarget.id,
+        },
+        ctx
+      );
+      return out || { ok: false, reason: "stackFailed" };
     }
-
-    const ctx = { kind: "inventoryStack", state, events, out: null };
-    const out = handleStackItemInternal(
-      state,
-      {
-        ownerId: toOwnerId,
-        sourceItemId: item.id,
-        targetItemId: stackTarget.id,
-      },
-      ctx
-    );
-    return out || { ok: false, reason: "stackFailed" };
   }
 
   if (fromOwnerId === toOwnerId) {
@@ -259,40 +258,87 @@ function handleMoveItemInternal(state, effect, context) {
     return { ok: true, result: "moved", events };
   }
 
-  const canPlace = Inventory.canPlaceItemAt(toInv, item, targetGX, targetGY);
-  if (!canPlace) return { ok: false, reason: "blocked" };
-
-  const originalGX = item.gridX;
-  const originalGY = item.gridY;
+  const transferPlan = resolveInventoryTransferPlan({
+    fromInv,
+    toInv,
+    item,
+    targetGX,
+    targetGY,
+    fromOwnerId,
+    toOwnerId,
+  });
+  if (!transferPlan?.ok) {
+    return { ok: false, reason: transferPlan?.reason ?? "blocked" };
+  }
+  if ((transferPlan.totalMoved ?? 0) <= 0) {
+    return { ok: false, reason: transferPlan?.reason ?? "blocked" };
+  }
 
   events.push({ type: "onLeaveContainer", ownerId: fromOwnerId, itemId });
 
-  Inventory.removeItem(fromInv, item.id);
-  Inventory.rebuildDerived(fromInv);
-
-  const success = Inventory.attachExistingItem(toInv, item, targetGX, targetGY);
-  if (!success) {
-    Inventory.attachExistingItem(fromInv, item, originalGX, originalGY);
-    Inventory.rebuildDerived(fromInv);
-    Inventory.rebuildDerived(toInv);
-    return { ok: false, reason: "attachFailed" };
+  for (const stackOp of transferPlan.stackOps || []) {
+    const target =
+      toInv.itemsById?.[stackOp.targetItemId] ||
+      toInv.items.find((candidate) => candidate.id === stackOp.targetItemId);
+    if (!target) {
+      return { ok: false, reason: "noItem" };
+    }
+    const targetQtyBefore = Math.max(0, Math.floor(target.quantity ?? 0));
+    const moveAmt = Math.min(
+      Math.max(0, Math.floor(stackOp.amount ?? 0)),
+      Math.max(0, Math.floor(item.quantity ?? 0))
+    );
+    if (moveAmt <= 0) continue;
+    target.quantity = targetQtyBefore + moveAmt;
+    mergeItemSystemStateForStacking(target, item, targetQtyBefore, moveAmt);
+    item.quantity -= moveAmt;
+    events.push({
+      type: "onStack",
+      ownerId: toOwnerId,
+      sourceItemId: item.id,
+      targetItemId: target.id,
+      amount: moveAmt,
+    });
   }
 
+  let result = transferPlan.stackOps?.length ? "stacked" : "moved";
+  if (transferPlan.placedRemainder) {
+    const remainderQty = Math.max(0, Math.floor(item.quantity ?? 0));
+    if (remainderQty <= 0) {
+      return { ok: false, reason: "attachFailed" };
+    }
+    const { gx, gy } = transferPlan.placedRemainder;
+    Inventory.removeItem(fromInv, item.id);
+    const success = Inventory.attachExistingItem(toInv, item, gx, gy);
+    if (!success) {
+      return { ok: false, reason: "attachFailed" };
+    }
+    events.push({ type: "onEnterContainer", ownerId: toOwnerId, itemId });
+    events.push({
+      type: "moveItem",
+      fromOwnerId,
+      toOwnerId,
+      itemId,
+      gx,
+      gy,
+    });
+    result = "moved";
+  } else if ((item.quantity ?? 0) <= 0) {
+    Inventory.removeItem(fromInv, item.id);
+  }
+
+  Inventory.rebuildDerived(fromInv);
   Inventory.rebuildDerived(toInv);
 
   bumpInvVersion(fromInv);
   bumpInvVersion(toInv);
 
-  events.push({ type: "onEnterContainer", ownerId: toOwnerId, itemId });
-
-  events.push({
-    type: "moveItem",
-    fromOwnerId,
-    toOwnerId,
-    itemId,
-    gx: targetGX,
-    gy: targetGY,
-  });
-
-  return { ok: true, result: "moved", events };
+  return {
+    ok: true,
+    result,
+    moved: transferPlan.totalMoved,
+    partial: transferPlan.partial === true,
+    sourceRemaining: transferPlan.sourceRemaining ?? 0,
+    events,
+  };
 }

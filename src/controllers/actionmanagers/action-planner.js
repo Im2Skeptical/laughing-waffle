@@ -36,6 +36,11 @@ import {
 } from "../../model/skills.js";
 import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
 import { isEnvColExposed, isHubVisible } from "../../model/state.js";
+import {
+  Inventory,
+  mergeItemSystemStateForStacking,
+} from "../../model/inventory-model.js";
+import { resolveInventoryTransferPlan } from "../../model/commands/inventory-helpers.js";
 
 function clonePlacement(p) {
   return p ? { ...p } : null;
@@ -213,6 +218,36 @@ function normalizeCropId(value) {
 function normalizeRecipeId(value) {
   if (value == null || value === "") return null;
   return String(value);
+}
+
+function cloneSerializableValue(value) {
+  try {
+    if (typeof structuredClone === "function") return structuredClone(value);
+  } catch (_) {
+    // Fall back to JSON for plain game state data.
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function cloneInventoryForPreview(inv) {
+  if (!inv) return null;
+  const copy = Inventory.create(inv.cols, inv.rows);
+  Inventory.init(copy);
+  copy.version = inv.version ?? 0;
+  copy.items = (inv.items || []).map((item) => cloneSerializableValue(item));
+  Inventory.rebuildDerived(copy);
+  return copy;
+}
+
+function itemPreviewChanged(baseItem, workingItem) {
+  if (!baseItem || !workingItem) return true;
+  return (
+    Math.floor(baseItem.gridX ?? 0) !== Math.floor(workingItem.gridX ?? 0) ||
+    Math.floor(baseItem.gridY ?? 0) !== Math.floor(workingItem.gridY ?? 0) ||
+    Math.floor(baseItem.quantity ?? 0) !== Math.floor(workingItem.quantity ?? 0) ||
+    Math.floor(baseItem.width ?? 1) !== Math.floor(workingItem.width ?? 1) ||
+    Math.floor(baseItem.height ?? 1) !== Math.floor(workingItem.height ?? 1)
+  );
 }
 
 function normalizeRecipePriorityPayload(
@@ -779,11 +814,40 @@ export function createActionPlanner({
   function buildInventoryPreviewCaches() {
     cache.previewByOwner.clear();
     if (!isInventoryTransferGhostPreviewEnabled()) return;
+    const state = getStateSafe();
+    if (!state) return;
 
     const baselineByKey = baselineIntents;
     const currentByKey = intents;
-
     const moves = [];
+    const touchedOwners = new Set();
+    const workingByOwner = new Map();
+    const movedSubjectItemIds = new Set();
+    const baseOwnerByItemId = new Map();
+
+    for (const [ownerKey, inv] of Object.entries(state.ownerInventories || {})) {
+      const ownerId = Number.isFinite(Number(ownerKey)) ? Number(ownerKey) : ownerKey;
+      for (const item of inv?.items || []) {
+        if (!item) continue;
+        baseOwnerByItemId.set(item.id, ownerId);
+      }
+    }
+
+    function getOrCreateWorkingInventory(ownerId) {
+      if (workingByOwner.has(ownerId)) return workingByOwner.get(ownerId);
+      const inv = getInventoryForOwner(state, ownerId);
+      const cloned = cloneInventoryForPreview(inv);
+      if (cloned) workingByOwner.set(ownerId, cloned);
+      return cloned;
+    }
+
+    function pushMove(move) {
+      if (!move?.item || !move?.from || !move?.to) return;
+      moves.push(move);
+      movedSubjectItemIds.add(move.item.id);
+      if (move.from.ownerId != null) touchedOwners.add(move.from.ownerId);
+      if (move.to.ownerId != null) touchedOwners.add(move.to.ownerId);
+    }
 
     for (const [key, baseIntent] of baselineByKey.entries()) {
       if (baseIntent.kind !== IntentKinds.ITEM_TRANSFER) continue;
@@ -792,7 +856,7 @@ export function createActionPlanner({
       const baseFrom = baseIntent.fromPlacement;
       if (!cur) {
         if (baseTo && baseFrom) {
-          moves.push({
+          pushMove({
             intentId: key,
             item: baseIntent.item,
             from: baseTo,
@@ -803,7 +867,7 @@ export function createActionPlanner({
       }
       if (!placementEquals(cur.toPlacement, baseTo)) {
         if (baseTo && cur.toPlacement) {
-          moves.push({
+          pushMove({
             intentId: key,
             item: cur.item || baseIntent.item,
             from: baseTo,
@@ -820,7 +884,7 @@ export function createActionPlanner({
       const baseFrom = curIntent.baselinePlacement || curIntent.fromPlacement;
       const to = curIntent.toPlacement;
       if (baseFrom && to && !placementEquals(baseFrom, to)) {
-        moves.push({
+        pushMove({
           intentId: key,
           item: curIntent.item,
           from: baseFrom,
@@ -837,19 +901,92 @@ export function createActionPlanner({
       const toOwnerId = move.to.ownerId;
       if (fromOwnerId == null || toOwnerId == null) continue;
 
-      const fromPreview = getOrCreateOwnerPreview(fromOwnerId);
-      fromPreview.hiddenItemIds.add(item.id);
+      const fromInv = getOrCreateWorkingInventory(fromOwnerId);
+      const toInv = getOrCreateWorkingInventory(toOwnerId);
+      if (!fromInv || !toInv) continue;
 
-      const toPreview = getOrCreateOwnerPreview(toOwnerId);
-      toPreview.overlayItems.push({
-        ...item,
-        sourceOwnerId: move.from.ownerId,
-        ownerId: toOwnerId,
-        gridX: move.to.gx,
-        gridY: move.to.gy,
-        intentId: move.intentId,
-        isGhost: false,
+      const workingItem = findItemInOwner(fromInv, item.id);
+      if (!workingItem) continue;
+
+      const transferPlan = resolveInventoryTransferPlan({
+        fromInv,
+        toInv,
+        item: workingItem,
+        targetGX: move.to.gx,
+        targetGY: move.to.gy,
+        fromOwnerId,
+        toOwnerId,
       });
+      if (!transferPlan?.ok || (transferPlan.totalMoved ?? 0) <= 0) continue;
+
+      for (const stackOp of transferPlan.stackOps || []) {
+        const target = findItemInOwner(toInv, stackOp.targetItemId);
+        if (!target) continue;
+        const targetQtyBefore = Math.max(0, Math.floor(target.quantity ?? 0));
+        const moved = Math.min(
+          Math.max(0, Math.floor(stackOp.amount ?? 0)),
+          Math.max(0, Math.floor(workingItem.quantity ?? 0))
+        );
+        if (moved <= 0) continue;
+        target.quantity = targetQtyBefore + moved;
+        mergeItemSystemStateForStacking(target, workingItem, targetQtyBefore, moved);
+        workingItem.quantity -= moved;
+      }
+
+      if (transferPlan.placedRemainder) {
+        Inventory.removeItem(fromInv, workingItem.id);
+        Inventory.attachExistingItem(
+          toInv,
+          workingItem,
+          transferPlan.placedRemainder.gx,
+          transferPlan.placedRemainder.gy
+        );
+      } else if ((workingItem.quantity ?? 0) <= 0) {
+        Inventory.removeItem(fromInv, workingItem.id);
+      }
+
+      Inventory.rebuildDerived(fromInv);
+      Inventory.rebuildDerived(toInv);
+    }
+
+    function makeOverlayItem(item, ownerId, intentId = null) {
+      const overlay = cloneSerializableValue(item);
+      overlay.ownerId = ownerId;
+      overlay.intentId = intentId;
+      if (movedSubjectItemIds.has(item.id)) {
+        overlay.sourceOwnerId = baseOwnerByItemId.get(item.id) ?? ownerId;
+      }
+      return overlay;
+    }
+
+    for (const ownerId of touchedOwners) {
+      const baseInv = getInventoryForOwner(state, ownerId);
+      const workingInv = workingByOwner.get(ownerId);
+      if (!baseInv || !workingInv) continue;
+
+      const preview = getOrCreateOwnerPreview(ownerId);
+      const baseById = new Map((baseInv.items || []).map((item) => [item.id, item]));
+      const workingById = new Map((workingInv.items || []).map((item) => [item.id, item]));
+      const overlayIds = new Set();
+
+      for (const baseItem of baseInv.items || []) {
+        const workingItem = workingById.get(baseItem.id) || null;
+        if (!workingItem) {
+          preview.hiddenItemIds.add(baseItem.id);
+          continue;
+        }
+        if (!itemPreviewChanged(baseItem, workingItem)) continue;
+        preview.hiddenItemIds.add(baseItem.id);
+        preview.overlayItems.push(makeOverlayItem(workingItem, ownerId));
+        overlayIds.add(workingItem.id);
+      }
+
+      for (const workingItem of workingInv.items || []) {
+        if (!workingItem || baseById.has(workingItem.id) || overlayIds.has(workingItem.id)) {
+          continue;
+        }
+        preview.overlayItems.push(makeOverlayItem(workingItem, ownerId));
+      }
     }
 
     for (const [key, curIntent] of currentByKey.entries()) {
@@ -862,6 +999,9 @@ export function createActionPlanner({
 
       const ownerId = curIntent.fromPlacement.ownerId ?? curIntent.fromOwnerId;
       if (ownerId == null) continue;
+      const workingInv = workingByOwner.get(ownerId) || getOrCreateWorkingInventory(ownerId);
+      const stillInSource = !!findItemInOwner(workingInv, curIntent.itemId);
+      if (stillInSource) continue;
 
       const ghostEntry = {
         ...item,

@@ -37,6 +37,7 @@ import {
 } from "../model/item-use-policy.js";
 import { getScrollTimegraphStateFromItem } from "../model/timegraph/edit-policy.js";
 import { isAnyDropboxOwnerId } from "../model/owner-id-protocol.js";
+import { canStackItems } from "../model/inventory-model.js";
 import {
   GAMEPIECE_HOVER_SCALE,
   HUB_COLS,
@@ -145,6 +146,7 @@ const AP_OVERLAY_FILL = 0x8a1f2a;
 const AP_OVERLAY_STROKE = 0xff4f5e;
 const ITEM_TAP_MAX_DRAG_PX = 8;
 const ITEM_TAP_MAX_DRAG_TOUCH_PX = 20;
+const TOUCH_STACK_TARGET_MARGIN_MAX_PX = 18;
 const CONSUME_PROMPT_HOLD_SEC = 0.9;
 const CONSUME_PROMPT_FADE_SEC = 0.45;
 const CONSUME_PROMPT_TEXT = "Consume?";
@@ -2250,6 +2252,7 @@ export function createInventoryView({
         build: false,
       },
       uiScale: 1,
+      itemViews: [],
       bin: {
         container: bin,
         bg: binBg,
@@ -2977,6 +2980,7 @@ export function createInventoryView({
     }
 
     win.body.removeChildren();
+    win.itemViews = [];
 
     drawGrid(win);
     const preview =
@@ -3156,6 +3160,9 @@ export function createInventoryView({
 
     const parent = opts.parent || win.body;
     parent.addChild(c);
+    if (!opts.isGhost && parent === win.body) {
+      win.itemViews.push({ view: c, item, ownerId });
+    }
     return c;
   }
 
@@ -4349,6 +4356,16 @@ export function createInventoryView({
       return;
     }
 
+    const touchLikePointer =
+      dragItem.pointerType === "touch" || dragItem.pointerType === "pen";
+    if (touchLikePointer && !sourceEquipmentSlotId) {
+      const stackTarget = findTouchStackTargetAt(win, g, item);
+      if (stackTarget) {
+        gx = stackTarget.gx;
+        gy = stackTarget.gy;
+      }
+    }
+
     if (sourceEquipmentSlotId) {
       const targetInv = getInventoryForOwner(targetOwner);
       const preview =
@@ -4532,6 +4549,72 @@ export function createInventoryView({
       gx: Math.floor(local.x / win.cellSize),
       gy: Math.floor(local.y / win.cellSize),
     };
+  }
+
+  function getTouchStackTargetMarginPx(win) {
+    const cellSize = Number.isFinite(win?.cellSize)
+      ? Math.max(1, Math.floor(win.cellSize))
+      : DEFAULT_CELL_SIZE;
+    return Math.min(cellSize * 0.3, TOUCH_STACK_TARGET_MARGIN_MAX_PX);
+  }
+
+  function isPointInsideExpandedBounds(globalPos, bounds, marginPx) {
+    if (!globalPos || !bounds) return false;
+    return (
+      globalPos.x >= bounds.x - marginPx &&
+      globalPos.x <= bounds.x + bounds.width + marginPx &&
+      globalPos.y >= bounds.y - marginPx &&
+      globalPos.y <= bounds.y + bounds.height + marginPx
+    );
+  }
+
+  function findTouchStackTargetAt(win, globalPos, sourceItem) {
+    if (!win || !globalPos || !sourceItem) return null;
+    const marginPx = getTouchStackTargetMarginPx(win);
+    let best = null;
+    for (const entry of win.itemViews || []) {
+      const candidateItem = entry?.item ?? entry?.view?.itemData ?? null;
+      if (!candidateItem || candidateItem.id === sourceItem.id) continue;
+      if (!canStackItems(candidateItem, sourceItem)) continue;
+      const candidateView = entry?.view;
+      if (!candidateView || typeof candidateView.getBounds !== "function") continue;
+      const bounds = candidateView.getBounds();
+      if (!isPointInsideExpandedBounds(globalPos, bounds, marginPx)) continue;
+      const centerX = bounds.x + bounds.width / 2;
+      const centerY = bounds.y + bounds.height / 2;
+      const dx = globalPos.x - centerX;
+      const dy = globalPos.y - centerY;
+      const next = {
+        item: candidateItem,
+        gx: candidateItem.gridX,
+        gy: candidateItem.gridY,
+        distSq: dx * dx + dy * dy,
+      };
+      if (!best) {
+        best = next;
+        continue;
+      }
+      if (next.distSq !== best.distSq) {
+        if (next.distSq < best.distSq) best = next;
+        continue;
+      }
+      const nextY = Math.floor(candidateItem.gridY ?? 0);
+      const bestY = Math.floor(best.item?.gridY ?? 0);
+      if (nextY !== bestY) {
+        if (nextY < bestY) best = next;
+        continue;
+      }
+      const nextX = Math.floor(candidateItem.gridX ?? 0);
+      const bestX = Math.floor(best.item?.gridX ?? 0);
+      if (nextX !== bestX) {
+        if (nextX < bestX) best = next;
+        continue;
+      }
+      const nextId = Math.floor(candidateItem.id ?? 0);
+      const bestId = Math.floor(best.item?.id ?? 0);
+      if (nextId < bestId) best = next;
+    }
+    return best;
   }
 
   function previewCoversCell(item, gx, gy) {
