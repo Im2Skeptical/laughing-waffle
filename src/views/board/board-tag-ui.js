@@ -147,6 +147,7 @@ export function createTagUi(opts) {
     interaction,
     tooltipView,
     getGameState,
+    getTilePlanPreview,
     startTagDrag,
     setTextResolution,
     baseTextResolution,
@@ -262,8 +263,29 @@ export function createTagUi(opts) {
     return true;
   }
 
+  function getTilePreview(tileInst) {
+    const envCol = Number.isFinite(tileInst?.col) ? Math.floor(tileInst.col) : null;
+    return envCol != null ? getTilePlanPreview?.(envCol) ?? null : null;
+  }
+
+  function getGrowthSystemState(tileInst) {
+    const growth = tileInst?.systemState?.growth || {};
+    const preview = getTilePreview(tileInst);
+    if (!preview) return growth;
+    return {
+      ...growth,
+      recipePriority: preview.recipePriority ?? growth.recipePriority ?? null,
+      selectedCropId: preview.cropId ?? growth.selectedCropId ?? null,
+    };
+  }
+
   function getVisibleTags(tileInst) {
-    const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
+    const preview = getTilePreview(tileInst);
+    const tags = Array.isArray(preview?.tagIds)
+      ? preview.tagIds
+      : Array.isArray(tileInst?.tags)
+      ? tileInst.tags
+      : [];
     return tags.filter(
       (tagId) => isTagVisible(tileInst, tagId) && !isTagPlayerDisabled(tileInst, tagId)
     );
@@ -271,12 +293,26 @@ export function createTagUi(opts) {
 
   function isTagDisabled(tileInst, tagId) {
     if (!isTagVisible(tileInst, tagId)) return true;
+    const preview = getTilePreview(tileInst);
+    if (
+      preview?.tagDisabledById &&
+      Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+    ) {
+      return preview.tagDisabledById[tagId] === true || isTagHidden(tileInst, tagId);
+    }
     const entry = tileInst?.tagStates?.[tagId];
     return entry?.disabled === true || isTagHidden(tileInst, tagId);
   }
 
   function isTagPlayerDisabled(tileInst, tagId) {
     if (!isTagVisible(tileInst, tagId)) return true;
+    const preview = getTilePreview(tileInst);
+    if (
+      preview?.tagDisabledById &&
+      Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+    ) {
+      return preview.tagDisabledById[tagId] === true;
+    }
     const entry = tileInst?.tagStates?.[tagId];
     if (!entry || typeof entry !== "object") return false;
     const disabledBy =
@@ -541,7 +577,7 @@ export function createTagUi(opts) {
     }
 
     if (systemId === "growth") {
-      const growth = systemState.growth || {};
+      const growth = getGrowthSystemState(tileInst);
       const cropId = growth.selectedCropId ?? null;
       const cropDef = cropId ? cropDefs[cropId] : null;
       const cropName = cropId ? cropDef?.name || cropId : "None";
@@ -1233,7 +1269,7 @@ export function createTagUi(opts) {
       row.container.cursor = "default";
       row.container.alpha = 1;
 
-      const growth = tileInst?.systemState?.growth || {};
+      const growth = getGrowthSystemState(tileInst);
       const cropId = growth.selectedCropId ?? null;
       const cropDef = cropId ? cropDefs[cropId] : null;
       const cropName = cropDef?.name || cropId || "Crop";

@@ -331,6 +331,7 @@ export function createBoardView(opts) {
     app,
     interaction,
     actionPlanner,
+    getTilePlanPreview: (envCol) => actionPlanner?.getTilePlanPreview?.(envCol) ?? null,
     queueActionWhenPaused,
     dispatchAction,
     dropdownLayer: cropDropdownLayer,
@@ -339,6 +340,7 @@ export function createBoardView(opts) {
   const hubPanels = createHubPanels({
     app,
     actionPlanner,
+    getHubPlanPreview: (hubCol) => actionPlanner?.getHubPlanPreview?.(hubCol) ?? null,
     queueActionWhenPaused,
     dispatchAction,
     dropdownLayer: cropDropdownLayer,
@@ -350,6 +352,8 @@ export function createBoardView(opts) {
     app,
     layer: cropDropdownLayer,
     getGameState,
+    getTilePlanPreview: (envCol) => actionPlanner?.getTilePlanPreview?.(envCol) ?? null,
+    getHubPlanPreview: (hubCol) => actionPlanner?.getHubPlanPreview?.(hubCol) ?? null,
     isEnvTagVisible,
     isHubTagVisible,
     onToggleTileTag: (payload) => dispatchTileTagToggle(payload),
@@ -426,13 +430,61 @@ export function createBoardView(opts) {
     return entry.disabled === true;
   }
 
+  function getTilePlanPreview(envCol) {
+    return actionPlanner?.getTilePlanPreview?.(envCol) ?? null;
+  }
+
+  function getHubPlanPreview(hubCol) {
+    return actionPlanner?.getHubPlanPreview?.(hubCol) ?? null;
+  }
+
+  function getEffectiveTileTags(tileInst) {
+    const envCol = Number.isFinite(tileInst?.col) ? Math.floor(tileInst.col) : null;
+    const preview = envCol != null ? getTilePlanPreview(envCol) : null;
+    return Array.isArray(preview?.tagIds)
+      ? preview.tagIds
+      : Array.isArray(tileInst?.tags)
+      ? tileInst.tags
+      : [];
+  }
+
+  function getEffectiveHubTags(structureInst) {
+    const hubCol = Number.isFinite(structureInst?.col)
+      ? Math.floor(structureInst.col)
+      : null;
+    const preview = hubCol != null ? getHubPlanPreview(hubCol) : null;
+    return Array.isArray(preview?.tagIds)
+      ? preview.tagIds
+      : Array.isArray(structureInst?.tags)
+      ? structureInst.tags
+      : [];
+  }
+
   function isVisibleEnabledTileTag(tileInst, tagId) {
     if (!isTileTagRenderable(tileInst, tagId)) return false;
+    const envCol = Number.isFinite(tileInst?.col) ? Math.floor(tileInst.col) : null;
+    const preview = envCol != null ? getTilePlanPreview(envCol) : null;
+    if (
+      preview?.tagDisabledById &&
+      Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+    ) {
+      return preview.tagDisabledById[tagId] !== true;
+    }
     return !isTagStatePlayerDisabled(tileInst?.tagStates?.[tagId]);
   }
 
   function isVisibleEnabledHubTag(structureInst, tagId) {
     if (!isHubTagRenderable(structureInst, tagId)) return false;
+    const hubCol = Number.isFinite(structureInst?.col)
+      ? Math.floor(structureInst.col)
+      : null;
+    const preview = hubCol != null ? getHubPlanPreview(hubCol) : null;
+    if (
+      preview?.tagDisabledById &&
+      Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+    ) {
+      return preview.tagDisabledById[tagId] !== true;
+    }
     return !isTagStatePlayerDisabled(structureInst?.tagStates?.[tagId]);
   }
 
@@ -456,12 +508,12 @@ export function createBoardView(opts) {
   }
 
   function getVisibleTileTagSignature(tileInst) {
-    const tags = Array.isArray(tileInst?.tags) ? tileInst.tags : [];
+    const tags = getEffectiveTileTags(tileInst);
     return tags.filter((tagId) => isVisibleEnabledTileTag(tileInst, tagId)).join("|");
   }
 
   function getVisibleHubTagSignature(structureInst) {
-    const tags = Array.isArray(structureInst?.tags) ? structureInst.tags : [];
+    const tags = getEffectiveHubTags(structureInst);
     return tags
       .filter((tagId) => isVisibleEnabledHubTag(structureInst, tagId))
       .join("|");
@@ -1750,6 +1802,7 @@ export function createBoardView(opts) {
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
     toggleTag: dispatchTileTagToggle,
+    getTilePlanPreview,
     isProcessWidgetSystem: isProcessWidgetSystemId,
     onProcessCogClick: handleProcessCogClick,
     onSystemIconHover: handleSystemIconHover,
@@ -1766,6 +1819,7 @@ export function createBoardView(opts) {
     hoverTextResolution: HOVER_TEXT_RESOLUTION,
     requestPauseForAction,
     toggleTag: dispatchHubTagToggle,
+    getHubPlanPreview,
     openRecipeDropdown: hubPanels?.openRecipeDropdown,
     isProcessWidgetSystem: isProcessWidgetSystemId,
     onProcessCogClick: handleProcessCogClick,

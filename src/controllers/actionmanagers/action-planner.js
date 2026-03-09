@@ -22,6 +22,10 @@ import {
   estimateIntentApCost,
   computeIntentCostSummary,
 } from "./action-costs.js";
+import {
+  buildPlannerPreviewState,
+  createEmptyInventoryPreview,
+} from "./action-preview-state.js";
 import { placementEquals } from "./action-placement-utils.js";
 import { validateHubConstructionPlacement } from "../../model/build-helpers.js";
 import {
@@ -340,6 +344,8 @@ export function createActionPlanner({
     plannerBudget: 0,
     previewByOwner: new Map(),
     pawnOverrides: new Map(),
+    tilePlanByEnvCol: new Map(),
+    hubPlanByHubCol: new Map(),
   };
 
   function bump(reason) {
@@ -359,6 +365,8 @@ export function createActionPlanner({
     cache.plannerBudget = 0;
     cache.previewByOwner.clear();
     cache.pawnOverrides.clear();
+    cache.tilePlanByEnvCol.clear();
+    cache.hubPlanByHubCol.clear();
   }
 
   function getTimelineSafe() {
@@ -770,164 +778,19 @@ export function createActionPlanner({
       cap: apCap,
     };
 
-    buildInventoryPreviewCaches();
-    buildPawnOverrideCache();
+    const previewState = buildPlannerPreviewState({
+      state,
+      baselineIntents,
+      currentIntents: intents,
+      inventoryTransferGhostPreviewEnabled:
+        isInventoryTransferGhostPreviewEnabled(),
+    });
+    cache.previewByOwner = previewState.previewByOwner;
+    cache.pawnOverrides = previewState.pawnOverrides;
+    cache.tilePlanByEnvCol = previewState.tilePlanByEnvCol;
+    cache.hubPlanByHubCol = previewState.hubPlanByHubCol;
 
     cache.dirty = false;
-  }
-
-  function buildInventoryPreviewCaches() {
-    cache.previewByOwner.clear();
-    if (!isInventoryTransferGhostPreviewEnabled()) return;
-
-    const baselineByKey = baselineIntents;
-    const currentByKey = intents;
-
-    const moves = [];
-
-    for (const [key, baseIntent] of baselineByKey.entries()) {
-      if (baseIntent.kind !== IntentKinds.ITEM_TRANSFER) continue;
-      const cur = currentByKey.get(key);
-      const baseTo = baseIntent.toPlacement;
-      const baseFrom = baseIntent.fromPlacement;
-      if (!cur) {
-        if (baseTo && baseFrom) {
-          moves.push({
-            intentId: key,
-            item: baseIntent.item,
-            from: baseTo,
-            to: baseFrom,
-          });
-        }
-        continue;
-      }
-      if (!placementEquals(cur.toPlacement, baseTo)) {
-        if (baseTo && cur.toPlacement) {
-          moves.push({
-            intentId: key,
-            item: cur.item || baseIntent.item,
-            from: baseTo,
-            to: cur.toPlacement,
-          });
-        }
-      }
-    }
-
-    for (const [key, curIntent] of currentByKey.entries()) {
-      if (curIntent.kind !== IntentKinds.ITEM_TRANSFER) continue;
-      if (baselineByKey.has(key)) continue;
-
-      const baseFrom = curIntent.baselinePlacement || curIntent.fromPlacement;
-      const to = curIntent.toPlacement;
-      if (baseFrom && to && !placementEquals(baseFrom, to)) {
-        moves.push({
-          intentId: key,
-          item: curIntent.item,
-          from: baseFrom,
-          to,
-        });
-      }
-    }
-
-    for (const move of moves) {
-      const item = move.item;
-      if (!item || !move.from || !move.to) continue;
-
-      const fromOwnerId = move.from.ownerId;
-      const toOwnerId = move.to.ownerId;
-      if (fromOwnerId == null || toOwnerId == null) continue;
-
-      const fromPreview = getOrCreateOwnerPreview(fromOwnerId);
-      fromPreview.hiddenItemIds.add(item.id);
-
-      const toPreview = getOrCreateOwnerPreview(toOwnerId);
-      toPreview.overlayItems.push({
-        ...item,
-        sourceOwnerId: move.from.ownerId,
-        ownerId: toOwnerId,
-        gridX: move.to.gx,
-        gridY: move.to.gy,
-        intentId: move.intentId,
-        isGhost: false,
-      });
-    }
-
-    for (const [key, curIntent] of currentByKey.entries()) {
-      if (curIntent.kind !== IntentKinds.ITEM_TRANSFER) continue;
-      if (curIntent.fromOwnerId === curIntent.toOwnerId) continue;
-      if (!curIntent.fromPlacement) continue;
-
-      const item = curIntent.item;
-      if (!item) continue;
-
-      const ownerId = curIntent.fromPlacement.ownerId ?? curIntent.fromOwnerId;
-      if (ownerId == null) continue;
-
-      const ghostEntry = {
-        ...item,
-        ownerId,
-        gridX: curIntent.fromPlacement.gx,
-        gridY: curIntent.fromPlacement.gy,
-        intentId: key,
-        isGhost: true,
-      };
-      const preview = getOrCreateOwnerPreview(ownerId);
-      preview.ghostItems.push(ghostEntry);
-    }
-  }
-
-  function getOrCreateOwnerPreview(ownerId) {
-    let entry = cache.previewByOwner.get(ownerId);
-    if (!entry) {
-      entry = {
-        hiddenItemIds: new Set(),
-        overlayItems: [],
-        ghostItems: [],
-      };
-      cache.previewByOwner.set(ownerId, entry);
-    }
-    return entry;
-  }
-
-  function buildPawnOverrideCache() {
-    cache.pawnOverrides.clear();
-
-    for (const [key, baseIntent] of baselineIntents.entries()) {
-      if (baseIntent.kind !== IntentKinds.PAWN_MOVE) continue;
-      const cur = intents.get(key);
-      const baseTo = baseIntent.toPlacement ?? null;
-      const baseFrom = baseIntent.fromPlacement ?? null;
-      if (!cur) {
-        if (baseFrom) {
-          cache.pawnOverrides.set(
-            baseIntent.pawnId,
-            clonePlacement(baseFrom)
-          );
-        }
-        continue;
-      }
-      const curTo = cur.toPlacement ?? null;
-      if (curTo && !placementEquals(curTo, baseTo)) {
-        cache.pawnOverrides.set(
-          baseIntent.pawnId,
-          clonePlacement(curTo)
-        );
-      }
-    }
-
-    for (const [key, curIntent] of intents.entries()) {
-      if (curIntent.kind !== IntentKinds.PAWN_MOVE) continue;
-      if (baselineIntents.has(key)) continue;
-
-      const baseFrom = curIntent.baselinePlacement ?? null;
-      const curTo = curIntent.toPlacement ?? null;
-      if (curTo && !placementEquals(curTo, baseFrom)) {
-        cache.pawnOverrides.set(
-          curIntent.pawnId,
-          clonePlacement(curTo)
-        );
-      }
-    }
   }
 
   function getOrderedIntents() {
@@ -1641,13 +1504,12 @@ export function createActionPlanner({
   }
 
   function getTileTagTogglePreview({ envCol, tagId } = {}) {
-    ensureActive();
+    ensureCaches();
     if (!Number.isFinite(envCol) || !tagId) return null;
     const col = Math.floor(envCol);
-    const subjectKey = `tileTagToggle:${col}:${tagId}`;
-    const intent = intents.get(subjectKey);
-    if (intent && intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
-      return intent.disabled === true;
+    const preview = cache.tilePlanByEnvCol.get(col) ?? null;
+    if (preview?.tagDisabledById && Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)) {
+      return preview.tagDisabledById[tagId] === true;
     }
     const state = getStateSafe();
     const tile = state?.board?.occ?.tile?.[col];
@@ -1656,13 +1518,12 @@ export function createActionPlanner({
   }
 
   function getHubTagTogglePreview({ hubCol, tagId } = {}) {
-    ensureActive();
+    ensureCaches();
     if (!Number.isFinite(hubCol) || !tagId) return null;
     const col = Math.floor(hubCol);
-    const subjectKey = `hubTagToggle:${col}:${tagId}`;
-    const intent = intents.get(subjectKey);
-    if (intent && intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
-      return intent.disabled === true;
+    const preview = cache.hubPlanByHubCol.get(col) ?? null;
+    if (preview?.tagDisabledById && Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)) {
+      return preview.tagDisabledById[tagId] === true;
     }
     const state = getStateSafe();
     const structure =
@@ -2085,13 +1946,7 @@ export function createActionPlanner({
     },
     getInventoryPreview(ownerId) {
       ensureCaches();
-      return (
-        cache.previewByOwner.get(ownerId) || {
-          hiddenItemIds: new Set(),
-          overlayItems: [],
-          ghostItems: [],
-        }
-      );
+      return cache.previewByOwner.get(ownerId) || createEmptyInventoryPreview();
     },
     getPawnOverridePlacement(pawnId) {
       ensureCaches();
@@ -2101,6 +1956,16 @@ export function createActionPlanner({
       ensureCaches();
       const placement = cache.pawnOverrides.get(pawnId) ?? null;
       return placement?.hubCol ?? null;
+    },
+    getTilePlanPreview(envCol) {
+      ensureCaches();
+      if (!Number.isFinite(envCol)) return null;
+      return cache.tilePlanByEnvCol.get(Math.floor(envCol)) ?? null;
+    },
+    getHubPlanPreview(hubCol) {
+      ensureCaches();
+      if (!Number.isFinite(hubCol)) return null;
+      return cache.hubPlanByHubCol.get(Math.floor(hubCol)) ?? null;
     },
     hasItemTransferIntent(itemId) {
       return hasItemTransferIntent(itemId);

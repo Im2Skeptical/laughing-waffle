@@ -33,6 +33,7 @@ export function createActionLogView({
   getPlanner,
   getTimeline,
   getCursorState,
+  getPendingActionRowSpecs,
   isPreviewing,
   onJumpToSecond,
   onClearActions,
@@ -52,6 +53,7 @@ export function createActionLogView({
     getState,
     getCursorState,
     getOwnerLabel,
+    getPendingActionRowSpecs,
   });
 
   const bg = new PIXI.Graphics();

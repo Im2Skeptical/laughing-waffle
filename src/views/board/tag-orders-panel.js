@@ -91,6 +91,8 @@ export function createTagOrdersPanel(opts = {}) {
     app,
     layer,
     getGameState,
+    getTilePlanPreview,
+    getHubPlanPreview,
     isEnvTagVisible,
     isHubTagVisible,
     onToggleTileTag,
@@ -191,7 +193,15 @@ export function createTagOrdersPanel(opts = {}) {
       if (kind === "env" && !isEnvColRevealed(state, col) && tagId !== "explore") continue;
       if (isTagHidden(target, tagId)) continue;
       const tagName = defs?.[tagId]?.ui?.name || tagId;
-      const disabled = target?.tagStates?.[tagId]?.disabled === true;
+      const preview =
+        kind === "hub"
+          ? getHubPlanPreview?.(col) ?? null
+          : getTilePlanPreview?.(col) ?? null;
+      const disabled =
+        preview?.tagDisabledById &&
+        Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+          ? preview.tagDisabledById[tagId] === true
+          : target?.tagStates?.[tagId]?.disabled === true;
       rowsModel.push({ tagId, tagName, disabled });
     }
 

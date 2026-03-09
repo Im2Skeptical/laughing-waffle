@@ -83,6 +83,7 @@ import {
 import { getVisibleEnvColCount, isHubVisible } from "../model/state.js";
 import { createProjectionParityProbe } from "./ui-root/projection-parity.js";
 import { createPausedActionQueue } from "./ui-root/paused-action-queue.js";
+import { createLiveActionOptimism } from "./ui-root/live-action-optimism.js";
 import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
 import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
 import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrator.js";
@@ -330,10 +331,12 @@ const NOOP_ACTION_LOG_VIEW = {
   flashGhost() {},
 };
 let scrollGraphOrchestrator = null;
+let liveActionOptimism = null;
 
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
   onInvalidate: (reason) => {
+    liveActionOptimism?.handleInvalidate?.(reason);
     const cursorOnlyReason =
       reason === "scrubBrowse" || reason === "scrubCommit";
     // Keep cursor-only browse/commit lean; all other mutation reasons should
@@ -348,6 +351,7 @@ const runner = createSimRunner({
     scrollGraphOrchestrator?.handleInvalidate?.(reason);
   },
   onRebuildViews: (reason = "unknown") => {
+    liveActionOptimism?.handleInvalidate?.(reason);
     tooltipView?.hide?.();
     if (reason === "scrubCommit") {
       refreshOpenInventoryWindows();
@@ -376,6 +380,134 @@ const setAutoPauseOnPlayerAction =
   pausedActionQueue.setAutoPauseOnPlayerAction;
 const isAutoPauseOnPlayerActionEnabled =
   pausedActionQueue.isAutoPauseOnPlayerActionEnabled;
+
+function isLiveActionOptimismEnabled() {
+  if (runner.isPreviewing?.()) return false;
+  if (runner.getCursorState?.()?.paused === true) return false;
+  return isAutoPauseOnPlayerActionEnabled?.() !== true;
+}
+
+liveActionOptimism = createLiveActionOptimism({
+  getState: () => runner.getCursorState?.(),
+  getTimeline: () => runner.getTimeline?.(),
+  getOwnerLabel(ownerId) {
+    const state = runner.getCursorState?.();
+    const hubSlot = state?.hub?.slots?.find(
+      (slot) => slot?.structure?.instanceId === ownerId
+    );
+    if (hubSlot?.structure) {
+      const def = hubStructureDefs[hubSlot.structure.defId];
+      return def?.name || def?.id || `Hub ${ownerId}`;
+    }
+    const pawn = state?.pawns?.find((candidatePawn) => candidatePawn.id === ownerId);
+    if (pawn) return pawn.name || `Pawn ${ownerId}`;
+    return `Owner ${ownerId}`;
+  },
+  isOptimismEnabled: () => isLiveActionOptimismEnabled(),
+});
+
+function recordOptimisticSchedule(result) {
+  liveActionOptimism?.recordScheduledBatch?.(result);
+  return result;
+}
+
+function dispatchPlayerAction(kind, payload, opts) {
+  return recordOptimisticSchedule(runner.dispatchAction(kind, payload, opts));
+}
+
+function schedulePlayerActionsAtNextSecond(actions, opts) {
+  return recordOptimisticSchedule(
+    runner.scheduleActionsAtNextSecond?.(actions, opts) ?? {
+      ok: false,
+      reason: "noRunner",
+    }
+  );
+}
+
+function schedulePlayerActionAtNextSecond(kind, payload, opts) {
+  return recordOptimisticSchedule(
+    runner.scheduleActionAtNextSecond?.(kind, payload, opts) ?? {
+      ok: false,
+      reason: "noRunner",
+    }
+  );
+}
+
+function getMergedPreviewVersion() {
+  if (runner.isPreviewing?.()) return 0;
+  return `${actionPlanner?.getVersion?.() ?? 0}|${liveActionOptimism?.getVersion?.() ?? 0}`;
+}
+
+function getMergedTilePlanPreview(envCol) {
+  if (runner.isPreviewing?.()) return null;
+  if (isLiveActionOptimismEnabled()) {
+    const optimistic = liveActionOptimism?.getTilePlanPreview?.(envCol) ?? null;
+    if (optimistic) return optimistic;
+  }
+  return actionPlanner?.getTilePlanPreview?.(envCol) ?? null;
+}
+
+function getMergedHubPlanPreview(hubCol) {
+  if (runner.isPreviewing?.()) return null;
+  if (isLiveActionOptimismEnabled()) {
+    const optimistic = liveActionOptimism?.getHubPlanPreview?.(hubCol) ?? null;
+    if (optimistic) return optimistic;
+  }
+  return actionPlanner?.getHubPlanPreview?.(hubCol) ?? null;
+}
+
+function getMergedInventoryPreview(ownerId) {
+  if (runner.isPreviewing?.()) return null;
+  if (isLiveActionOptimismEnabled()) {
+    return liveActionOptimism?.getInventoryPreview?.(ownerId) ?? null;
+  }
+  return actionPlanner?.getInventoryPreview?.(ownerId) ?? null;
+}
+
+function getMergedPawnOverridePlacement(pawnId) {
+  if (runner.isPreviewing?.()) return null;
+  if (isLiveActionOptimismEnabled()) {
+    const optimistic =
+      liveActionOptimism?.getPawnOverridePlacement?.(pawnId) ?? null;
+    if (optimistic) return optimistic;
+  }
+  return actionPlanner?.getPawnOverridePlacement?.(pawnId) ?? null;
+}
+
+function getMergedTileTagTogglePreview({ envCol, tagId } = {}) {
+  const preview = getMergedTilePlanPreview(envCol);
+  if (
+    preview?.tagDisabledById &&
+    Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+  ) {
+    return preview.tagDisabledById[tagId] === true;
+  }
+  return actionPlanner?.getTileTagTogglePreview?.({ envCol, tagId }) ?? null;
+}
+
+function getMergedHubTagTogglePreview({ hubCol, tagId } = {}) {
+  const preview = getMergedHubPlanPreview(hubCol);
+  if (
+    preview?.tagDisabledById &&
+    Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+  ) {
+    return preview.tagDisabledById[tagId] === true;
+  }
+  return actionPlanner?.getHubTagTogglePreview?.({ hubCol, tagId }) ?? null;
+}
+
+const previewPlanner = {
+  ...(actionPlanner || {}),
+  getVersion: () => getMergedPreviewVersion(),
+  getInventoryPreview: (ownerId) => getMergedInventoryPreview(ownerId),
+  getPawnOverridePlacement: (pawnId) => getMergedPawnOverridePlacement(pawnId),
+  getPawnOverrideHubCol: (pawnId) =>
+    getMergedPawnOverridePlacement(pawnId)?.hubCol ?? null,
+  getTilePlanPreview: (envCol) => getMergedTilePlanPreview(envCol),
+  getHubPlanPreview: (hubCol) => getMergedHubPlanPreview(hubCol),
+  getTileTagTogglePreview: (spec) => getMergedTileTagTogglePreview(spec),
+  getHubTagTogglePreview: (spec) => getMergedHubTagTogglePreview(spec),
+};
 
 const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
@@ -1162,13 +1294,9 @@ inventoryView = createInventoryView({
   },
   canShowHoverUI: () => interactionController.canShowHoverUI(),
   getState: () => runner.getState(),
-  getPreviewVersion: () =>
-    runner.isPreviewing?.() ? 0 : actionPlanner?.getVersion?.() ?? 0,
-  getInventoryPreview: (ownerId) =>
-    runner.isPreviewing?.()
-      ? null
-      : actionPlanner?.getInventoryPreview?.(ownerId) ?? null,
-  actionPlanner,
+  getPreviewVersion: () => getMergedPreviewVersion(),
+  getInventoryPreview: (ownerId) => getMergedInventoryPreview(ownerId),
+  actionPlanner: previewPlanner,
   getItemTransferAffordability: (spec) =>
     actionPlanner?.getItemTransferAffordability?.(spec) ?? {
       ok: true,
@@ -1199,7 +1327,7 @@ inventoryView = createInventoryView({
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
   equipItemToSlot: ({ fromOwnerId, toOwnerId, itemId, slotId }) =>
     queueActionWhenPaused(() =>
-      runner.dispatchAction(
+      dispatchPlayerAction(
         ActionKinds.EQUIP_ITEM,
         { fromOwnerId, toOwnerId, itemId, slotId },
         { apCost: 0 }
@@ -1213,7 +1341,7 @@ inventoryView = createInventoryView({
     targetGY,
   }) =>
     queueActionWhenPaused(() =>
-      runner.dispatchAction(
+      dispatchPlayerAction(
         ActionKinds.UNEQUIP_ITEM,
         { fromOwnerId, toOwnerId, slotId, targetGX, targetGY },
         { apCost: 0 }
@@ -1221,7 +1349,7 @@ inventoryView = createInventoryView({
     ),
   moveEquippedItemToSlot: ({ fromOwnerId, toOwnerId, fromSlotId, toSlotId }) =>
     queueActionWhenPaused(() =>
-      runner.dispatchAction(
+      dispatchPlayerAction(
         ActionKinds.MOVE_EQUIPPED_ITEM,
         { fromOwnerId, toOwnerId, fromSlotId, toSlotId },
         { apCost: 0 }
@@ -1229,7 +1357,7 @@ inventoryView = createInventoryView({
     ),
   depositItemToBasket: ({ fromOwnerId, toOwnerId, itemId, slotId }) =>
     queueActionWhenPaused(() =>
-      runner.dispatchAction(
+      dispatchPlayerAction(
         ActionKinds.DEPOSIT_ITEM_TO_BASKET,
         { fromOwnerId, toOwnerId, itemId, slotId },
         { apCost: 0 }
@@ -1254,7 +1382,7 @@ inventoryView = createInventoryView({
           isAnyDropboxOwnerId(payload.toOwnerId)) &&
         payload.fromOwnerId !== payload.toOwnerId
       ) {
-        return runner.dispatchAction(
+        return dispatchPlayerAction(
           ActionKinds.PROCESS_DROPBOX_MOVE,
           {
             ...payload,
@@ -1264,21 +1392,21 @@ inventoryView = createInventoryView({
         );
       }
       if (payload.fromOwnerId === payload.toOwnerId) {
-        return runner.dispatchAction(
+        return dispatchPlayerAction(
           ActionKinds.INVENTORY_MOVE,
           payload,
           { apCost: 0 }
         );
       }
       if (!isBootVariantFlagEnabled("inventoryTransferPlannerEnabled")) {
-        return runner.dispatchAction(
+        return dispatchPlayerAction(
           ActionKinds.INVENTORY_MOVE,
           payload,
           { apCost: 0 }
         );
       }
       if (runner.getCursorState?.()?.paused !== true) {
-        return runner.dispatchAction(
+        return dispatchPlayerAction(
           ActionKinds.INVENTORY_MOVE,
           payload,
           { apCost: 0 }
@@ -1297,7 +1425,7 @@ inventoryView = createInventoryView({
   },
   discardItemFromOwner: ({ ownerId, itemId }) =>
     queueActionWhenPaused(() =>
-      runner.dispatchAction(
+      dispatchPlayerAction(
         ActionKinds.INVENTORY_DISCARD,
         { ownerId, itemId },
         { apCost: 0 }
@@ -1305,7 +1433,7 @@ inventoryView = createInventoryView({
     ),
   splitStackAndPlace: ({ ownerId, itemId, amount, targetGX, targetGY }) =>
     queueActionWhenPaused(() =>
-      runner.dispatchAction(
+      dispatchPlayerAction(
         ActionKinds.INVENTORY_SPLIT,
         { ownerId, itemId, amount, targetGX, targetGY },
         { apCost: 0 }
@@ -1314,7 +1442,7 @@ inventoryView = createInventoryView({
   queueActionWhenPaused,
   adjustFollowerCount: ({ leaderId, delta }) =>
     queueActionWhenPaused(() => {
-      const res = runner.dispatchAction(
+      const res = dispatchPlayerAction(
         ActionKinds.ADJUST_FOLLOWER_COUNT,
         { leaderId, delta },
         { apCost: 0 }
@@ -1331,7 +1459,7 @@ inventoryView = createInventoryView({
     }),
   requestPauseForAction,
   scheduleActionsAtNextSecond: (actions, opts) =>
-    runner.scheduleActionsAtNextSecond?.(actions, opts),
+    schedulePlayerActionsAtNextSecond(actions, opts),
   setApDragWarning,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
@@ -1339,7 +1467,7 @@ inventoryView = createInventoryView({
     boardView?.setDistributorBuildPreview?.(preview),
   onUseItem: (spec) => {
     const useResult = queueActionWhenPaused(() =>
-      runner.dispatchAction(
+      dispatchPlayerAction(
         ActionKinds.INVENTORY_USE_ITEM,
         {
           ownerId: spec?.ownerId,
@@ -1437,7 +1565,7 @@ const boardView = createBoardView({
   inspectorLayer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
   interaction: interactionController,
-  actionPlanner,
+  actionPlanner: previewPlanner,
   tooltipView,
   inventoryView,
   queueActionWhenPaused,
@@ -1447,7 +1575,7 @@ const boardView = createBoardView({
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
   dispatchAction: (kind, payload, opts) =>
-    runner.dispatchAction(kind, payload, opts),
+    dispatchPlayerAction(kind, payload, opts),
   onSystemIconHover: (view, systemId) => {
     const target = view?.structure ?? view?.tile ?? null;
     processWidgetView?.setHoverTarget?.(target, systemId);
@@ -1493,13 +1621,8 @@ const pawnsView = createPawnsView({
   setDragGhost: (spec) => actionLogView?.setDragGhost?.(spec),
   resolveDragGhost: (status) => actionLogView?.resolveDragGhost?.(status),
   getPreviewHubCol: (pawnId) =>
-    runner.isPreviewing?.()
-      ? null
-      : actionPlanner?.getPawnOverrideHubCol?.(pawnId) ?? null,
-  getPreviewPlacement: (pawnId) =>
-    runner.isPreviewing?.()
-      ? null
-      : actionPlanner?.getPawnOverridePlacement?.(pawnId) ?? null,
+    getMergedPawnOverridePlacement(pawnId)?.hubCol ?? null,
+  getPreviewPlacement: (pawnId) => getMergedPawnOverridePlacement(pawnId),
   onPawnDropped({ pawnId, dropPos }) {
     if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();
@@ -1541,7 +1664,7 @@ const pawnsView = createPawnsView({
               toEnvCol: bestIndex,
             }) || { ok: false, reason: "noPlanner" },
           runWhenLive: () =>
-            runner.scheduleActionAtNextSecond?.(
+            schedulePlayerActionAtNextSecond(
               ActionKinds.PLACE_PAWN,
               { pawnId, toEnvCol: bestIndex },
               { apCost: 0, reason: "pawnMoveLive" }
@@ -1558,7 +1681,7 @@ const pawnsView = createPawnsView({
             toHubCol: bestIndex,
           }) || { ok: false, reason: "noPlanner" },
         runWhenLive: () =>
-          runner.scheduleActionAtNextSecond?.(
+          schedulePlayerActionAtNextSecond(
             ActionKinds.PLACE_PAWN,
             { pawnId, toHubCol: bestIndex },
             { apCost: 0, reason: "pawnMoveLive" }
@@ -1579,9 +1702,9 @@ processWidgetView = createProcessWidgetView({
   setHoverInventoryFocusOwners: (ownerIds) =>
     setProcessWidgetHoverFocusOwners(ownerIds),
   setHoverOwnerFocus: (focus) => setProcessWidgetHoverUiFocus(focus),
-  actionPlanner,
+  actionPlanner: previewPlanner,
   dispatchAction: (kind, payload, opts) =>
-    runner.dispatchAction(kind, payload, opts),
+    dispatchPlayerAction(kind, payload, opts),
   queueActionWhenPaused,
   requestPauseForAction,
   inventoryView,
@@ -2105,7 +2228,7 @@ if (isBootVariantFlagEnabled("actionLogEnabled")) {
   actionLogView = createActionLogView({
     app,
     layer: uiLayers.controlsLayer,
-    getPlanner: () => actionPlanner,
+    getPlanner: () => previewPlanner,
     getTimeline: () => runner.getTimeline(),
     getCursorState: () => runner.getCursorState(),
     isPreviewing: () => runner.isPreviewing?.() ?? false,
@@ -2127,6 +2250,8 @@ if (isBootVariantFlagEnabled("actionLogEnabled")) {
       return `Owner ${ownerId}`;
     },
     getState: () => runner.getState(),
+    getPendingActionRowSpecs: () =>
+      liveActionOptimism?.getPendingActionRowSpecs?.() ?? [],
   });
 } else {
   actionLogView = NOOP_ACTION_LOG_VIEW;
@@ -2236,6 +2361,7 @@ app.ticker.add((delta) => {
 
   const frameDt = delta / 60;
   runTimed("runner.update", () => runner.update(frameDt));
+  runTimed("liveActionOptimism.update", () => liveActionOptimism?.update?.());
   runTimed("playfieldShader.update", () => playfieldShader.update());
   runTimed("backdrop.update", () => backdropView.update(frameDt));
   runTimed("stateTint.update", () => updateStateTintOverlay(frameDt));
@@ -2312,6 +2438,80 @@ app.ticker.add((delta) => {
 });
 
 window.__DBG__ = {
+  getAutoPauseOnPlayerActionEnabled: () =>
+    isAutoPauseOnPlayerActionEnabled?.() === true,
+  isLiveActionOptimismEnabled: () => isLiveActionOptimismEnabled(),
+  getLiveActionOptimismState: () => {
+    const state = runner.getCursorState?.();
+    const ownerInventories =
+      state?.ownerInventories && typeof state.ownerInventories === "object"
+        ? state.ownerInventories
+        : {};
+    const inventoryPreviews = [];
+    for (const ownerIdRaw of Object.keys(ownerInventories)) {
+      const ownerIdNum = Number(ownerIdRaw);
+      const ownerId = Number.isFinite(ownerIdNum) ? ownerIdNum : ownerIdRaw;
+      const preview = liveActionOptimism?.getInventoryPreview?.(ownerId);
+      const hiddenItemIds = Array.from(preview?.hiddenItemIds || []);
+      const overlayItems = Array.isArray(preview?.overlayItems)
+        ? preview.overlayItems.map((item) => ({
+            id: item?.id ?? null,
+            ownerId: item?.ownerId ?? null,
+            sourceOwnerId: item?.sourceOwnerId ?? null,
+            gridX: item?.gridX ?? null,
+            gridY: item?.gridY ?? null,
+            isGhost: item?.isGhost === true,
+          }))
+        : [];
+      const ghostItems = Array.isArray(preview?.ghostItems)
+        ? preview.ghostItems.map((item) => ({
+            id: item?.id ?? null,
+            ownerId: item?.ownerId ?? null,
+            gridX: item?.gridX ?? null,
+            gridY: item?.gridY ?? null,
+            isGhost: item?.isGhost === true,
+          }))
+        : [];
+      if (hiddenItemIds.length || overlayItems.length || ghostItems.length) {
+        inventoryPreviews.push({
+          ownerId,
+          hiddenItemIds,
+          overlayItems,
+          ghostItems,
+        });
+      }
+    }
+
+    const pawnOverrides = Array.isArray(state?.pawns)
+      ? state.pawns
+          .map((pawn) => {
+            const placement =
+              liveActionOptimism?.getPawnOverridePlacement?.(pawn?.id) ?? null;
+            if (!placement) return null;
+            return {
+              pawnId: pawn.id,
+              envCol:
+                Number.isFinite(placement?.envCol) ? placement.envCol : null,
+              hubCol:
+                Number.isFinite(placement?.hubCol) ? placement.hubCol : null,
+            };
+          })
+          .filter(Boolean)
+      : [];
+
+    return {
+      autoPauseOnPlayerAction:
+        isAutoPauseOnPlayerActionEnabled?.() === true,
+      enabled: isLiveActionOptimismEnabled(),
+      version: liveActionOptimism?.getVersion?.() ?? 0,
+      debug: liveActionOptimism?.getDebugState?.() ?? null,
+      pendingRows: liveActionOptimism?.getPendingActionRowSpecs?.() ?? [],
+      inventoryPreviews,
+      pawnOverrides,
+      paused: state?.paused === true,
+      tSec: Math.floor(state?.tSec ?? 0),
+    };
+  },
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   commit: (b) => runner.commitCursorSecond(b),

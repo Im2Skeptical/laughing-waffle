@@ -18,6 +18,7 @@ export function createHubPanels(opts) {
   const {
     app,
     actionPlanner,
+    getHubPlanPreview,
     queueActionWhenPaused,
     dispatchAction,
     dropdownLayer,
@@ -75,7 +76,9 @@ export function createHubPanels(opts) {
     if (!options.length) return;
 
     const systemState = structure.systemState?.[systemId] || null;
-    const selectedId = systemState?.selectedRecipeId ?? null;
+    const preview = getHubPlanPreview?.(hubCol) ?? null;
+    const selectedId =
+      preview?.recipeIdBySystemId?.[systemId] ?? systemState?.selectedRecipeId ?? null;
 
     const hubCol = Number.isFinite(structure?.col)
       ? Math.floor(structure.col)

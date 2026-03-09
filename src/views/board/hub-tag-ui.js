@@ -117,6 +117,7 @@ export function createHubTagUi(opts) {
   const {
     tooltipView,
     getGameState,
+    getHubPlanPreview,
     startTagDrag,
     setTextResolution,
     baseTextResolution,
@@ -181,6 +182,24 @@ export function createHubTagUi(opts) {
   function formatRecipeName(recipeId) {
     if (!recipeId) return "select recipe";
     return recipeDefs?.[recipeId]?.name || recipeId;
+  }
+
+  function getStructurePreview(structure) {
+    const hubCol = Number.isFinite(structure?.col) ? Math.floor(structure.col) : null;
+    return hubCol != null ? getHubPlanPreview?.(hubCol) ?? null : null;
+  }
+
+  function getRecipeSystemState(structure, systemId) {
+    const base = structure?.systemState?.[systemId] || {};
+    const preview = getStructurePreview(structure);
+    if (!preview || !systemId) return base;
+    return {
+      ...base,
+      recipePriority:
+        preview.recipePriorityBySystemId?.[systemId] ?? base.recipePriority ?? null,
+      selectedRecipeId:
+        preview.recipeIdBySystemId?.[systemId] ?? base.selectedRecipeId ?? null,
+    };
   }
 
   function getRecipePrioritySummary(systemId, systemState) {
@@ -271,7 +290,7 @@ export function createHubTagUi(opts) {
     if (processes.length <= 0) return null;
     const summary = getRecipePrioritySummary(
       systemId,
-      structure?.systemState?.[systemId] || {}
+      getRecipeSystemState(structure, systemId)
     );
 
     const state = getGameState?.() || null;
@@ -305,7 +324,7 @@ export function createHubTagUi(opts) {
   function getTopRecipeIdForSystem(structure, systemId) {
     const summary = getRecipePrioritySummary(
       systemId,
-      structure?.systemState?.[systemId] || {}
+      getRecipeSystemState(structure, systemId)
     );
     return summary?.topId ?? null;
   }
@@ -457,12 +476,26 @@ export function createHubTagUi(opts) {
 
   function isTagDisabled(structure, tagId) {
     if (!isTagUnlocked(tagId)) return true;
+    const preview = getStructurePreview(structure);
+    if (
+      preview?.tagDisabledById &&
+      Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+    ) {
+      return preview.tagDisabledById[tagId] === true || isTagHidden(structure, tagId);
+    }
     const entry = structure?.tagStates?.[tagId];
     return entry?.disabled === true || isTagHidden(structure, tagId);
   }
 
   function isTagPlayerDisabled(structure, tagId) {
     if (!isTagUnlocked(tagId)) return true;
+    const preview = getStructurePreview(structure);
+    if (
+      preview?.tagDisabledById &&
+      Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
+    ) {
+      return preview.tagDisabledById[tagId] === true;
+    }
     const entry = structure?.tagStates?.[tagId];
     if (!entry || typeof entry !== "object") return false;
     const disabledBy =
@@ -481,7 +514,12 @@ export function createHubTagUi(opts) {
   }
 
   function getStructureTags(structure) {
-    const tags = Array.isArray(structure?.tags) ? structure.tags : [];
+    const preview = getStructurePreview(structure);
+    const tags = Array.isArray(preview?.tagIds)
+      ? preview.tagIds
+      : Array.isArray(structure?.tags)
+      ? structure.tags
+      : [];
     return tags.filter(
       (tagId) =>
         isTagUnlocked(tagId) &&

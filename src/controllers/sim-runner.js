@@ -895,6 +895,13 @@ export function createSimRunner({
       scheduled: true,
       tSec: sec,
       count: scheduledActions.length,
+      actions: scheduledActions.map((action) => ({
+        ...action,
+        payload:
+          action.payload && typeof action.payload === "object"
+            ? JSON.parse(JSON.stringify(action.payload))
+            : action.payload ?? null,
+      })),
     };
   }
 

@@ -1006,18 +1006,38 @@ export function createProcessWidgetView({
     return recipeDefs?.[recipeId]?.name || recipeId;
   }
 
+  function getTargetPlanPreview(target) {
+    const envCol = getEnvCol?.(target);
+    if (Number.isFinite(envCol)) {
+      return actionPlanner?.getTilePlanPreview?.(envCol) ?? null;
+    }
+    const hubCol = getHubCol?.(target);
+    if (Number.isFinite(hubCol)) {
+      return actionPlanner?.getHubPlanPreview?.(hubCol) ?? null;
+    }
+    return null;
+  }
+
   function getRecipePriorityForTarget(target, systemId, stateOverride = null) {
     const state = stateOverride || getStateSafe();
+    const preview = getTargetPlanPreview(target);
+    const recipePriorityValue =
+      systemId === "growth"
+        ? preview?.recipePriority ?? target?.systemState?.[systemId]?.recipePriority
+        : preview?.recipePriorityBySystemId?.[systemId] ??
+          target?.systemState?.[systemId]?.recipePriority;
+    const selectedValue =
+      systemId === "growth"
+        ? preview?.cropId ?? target?.systemState?.growth?.selectedCropId ?? null
+        : preview?.recipeIdBySystemId?.[systemId] ??
+          target?.systemState?.[systemId]?.selectedRecipeId ??
+          null;
     const priority = normalizeRecipePriority(
-      target?.systemState?.[systemId]?.recipePriority,
+      recipePriorityValue,
       { systemId, state, includeLocked: false }
     );
     if (priority.ordered.length > 0) return priority;
-    const selected =
-      systemId === "growth"
-        ? target?.systemState?.growth?.selectedCropId ?? null
-        : target?.systemState?.[systemId]?.selectedRecipeId ?? null;
-    return buildRecipePriorityFromSelectedRecipe(selected, {
+    return buildRecipePriorityFromSelectedRecipe(selectedValue, {
       systemId,
       state,
       includeLocked: false,

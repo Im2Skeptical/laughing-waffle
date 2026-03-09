@@ -12,6 +12,7 @@ export function createTilePanels(opts) {
     app,
     interaction,
     actionPlanner,
+    getTilePlanPreview,
     queueActionWhenPaused,
     dispatchAction,
     dropdownLayer,
@@ -35,8 +36,12 @@ export function createTilePanels(opts) {
   function openCropDropdown(view, anchorRect) {
     if (!cropDropdown || !view?.tile) return;
     const canEdit = true;
+    const envCol = Number.isFinite(view.tile?.col)
+      ? Math.floor(view.tile.col)
+      : view.col;
+    const preview = getTilePlanPreview?.(envCol) ?? null;
     const growth = view.tile.systemState?.growth;
-    const selectedId = growth?.selectedCropId ?? null;
+    const selectedId = preview?.cropId ?? growth?.selectedCropId ?? null;
     const options = getCropList();
 
     cropDropdown.show({
@@ -45,9 +50,6 @@ export function createTilePanels(opts) {
       selectedId,
       canEdit,
       onSelect: (cropId) => {
-        const envCol = Number.isFinite(view.tile?.col)
-          ? Math.floor(view.tile.col)
-          : view.col;
         const nextCrop = cropId ?? null;
         const tileDef = envTileDefs?.[view.tile?.defId];
         const tileName =

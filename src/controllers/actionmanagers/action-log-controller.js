@@ -513,7 +513,7 @@ function buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel) {
   return rowsOut;
 }
 
-function buildActionRowSpecs(actions, state, getOwnerLabel) {
+export function buildActionRowSpecs(actions, state, getOwnerLabel) {
   const groupByKey = new Map();
   const groupKeyByAction = new Map();
   const tilePlanGroups = new Map();
@@ -815,6 +815,7 @@ export function createActionLogController({
   getState,
   getCursorState,
   getOwnerLabel,
+  getPendingActionRowSpecs,
 } = {}) {
   let cachedActionSecs = [];
   let lastActionSig = null;
@@ -977,11 +978,17 @@ export function createActionLogController({
 
   function getIntentRowSpecs() {
     const planner = typeof getPlanner === "function" ? getPlanner() : null;
-    if (!planner) return [];
+    const pendingRows =
+      typeof getPendingActionRowSpecs === "function"
+        ? getPendingActionRowSpecs() || []
+        : [];
+    if (!planner) return pendingRows;
     const state = getStateSafe();
     const intents = planner.getOrderedIntents?.() || [];
     const focus = planner.getFocusIntent?.();
-    return buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel);
+    return buildIntentRowSpecs(intents, planner, state, focus, getOwnerLabel).concat(
+      pendingRows
+    );
   }
 
   function getActionRowSpecsForCurrentSec() {
