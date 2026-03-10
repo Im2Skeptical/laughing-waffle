@@ -442,6 +442,7 @@ export function createProcessWidgetView({
     formatPoolSummary,
     buildOutputModule,
     buildPrestigeModule,
+    shouldShowDepositPrestigeModule,
     getDepositPoolTarget,
     canWithdrawFromTarget,
     getWithdrawState,
@@ -2688,6 +2689,11 @@ export function createProcessWidgetView({
     return WITHDRAWABLE_POOL_SYSTEM_IDS.has(info.systemId);
   }
 
+  function shouldShowDepositPrestigeModule(target) {
+    const info = getDepositPoolTarget(target);
+    return info?.systemId !== "storehouseStore";
+  }
+
   function getDepositDropboxOwnerId(target) {
     if (!target) return null;
     if (target?.refKind === "basket") {
@@ -2902,7 +2908,8 @@ export function createProcessWidgetView({
     central.y = BODY_PAD;
     body.addChild(central);
 
-    const moduleCount = 2;
+    const showPrestige = shouldShowDepositPrestigeModule(target);
+    const moduleCount = showPrestige ? 2 : 1;
     const moduleWidth = Math.floor(
       (centralWidth - (moduleCount - 1) * MODULE_GAP) / moduleCount
     );
@@ -2911,20 +2918,22 @@ export function createProcessWidgetView({
     let moduleMaxHeight = 0;
     const moduleViews = [];
 
-    const prestigeMod = new PIXI.Container();
-    prestigeMod.x = moduleX;
-    prestigeMod.y = 0;
-    central.addChild(prestigeMod);
-    moduleMaxHeight = Math.max(
-      moduleMaxHeight,
-      buildPrestigeModule({
-        container: prestigeMod,
-        width: moduleWidth,
-        process: {},
-      })
-    );
-    collectModuleView(moduleViews, prestigeMod, moduleWidth);
-    moduleX += moduleWidth + MODULE_GAP;
+    if (showPrestige) {
+      const prestigeMod = new PIXI.Container();
+      prestigeMod.x = moduleX;
+      prestigeMod.y = 0;
+      central.addChild(prestigeMod);
+      moduleMaxHeight = Math.max(
+        moduleMaxHeight,
+        buildPrestigeModule({
+          container: prestigeMod,
+          width: moduleWidth,
+          process: {},
+        })
+      );
+      collectModuleView(moduleViews, prestigeMod, moduleWidth);
+      moduleX += moduleWidth + MODULE_GAP;
+    }
 
     const outputMod = new PIXI.Container();
     outputMod.x = moduleX;
