@@ -36,6 +36,7 @@ export function createProcessWidgetProcessCardBuilder({
   formatPoolSummary,
   buildOutputModule,
   buildPrestigeModule,
+  shouldShowDepositPrestigeModule,
   getDepositPoolTarget,
   canWithdrawFromTarget,
   getWithdrawState,
@@ -215,11 +216,22 @@ export function createProcessWidgetProcessCardBuilder({
     }
 
     const modules = [];
+    const showDepositPrestige =
+      variant !== "depositing" ||
+      typeof shouldShowDepositPrestigeModule !== "function" ||
+      shouldShowDepositPrestigeModule(target) !== false;
+
     if (variant === "growing") {
       modules.push("progress", "output");
     } else if (variant === "depositing") {
-      if (canWithdrawFromTarget(target)) modules.push("prestige", "withdraw");
-      else modules.push("prestige", "output");
+      if (showDepositPrestige) {
+        if (canWithdrawFromTarget(target)) modules.push("prestige", "withdraw");
+        else modules.push("prestige", "output");
+      } else if (canWithdrawFromTarget(target)) {
+        modules.push("withdraw");
+      } else {
+        modules.push("output");
+      }
     } else if (variant === "building") {
       modules.push("requirements", "progress");
     } else if (variant === "cooking" || variant === "crafting") {
