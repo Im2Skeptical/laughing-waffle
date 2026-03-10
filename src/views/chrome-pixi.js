@@ -32,6 +32,7 @@ export function createChromeView({
   layer,
   getGameState,
   paintStyleController,
+  isVisible = null,
 }) {
   const root = new PIXI.Container();
   root.eventMode = "none";
@@ -161,6 +162,10 @@ export function createChromeView({
 
   function update() {
     const state = typeof getGameState === "function" ? getGameState() : null;
+    const visible =
+      typeof isVisible === "function" ? isVisible(state) !== false : true;
+    root.visible = visible;
+    if (!visible) return;
     const year = Number.isFinite(state?.year) ? Math.max(1, Math.floor(state.year)) : 1;
     const nextYearLabel = `Year: ${year} AF`;
     if (nextYearLabel !== lastYearLabel) {

@@ -642,6 +642,13 @@ export const itemDefs = {
     onUseRequires: {
       timegraphWindowPast: true,
     },
+    onGraphOpen: [
+      {
+        op: "GrantUnlock",
+        unlockType: "feature",
+        unlockId: "ui.chrome.yearTracker",
+      },
+    ],
     onUse: [
       {
         op: "AddSkillPointsIfSkillNodeUnlocked",

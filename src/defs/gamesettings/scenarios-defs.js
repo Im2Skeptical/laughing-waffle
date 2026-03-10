@@ -48,6 +48,10 @@ export const setupDefs = {
 
     */
 
+    skillProgressionDefs: {
+      defaultUnlockedFeatures: ["ui.chrome.yearTracker"],
+    },
+
     board: {
       cols: 12,
       tiles: [

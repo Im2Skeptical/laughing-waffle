@@ -2,6 +2,11 @@
 // Registry of skill-driven feature unlock ids.
 
 export const skillFeatureUnlockDefs = {
+  "ui.chrome.yearTracker": {
+    id: "ui.chrome.yearTracker",
+    name: "Year Tracker Visibility",
+    desc: "Shows the top-center year tracker in the HUD.",
+  },
   "ui.disk.moon": {
     id: "ui.disk.moon",
     name: "Moon Disk Visibility",

@@ -8,6 +8,7 @@ import {
   cmdSplitStackAndPlace,
   cmdStackItemsInOwner,
   cmdUseItem,
+  cmdOpenGraphItem,
   cmdDiscardItemFromOwner,
   cmdMoveProcessDropboxItem,
   cmdDepositItemToEquippedBasket,
@@ -45,6 +46,7 @@ export const ActionKinds = {
   INVENTORY_STACK: "inventoryStack",
   INVENTORY_DISCARD: "inventoryDiscard",
   INVENTORY_USE_ITEM: "inventoryUseItem",
+  INVENTORY_OPEN_GRAPH_ITEM: "inventoryOpenGraphItem",
   PROCESS_DROPBOX_MOVE: "processDropboxMove",
   DEPOSIT_ITEM_TO_BASKET: "depositItemToBasket",
   EQUIP_ITEM: "equipItem",
@@ -142,7 +144,8 @@ export function applyAction(state, action, context = {}) {
   // "Edit" actions (Player moves) require the simulation to be PAUSED.
   const isControlAction =
     kind === ActionKinds.DEBUG_SET_CAP ||
-    kind === ActionKinds.DEBUG_QUEUE_ENV_EVENT;
+    kind === ActionKinds.DEBUG_QUEUE_ENV_EVENT ||
+    kind === ActionKinds.INVENTORY_OPEN_GRAPH_ITEM;
 
   // STRICT GATING: If not replaying, gameplay actions are FORBIDDEN unless paused.
   if (!isReplay && !isControlAction && !state.paused) {
@@ -219,6 +222,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.INVENTORY_USE_ITEM:
       result = cmdUseItem(state, payload);
+      break;
+
+    case ActionKinds.INVENTORY_OPEN_GRAPH_ITEM:
+      result = cmdOpenGraphItem(state, payload);
       break;
 
     case ActionKinds.BUILD_DESIGNATE:

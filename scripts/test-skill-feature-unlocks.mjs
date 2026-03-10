@@ -295,8 +295,120 @@ function runSolarAstronomySeasonalDeckFeatureChecks() {
   );
 }
 
+function runGraphOpenFeatureUnlockChecks() {
+  const state = createInitialState("devPlaytesting01");
+  const templeRuins = state?.hub?.occ?.[4] ?? state?.hub?.slots?.[4]?.structure ?? null;
+  assert.ok(templeRuins, "[skill-feature] Temple Ruins missing from playtesting setup");
+  const templeInv = state?.ownerInventories?.[templeRuins.instanceId];
+  assert.ok(templeInv, "[skill-feature] Temple Ruins inventory missing");
+  const mote = (templeInv.items || []).find((item) => item?.kind === "moteOfEternity");
+  assert.ok(mote, "[skill-feature] moteOfEternity missing from Temple Ruins inventory");
+
+  assert.equal(
+    hasSkillFeatureUnlock(state, "ui.chrome.yearTracker"),
+    false,
+    "[skill-feature] year tracker feature should start locked in playtesting setup"
+  );
+
+  const openRes = applyAction(state, {
+    kind: ActionKinds.INVENTORY_OPEN_GRAPH_ITEM,
+    payload: {
+      ownerId: templeRuins.instanceId,
+      itemId: mote.id,
+    },
+    apCost: 0,
+  });
+  assert.equal(
+    openRes?.ok,
+    true,
+    `[skill-feature] graph-open action failed: ${JSON.stringify(openRes)}`
+  );
+  assert.equal(
+    openRes?.result,
+    "graphItemOpened",
+    "[skill-feature] first graph-open action should report a mutation"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(state, "ui.chrome.yearTracker"),
+    true,
+    "[skill-feature] opening Mote graph should grant year tracker feature"
+  );
+
+  state.paused = false;
+  const repeatRes = applyAction(state, {
+    kind: ActionKinds.INVENTORY_OPEN_GRAPH_ITEM,
+    payload: {
+      ownerId: templeRuins.instanceId,
+      itemId: mote.id,
+    },
+    apCost: 0,
+  });
+  assert.equal(
+    repeatRes?.ok,
+    true,
+    "[skill-feature] graph-open action should succeed while unpaused"
+  );
+  assert.equal(
+    repeatRes?.result,
+    "graphItemOpenedNoChange",
+    "[skill-feature] reopening the graph should be idempotent"
+  );
+
+  const serialized = serializeGameState(state);
+  const restored = deserializeGameState(serialized);
+  assert.equal(
+    hasSkillFeatureUnlock(restored, "ui.chrome.yearTracker"),
+    true,
+    "[skill-feature] serialized/deserialized state should preserve year tracker feature"
+  );
+
+  const replaySeed = createInitialState("devPlaytesting01");
+  const replayTempleRuins =
+    replaySeed?.hub?.occ?.[4] ?? replaySeed?.hub?.slots?.[4]?.structure ?? null;
+  assert.ok(replayTempleRuins, "[skill-feature] replay Temple Ruins missing");
+  const replayTempleInv = replaySeed?.ownerInventories?.[replayTempleRuins.instanceId];
+  assert.ok(replayTempleInv, "[skill-feature] replay Temple Ruins inventory missing");
+  const replayMote = (replayTempleInv.items || []).find(
+    (item) => item?.kind === "moteOfEternity"
+  );
+  assert.ok(replayMote, "[skill-feature] replay moteOfEternity missing");
+
+  const timeline = createTimelineFromInitialState(replaySeed);
+  const replaceRes = replaceActionsAtSecond(timeline, 0, [
+    {
+      kind: ActionKinds.INVENTORY_OPEN_GRAPH_ITEM,
+      payload: {
+        ownerId: replayTempleRuins.instanceId,
+        itemId: replayMote.id,
+      },
+      apCost: 0,
+    },
+  ]);
+  assert.equal(
+    replaceRes?.ok,
+    true,
+    "[skill-feature] failed to stage graph-open replay action"
+  );
+  const rebuilt = rebuildStateAtSecond(timeline, 0);
+  assert.equal(
+    rebuilt?.ok,
+    true,
+    "[skill-feature] rebuildStateAtSecond failed for graph-open action"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(rebuilt.state, "ui.chrome.yearTracker"),
+    true,
+    "[skill-feature] replay rebuild should preserve year tracker feature"
+  );
+}
+
 function runScenarioMemoryFeatureBootstrapChecks() {
   const state = createInitialState("devGym01");
+  assert.equal(
+    hasSkillFeatureUnlock(state, "ui.chrome.yearTracker"),
+    true,
+    "[skill-feature] devGym01 should start with year tracker feature unlocked"
+  );
   assert.equal(
     hasSkillFeatureUnlock(state, "ui.log.event"),
     true,
@@ -437,6 +549,7 @@ function run() {
   runFeatureUnlockEffectOpChecks();
   runUnlockCommandReplayAndSerializationChecks();
   runSolarAstronomySeasonalDeckFeatureChecks();
+  runGraphOpenFeatureUnlockChecks();
   runScenarioMemoryFeatureBootstrapChecks();
   runMysteriousAncientTomeItemUseChecks();
   console.log("[test] Skill feature unlock checks passed");

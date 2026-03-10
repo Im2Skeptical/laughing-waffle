@@ -2040,6 +2040,11 @@ scrollGraphOrchestrator = createScrollGraphOrchestrator({
     return createRunnerMetricGraph(spec);
   },
   scrollWindowBasePosition: VIEW_LAYOUT.graphs.systemScrollBase,
+  onBeforeOpenGraphItem: ({ ownerId, itemId }) =>
+    dispatchPlayerAction(ActionKinds.INVENTORY_OPEN_GRAPH_ITEM, {
+      ownerId,
+      itemId,
+    }),
 });
 
 const chromeView = createChromeView({
@@ -2047,6 +2052,8 @@ const chromeView = createChromeView({
   layer: uiLayers.controlsLayer,
   getGameState: () => runner.getState(),
   paintStyleController: playfieldShader,
+  isVisible: (state) =>
+    hasSkillFeatureUnlock(state, "ui.chrome.yearTracker"),
 });
 
 // NEW: Sun/Moon rotating disks HUD view

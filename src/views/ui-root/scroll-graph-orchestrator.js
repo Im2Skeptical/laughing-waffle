@@ -276,6 +276,7 @@ export function createScrollGraphOrchestrator({
   createSystemGraphModel,
   buildGraphView,
   scrollWindowBasePosition = null,
+  onBeforeOpenGraphItem = null,
 }) {
   const windowsByItemId = new Map();
   const basePosition = normalizeScrollWindowBasePosition(scrollWindowBasePosition);
@@ -573,6 +574,20 @@ export function createScrollGraphOrchestrator({
     const scrollState = getScrollTimegraphStateFromItem(item);
     if (!scrollState) {
       return { handled: false, reason: "notScrollGraphItem" };
+    }
+
+    if (typeof onBeforeOpenGraphItem === "function") {
+      const beforeOpenResult = onBeforeOpenGraphItem({
+        ownerId: ownerId ?? null,
+        itemId,
+        itemKind: typeof item?.kind === "string" ? item.kind : null,
+      });
+      if (beforeOpenResult?.ok === false) {
+        return {
+          handled: false,
+          reason: beforeOpenResult.reason || "beforeOpenGraphItemFailed",
+        };
+      }
     }
 
     const record = createWindowRecord({

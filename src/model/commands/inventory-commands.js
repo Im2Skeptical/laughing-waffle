@@ -22,6 +22,7 @@ import {
 } from "../owner-id-protocol.js";
 import { applyPrestigeDeposit } from "../prestige-system.js";
 import { isItemUseCurrentlyAvailable } from "../item-use-policy.js";
+import { getScrollTimegraphStateFromItem } from "../timegraph/edit-policy.js";
 import { canOwnerAcceptItem } from "./owner-acceptance.js";
 import {
   applyProcessDropboxLoad,
@@ -41,6 +42,12 @@ import {
   itemHasBaseTag,
 } from "./inventory-helpers.js";
 import { ensureHubSystemState } from "./system-state-helpers.js";
+
+function normalizeItemEffectList(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") return [raw];
+  return [];
+}
 
 export function cmdWithdrawHubPoolItem(
   state,
@@ -933,12 +940,7 @@ export function cmdUseItem(
 
   const itemDef = itemDefs?.[item.kind] ?? null;
   if (!itemDef) return { ok: false, reason: "noItemDef" };
-  const onUseRaw = itemDef.onUse;
-  const onUseEffects = Array.isArray(onUseRaw)
-    ? onUseRaw
-    : onUseRaw && typeof onUseRaw === "object"
-      ? [onUseRaw]
-      : [];
+  const onUseEffects = normalizeItemEffectList(itemDef.onUse);
   if (!onUseEffects.length) return { ok: false, reason: "noUsableEffect" };
   if (!isItemUseCurrentlyAvailable(state, item, itemDef)) {
     return { ok: false, reason: "itemUseUnavailable" };
@@ -965,6 +967,51 @@ export function cmdUseItem(
     itemId: item.id,
     itemKind: item.kind,
     leaderPawnId: leaderPawn.id,
+  };
+}
+
+export function cmdOpenGraphItem(state, { ownerId, itemId } = {}) {
+  if (ownerId == null) return { ok: false, reason: "badOwner" };
+  if (itemId == null) return { ok: false, reason: "badItem" };
+
+  const inv = state?.ownerInventories?.[ownerId];
+  if (!inv) return { ok: false, reason: "noInventory" };
+
+  Inventory.rebuildDerived(inv);
+  const item = inv.itemsById?.[itemId] || inv.items.find((it) => it.id === itemId);
+  if (!item) return { ok: false, reason: "noItem" };
+  if (!getScrollTimegraphStateFromItem(item)) {
+    return { ok: false, reason: "notScrollGraphItem" };
+  }
+
+  const itemDef = itemDefs?.[item.kind] ?? null;
+  if (!itemDef) return { ok: false, reason: "noItemDef" };
+
+  const onGraphOpenEffects = normalizeItemEffectList(itemDef.onGraphOpen);
+  const leaderPawn = getLeaderByOwnerId(state, ownerId);
+  const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+  const changed =
+    onGraphOpenEffects.length > 0
+      ? runEffect(state, onGraphOpenEffects, {
+          kind: "item",
+          state,
+          source: item,
+          item,
+          inv,
+          ownerId,
+          pawn: leaderPawn ?? null,
+          pawnId: leaderPawn?.id ?? null,
+          tSec: nowSec,
+        })
+      : false;
+
+  return {
+    ok: true,
+    result: changed ? "graphItemOpened" : "graphItemOpenedNoChange",
+    ownerId,
+    itemId: item.id,
+    itemKind: item.kind,
+    changed,
   };
 }
 
