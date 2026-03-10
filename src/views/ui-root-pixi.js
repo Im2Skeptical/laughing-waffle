@@ -301,6 +301,7 @@ let processWidgetHoverUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
+let pendingSkillTreeOpenLeaderPawnId = null;
 let playfieldShader = null;
 let stateTintOverlay = null;
 let lastStateTintKey = "__init__";
@@ -915,11 +916,18 @@ function openSkillTreeForLeaderPawn(leaderPawnId) {
   if (!Number.isFinite(leaderPawnId)) {
     return { ok: false, reason: "badLeaderPawnId" };
   }
+  const resolvedLeaderPawnId = Math.floor(leaderPawnId);
+  const state = runner.getCursorState?.();
+  if (!state?.paused) {
+    pendingSkillTreeOpenLeaderPawnId = resolvedLeaderPawnId;
+    runner.setTimeScaleTarget?.(0, { requestPause: true });
+    runner.setPaused(true);
+    return { ok: true, queued: true, reason: "waitingForPause" };
+  }
 
-  requestPauseForAction();
   const openRes = skillTreeView.open({
-    leaderPawnId: Math.floor(leaderPawnId),
-    pawnId: Math.floor(leaderPawnId),
+    leaderPawnId: resolvedLeaderPawnId,
+    pawnId: resolvedLeaderPawnId,
     onExit: (result) => {
       if (result?.openEditor && result?.treeId) {
         const editorRes = openSkillTreeEditorForTree({ treeId: result.treeId });
@@ -938,6 +946,19 @@ function openSkillTreeForLeaderPawn(leaderPawnId) {
   clearExternalUiFocus();
   tooltipView?.hide?.();
   return { ok: true };
+}
+
+function flushPendingSkillTreeOpen() {
+  if (!Number.isFinite(pendingSkillTreeOpenLeaderPawnId)) return;
+  if (skillTreeView?.isOpen?.() || skillTreeEditorView?.isOpen?.()) {
+    pendingSkillTreeOpenLeaderPawnId = null;
+    return;
+  }
+  const state = runner.getCursorState?.();
+  if (!state?.paused) return;
+  const leaderPawnId = pendingSkillTreeOpenLeaderPawnId;
+  pendingSkillTreeOpenLeaderPawnId = null;
+  openSkillTreeForLeaderPawn(leaderPawnId);
 }
 
 function toSafeIndex(raw, fallback = 0) {
@@ -2109,6 +2130,8 @@ const envEventDeckView = createEnvEventDeckView({
   app,
   layer: uiLayers.controlsLayer,
   getState: () => runner.getState(),
+  getDeckVisibilityEnabled: (state) =>
+    hasSkillFeatureUnlock(state, "ui.deck.event"),
   getSeasonalColoringEnabled: (state) =>
     hasSkillFeatureUnlock(state, "ui.deck.seasonalColors"),
   getTimeline: () => runner.getTimeline(),
@@ -2366,6 +2389,7 @@ app.ticker.add((delta) => {
 
   const frameDt = delta / 60;
   runTimed("runner.update", () => runner.update(frameDt));
+  runTimed("skillTree.pauseOpen", () => flushPendingSkillTreeOpen());
   runTimed("liveActionOptimism.update", () => liveActionOptimism?.update?.());
   runTimed("playfieldShader.update", () => playfieldShader.update());
   runTimed("backdrop.update", () => backdropView.update(frameDt));
