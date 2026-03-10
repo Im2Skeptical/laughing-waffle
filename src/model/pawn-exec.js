@@ -46,11 +46,15 @@ const REST_SPOT_AFFORDANCE = "restSpot";
 const NO_OCCUPY_AFFORDANCE = "noOccupy";
 const LOCATION_ROW_SWITCH_COST = 1;
 
-function requirementsPass(requires, pawn) {
+function requirementsPass(requires, pawn, options = {}) {
   if (!requires || typeof requires !== "object") return true;
   if (Number.isFinite(requires.hungerAtMost)) {
     const cur = pawn?.systemState?.hunger?.cur;
     if (!Number.isFinite(cur) || cur > requires.hungerAtMost) return false;
+  }
+  if (typeof requires.idle === "boolean") {
+    const isIdle = options.idle === true;
+    if (requires.idle !== isIdle) return false;
   }
   return true;
 }
@@ -382,6 +386,48 @@ function buildPawnDefPassiveKey(pawn, passive, passiveIndex) {
       : `idx${passiveIndex}`;
   const pawnId = pawn?.id ?? "unknown";
   return `pawn:${pawnId}:defPassive:${passiveId}`;
+}
+
+function passiveRequiresResolvedIdle(passive) {
+  return typeof passive?.requires?.idle === "boolean";
+}
+
+function runPawnDefPassives(
+  state,
+  pawn,
+  passives,
+  tSec,
+  context,
+  { idle = null, requireResolvedIdle = false } = {}
+) {
+  for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
+    const passive = passives[passiveIndex];
+    if (!passive || typeof passive !== "object") continue;
+    if (passiveRequiresResolvedIdle(passive) !== requireResolvedIdle) continue;
+
+    const passiveKey = buildPawnDefPassiveKey(pawn, passive, passiveIndex);
+    const requirementsOk = requirementsPass(passive.requires, pawn, {
+      idle: requireResolvedIdle ? idle === true : null,
+    });
+    if (!requirementsOk) {
+      passiveTimingPasses(passive.timing, state, tSec, {
+        passiveKey,
+        isActive: false,
+      });
+      continue;
+    }
+    if (
+      !passiveTimingPasses(passive.timing, state, tSec, {
+        passiveKey,
+        isActive: true,
+      })
+    ) {
+      continue;
+    }
+    if (passive.effect) {
+      runEffect(state, passive.effect, { ...context });
+    }
+  }
 }
 
 function runEquippedItemPassives(state, pawn, tSec, baseContext) {
@@ -830,23 +876,9 @@ export function stepPawnSecond(state, tSec, options = {}) {
     const hungerBefore = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
 
     runEquippedItemPassives(state, pawn, tSec, context);
-
-    for (let passiveIndex = 0; passiveIndex < passives.length; passiveIndex++) {
-      const passive = passives[passiveIndex];
-      if (!passive || typeof passive !== "object") continue;
-      const passiveKey = buildPawnDefPassiveKey(pawn, passive, passiveIndex);
-      if (
-        !passiveTimingPasses(passive.timing, state, tSec, {
-          passiveKey,
-          isActive: true,
-        })
-      ) {
-        continue;
-      }
-      if (passive.effect) {
-        runEffect(state, passive.effect, { ...context });
-      }
-    }
+    runPawnDefPassives(state, pawn, passives, tSec, context, {
+      requireResolvedIdle: false,
+    });
 
     const prevMode = pawn?.ai?.mode ?? null;
     let aiMode = updatePawnAiMode(pawn);
@@ -867,6 +899,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
     const hungerNow = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
     const staminaNow = Math.floor(pawn?.systemState?.stamina?.cur ?? 0);
     let hungryWarningLogged = false;
+    let movedThisSecond = false;
 
     if (prevMode !== "eat" && aiMode === "eat" && hungerNow <= hungerWarning) {
       pushGameEvent(state, {
@@ -915,6 +948,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
         for (const placement of candidates) {
           if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
           context = buildPawnContext(state, pawn, tSec);
+          movedThisSecond = true;
           pushPawnSeekMoveEvent(state, pawn, tSec, "eat", placement);
           movedForEat = true;
           break;
@@ -933,6 +967,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
           pawn.ai.mode = "rest";
           aiMode = "rest";
           context = buildPawnContext(state, pawn, tSec);
+          movedThisSecond = true;
           pushPawnSeekMoveEvent(state, pawn, tSec, "rest", placement);
           break;
         }
@@ -944,6 +979,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
         for (const placement of candidates) {
           if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
           context = buildPawnContext(state, pawn, tSec);
+          movedThisSecond = true;
           pushPawnSeekMoveEvent(state, pawn, tSec, "rest", placement);
           break;
         }
@@ -970,6 +1006,11 @@ export function stepPawnSecond(state, tSec, options = {}) {
         typeof intent.id === "string" && intent.id.length > 0 ? intent.id : null;
       break;
     }
+
+    runPawnDefPassives(state, pawn, passives, tSec, context, {
+      idle: !executed && !movedThisSecond,
+      requireResolvedIdle: true,
+    });
 
     if (pawn.role === "follower") {
       applyFollowerHungerDebt(state, pawn);

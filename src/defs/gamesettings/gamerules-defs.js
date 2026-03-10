@@ -48,6 +48,8 @@ export const PAWN_AI_HUNGER_FULL = 100;
 export const PAWN_AI_STAMINA_WARNING = 30;
 export const PAWN_AI_STAMINA_START_REST = 20;
 export const PAWN_AI_STAMINA_FULL = 100;
+export const PAWN_IDLE_STAMINA_REGEN_CADENCE_SEC = 5;
+export const PAWN_IDLE_STAMINA_REGEN_AMOUNT = 1;
 
 // --- Population ---
 export const INITIAL_POPULATION_DEFAULT = 0;

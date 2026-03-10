@@ -1,6 +1,40 @@
 // pawn-defs.js
 // Pawn registry (data only).
 
+import {
+  PAWN_IDLE_STAMINA_REGEN_AMOUNT,
+  PAWN_IDLE_STAMINA_REGEN_CADENCE_SEC,
+} from "../gamesettings/gamerules-defs.js";
+
+const idleStaminaRegenPassive =
+  Number.isFinite(PAWN_IDLE_STAMINA_REGEN_AMOUNT) &&
+  Number.isFinite(PAWN_IDLE_STAMINA_REGEN_CADENCE_SEC) &&
+  PAWN_IDLE_STAMINA_REGEN_AMOUNT > 0 &&
+  PAWN_IDLE_STAMINA_REGEN_CADENCE_SEC > 0
+    ? {
+        id: "idleStaminaRegen",
+        requires: { idle: true },
+        timing: { cadenceSec: PAWN_IDLE_STAMINA_REGEN_CADENCE_SEC },
+        effect: [
+          {
+            op: "AddToSystemState",
+            target: { ref: "pawn" },
+            system: "stamina",
+            key: "cur",
+            amount: PAWN_IDLE_STAMINA_REGEN_AMOUNT,
+          },
+          {
+            op: "ClampSystemState",
+            target: { ref: "pawn" },
+            system: "stamina",
+            key: "cur",
+            min: 0,
+            maxKey: "max",
+          },
+        ],
+      }
+    : null;
+
 export const pawnDefs = {
   default: {
     id: "default",
@@ -30,6 +64,7 @@ export const pawnDefs = {
           },
         ],
       },
+      ...(idleStaminaRegenPassive ? [idleStaminaRegenPassive] : []),
     ],
     intents: [
       {
