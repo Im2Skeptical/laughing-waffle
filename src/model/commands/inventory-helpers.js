@@ -226,3 +226,138 @@ export function getEquippedBasketEntry(leader, preferredSlotId = null) {
     preferredSlotId
   );
 }
+
+function sortInventoryItemsForAutostack(items) {
+  return [...(Array.isArray(items) ? items : [])].sort((left, right) => {
+    const leftY = Number.isFinite(left?.gridY) ? Math.floor(left.gridY) : 0;
+    const rightY = Number.isFinite(right?.gridY) ? Math.floor(right.gridY) : 0;
+    if (leftY !== rightY) return leftY - rightY;
+    const leftX = Number.isFinite(left?.gridX) ? Math.floor(left.gridX) : 0;
+    const rightX = Number.isFinite(right?.gridX) ? Math.floor(right.gridX) : 0;
+    if (leftX !== rightX) return leftX - rightX;
+    const leftId = Number.isFinite(left?.id) ? Math.floor(left.id) : 0;
+    const rightId = Number.isFinite(right?.id) ? Math.floor(right.id) : 0;
+    return leftId - rightId;
+  });
+}
+
+function findFirstValidPlacement(inv, item) {
+  if (!inv || !item) return null;
+  for (let gy = 0; gy <= inv.rows - item.height; gy++) {
+    for (let gx = 0; gx <= inv.cols - item.width; gx++) {
+      if (Inventory.canPlaceItemAt(inv, item, gx, gy)) {
+        return { gx, gy };
+      }
+    }
+  }
+  return null;
+}
+
+export function resolveInventoryTransferPlan({
+  fromInv,
+  toInv,
+  item,
+  targetGX,
+  targetGY,
+  fromOwnerId,
+  toOwnerId,
+} = {}) {
+  if (!fromInv || !toInv) return { ok: false, reason: "noInventory" };
+  if (!item) return { ok: false, reason: "noItem" };
+
+  const quantity = Math.max(0, Math.floor(item.quantity ?? 0));
+  if (quantity <= 0) return { ok: false, reason: "emptyStack" };
+
+  const stackOps = [];
+  let remaining = quantity;
+  const usedAutostack = fromOwnerId !== toOwnerId;
+
+  if (usedAutostack) {
+    const candidates = sortInventoryItemsForAutostack(toInv.items).filter((target) => {
+      if (!target || target.id === item.id) return false;
+      if (!canStackItems(target, item)) return false;
+      const maxStack = Math.max(1, Math.floor(getItemMaxStack(target) || 1));
+      const targetQty = Math.max(0, Math.floor(target.quantity ?? 0));
+      return targetQty < maxStack;
+    });
+
+    for (const target of candidates) {
+      if (remaining <= 0) break;
+      const maxStack = Math.max(1, Math.floor(getItemMaxStack(target) || 1));
+      const targetQty = Math.max(0, Math.floor(target.quantity ?? 0));
+      const space = Math.max(0, maxStack - targetQty);
+      if (space <= 0) continue;
+      const amount = Math.min(space, remaining);
+      if (amount <= 0) continue;
+      stackOps.push({ targetItemId: target.id, amount });
+      remaining -= amount;
+    }
+  }
+
+  const totalStacked = quantity - remaining;
+  if (remaining <= 0) {
+    return {
+      ok: true,
+      stackOps,
+      placedRemainder: null,
+      sourceRemaining: 0,
+      totalMoved: quantity,
+      usedAutostack: stackOps.length > 0,
+      needsExactPlacement: false,
+      partial: false,
+    };
+  }
+
+  const requestedGX = Number.isFinite(targetGX) ? Math.floor(targetGX) : null;
+  const requestedGY = Number.isFinite(targetGY) ? Math.floor(targetGY) : null;
+  const canPlaceAtRequested =
+    requestedGX != null &&
+    requestedGY != null &&
+    Inventory.canPlaceItemAt(toInv, item, requestedGX, requestedGY);
+
+  let placement = canPlaceAtRequested ? { gx: requestedGX, gy: requestedGY } : null;
+  if (!placement && stackOps.length > 0) {
+    placement = findFirstValidPlacement(toInv, item);
+  }
+
+  if (!placement) {
+    if (totalStacked > 0) {
+      return {
+        ok: true,
+        stackOps,
+        placedRemainder: null,
+        sourceRemaining: remaining,
+        totalMoved: totalStacked,
+        usedAutostack: true,
+        needsExactPlacement: false,
+        partial: true,
+      };
+    }
+    return {
+      ok: false,
+      reason: "blocked",
+      stackOps: [],
+      placedRemainder: null,
+      sourceRemaining: quantity,
+      totalMoved: 0,
+      usedAutostack: false,
+      needsExactPlacement: true,
+      partial: false,
+    };
+  }
+
+  return {
+    ok: true,
+    stackOps,
+    placedRemainder: {
+      gx: placement.gx,
+      gy: placement.gy,
+      amount: remaining,
+    },
+    sourceRemaining: 0,
+    totalMoved: quantity,
+    usedAutostack: stackOps.length > 0,
+    needsExactPlacement: stackOps.length <= 0 && !canPlaceAtRequested,
+    partial: false,
+  };
+}
