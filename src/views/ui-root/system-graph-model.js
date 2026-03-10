@@ -48,8 +48,8 @@ const ENV_SYSTEM_ICON_MAP = {
   hydration: "H",
   fertility: "F",
   growth: "G",
-  fishStock: "Fi",
-  wildStock: "W",
+  fishStock: "Fs",
+  wildStock: "Ws",
   liveStock: "L",
   reserves: "O",
 };

@@ -27,7 +27,6 @@ export const hubTagDefs = {
       titleFeedback: {
         mode: "progress",
         holderSystemId: "build",
-        hideSystemRows: true,
         variant: "process",
       },
     },
@@ -91,7 +90,6 @@ export const hubTagDefs = {
       titleFeedback: {
         mode: "progress",
         holderSystemId: "cook",
-        hideSystemRows: true,
         variant: "process",
       },
     },
@@ -170,7 +168,6 @@ export const hubTagDefs = {
       titleFeedback: {
         mode: "progress",
         holderSystemId: "craft",
-        hideSystemRows: true,
         variant: "process",
       },
     },

@@ -30,14 +30,14 @@ export const envSystemDefs = {
   fishStock: {
     id: "fishStock",
     kind: "envSystem",
-    ui: { name: "Fishstock", description: "Fish population" },
+    ui: { name: "fishStock", description: "Fish population" },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
   },
   wildStock: {
     id: "wildStock",
     kind: "envSystem",
-    ui: { name: "Wildstock", description: "Density of foragables" },
+    ui: { name: "wildStock", description: "Density of foragables" },
     defaultTier: "bronze",
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
   },

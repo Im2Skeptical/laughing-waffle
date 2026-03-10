@@ -90,6 +90,8 @@ const TAG_TITLE_FLASH_ALPHA = 0.78;
 const TAG_TITLE_PULSE_MIN = 0.14;
 const TAG_TITLE_PULSE_MAX = 0.34;
 const TAG_TITLE_PULSE_FREQ_HZ = 1.4;
+const REQUIREMENT_READY_PULSE_COLOR = 0x60c16f;
+const REQUIREMENT_READY_PULSE_FREQ_HZ = 1.8;
 const ROLL_TAG_COLORS = Object.freeze({
   forageable: 0x56b67b,
   fishable: 0x4d9fdb,
@@ -139,6 +141,8 @@ const SYSTEM_UI_MAP = {
   hydration: { label: "Hydration", icon: "H", color: 0x8ea17f },
   fertility: { label: "Fertility", icon: "F", color: 0xb0875e },
   growth: { label: "Growth", icon: "G", color: 0x8ca66b },
+  fishStock: { label: "fishStock", icon: "Fs", color: 0x4d9fdb },
+  wildStock: { label: "wildStock", icon: "Ws", color: 0x56b67b },
   fishDensity: { label: "Fish", icon: "Fi", color: 0x7f9879 },
   turfDensity: { label: "Turf", icon: "T", color: 0x8ea377 },
   mineralRarity: { label: "Ore", icon: "O", color: 0xaa835e },
@@ -263,8 +267,24 @@ export function createTagUi(opts) {
     return feedback && typeof feedback === "object" ? feedback : null;
   }
 
-  function shouldHideSystemRowsForTag(tagId) {
+  function shouldHideAllSystemRowsForTag(tagId) {
     return getTagTitleFeedbackConfig(tagId)?.hideSystemRows === true;
+  }
+
+  function shouldHideProcessWidgetForTag(tagId) {
+    return getTagTitleFeedbackConfig(tagId)?.hideProcessWidget === true;
+  }
+
+  function getHiddenSystemRowIdsForTag(tagId) {
+    const hiddenSystemRowIds = getTagTitleFeedbackConfig(tagId)?.hiddenSystemRowIds;
+    if (!Array.isArray(hiddenSystemRowIds) || hiddenSystemRowIds.length <= 0) {
+      return new Set();
+    }
+    return new Set(
+      hiddenSystemRowIds.filter(
+        (systemId) => typeof systemId === "string" && systemId.length > 0
+      )
+    );
   }
 
   function isProcessWidgetCapableSystem(systemId) {
@@ -549,28 +569,37 @@ export function createTagUi(opts) {
         )
       : [];
     if (reqs.length > 0) {
-      let hasRemaining = false;
-      for (const req of reqs) {
-        const required = Math.max(0, Math.floor(req?.amount ?? 0));
-        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
-        if (progress < required) {
-          hasRemaining = true;
-          break;
-        }
-      }
-      if (hasRemaining) {
-        return reqs.map((req, index) => ({
-          kind: "requirement",
-          index,
-          label: formatBuildRequirementLabel(req),
-        }));
-      }
+      return reqs.map((req, index) => ({
+        kind: "requirement",
+        index,
+        label: formatBuildRequirementLabel(req),
+      }));
     }
     return [{ kind: "labor" }];
   }
 
   function getBuildRowSignature(rows) {
     return rows.map((row) => `${row.kind}:${row.index ?? ""}`).join("|");
+  }
+
+  function areRequirementsSatisfied(requirements) {
+    const reqs = Array.isArray(requirements) ? requirements : [];
+    if (reqs.length <= 0) return false;
+    for (const req of reqs) {
+      const required = Math.max(0, Math.floor(req?.amount ?? 0));
+      if (required <= 0) continue;
+      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+      if (progress < required) return false;
+    }
+    return true;
+  }
+
+  function getRequirementReadyRowColor(baseColor) {
+    const pulsePhase =
+      0.5 +
+      0.5 *
+        Math.sin(getUiClockSec() * REQUIREMENT_READY_PULSE_FREQ_HZ * Math.PI * 2);
+    return lerpHexColor(baseColor, REQUIREMENT_READY_PULSE_COLOR, pulsePhase);
   }
 
   function resolveProcessFeedback(process, fallbackLabel, color) {
@@ -1138,9 +1167,12 @@ export function createTagUi(opts) {
   function buildTagEntry(view, tagId, tileInst) {
     const tagDef = envTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
-    const processWidgetSystemId = resolveProcessWidgetSystemIdForTagSystems(systems);
+    const processWidgetSystemId = shouldHideProcessWidgetForTag(tagId)
+      ? null
+      : resolveProcessWidgetSystemIdForTagSystems(systems);
     const actionMode = processWidgetSystemId ? "cog" : "none";
-    const hideSystemRows = shouldHideSystemRowsForTag(tagId);
+    const hideSystemRows = shouldHideAllSystemRowsForTag(tagId);
+    const hiddenSystemRowIds = getHiddenSystemRowIdsForTag(tagId);
 
     const container = new PIXI.Container();
     const row = new PIXI.Container();
@@ -1206,7 +1238,10 @@ export function createTagUi(opts) {
         }
       }
     } else if (!hideSystemRows) {
-      for (const systemId of systems) {
+      const visibleSystems = systems.filter(
+        (systemId) => !hiddenSystemRowIds.has(systemId)
+      );
+      for (const systemId of visibleSystems) {
         const rowEntry = buildSystemRow(view, systemId);
         rowEntry.container.y = sysY;
         systemContainer.addChild(rowEntry.container);
@@ -1566,11 +1601,15 @@ export function createTagUi(opts) {
         const progress = Math.max(0, Math.floor(req.progress ?? 0));
         const ratio = required > 0 ? progress / required : 0;
         const label = row.buildLabel || formatBuildRequirementLabel(req);
+        const allRequirementsReady = areRequirementsSatisfied(process.requirements);
+        const color = allRequirementsReady
+          ? getRequirementReadyRowColor(row.uiColor)
+          : row.uiColor;
         renderSystemRowBar(
           row,
           `${label} ${progress}/${required}`,
           ratio,
-          row.uiColor
+          color
         );
         return;
       }
@@ -1673,6 +1712,12 @@ export function createTagUi(opts) {
         getHydrationRatio(tileInst),
         GROWTH_BAR_COLORS.planting
       );
+      return;
+    }
+
+    if (systemId === "fishStock" || systemId === "wildStock") {
+      const tier = getSystemTier(tileInst, systemId);
+      renderSystemRowTier(row, formatTierLabel(tier), tier);
       return;
     }
 

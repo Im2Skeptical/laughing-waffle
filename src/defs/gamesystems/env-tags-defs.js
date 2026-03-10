@@ -12,6 +12,7 @@ export const envTagDefs = {
         mode: "progress",
         holderSystemId: "build",
         hideSystemRows: true,
+        hideProcessWidget: true,
         variant: "process",
       },
     },
@@ -78,6 +79,7 @@ export const envTagDefs = {
         mode: "progress",
         holderSystemId: "build",
         hideSystemRows: true,
+        hideProcessWidget: true,
         variant: "process",
       },
     },
@@ -135,6 +137,7 @@ export const envTagDefs = {
         mode: "progress",
         holderSystemId: "build",
         hideSystemRows: true,
+        hideProcessWidget: true,
         variant: "process",
       },
     },
@@ -164,7 +167,7 @@ export const envTagDefs = {
       titleFeedback: {
         mode: "progress",
         holderSystemId: "growth",
-        hideSystemRows: true,
+        hiddenSystemRowIds: ["growth"],
         variant: "farm",
       },
     },
@@ -303,7 +306,6 @@ export const envTagDefs = {
       titleFeedback: {
         mode: "state",
         holderSystemId: "fishStock",
-        hideSystemRows: true,
         variant: "roll",
       },
     },
@@ -337,7 +339,6 @@ export const envTagDefs = {
       titleFeedback: {
         mode: "state",
         holderSystemId: "wildStock",
-        hideSystemRows: true,
         variant: "roll",
       },
     },

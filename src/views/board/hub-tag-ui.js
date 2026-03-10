@@ -59,6 +59,8 @@ const TAG_ACTION_COG_STROKE = 0xdbe2e8;
 const TAG_ACTION_COG_ICON = 0x4f5862;
 const TAG_TITLE_FILL_INSET = 1;
 const TAG_TITLE_FILL_ALPHA = 0.72;
+const REQUIREMENT_READY_PULSE_COLOR = 0x60c16f;
+const REQUIREMENT_READY_PULSE_FREQ_HZ = 1.8;
 const FAITH_TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 const FAITH_TIER_COLORS = Object.freeze({
   bronze: 0x8f6945,
@@ -144,8 +146,20 @@ export function createHubTagUi(opts) {
     return feedback && typeof feedback === "object" ? feedback : null;
   }
 
-  function shouldHideSystemRowsForTag(tagId) {
+  function shouldHideAllSystemRowsForTag(tagId) {
     return getTagTitleFeedbackConfig(tagId)?.hideSystemRows === true;
+  }
+
+  function getHiddenSystemRowIdsForTag(tagId) {
+    const hiddenSystemRowIds = getTagTitleFeedbackConfig(tagId)?.hiddenSystemRowIds;
+    if (!Array.isArray(hiddenSystemRowIds) || hiddenSystemRowIds.length <= 0) {
+      return new Set();
+    }
+    return new Set(
+      hiddenSystemRowIds.filter(
+        (systemId) => typeof systemId === "string" && systemId.length > 0
+      )
+    );
   }
 
   function getSystemUi(systemId) {
@@ -164,6 +178,28 @@ export function createHubTagUi(opts) {
   function clamp01(value) {
     if (!Number.isFinite(value)) return 0;
     return Math.max(0, Math.min(1, value));
+  }
+
+  function getUiClockSec() {
+    const state = getGameState?.() || null;
+    const tSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    const simStep = Number.isFinite(state?.simStepIndex)
+      ? Math.max(0, Math.floor(state.simStepIndex) % 60) / 60
+      : 0;
+    return tSec + simStep;
+  }
+
+  function lerpChannel(from, to, ratio) {
+    return Math.round(from + (to - from) * clamp01(ratio));
+  }
+
+  function lerpHexColor(fromColor, toColor, ratio) {
+    const from = Number.isFinite(fromColor) ? Math.floor(fromColor) : 0;
+    const to = Number.isFinite(toColor) ? Math.floor(toColor) : 0;
+    const r = lerpChannel((from >> 16) & 0xff, (to >> 16) & 0xff, ratio);
+    const g = lerpChannel((from >> 8) & 0xff, (to >> 8) & 0xff, ratio);
+    const b = lerpChannel(from & 0xff, to & 0xff, ratio);
+    return (r << 16) | (g << 8) | b;
   }
 
   function formatTierLabel(tier) {
@@ -390,12 +426,11 @@ export function createHubTagUi(opts) {
       const reqs = Array.isArray(activeProcess.requirements)
         ? activeProcess.requirements
         : [];
-      const remainingReqs = reqs
+      const requirementRows = reqs
         .map((req, index) => {
           const amount = Math.max(0, Math.floor(req?.amount ?? 0));
           if (amount <= 0) return null;
           const progress = Math.max(0, Math.floor(req?.progress ?? 0));
-          if (progress >= amount) return null;
           return {
             kind: "recipeRequirement",
             recipeId,
@@ -406,8 +441,8 @@ export function createHubTagUi(opts) {
           };
         })
         .filter(Boolean);
-      if (remainingReqs.length > 0) {
-        return remainingReqs;
+      if (requirementRows.length > 0) {
+        return requirementRows;
       }
       return [
         {
@@ -470,6 +505,26 @@ export function createHubTagUi(opts) {
         ].join(":")
       ),
     ].join("|");
+  }
+
+  function areRequirementsSatisfied(requirements) {
+    const reqs = Array.isArray(requirements) ? requirements : [];
+    if (reqs.length <= 0) return false;
+    for (const req of reqs) {
+      const required = Math.max(0, Math.floor(req?.amount ?? 0));
+      if (required <= 0) continue;
+      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+      if (progress < required) return false;
+    }
+    return true;
+  }
+
+  function getRequirementReadyRowColor(baseColor) {
+    const pulsePhase =
+      0.5 +
+      0.5 *
+        Math.sin(getUiClockSec() * REQUIREMENT_READY_PULSE_FREQ_HZ * Math.PI * 2);
+    return lerpHexColor(baseColor, REQUIREMENT_READY_PULSE_COLOR, pulsePhase);
   }
 
   function resolveProcessFeedback(process, fallbackLabel, color) {
@@ -744,24 +799,6 @@ export function createHubTagUi(opts) {
     return maxTotal;
   }
 
-  function showStorageTooltip(structure, row, bounds, scale = 1) {
-    if (!tooltipView) return;
-    const info = getDepositPoolInfo(structure);
-    const pool = info?.pool;
-    if (!pool || typeof pool !== "object") return;
-    const itemId = row?.storageItemId ?? null;
-    const totals = getStorageTotals(pool, itemId);
-    const title = row?.storageLabel || "Storage";
-    const lines = [
-      `Total: ${totals.total}`,
-      `Bronze: ${totals.byTier.bronze}`,
-      `Silver: ${totals.byTier.silver}`,
-      `Gold: ${totals.byTier.gold}`,
-      `Diamond: ${totals.byTier.diamond}`,
-    ];
-    tooltipView.show({ title, lines, scale }, bounds);
-  }
-
   function setChildTooltipHoverActive(view, active) {
     if (!view || typeof view !== "object") return;
     view.childTooltipHoverActive = !!active;
@@ -791,6 +828,139 @@ export function createHubTagUi(opts) {
     return "Material";
   }
 
+  function buildSystemTooltipSpec(structure, row) {
+    const systemId = row?.systemId;
+    if (!systemId) return null;
+
+    if (systemId === "storage") {
+      const info = getDepositPoolInfo(structure);
+      const pool = info?.pool;
+      if (!pool || typeof pool !== "object") return null;
+      const itemId = row?.storageItemId ?? null;
+      const totals = getStorageTotals(pool, itemId);
+      return {
+        title: row?.storageLabel || "Storage",
+        lines: [
+          `Total: ${totals.total}`,
+          `Bronze: ${totals.byTier.bronze}`,
+          `Silver: ${totals.byTier.silver}`,
+          `Gold: ${totals.byTier.gold}`,
+          `Diamond: ${totals.byTier.diamond}`,
+        ],
+      };
+    }
+
+    const lines = [];
+    const systemDef = hubSystemDefs?.[systemId];
+    if (systemDef?.ui?.description) {
+      lines.push(systemDef.ui.description);
+    }
+
+    if (systemId === "residents") {
+      const residents = structure?.systemState?.residents || {};
+      const population = Math.max(0, Math.floor(residents.population ?? 0));
+      const capacity = Math.max(0, Math.floor(residents.housingCapacity ?? 0));
+      const tier = formatTierLabel(structure?.systemTiers?.residents);
+      lines.push(`Tier: ${tier}`);
+      lines.push(`Population: ${population}`);
+      lines.push(`Housing capacity: ${capacity}`);
+      return {
+        title: getSystemUi(systemId).label,
+        lines,
+      };
+    }
+
+    if (systemId === "faith") {
+      const tier = typeof structure?.systemTiers?.faith === "string"
+        ? structure.systemTiers.faith
+        : "bronze";
+      const tracker = getGameState?.()?.populationTracker || {};
+      const streak = Math.max(0, Math.floor(tracker?.faithGrowthStreak ?? 0));
+      const threshold = getFaithThreshold();
+      lines.push(`Tier: ${formatTierLabel(tier)}`);
+      lines.push(`Growth streak: ${streak}/${threshold}`);
+      return {
+        title: "Faith",
+        lines,
+      };
+    }
+
+    if (systemId === "build") {
+      const process = getBuildProcess(structure);
+      const tier = formatTierLabel(structure?.systemTiers?.build);
+      lines.push(`Tier: ${tier}`);
+      if (!process) {
+        lines.push("Progress: idle");
+        return { title: "Build", lines };
+      }
+      const reqs = Array.isArray(process.requirements) ? process.requirements : [];
+      if (reqs.length > 0) {
+        lines.push("Materials:");
+        for (const req of reqs) {
+          const required = Math.max(0, Math.floor(req?.amount ?? 0));
+          const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+          lines.push(`${formatBuildRequirementLabel(req)}: ${progress}/${required}`);
+        }
+      }
+      lines.push(
+        `Labor: ${Math.max(0, Math.floor(process.progress ?? 0))}/${Math.max(
+          1,
+          Math.floor(process.durationSec ?? 1)
+        )}`
+      );
+      return { title: "Build", lines };
+    }
+
+    if (isRecipeSystem(systemId)) {
+      const recipeContext = resolveRecipeContextForTag(
+        systemId === "cook" ? "canCook" : "canCraft",
+        structure
+      );
+      const recipeId = recipeContext?.recipeId ?? null;
+      if (recipeId) {
+        lines.push(`Recipe: ${formatRecipeName(recipeId)}`);
+        const outputLine = formatRecipeOutputLine(recipeId);
+        if (outputLine) lines.push(outputLine);
+      }
+      const activeProcess = recipeContext?.activeProcess ?? null;
+      const reqs = Array.isArray(activeProcess?.requirements)
+        ? activeProcess.requirements
+        : [];
+      if (reqs.length > 0) {
+        lines.push("Materials:");
+        for (const req of reqs) {
+          const required = Math.max(0, Math.floor(req?.amount ?? 0));
+          const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+          lines.push(`${formatRecipeRequirementLabel(req)}: ${progress}/${required}`);
+        }
+      }
+      return {
+        title: getSystemUi(systemId).label,
+        lines,
+      };
+    }
+
+    if (lines.length <= 0) return null;
+    return {
+      title: getSystemUi(systemId).label,
+      lines,
+    };
+  }
+
+  function showTooltipForSystem(structure, row, bounds, scale = 1) {
+    if (!tooltipView) return;
+    const spec = buildSystemTooltipSpec(structure, row);
+    if (!spec || !Array.isArray(spec.lines) || spec.lines.length <= 0) return;
+    tooltipView.show(
+      {
+        title: spec.title || getSystemUi(row?.systemId).label,
+        lines: spec.lines,
+        scale,
+      },
+      bounds
+    );
+  }
+
   function buildRowsForBuildProcess(structure) {
     const process = getBuildProcess(structure);
     if (!process) return [{ kind: "labor" }];
@@ -800,22 +970,11 @@ export function createHubTagUi(opts) {
         )
       : [];
     if (reqs.length > 0) {
-      let hasRemaining = false;
-      for (const req of reqs) {
-        const required = Math.max(0, Math.floor(req?.amount ?? 0));
-        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
-        if (progress < required) {
-          hasRemaining = true;
-          break;
-        }
-      }
-      if (hasRemaining) {
-        return reqs.map((req, index) => ({
-          kind: "requirement",
-          index,
-          label: formatBuildRequirementLabel(req),
-        }));
-      }
+      return reqs.map((req, index) => ({
+        kind: "requirement",
+        index,
+        label: formatBuildRequirementLabel(req),
+      }));
     }
     return [{ kind: "labor" }];
   }
@@ -1137,21 +1296,17 @@ export function createHubTagUi(opts) {
     icon.on("pointerover", () => {
       setChildTooltipHoverActive(view, true);
       onSystemIconHover?.(view, processWidgetSystemId);
-      if (systemId === "storage") {
-        showStorageTooltip(
-          view.structure,
-          row,
-          icon.getBounds(),
-          getDisplayObjectWorldScale(icon, 1)
-        );
-      }
+      showTooltipForSystem(
+        view.structure,
+        row,
+        icon.getBounds(),
+        getDisplayObjectWorldScale(icon, 1)
+      );
     });
     icon.on("pointerout", () => {
       setChildTooltipHoverActive(view, false);
       onSystemIconOut?.(view, processWidgetSystemId);
-      if (systemId === "storage") {
-        tooltipView?.hide?.();
-      }
+      tooltipView?.hide?.();
     });
     icon.on("pointerdown", (ev) => {
       ev?.stopPropagation?.();
@@ -1173,7 +1328,8 @@ export function createHubTagUi(opts) {
       tagId
     );
     const actionMode = processWidgetSystemId ? "cog" : "none";
-    const hideSystemRows = shouldHideSystemRowsForTag(tagId);
+    const hideSystemRows = shouldHideAllSystemRowsForTag(tagId);
+    const hiddenSystemRowIds = getHiddenSystemRowIdsForTag(tagId);
 
     const container = new PIXI.Container();
     const row = new PIXI.Container();
@@ -1241,7 +1397,12 @@ export function createHubTagUi(opts) {
         }
       }
     } else {
-      const firstRecipeSystemId = systems.find((systemId) => isRecipeSystem(systemId));
+      const visibleSystems = systems.filter(
+        (systemId) => !hiddenSystemRowIds.has(systemId)
+      );
+      const firstRecipeSystemId = visibleSystems.find((systemId) =>
+        isRecipeSystem(systemId)
+      );
       if (structure && firstRecipeSystemId) {
         recipeSystemId = firstRecipeSystemId;
         const rows = buildRowsForRecipeSystem(structure, recipeSystemId);
@@ -1256,7 +1417,7 @@ export function createHubTagUi(opts) {
           }
         }
       } else if (!hideSystemRows) {
-        for (const systemId of systems) {
+        for (const systemId of visibleSystems) {
           if (systemId === "deposit") continue;
           if (systemId === "storage") {
             const itemIds = listStorageItemIds(structure);
@@ -1491,11 +1652,15 @@ export function createHubTagUi(opts) {
         const progress = Math.max(0, Math.floor(req.progress ?? 0));
         const ratio = required > 0 ? progress / required : 0;
         const label = row.buildLabel || formatBuildRequirementLabel(req);
+        const allRequirementsReady = areRequirementsSatisfied(process.requirements);
+        const color = allRequirementsReady
+          ? getRequirementReadyRowColor(row.uiColor)
+          : row.uiColor;
         renderSystemRowBar(
           row,
           `${label} ${progress}/${required}`,
           ratio,
-          row.uiColor
+          color
         );
         return;
       }
@@ -1525,11 +1690,21 @@ export function createHubTagUi(opts) {
         const required = Math.max(0, Math.floor(row.recipeReqAmount ?? 0));
         const progress = Math.max(0, Math.floor(row.recipeReqProgress ?? 0));
         const label = row.recipeLabel || "Material";
+        const allRequirementsReady =
+          row.recipeId != null &&
+          areRequirementsSatisfied(
+            getActiveRecipeProcess(structure, systemId)?.type === row.recipeId
+              ? getActiveRecipeProcess(structure, systemId)?.requirements
+              : []
+          );
+        const color = allRequirementsReady
+          ? getRequirementReadyRowColor(row.uiColor)
+          : row.uiColor;
         renderSystemRowBar(
           row,
           `${label} ${progress}/${required}`,
           required > 0 ? progress / required : 0,
-          row.uiColor
+          color
         );
         return;
       }
