@@ -4,6 +4,7 @@
 
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { ENV_EVENT_DRAW_CADENCE_SEC } from "../defs/gamesettings/gamerules-defs.js";
+import { isEnvColRevealed } from "../model/state.js";
 import {
   VIEW_LAYOUT,
   BOARD_COL_GAP,
@@ -131,6 +132,12 @@ function getDeckThemeKey(state, seasonalColoringEnabled) {
   return `season:${getSeasonKey(state)}`;
 }
 
+function resolveDeckVisibilityEnabled(state, layout, getDeckVisibilityEnabled) {
+  if (layout?.enabled === false) return false;
+  if (typeof getDeckVisibilityEnabled !== "function") return true;
+  return getDeckVisibilityEnabled(state) === true;
+}
+
 function getBoardRightX(screenWidth, boardCols) {
   const cols = Math.max(1, clampInt(boardCols, BOARD_COLS));
   const lastColX = getBoardColumnX(screenWidth, cols - 1);
@@ -182,6 +189,26 @@ function normalizePlacement(placement) {
     ? Math.floor(placement.instanceId)
     : null;
   return { col, span, instanceId };
+}
+
+export function isEnvEventDeckPlacementRevealed(state, placement) {
+  const col = Number.isFinite(placement?.col) ? Math.floor(placement.col) : null;
+  if (col == null || col < 0) return false;
+  const span =
+    Number.isFinite(placement?.span) && placement.span > 0
+      ? Math.floor(placement.span)
+      : 1;
+  for (let offset = 0; offset < span; offset++) {
+    if (!isEnvColRevealed(state, col + offset)) return false;
+  }
+  return true;
+}
+
+export function getRenderableEnvEventDeckPlacements(state, placementsRaw) {
+  const placements = Array.isArray(placementsRaw) ? placementsRaw : [];
+  return placements.filter((placement) =>
+    isEnvEventDeckPlacementRevealed(state, placement)
+  );
 }
 
 function normalizeDrawEventPayload(rawData) {
@@ -394,6 +421,7 @@ export function createEnvEventDeckView({
   app,
   layer,
   getState,
+  getDeckVisibilityEnabled,
   getSeasonalColoringEnabled,
   getTimeline,
   getStateDataAtSecond,
@@ -446,6 +474,8 @@ export function createEnvEventDeckView({
       motion?.sprite?.removeFromParent?.();
       motion?.sprite?.destroy?.({ children: true });
     }
+    overflowBadgeSecRemaining = 0;
+    if (overflowBadge) overflowBadge.visible = false;
     eventRevealLockRemainingByInstanceId.clear();
   }
 
@@ -508,6 +538,7 @@ export function createEnvEventDeckView({
 
   function enqueueDrawMotionForSecond({
     sec,
+    state,
     drawEvent,
     direction,
     deckPos,
@@ -524,7 +555,11 @@ export function createEnvEventDeckView({
     const consumedDuration = Number(layout?.consumedDurationSec ?? 0.58);
 
     if (drawEvent.outcome === "placed" && drawEvent.placements.length > 0) {
-      const sortedPlacements = drawEvent.placements;
+      const sortedPlacements = getRenderableEnvEventDeckPlacements(
+        state,
+        drawEvent.placements
+      );
+      if (!sortedPlacements.length) return;
       const placementStaggerSec = Number(
         layout?.placementStaggerSec ?? ENV_EVENT_DECK_SPLIT_STAGGER_SEC
       );
@@ -634,6 +669,7 @@ export function createEnvEventDeckView({
       const drawEvent = resolveDrawEventAtSecond(sec);
       enqueueDrawMotionForSecond({
         sec,
+        state,
         drawEvent,
         direction,
         deckPos,
@@ -842,13 +878,17 @@ export function createEnvEventDeckView({
     const res = ensureCreated();
     if (!res.ok) return res;
     applyLayout();
-    const enabled = layout?.enabled !== false;
+    const state = getState?.();
+    const enabled = resolveDeckVisibilityEnabled(
+      state,
+      layout,
+      getDeckVisibilityEnabled
+    );
     root.visible = enabled;
     lastEnabled = enabled;
-    const state = getState?.();
     if (state) {
       lastSeenSec = getSafeStateSecond(state);
-      drawDeckStatic(state);
+      if (enabled) drawDeckStatic(state);
     }
     return { ok: true };
   }
@@ -859,21 +899,28 @@ export function createEnvEventDeckView({
       return;
     }
 
-    const enabled = layout?.enabled !== false;
-    if (enabled !== lastEnabled) {
-      root.visible = enabled;
-      lastEnabled = enabled;
-      if (!enabled) {
-        clearMotions();
-      }
-    }
-    if (!enabled) return;
-
     const state = getState();
     if (!state) {
       eventRevealLockRemainingByInstanceId.clear();
       return;
     }
+
+    const enabled = resolveDeckVisibilityEnabled(
+      state,
+      layout,
+      getDeckVisibilityEnabled
+    );
+    if (enabled !== lastEnabled) {
+      root.visible = enabled;
+      lastEnabled = enabled;
+      clearMotions();
+      lastSeenSec = getSafeStateSecond(state);
+      if (enabled) {
+        applyLayout();
+        drawDeckStatic(state);
+      }
+    }
+    if (!enabled) return;
 
     applyLayout();
     drawDeckStatic(state);

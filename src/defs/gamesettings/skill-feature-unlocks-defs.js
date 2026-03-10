@@ -12,6 +12,11 @@ export const skillFeatureUnlockDefs = {
     name: "Season Disk Visibility",
     desc: "Shows the season disk in the HUD.",
   },
+  "ui.deck.event": {
+    id: "ui.deck.event",
+    name: "Event Deck Visibility",
+    desc: "Shows the environment event deck in the HUD.",
+  },
   "ui.deck.seasonalColors": {
     id: "ui.deck.seasonalColors",
     name: "Seasonal Deck Colors",

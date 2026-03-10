@@ -106,6 +106,11 @@ function runUnlockCommandReplayAndSerializationChecks() {
     false,
     "[skill-feature] event-log feature should start locked in setup"
   );
+  assert.equal(
+    hasSkillFeatureUnlock(stateBefore, "ui.deck.event"),
+    false,
+    "[skill-feature] event deck feature should start locked in setup"
+  );
 
   stateBefore.paused = true;
   const path = findPathNodeIds(tree.id, tree.startNodeId, "Memory");
@@ -139,6 +144,11 @@ function runUnlockCommandReplayAndSerializationChecks() {
     true,
     "[skill-feature] unlocking Memory should grant ui.log.event"
   );
+  assert.equal(
+    hasSkillFeatureUnlock(stateAfter, "ui.deck.event"),
+    true,
+    "[skill-feature] unlocking Memory should grant ui.deck.event"
+  );
 
   const serialized = serializeGameState(stateAfter);
   const restored = deserializeGameState(serialized);
@@ -146,6 +156,11 @@ function runUnlockCommandReplayAndSerializationChecks() {
     hasSkillFeatureUnlock(restored, "ui.log.event"),
     true,
     "[skill-feature] serialized/deserialized state should preserve feature unlocks"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(restored, "ui.deck.event"),
+    true,
+    "[skill-feature] serialized/deserialized state should preserve ui.deck.event"
   );
 
   const replaySeed = createInitialState("devPlaytesting01");
@@ -173,6 +188,11 @@ function runUnlockCommandReplayAndSerializationChecks() {
     hasSkillFeatureUnlock(rebuilt.state, "ui.log.event"),
     true,
     "[skill-feature] replay rebuild should preserve feature unlocks"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(rebuilt.state, "ui.deck.event"),
+    true,
+    "[skill-feature] replay rebuild should preserve ui.deck.event"
   );
 }
 
@@ -283,6 +303,11 @@ function runScenarioMemoryFeatureBootstrapChecks() {
     "[skill-feature] pre-unlocked Memory should grant ui.log.event during init"
   );
   assert.equal(
+    hasSkillFeatureUnlock(state, "ui.deck.event"),
+    true,
+    "[skill-feature] pre-unlocked Memory should grant ui.deck.event during init"
+  );
+  assert.equal(
     hasSkillFeatureUnlock(state, "ui.tooltip.droppedItems"),
     true,
     "[skill-feature] pre-unlocked Memory should grant ui.tooltip.droppedItems during init"
@@ -346,6 +371,11 @@ function runMysteriousAncientTomeItemUseChecks() {
     false,
     "[skill-feature] tome scenario should start with event log locked"
   );
+  assert.equal(
+    hasSkillFeatureUnlock(state, "ui.deck.event"),
+    false,
+    "[skill-feature] tome scenario should start with event deck locked"
+  );
   const beforePoints = Number.isFinite(leader.skillPoints)
     ? Math.floor(leader.skillPoints)
     : 0;
@@ -375,6 +405,11 @@ function runMysteriousAncientTomeItemUseChecks() {
     hasSkillFeatureUnlock(state, "ui.log.event"),
     true,
     "[skill-feature] mysteriousAncientTome should grant event log feature via Memory onUnlock"
+  );
+  assert.equal(
+    hasSkillFeatureUnlock(state, "ui.deck.event"),
+    true,
+    "[skill-feature] mysteriousAncientTome should grant event deck feature via Memory onUnlock"
   );
   assert.equal(
     hasSkillFeatureUnlock(state, "ui.tooltip.droppedItems"),

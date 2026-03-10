@@ -2840,6 +2840,11 @@ export const skillNodes = {
       {
         op: "GrantUnlock",
         unlockType: "feature",
+        unlockId: "ui.deck.event"
+      },
+      {
+        op: "GrantUnlock",
+        unlockType: "feature",
         unlockId: "ui.log.event"
       },
       {

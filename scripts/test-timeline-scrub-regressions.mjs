@@ -45,6 +45,7 @@ import {
   computeAvailableRecipesAndBuildings,
   getLeaderInventorySectionCapabilities,
 } from "../src/model/skills.js";
+import { getRenderableEnvEventDeckPlacements } from "../src/views/env-event-deck-pixi.js";
 
 function assertOk(res, label) {
   assert.equal(res?.ok, true, `${label} failed: ${JSON.stringify(res)}`);
@@ -239,6 +240,68 @@ function assertPlacementsSorted(entry, label) {
     const ordered = prevCol < nextCol || (prevCol === nextCol && prevId <= nextId);
     assert.ok(ordered, `${label}: placements not sorted`);
   }
+}
+
+function runEnvEventDeckPlacementVisibilityChecks() {
+  const state = {
+    board: { cols: 4 },
+    discovery: {
+      envCols: [
+        { exposed: true, revealed: false },
+        { exposed: true, revealed: true },
+        { exposed: true, revealed: true },
+        { exposed: true, revealed: false },
+      ],
+      hubVisible: true,
+      hubRenameUnlocked: true,
+    },
+  };
+
+  assert.deepEqual(
+    getRenderableEnvEventDeckPlacements(state, [
+      { col: 0, span: 1, instanceId: 10 },
+    ]),
+    [],
+    "[envDeckView] unrevealed single-column placements should not animate"
+  );
+
+  assert.deepEqual(
+    getRenderableEnvEventDeckPlacements(state, [
+      { col: 1, span: 1, instanceId: 11 },
+    ]),
+    [{ col: 1, span: 1, instanceId: 11 }],
+    "[envDeckView] revealed single-column placements should animate"
+  );
+
+  assert.deepEqual(
+    getRenderableEnvEventDeckPlacements(state, [
+      { col: 1, span: 2, instanceId: 12 },
+    ]),
+    [{ col: 1, span: 2, instanceId: 12 }],
+    "[envDeckView] fully revealed multi-span placements should animate"
+  );
+
+  assert.deepEqual(
+    getRenderableEnvEventDeckPlacements(state, [
+      { col: 2, span: 2, instanceId: 13 },
+    ]),
+    [],
+    "[envDeckView] partially hidden multi-span placements should not animate"
+  );
+
+  assert.deepEqual(
+    getRenderableEnvEventDeckPlacements(state, [
+      { col: 0, span: 1, instanceId: 20 },
+      { col: 1, span: 1, instanceId: 21 },
+      { col: 2, span: 2, instanceId: 22 },
+      { col: 1, span: 2, instanceId: 23 },
+    ]),
+    [
+      { col: 1, span: 1, instanceId: 21 },
+      { col: 1, span: 2, instanceId: 23 },
+    ],
+    "[envDeckView] mixed placement lists should keep only revealed targets"
+  );
 }
 
 function runEnvDeckDrawFeedChecks() {
@@ -1392,6 +1455,7 @@ function runLeaderFaithReplayParityChecks() {
 }
 
 function run() {
+  runEnvEventDeckPlacementVisibilityChecks();
   runLeaderFaithWarningAndDecayChecks();
   runLeaderFaithEatStreakUpgradeChecks();
   runLeaderFaithEliminationChecks();
