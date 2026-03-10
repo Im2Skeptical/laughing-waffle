@@ -232,7 +232,7 @@ function getRequirementsViewForProcess(state, process, target, systemId) {
 
 function isRecipeSystemIdleProcess(process, target, systemId) {
   if (!process || !target || !systemId) return false;
-  if (systemId !== "fireplace" && systemId !== "workspace") return false;
+  if (systemId !== "cook" && systemId !== "craft") return false;
   const systemState = target?.systemState?.[systemId] ?? null;
   const selectedRecipeIdRaw =
     typeof systemState?.selectedRecipeId === "string" &&
@@ -250,7 +250,7 @@ function isRecipeSystemIdleProcess(process, target, systemId) {
 }
 
 function isPriorityRecipeDropboxSystem(systemId) {
-  return systemId === "fireplace" || systemId === "workspace";
+  return systemId === "cook" || systemId === "craft";
 }
 
 function listPriorityRecipeProcesses(target, systemId) {

@@ -55,8 +55,8 @@ const ENV_SYSTEM_ICON_MAP = {
 };
 const HUB_SYSTEM_ICON_MAP = {
   build: "B",
-  fireplace: "F",
-  workspace: "W",
+  cook: "C",
+  craft: "Cr",
   residents: "R",
   granaryStore: "G",
   storehouseStore: "S",
@@ -584,7 +584,7 @@ function buildHubSystemLegendTooltipSpec(cursorState, col, systemId) {
     return { title, lines };
   }
 
-  if (systemId === "fireplace" || systemId === "workspace") {
+  if (systemId === "cook" || systemId === "craft") {
     const normalizedPriority = normalizeRecipePriority(sysState?.recipePriority, {
       systemId,
       state: null,

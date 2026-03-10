@@ -85,10 +85,10 @@ export const hubSystemDefs = {
       processes: [],
     },
   },
-  fireplace: {
-    id: "fireplace",
+  cook: {
+    id: "cook",
     kind: "hubSystem",
-    ui: { name: "Fireplace", description: "Provides warmth and light." },
+    ui: { name: "Cook", description: "Cooking work queue." },
     defaultTier: "bronze",
     stateDefaults: {
       selectedRecipeId: null,
@@ -96,10 +96,10 @@ export const hubSystemDefs = {
       processes: [], // same queueKey pattern as crops
     },
   },
-  workspace: {
-    id: "workspace",
+  craft: {
+    id: "craft",
     kind: "hubSystem",
-    ui: { name: "Workspace", description: "Craft items here." },
+    ui: { name: "Craft", description: "Crafting work queue." },
     defaultTier: "bronze",
     stateDefaults: {
       selectedRecipeId: null,

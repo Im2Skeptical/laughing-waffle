@@ -619,7 +619,7 @@ export function getTemplateProcessForSystem(target, systemId, context = {}) {
     };
   }
 
-  if (systemId === "fireplace" || systemId === "workspace") {
+  if (systemId === "cook" || systemId === "craft") {
     const recipeId = getRecipeIdForSystem(target, systemId, context?.state ?? null);
     if (recipeId) {
       const recipe = recipeDefs?.[recipeId] || null;

@@ -72,7 +72,7 @@ function addProcessHost(
   {
     structureId,
     defId = "hearth",
-    systemId = "fireplace",
+    systemId = "cook",
     process,
     processes,
     selectedRecipeId,
@@ -157,7 +157,7 @@ function runPriorityOrderDistributionTest() {
 
   addProcessHost(state, {
     structureId: 910,
-    systemId: "workspace",
+    systemId: "craft",
     selectedRecipeId: "weaveBasket",
     recipePriority: {
       ordered: ["weaveBasket", "craftProphecyPopulationScroll"],
@@ -203,7 +203,7 @@ function runPriorityOrderDistributionTest() {
   assert.equal(res?.moved, 4);
   assert.equal(res?.partial, true);
   assert.equal(getItemById(fromInv, reeds.id)?.quantity ?? 0, 1);
-  const processes = state.hub.anchors[0].systemState.workspace.processes;
+  const processes = state.hub.anchors[0].systemState.craft.processes;
   assert.equal(getProcessRequirementProgress(processes[0], "reeds"), 3);
   assert.equal(getProcessRequirementProgress(processes[1], "reeds"), 1);
 }
@@ -316,7 +316,7 @@ function runProcessDefFallbackCapTest() {
   assert.equal(res?.ok, true, `expected fallback success, got ${JSON.stringify(res)}`);
   assert.equal(res?.moved, 3);
   assert.equal(getItemById(fromInv, reeds.id)?.quantity ?? 0, 2);
-  const process = state.hub.anchors[0].systemState.fireplace.processes[0];
+  const process = state.hub.anchors[0].systemState.cook.processes[0];
   assert.equal(getProcessRequirementProgress(process, "reeds"), 3);
   assert.equal(state.ownerInventories[dropboxOwnerId], undefined);
 }
@@ -325,14 +325,14 @@ function runPreviewDropboxOwnerRejectedTest() {
   const state = makeState();
   const fromOwnerId = 107;
   const structureId = 505;
-  const previewOwnerId = "inv:dropbox:process:preview:workspace:hub:505:weaveBasket";
+  const previewOwnerId = "inv:dropbox:process:preview:craft:hub:505:weaveBasket";
 
   const fromInv = ensureInventory(state, fromOwnerId, 6, 6);
   const reeds = addItem(state, fromInv, "reeds", 5);
 
   const host = addProcessHost(state, {
     structureId,
-    systemId: "workspace",
+    systemId: "craft",
     selectedRecipeId: "weaveBasket",
     process: {
       id: "placeholder",
@@ -340,7 +340,7 @@ function runPreviewDropboxOwnerRejectedTest() {
       requirements: [],
     },
   });
-  host.systemState.workspace.processes = [];
+  host.systemState.craft.processes = [];
 
   const res = cmdMoveProcessDropboxItem(state, {
     fromOwnerId,
@@ -354,7 +354,7 @@ function runPreviewDropboxOwnerRejectedTest() {
   assert.equal(res?.ok, false, "preview dropbox owner should be rejected");
   assert.equal(res?.reason, "dropboxNoProcess");
   assert.equal(getItemById(fromInv, reeds.id)?.quantity ?? 0, 5);
-  assert.equal(host.systemState.workspace.processes.length, 0);
+  assert.equal(host.systemState.craft.processes.length, 0);
 }
 
 function runHubInstantDropboxTest() {
@@ -486,7 +486,7 @@ function runDragStatusEvaluatorTest() {
 
   addProcessHost(state, {
     structureId: 901,
-    systemId: "workspace",
+    systemId: "craft",
     selectedRecipeId: "weaveBasket",
     process: {
       id: processId,
@@ -512,7 +512,7 @@ function runDragStatusEvaluatorTest() {
   assert.equal(invalid?.status, "invalid");
   assert.equal(invalid?.reason, "dropboxItemNotRequired");
 
-  const process = state.hub.anchors[0].systemState.workspace.processes[0];
+  const process = state.hub.anchors[0].systemState.craft.processes[0];
   process.requirements = [{ kind: "item", itemId: "reeds", amount: 3, progress: 3, consume: true }];
   const capped = evaluateProcessDropboxDragStatus(state, {
     toOwnerId: ownerId,
@@ -529,7 +529,7 @@ function runNoRecipeSelectedStatusTest() {
   const ownerId = `inv:dropbox:process:${processId}`;
   addProcessHost(state, {
     structureId: 902,
-    systemId: "workspace",
+    systemId: "craft",
     selectedRecipeId: null,
     process: {
       id: processId,

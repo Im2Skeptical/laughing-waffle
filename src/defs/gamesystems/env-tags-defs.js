@@ -5,7 +5,16 @@ export const envTagDefs = {
   explore: {
     id: "explore",
     kind: "envTag",
-    ui: { name: "Explore", description: "Survey the area and uncover what is here." },
+    ui: {
+      name: "Explore",
+      description: "Survey the area and uncover what is here.",
+      titleFeedback: {
+        mode: "progress",
+        holderSystemId: "build",
+        hideSystemRows: true,
+        variant: "process",
+      },
+    },
     systems: ["build"],
     intents: [
       {
@@ -62,7 +71,16 @@ export const envTagDefs = {
   delve: {
     id: "delve",
     kind: "envTag",
-    ui: { name: "Delve", description: "Search the ruins for a way into the hidden hub." },
+    ui: {
+      name: "Delve",
+      description: "Search the ruins for a way into the hidden hub.",
+      titleFeedback: {
+        mode: "progress",
+        holderSystemId: "build",
+        hideSystemRows: true,
+        variant: "process",
+      },
+    },
     systems: ["build"],
     intents: [
       {
@@ -110,7 +128,16 @@ export const envTagDefs = {
   build: {
     id: "build",
     kind: "envTag",
-    ui: { name: "Build", description: "Construct improvements here." },
+    ui: {
+      name: "Build",
+      description: "Construct improvements here.",
+      titleFeedback: {
+        mode: "progress",
+        holderSystemId: "build",
+        hideSystemRows: true,
+        variant: "process",
+      },
+    },
     systems: ["build"],
     intents: [],
     passives: [
@@ -131,7 +158,16 @@ export const envTagDefs = {
   farmable: {
     id: "farmable",
     kind: "envTag",
-    ui: { name: "Farm", description: "Grow crops." },
+    ui: {
+      name: "Farm",
+      description: "Grow crops.",
+      titleFeedback: {
+        mode: "progress",
+        holderSystemId: "growth",
+        hideSystemRows: true,
+        variant: "farm",
+      },
+    },
     systems: ["growth", "hydration", "fertility"],
     intents: [
       {
@@ -261,7 +297,16 @@ export const envTagDefs = {
   fishable: {
     id: "fishable",
     kind: "envTag",
-    ui: { name: "Fish", description: "Go fishing." },
+    ui: {
+      name: "Fish",
+      description: "Go fishing.",
+      titleFeedback: {
+        mode: "state",
+        holderSystemId: "fishStock",
+        hideSystemRows: true,
+        variant: "roll",
+      },
+    },
     systems: ["fishStock"],
     intents: [
       {
@@ -286,7 +331,16 @@ export const envTagDefs = {
   forageable: {
     id: "forageable",
     kind: "envTag",
-    ui: { name: "Forage", description: "Find useful resources." },
+    ui: {
+      name: "Forage",
+      description: "Find useful resources.",
+      titleFeedback: {
+        mode: "state",
+        holderSystemId: "wildStock",
+        hideSystemRows: true,
+        variant: "roll",
+      },
+    },
     systems: ["wildStock"],
     intents: [
       {
