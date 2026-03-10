@@ -3,8 +3,8 @@ import { cropDefs } from "../defs/gamepieces/crops-defs.js";
 import { computeAvailableRecipesAndBuildings } from "./skills.js";
 
 export function getRecipeKindForHubSystem(systemId) {
-  if (systemId === "fireplace") return "cook";
-  if (systemId === "workspace") return "craft";
+  if (systemId === "cook") return "cook";
+  if (systemId === "craft") return "craft";
   return null;
 }
 

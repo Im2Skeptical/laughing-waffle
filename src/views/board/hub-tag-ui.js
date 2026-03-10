@@ -57,6 +57,8 @@ const SYSTEM_BAR_RATIO_QUANT = 100;
 const TAG_ACTION_COG_FILL = 0xa7afb8;
 const TAG_ACTION_COG_STROKE = 0xdbe2e8;
 const TAG_ACTION_COG_ICON = 0x4f5862;
+const TAG_TITLE_FILL_INSET = 1;
+const TAG_TITLE_FILL_ALPHA = 0.72;
 const FAITH_TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 const FAITH_TIER_COLORS = Object.freeze({
   bronze: 0x8f6945,
@@ -67,8 +69,8 @@ const FAITH_TIER_COLORS = Object.freeze({
 
 const HUB_SYSTEM_UI_MAP = {
   build: { label: "Build", icon: "B", color: 0x8f7a58 },
-  fireplace: { label: "Fireplace", icon: "F", color: 0xb67e56 },
-  workspace: { label: "Workspace", icon: "W", color: 0x8ca66b },
+  cook: { label: "Cook", icon: "C", color: 0xb67e56 },
+  craft: { label: "Craft", icon: "Cr", color: 0x8ca66b },
   residents: { label: "Residents", icon: "R", color: 0xb7a57f },
   granaryStore: { label: "Granary", icon: "G", color: 0xc2a06d },
   storage: { label: "Storage", icon: "S", color: 0x8ea17f },
@@ -136,6 +138,15 @@ export function createHubTagUi(opts) {
     return def?.ui?.name || tagId;
   }
 
+  function getTagTitleFeedbackConfig(tagId) {
+    const feedback = hubTagDefs?.[tagId]?.ui?.titleFeedback;
+    return feedback && typeof feedback === "object" ? feedback : null;
+  }
+
+  function shouldHideSystemRowsForTag(tagId) {
+    return getTagTitleFeedbackConfig(tagId)?.hideSystemRows === true;
+  }
+
   function getSystemUi(systemId) {
     const entry = HUB_SYSTEM_UI_MAP[systemId];
     if (entry) return entry;
@@ -146,7 +157,7 @@ export function createHubTagUi(opts) {
   }
 
   function isRecipeSystem(systemId) {
-    return systemId === "fireplace" || systemId === "workspace";
+    return systemId === "cook" || systemId === "craft";
   }
 
   function clamp01(value) {
@@ -312,8 +323,8 @@ export function createHubTagUi(opts) {
 
   function resolveRecipeContextForTag(tagId, structure) {
     let systemId = null;
-    if (tagId === "canCraft") systemId = "workspace";
-    if (tagId === "canCook") systemId = "fireplace";
+    if (tagId === "canCraft") systemId = "craft";
+    if (tagId === "canCook") systemId = "cook";
     if (!systemId) return null;
 
     const activeProcess = getActiveRecipeProcess(structure, systemId);
@@ -442,6 +453,127 @@ export function createHubTagUi(opts) {
     ].join("|");
   }
 
+  function resolveProcessFeedback(process, fallbackLabel, color) {
+    if (!process || typeof process !== "object") {
+      return {
+        ratio: 0,
+        color,
+        tooltipLines: [`Status: ${fallbackLabel} idle`],
+      };
+    }
+
+    const reqs = Array.isArray(process.requirements) ? process.requirements : [];
+    for (const req of reqs) {
+      const required = Math.max(0, Math.floor(req?.amount ?? 0));
+      if (required <= 0) continue;
+      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+      if (progress >= required) continue;
+      const label = formatBuildRequirementLabel(req);
+      return {
+        ratio: required > 0 ? progress / required : 0,
+        color,
+        tooltipLines: [
+          `Status: ${fallbackLabel} loading`,
+          `${label}: ${progress}/${required}`,
+        ],
+      };
+    }
+
+    const progress = Math.max(0, Math.floor(process.progress ?? 0));
+    const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
+    return {
+      ratio: duration > 0 ? progress / duration : 0,
+      color,
+      tooltipLines: [`Status: ${fallbackLabel} ${progress}/${duration}`],
+    };
+  }
+
+  function resolveRecipeTitleFeedback(structure, systemId) {
+    const color = getSystemUi(systemId).color;
+    const rows = buildRowsForRecipeSystem(structure, systemId);
+    const firstRow = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    if (!firstRow) {
+      return {
+        ratio: 0,
+        color,
+        tooltipLines: ["Status: no recipe selected"],
+      };
+    }
+    if (firstRow.kind === "recipeRequirement") {
+      const required = Math.max(0, Math.floor(firstRow.amount ?? 0));
+      const progress = Math.max(0, Math.floor(firstRow.progress ?? 0));
+      return {
+        ratio: required > 0 ? progress / required : 0,
+        color,
+        tooltipLines: [
+          `Recipe: ${formatRecipeName(firstRow.recipeId)}`,
+          `${firstRow.label || "Material"}: ${progress}/${required}`,
+        ],
+      };
+    }
+    if (firstRow.kind === "recipeLabor") {
+      const progress = Math.max(0, Math.floor(firstRow.progress ?? 0));
+      const duration = Math.max(1, Math.floor(firstRow.duration ?? 1));
+      return {
+        ratio: duration > 0 ? progress / duration : 0,
+        color,
+        tooltipLines: [
+          `Recipe: ${formatRecipeName(firstRow.recipeId)}`,
+          `${formatRecipeModeLabel(firstRow.mode)}: ${progress}/${duration}`,
+        ],
+      };
+    }
+    if (!firstRow.recipeId) {
+      return {
+        ratio: 0,
+        color,
+        tooltipLines: ["Status: no recipe selected"],
+      };
+    }
+    return {
+      ratio: 0,
+      color,
+      tooltipLines: [
+        `Recipe: ${formatRecipeName(firstRow.recipeId)}`,
+        "Status: waiting to start",
+      ],
+    };
+  }
+
+  function getStructureActiveTagIds(structure, pawnCountRaw) {
+    const tags = getStructureTags(structure);
+    const enabledTags = tags.filter((tagId) => !isTagDisabled(structure, tagId));
+    const pawnCount =
+      Number.isFinite(pawnCountRaw) && pawnCountRaw > 0
+        ? Math.floor(pawnCountRaw)
+        : 0;
+    return new Set(pawnCount > 0 ? enabledTags.slice(0, pawnCount) : []);
+  }
+
+  function getTagTitleFeedback(entry, structure) {
+    const config = getTagTitleFeedbackConfig(entry?.tagId);
+    if (!config) return null;
+    if (entry?.tagId === "build") {
+      return {
+        fillMode: "bar",
+        alpha: TAG_TITLE_FILL_ALPHA,
+        ...resolveProcessFeedback(
+          getBuildProcess(structure),
+          getTagLabel(entry.tagId),
+          getSystemUi("build").color
+        ),
+      };
+    }
+    if (entry?.tagId === "canCook" || entry?.tagId === "canCraft") {
+      return {
+        fillMode: "bar",
+        alpha: TAG_TITLE_FILL_ALPHA,
+        ...resolveRecipeTitleFeedback(structure, config.holderSystemId),
+      };
+    }
+    return null;
+  }
+
   function getTagTooltipLines(tagId, structure = null) {
     const def = hubTagDefs[tagId];
     const lines = [];
@@ -451,6 +583,15 @@ export function createHubTagUi(opts) {
       lines.push(`Recipe: ${formatRecipeName(recipeContext.recipeId)}`);
       const outputLine = formatRecipeOutputLine(recipeContext.recipeId);
       if (outputLine) lines.push(outputLine);
+    }
+    return lines;
+  }
+
+  function buildTagHoverLines(view, entry, structure) {
+    const lines = getTagTooltipLines(entry.tagId, structure);
+    const feedback = getTagTitleFeedback(entry, structure);
+    if (feedback?.tooltipLines?.length) {
+      lines.push(...feedback.tooltipLines);
     }
     return lines;
   }
@@ -994,6 +1135,7 @@ export function createHubTagUi(opts) {
       tagId
     );
     const actionMode = processWidgetSystemId ? "cog" : "none";
+    const hideSystemRows = shouldHideSystemRowsForTag(tagId);
 
     const container = new PIXI.Container();
     const row = new PIXI.Container();
@@ -1008,6 +1150,12 @@ export function createHubTagUi(opts) {
       .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
       .endFill();
     row.addChild(bg);
+
+    const titleFill = new PIXI.Graphics();
+    row.addChild(titleFill);
+
+    const titleFlash = new PIXI.Graphics();
+    row.addChild(titleFlash);
 
     const label = getTagLabel(tagId);
     const labelText = new PIXI.Text(label, {
@@ -1045,12 +1193,14 @@ export function createHubTagUi(opts) {
     if (tagId === "build" && structure) {
       const rows = buildRowsForBuildProcess(structure);
       buildRowSignature = getBuildRowSignature(rows);
-      for (const rowSpec of rows) {
-        const rowEntry = buildSystemRow(view, "build", rowSpec);
-        rowEntry.container.y = sysY;
-        systemContainer.addChild(rowEntry.container);
-        systemRows.push(rowEntry);
-        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      if (!hideSystemRows) {
+        for (const rowSpec of rows) {
+          const rowEntry = buildSystemRow(view, "build", rowSpec);
+          rowEntry.container.y = sysY;
+          systemContainer.addChild(rowEntry.container);
+          systemRows.push(rowEntry);
+          sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+        }
       }
     } else {
       const firstRecipeSystemId = systems.find((systemId) => isRecipeSystem(systemId));
@@ -1058,14 +1208,16 @@ export function createHubTagUi(opts) {
         recipeSystemId = firstRecipeSystemId;
         const rows = buildRowsForRecipeSystem(structure, recipeSystemId);
         recipeRowSignature = getRecipeRowSignature(recipeSystemId, rows);
-        for (const rowSpec of rows) {
-          const rowEntry = buildSystemRow(view, recipeSystemId, rowSpec);
-          rowEntry.container.y = sysY;
-          systemContainer.addChild(rowEntry.container);
-          systemRows.push(rowEntry);
-          sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+        if (!hideSystemRows) {
+          for (const rowSpec of rows) {
+            const rowEntry = buildSystemRow(view, recipeSystemId, rowSpec);
+            rowEntry.container.y = sysY;
+            systemContainer.addChild(rowEntry.container);
+            systemRows.push(rowEntry);
+            sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+          }
         }
-      } else {
+      } else if (!hideSystemRows) {
         for (const systemId of systems) {
           if (systemId === "deposit") continue;
           if (systemId === "storage") {
@@ -1119,6 +1271,8 @@ export function createHubTagUi(opts) {
       container,
       row,
       bg,
+      titleFill,
+      titleFlash,
       bgColor: TAG_PILL_BG_LOW,
       borderColor: TAG_PILL_BORDER_LOW,
       labelText,
@@ -1138,6 +1292,8 @@ export function createHubTagUi(opts) {
       recipeRowSignature,
       recipeSystemId,
       storageSignature: systems.includes("storage") ? getStorageSignature(structure) : null,
+      hideSystemRows,
+      lastTitleFeedbackKey: null,
     };
 
     entry.setExpanded = (expanded) => {
@@ -1159,7 +1315,7 @@ export function createHubTagUi(opts) {
 
     row.on("pointerover", () => {
       setChildTooltipHoverActive(view, true);
-      const lines = getTagTooltipLines(tagId, structure);
+      const lines = buildTagHoverLines(view, entry, structure);
       if (lines.length && tooltipView) {
         tooltipView.show(
           {
@@ -1242,6 +1398,36 @@ export function createHubTagUi(opts) {
       totalContentHeight: view.totalContentHeight,
       expandedContentBottomY: view.expandedContentBottomY,
     };
+  }
+
+  function renderTagPillFeedback(entry, feedback) {
+    if (!entry?.titleFill || !entry?.titleFlash) return;
+    const ratio = clamp01(feedback?.fillMode === "full" ? 1 : feedback?.ratio ?? 0);
+    const fillAlpha = clamp01(feedback?.alpha ?? 0);
+    const fillColor = Number.isFinite(feedback?.color) ? Math.floor(feedback.color) : 0;
+    const renderKey = [
+      Math.round(ratio * 100),
+      Math.round(fillAlpha * 100),
+      fillColor,
+    ].join("|");
+    if (entry.lastTitleFeedbackKey === renderKey) return;
+    entry.lastTitleFeedbackKey = renderKey;
+
+    const x = TAG_TITLE_FILL_INSET;
+    const y = TAG_TITLE_FILL_INSET;
+    const maxWidth = Math.max(0, TAG_PILL_WIDTH - TAG_TITLE_FILL_INSET * 2);
+    const width = Math.max(0, Math.floor(maxWidth * ratio));
+    const height = Math.max(0, TAG_PILL_HEIGHT - TAG_TITLE_FILL_INSET * 2);
+    const radius = Math.max(1, TAG_PILL_RADIUS - TAG_TITLE_FILL_INSET);
+
+    entry.titleFill.clear();
+    if (fillAlpha > 0 && width > 0 && height > 0) {
+      entry.titleFill
+        .beginFill(fillColor, fillAlpha)
+        .drawRoundedRect(x, y, width, height, radius)
+        .endFill();
+    }
+    entry.titleFlash.clear();
   }
 
   function updateSystemRow(structure, row) {
@@ -1385,9 +1571,7 @@ export function createHubTagUi(opts) {
         ? Math.floor(view.pawnCount)
         : 0;
     const hasPawn = pawnCount > 0;
-    const activeTagIds = new Set(
-      hasPawn ? enabledTags.slice(0, pawnCount) : []
-    );
+    const activeTagIds = getStructureActiveTagIds(structure, pawnCount);
     const activeTagId = hasPawn ? enabledTags[0] ?? null : null;
     if (syncExpandedTagToActive(view, activeTagId)) {
       layoutTagEntries(view);
@@ -1452,6 +1636,10 @@ export function createHubTagUi(opts) {
 
       setTagPillStyle(entry, style);
       updateActionVisual(entry, isDisabled);
+      renderTagPillFeedback(
+        entry,
+        isDisabled ? null : getTagTitleFeedback(entry, structure)
+      );
 
       for (const row of entry.systemRows || []) {
         updateSystemRow(structure, row);

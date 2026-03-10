@@ -106,8 +106,8 @@ const WITHDRAW_UI_CACHE_MAX = 256;
 
 const GROUP_SYSTEM_IDS = new Set([
   "growth",
-  "fireplace",
-  "workspace",
+  "cook",
+  "craft",
   "residents",
   "deposit",
   "build",
@@ -971,8 +971,8 @@ export function createProcessWidgetView({
 
   function isRecipeSystem(systemId) {
     return (
-      systemId === "fireplace" ||
-      systemId === "workspace" ||
+      systemId === "cook" ||
+      systemId === "craft" ||
       systemId === "growth"
     );
   }
@@ -3227,7 +3227,7 @@ export function createProcessWidgetView({
   function buildIdleProcessDef(systemId) {
     return {
       processKind: "idle",
-      displayName: systemId === "workspace" ? "Crafting" : "Cooking",
+      displayName: systemId === "craft" ? "Crafting" : "Cooking",
       transform: {
         mode: "work",
         durationSec: 1,
@@ -3725,7 +3725,7 @@ export function createProcessWidgetView({
       target?.systemState?.[systemId]?.routingTemplate || { inputs: {}, outputs: {} };
     const forceModules = new Set(["requirements", "progress", "recipePriority"]);
     const hiddenModuleIds = new Set(["output"]);
-    const variantOverride = systemId === "workspace" ? "crafting" : "cooking";
+    const variantOverride = systemId === "craft" ? "crafting" : "cooking";
     const built = buildProcessCard(
       state,
       target,

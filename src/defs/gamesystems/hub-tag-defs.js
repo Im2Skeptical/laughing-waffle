@@ -21,7 +21,16 @@ export const hubTagDefs = {
   build: {
     id: "build",
     kind: "hubTag",
-    ui: { name: "Build", description: "Construct this building." },
+    ui: {
+      name: "Build",
+      description: "Construct this building.",
+      titleFeedback: {
+        mode: "progress",
+        holderSystemId: "build",
+        hideSystemRows: true,
+        variant: "process",
+      },
+    },
     systems: ["build"],
     passives: [
       {
@@ -76,15 +85,24 @@ export const hubTagDefs = {
   canCook: {
     id: "canCook",
     kind: "hubTag",
-    ui: { name: "Cook", description: "Cook food here." },
-    systems: ["fireplace"],
+    ui: {
+      name: "Cook",
+      description: "Cook food here.",
+      titleFeedback: {
+        mode: "progress",
+        holderSystemId: "cook",
+        hideSystemRows: true,
+        variant: "process",
+      },
+    },
+    systems: ["cook"],
     passives: [],
     intents: [
       {
         id: "cook_work",
         verb: "Cook",
         requires: {
-          processSystem: "fireplace",
+          processSystem: "cook",
           processTypeFromSystemPriorityKey: "recipePriority",
           hasSelectedRecipe: true,
           hasSelectedProcessType: true,
@@ -103,7 +121,7 @@ export const hubTagDefs = {
         },
         effect: {
           op: "AdvanceWorkProcess",
-          system: "fireplace",
+          system: "cook",
           queueKey: "processes",
           processTypeFromSystemPriorityKey: "recipePriority",
           amount: 1,
@@ -113,7 +131,7 @@ export const hubTagDefs = {
         id: "cook_start",
         verb: "Start Cooking",
         requires: {
-          processSystem: "fireplace",
+          processSystem: "cook",
           processTypeFromSystemPriorityKey: "recipePriority",
           hasSelectedRecipe: true,
           noSelectedProcessType: true,
@@ -132,7 +150,7 @@ export const hubTagDefs = {
         },
         effect: {
           op: "CreateWorkProcess",
-          system: "fireplace",
+          system: "cook",
           queueKey: "processes",
           processTypeFromSystemPriorityKey: "recipePriority",
           mode: "work",
@@ -146,8 +164,17 @@ export const hubTagDefs = {
   canCraft: {
     id: "canCraft",
     kind: "hubTag",
-    ui: { name: "Craft", description: "Craft items here." },
-    systems: ["workspace"],
+    ui: {
+      name: "Craft",
+      description: "Craft items here.",
+      titleFeedback: {
+        mode: "progress",
+        holderSystemId: "craft",
+        hideSystemRows: true,
+        variant: "process",
+      },
+    },
+    systems: ["craft"],
     passives: [],
     intents: [
       // Work first, but gated by hasProcessType, so it won't burn stamina unless weaving exists.
@@ -155,7 +182,7 @@ export const hubTagDefs = {
         id: "craft_work",
         verb: "Craft",
         requires: {
-          processSystem: "workspace",
+          processSystem: "craft",
           processTypeFromSystemPriorityKey: "recipePriority",
           hasSelectedRecipe: true,
           hasSelectedProcessType: true,
@@ -174,7 +201,7 @@ export const hubTagDefs = {
         },
         effect: {
           op: "AdvanceWorkProcess",
-          system: "workspace",
+          system: "craft",
           queueKey: "processes",
           processTypeFromSystemPriorityKey: "recipePriority",
           // IMPORTANT: explicit per-pawn contribution
@@ -187,7 +214,7 @@ export const hubTagDefs = {
         id: "craft_start",
         verb: "Start Crafting",
         requires: {
-          processSystem: "workspace",
+          processSystem: "craft",
           processTypeFromSystemPriorityKey: "recipePriority",
           hasSelectedRecipe: true,
           noSelectedProcessType: true,
@@ -206,7 +233,7 @@ export const hubTagDefs = {
         },
         effect: {
           op: "CreateWorkProcess",
-          system: "workspace",
+          system: "craft",
           queueKey: "processes",
           processTypeFromSystemPriorityKey: "recipePriority",
           mode: "work",

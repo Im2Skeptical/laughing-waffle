@@ -180,8 +180,8 @@ export function createBoardView(opts) {
   const PROCESS_WIDGET_SYSTEM_IDS = new Set([
     "growth",
     "build",
-    "fireplace",
-    "workspace",
+    "cook",
+    "craft",
     "residents",
     "deposit",
   ]);
@@ -1274,7 +1274,13 @@ export function createBoardView(opts) {
 
       const view = tileViews[envCol];
       if (!view) continue;
+      const spec = getRollFeedbackSpec(entry);
       spawnTileRollFeedbackFx(view, entry, envCol);
+      tagUi?.notifyTransientTagFeedback?.(
+        view,
+        type === "forageRoll" ? "forageable" : "fishable",
+        spec
+      );
     }
 
     if (maxProcessed > lastProcessedGameEventId) {
@@ -4301,9 +4307,6 @@ export function createBoardView(opts) {
       view.pawnBadge.visible = false;
     }
 
-    const activeTagIds = getActiveTileTagIds(tileInst, pawnCount);
-    view.forageActivityTarget = activeTagIds.has("forageable") ? 1 : 0;
-    view.fishActivityTarget = activeTagIds.has("fishable") ? 1 : 0;
   }
 
   function redrawEventCard(view) {
@@ -5935,7 +5938,6 @@ export function createBoardView(opts) {
     updatePlanFocus();
     updateDynamicCardLayouts(dt);
     processTileRollFeedbackEvents(s);
-    updateTileActivityOverlays(dt);
     updateTileRollFeedbackFx(dt);
     tagOrdersPanel?.update?.(s);
 

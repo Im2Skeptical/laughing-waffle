@@ -10,8 +10,8 @@ import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 
 const SYSTEM_RECIPE_KIND = {
-  fireplace: { kind: "cook", pauseLabel: "Pause cooking" },
-  workspace: { kind: "craft", pauseLabel: "Pause crafting" },
+  cook: { kind: "cook", pauseLabel: "Pause cooking" },
+  craft: { kind: "craft", pauseLabel: "Pause crafting" },
 };
 
 export function createHubPanels(opts) {

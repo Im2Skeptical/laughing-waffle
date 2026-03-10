@@ -84,6 +84,16 @@ const SYSTEM_BAR_RATIO_QUANT = 100;
 const TAG_ACTION_COG_FILL = 0xa7afb8;
 const TAG_ACTION_COG_STROKE = 0xdbe2e8;
 const TAG_ACTION_COG_ICON = 0x4f5862;
+const TAG_TITLE_FILL_INSET = 1;
+const TAG_TITLE_FILL_ALPHA = 0.72;
+const TAG_TITLE_FLASH_ALPHA = 0.78;
+const TAG_TITLE_PULSE_MIN = 0.14;
+const TAG_TITLE_PULSE_MAX = 0.34;
+const TAG_TITLE_PULSE_FREQ_HZ = 1.4;
+const ROLL_TAG_COLORS = Object.freeze({
+  forageable: 0x56b67b,
+  fishable: 0x4d9fdb,
+});
 
 const TIER_ORDER = ["bronze", "silver", "gold", "diamond"];
 const TIER_METAL_GRADIENTS = Object.freeze({
@@ -165,6 +175,26 @@ export function createTagUi(opts) {
     return Math.max(0, Math.min(1, value));
   }
 
+  function nowMs() {
+    if (
+      typeof performance !== "undefined" &&
+      performance &&
+      typeof performance.now === "function"
+    ) {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function getUiClockSec() {
+    const state = getGameState?.() || null;
+    const tSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
+    const simStep = Number.isFinite(state?.simStepIndex)
+      ? Math.max(0, Math.floor(state.simStepIndex) % 60) / 60
+      : 0;
+    return tSec + simStep;
+  }
+
   function lerpChannel(from, to, ratio) {
     return Math.round(from + (to - from) * clamp01(ratio));
   }
@@ -225,6 +255,15 @@ export function createTagUi(opts) {
   function getTagLabel(tagId) {
     const def = envTagDefs[tagId];
     return def?.ui?.name || tagId;
+  }
+
+  function getTagTitleFeedbackConfig(tagId) {
+    const feedback = envTagDefs?.[tagId]?.ui?.titleFeedback;
+    return feedback && typeof feedback === "object" ? feedback : null;
+  }
+
+  function shouldHideSystemRowsForTag(tagId) {
+    return getTagTitleFeedbackConfig(tagId)?.hideSystemRows === true;
   }
 
   function isProcessWidgetCapableSystem(systemId) {
@@ -363,6 +402,21 @@ export function createTagUi(opts) {
     return processes.find((proc) => proc?.type === "build") ?? null;
   }
 
+  function getBuildProcessByType(tileInst, processType) {
+    const processes = Array.isArray(tileInst?.systemState?.build?.processes)
+      ? tileInst.systemState.build.processes
+      : [];
+    return (
+      processes.find(
+        (proc) =>
+          proc &&
+          typeof proc === "object" &&
+          typeof proc.type === "string" &&
+          proc.type === processType
+      ) ?? null
+    );
+  }
+
   function formatBuildRequirementLabel(req) {
     if (!req || typeof req !== "object") return "Material";
     if (req.kind === "item") {
@@ -483,6 +537,212 @@ export function createTagUi(opts) {
     return rows.map((row) => `${row.kind}:${row.index ?? ""}`).join("|");
   }
 
+  function resolveProcessFeedback(process, fallbackLabel, color) {
+    if (!process || typeof process !== "object") {
+      return {
+        ratio: 0,
+        color,
+        tooltipLines: [`Status: ${fallbackLabel} idle`],
+      };
+    }
+
+    const reqs = Array.isArray(process.requirements) ? process.requirements : [];
+    for (const req of reqs) {
+      const required = Math.max(0, Math.floor(req?.amount ?? 0));
+      if (required <= 0) continue;
+      const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+      if (progress >= required) continue;
+      const label = formatBuildRequirementLabel(req);
+      return {
+        ratio: required > 0 ? progress / required : 0,
+        color,
+        tooltipLines: [
+          `Status: ${fallbackLabel} loading`,
+          `${label}: ${progress}/${required}`,
+        ],
+      };
+    }
+
+    const progress = Math.max(0, Math.floor(process.progress ?? 0));
+    const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
+    return {
+      ratio: duration > 0 ? progress / duration : 0,
+      color,
+      tooltipLines: [`Status: ${fallbackLabel} ${progress}/${duration}`],
+    };
+  }
+
+  function resolveFarmTitleFeedback(tileInst) {
+    const growth = tileInst?.systemState?.growth || {};
+    const cropId = growth.selectedCropId ?? null;
+    const cropDef = cropId ? cropDefs[cropId] : null;
+    const cropName = cropDef?.name || cropId || "Crop";
+    const pool = getMaturedPoolBucketForCrop(growth.maturedPool, cropId) || {};
+    const maturedTotal = sumMaturedPool(pool);
+
+    if (!cropId) {
+      return {
+        ratio: 0,
+        color: GROWTH_BAR_COLORS.idle,
+        fillMode: "bar",
+        tooltipLines: ["Stage: no crop selected"],
+      };
+    }
+
+    if (maturedTotal > 0) {
+      return {
+        ratio: 1,
+        color: GROWTH_BAR_COLORS.harvesting,
+        fillMode: "bar",
+        tooltipLines: [
+          `Crop: ${cropName}`,
+          `Stage: harvest ready (${formatCompactCount(maturedTotal)})`,
+        ],
+      };
+    }
+
+    const processesRaw = Array.isArray(growth.processes) ? growth.processes : [];
+    const processes = processesRaw.filter(
+      (proc) => getGrowthProcessCropId(proc) === cropId
+    );
+    if (processes.length > 0) {
+      const oldest = processes.reduce(
+        (acc, proc) =>
+          acc == null || Math.floor(proc?.startSec ?? 0) < Math.floor(acc?.startSec ?? 0)
+            ? proc
+            : acc,
+        null
+      );
+      if (oldest) {
+        const fallback =
+          Number.isFinite(cropDef?.maturitySec) ? cropDef.maturitySec : 32;
+        const duration = Number.isFinite(oldest.durationSec)
+          ? Math.max(1, Math.floor(oldest.durationSec))
+          : fallback;
+        const nowSec = Math.floor(getGameState?.()?.tSec ?? 0);
+        const elapsed = Math.max(
+          0,
+          Math.floor(nowSec - Math.floor(oldest.startSec ?? nowSec))
+        );
+        const remaining = Math.max(0, duration - elapsed);
+        return {
+          ratio: clamp01(elapsed / Math.max(1, duration)),
+          color: GROWTH_BAR_COLORS.maturing,
+          fillMode: "bar",
+          tooltipLines: [
+            `Crop: ${cropName}`,
+            `Stage: maturing (${remaining}s remaining)`,
+          ],
+        };
+      }
+    }
+
+    const hydrationRatio = getHydrationRatio(tileInst);
+    return {
+      ratio: hydrationRatio,
+      color: GROWTH_BAR_COLORS.planting,
+      fillMode: "bar",
+      tooltipLines: [
+        `Crop: ${cropName}`,
+        `Stage: planting (${Math.round(hydrationRatio * 100)}% hydration)`,
+      ],
+    };
+  }
+
+  function getActiveTileTagIds(tileInst, pawnCountRaw) {
+    const tags = getVisibleTags(tileInst);
+    const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
+    const pawnCount =
+      Number.isFinite(pawnCountRaw) && pawnCountRaw > 0
+        ? Math.floor(pawnCountRaw)
+        : 0;
+    return new Set(pawnCount > 0 ? enabledTags.slice(0, pawnCount) : []);
+  }
+
+  function getActiveTransientFeedback(view, tagId) {
+    const runtime =
+      view?.tagFeedbackState && typeof view.tagFeedbackState === "object"
+        ? view.tagFeedbackState[tagId]
+        : null;
+    if (!runtime) return null;
+    const durationMs = Math.max(1, Math.floor(runtime.durationMs ?? 0));
+    const elapsedMs = Math.max(0, nowMs() - Math.floor(runtime.startedAtMs ?? 0));
+    if (elapsedMs >= durationMs) {
+      delete view.tagFeedbackState[tagId];
+      return null;
+    }
+    const progress = clamp01(elapsedMs / durationMs);
+    return {
+      ...runtime,
+      alpha:
+        (Number.isFinite(runtime.alpha) ? runtime.alpha : TAG_TITLE_FLASH_ALPHA) *
+        (1 - progress),
+    };
+  }
+
+  function getTagTitleFeedback(view, entry, tileInst, activeTagIds) {
+    const config = getTagTitleFeedbackConfig(entry?.tagId);
+    if (!config) return null;
+
+    if (config.variant === "process") {
+      const processType = entry?.tagId === "build" ? "build" : entry?.tagId;
+      const process =
+        processType === "build"
+          ? getBuildProcess(tileInst)
+          : getBuildProcessByType(tileInst, processType);
+      return {
+        fillMode: "bar",
+        alpha: TAG_TITLE_FILL_ALPHA,
+        ...resolveProcessFeedback(
+          process,
+          getTagLabel(entry.tagId),
+          getSystemUi("build").color
+        ),
+      };
+    }
+
+    if (config.variant === "farm") {
+      return {
+        alpha: TAG_TITLE_FILL_ALPHA,
+        ...resolveFarmTitleFeedback(tileInst),
+      };
+    }
+
+    if (config.variant === "roll") {
+      const isActive = activeTagIds instanceof Set && activeTagIds.has(entry.tagId);
+      const pulsePhase =
+        0.5 +
+        0.5 *
+          Math.sin(
+            (getUiClockSec() + (Number.isFinite(view?.col) ? view.col * 0.21 : 0)) *
+              TAG_TITLE_PULSE_FREQ_HZ *
+              Math.PI *
+              2
+          );
+      const transient = getActiveTransientFeedback(view, entry.tagId);
+      const tooltipLines = [isActive ? "Status: active" : "Status: idle"];
+      if (transient?.headline) {
+        tooltipLines.push(
+          transient.detail
+            ? `Result: ${transient.headline} ${transient.detail}`
+            : `Result: ${transient.headline}`
+        );
+      }
+      return {
+        fillMode: "full",
+        ratio: 1,
+        color: ROLL_TAG_COLORS[entry.tagId] ?? getSystemUi(config.holderSystemId).color,
+        alpha: isActive
+          ? TAG_TITLE_PULSE_MIN + (TAG_TITLE_PULSE_MAX - TAG_TITLE_PULSE_MIN) * pulsePhase
+          : 0,
+        flash: transient,
+        tooltipLines,
+      };
+    }
+
+    return null;
+  }
+
   function buildTagTooltipLines(tileInst, tagId) {
     const tagDef = envTagDefs[tagId];
     const lines = [];
@@ -504,6 +764,16 @@ export function createTagUi(opts) {
     const droppedItemLines = buildDroppedItemsTooltipLines(tileInst, tagDef);
     if (droppedItemLines.length > 0) {
       lines.push(...droppedItemLines);
+    }
+    return lines;
+  }
+
+  function buildTagHoverLines(view, entry, tileInst) {
+    const lines = buildTagTooltipLines(tileInst, entry.tagId);
+    const activeTagIds = getActiveTileTagIds(tileInst, view?.pawnCount);
+    const feedback = getTagTitleFeedback(view, entry, tileInst, activeTagIds);
+    if (feedback?.tooltipLines?.length) {
+      lines.push(...feedback.tooltipLines);
     }
     return lines;
   }
@@ -659,10 +929,10 @@ export function createTagUi(opts) {
     return lines;
   }
 
-  function showTooltipForTag(tileInst, tagId, bounds, scale = 1) {
+  function showTooltipForTag(view, entry, tileInst, bounds, scale = 1) {
     if (!tooltipView || !interaction?.canShowHoverUI?.()) return;
-    const label = getTagLabel(tagId);
-    const lines = buildTagTooltipLines(tileInst, tagId);
+    const label = getTagLabel(entry?.tagId);
+    const lines = buildTagHoverLines(view, entry, tileInst);
     tooltipView.show({ title: label, lines, scale }, bounds);
   }
 
@@ -834,6 +1104,7 @@ export function createTagUi(opts) {
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
     const processWidgetSystemId = resolveProcessWidgetSystemIdForTagSystems(systems);
     const actionMode = processWidgetSystemId ? "cog" : "none";
+    const hideSystemRows = shouldHideSystemRowsForTag(tagId);
 
     const container = new PIXI.Container();
     const row = new PIXI.Container();
@@ -848,6 +1119,12 @@ export function createTagUi(opts) {
       .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
       .endFill();
     row.addChild(bg);
+
+    const titleFill = new PIXI.Graphics();
+    row.addChild(titleFill);
+
+    const titleFlash = new PIXI.Graphics();
+    row.addChild(titleFlash);
 
     const label = getTagLabel(tagId);
     const labelText = new PIXI.Text(label, {
@@ -883,14 +1160,16 @@ export function createTagUi(opts) {
     if (tagId === "build" && tileInst) {
       const rows = buildRowsForBuildProcess(tileInst);
       buildRowSignature = getBuildRowSignature(rows);
-      for (const rowSpec of rows) {
-        const rowEntry = buildSystemRow(view, "build", rowSpec);
-        rowEntry.container.y = sysY;
-        systemContainer.addChild(rowEntry.container);
-        systemRows.push(rowEntry);
-        sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+      if (!hideSystemRows) {
+        for (const rowSpec of rows) {
+          const rowEntry = buildSystemRow(view, "build", rowSpec);
+          rowEntry.container.y = sysY;
+          systemContainer.addChild(rowEntry.container);
+          systemRows.push(rowEntry);
+          sysY += SYSTEM_ROW_HEIGHT + SYSTEM_ROW_GAP;
+        }
       }
-    } else {
+    } else if (!hideSystemRows) {
       for (const systemId of systems) {
         const rowEntry = buildSystemRow(view, systemId);
         rowEntry.container.y = sysY;
@@ -906,6 +1185,8 @@ export function createTagUi(opts) {
       container,
       row,
       bg,
+      titleFill,
+      titleFlash,
       bgColor: TAG_PILL_BG_LOW,
       borderColor: TAG_PILL_BORDER_LOW,
       labelText,
@@ -922,6 +1203,8 @@ export function createTagUi(opts) {
       systemHeight: sysY > 0 ? sysY - SYSTEM_ROW_GAP : 0,
       height: TAG_PILL_HEIGHT,
       buildRowSignature,
+      hideSystemRows,
+      lastTitleFeedbackKey: null,
     };
 
     entry.setExpanded = (expanded) => {
@@ -944,8 +1227,9 @@ export function createTagUi(opts) {
     row.on("pointerover", () => {
       setChildTooltipHoverActive(view, true);
       showTooltipForTag(
+        view,
+        entry,
         view.tile,
-        tagId,
         row.getBounds(),
         getDisplayObjectWorldScale(row, 1)
       );
@@ -1043,6 +1327,52 @@ export function createTagUi(opts) {
       if (entry.systemContainer) {
         entry.systemContainer.y = TAG_PILL_HEIGHT * rowScale + 4;
       }
+    }
+  }
+
+  function renderTagPillFeedback(entry, feedback) {
+    if (!entry?.titleFill || !entry?.titleFlash) return;
+
+    const ratio = clamp01(feedback?.fillMode === "full" ? 1 : feedback?.ratio ?? 0);
+    const fillAlpha = clamp01(feedback?.alpha ?? 0);
+    const fillColor = Number.isFinite(feedback?.color) ? Math.floor(feedback.color) : 0;
+    const flash = feedback?.flash || null;
+    const flashAlpha = clamp01(flash?.alpha ?? 0);
+    const flashColor = Number.isFinite(flash?.fill) ? Math.floor(flash.fill) : 0;
+    const fillMode = feedback?.fillMode === "full" ? "full" : "bar";
+    const renderKey = [
+      fillMode,
+      Math.round(ratio * 100),
+      Math.round(fillAlpha * 100),
+      fillColor,
+      Math.round(flashAlpha * 100),
+      flashColor,
+    ].join("|");
+    if (entry.lastTitleFeedbackKey === renderKey) return;
+    entry.lastTitleFeedbackKey = renderKey;
+
+    const x = TAG_TITLE_FILL_INSET;
+    const y = TAG_TITLE_FILL_INSET;
+    const maxWidth = Math.max(0, TAG_PILL_WIDTH - TAG_TITLE_FILL_INSET * 2);
+    const width =
+      fillMode === "full" ? maxWidth : Math.max(0, Math.floor(maxWidth * ratio));
+    const height = Math.max(0, TAG_PILL_HEIGHT - TAG_TITLE_FILL_INSET * 2);
+    const radius = Math.max(1, TAG_PILL_RADIUS - TAG_TITLE_FILL_INSET);
+
+    entry.titleFill.clear();
+    if (fillAlpha > 0 && width > 0 && height > 0) {
+      entry.titleFill
+        .beginFill(fillColor, fillAlpha)
+        .drawRoundedRect(x, y, width, height, radius)
+        .endFill();
+    }
+
+    entry.titleFlash.clear();
+    if (flashAlpha > 0 && height > 0) {
+      entry.titleFlash
+        .beginFill(flashColor, flashAlpha)
+        .drawRoundedRect(x, y, maxWidth, height, radius)
+        .endFill();
     }
   }
 
@@ -1341,6 +1671,10 @@ export function createTagUi(opts) {
 
     setTagPillStyle(entry, style);
     updateActionVisual(entry, isDisabled);
+    renderTagPillFeedback(
+      entry,
+      isDisabled ? null : getTagTitleFeedback(view, entry, tileInst, activeTagIds)
+    );
 
     for (const row of entry.systemRows || []) {
       updateSystemRow(view, row, tileInst);
@@ -1381,9 +1715,7 @@ export function createTagUi(opts) {
         ? Math.floor(view.pawnCount)
         : 0;
     const hasPawn = pawnCount > 0;
-    const activeTagIds = new Set(
-      hasPawn ? enabledTags.slice(0, pawnCount) : []
-    );
+    const activeTagIds = getActiveTileTagIds(tileInst, pawnCount);
     const activeTagId = hasPawn ? enabledTags[0] ?? null : null;
     if (syncExpandedTagToActive(view, activeTagId)) {
       layoutTagEntries(view);
@@ -1419,6 +1751,9 @@ export function createTagUi(opts) {
     view.tagContainer.removeChildren();
     view.tagEntries = [];
     view.tagContainer.sortableChildren = false;
+    if (!view.tagFeedbackState || typeof view.tagFeedbackState !== "object") {
+      view.tagFeedbackState = {};
+    }
 
     if (view.expandedTagId && !tags.includes(view.expandedTagId)) {
       view.expandedTagId = null;
@@ -1469,5 +1804,27 @@ export function createTagUi(opts) {
     rebuildTileTags,
     updateTagEntries,
     layoutTagEntries,
+    notifyTransientTagFeedback(view, tagId, spec) {
+      if (!view || typeof tagId !== "string" || !tagId.length || !spec) return;
+      if (!view.tagFeedbackState || typeof view.tagFeedbackState !== "object") {
+        view.tagFeedbackState = {};
+      }
+      view.tagFeedbackState[tagId] = {
+        startedAtMs: nowMs(),
+        durationMs: Math.max(1, Math.round((spec.durationSec ?? 0.8) * 1000)),
+        fill: Number.isFinite(spec.fill) ? Math.floor(spec.fill) : 0xffffff,
+        alpha: TAG_TITLE_FLASH_ALPHA,
+        headline:
+          typeof spec.headline === "string" && spec.headline.length > 0
+            ? spec.headline
+            : null,
+        detail:
+          typeof spec.detail === "string" && spec.detail.length > 0
+            ? spec.detail
+            : null,
+      };
+      const entry = (view.tagEntries || []).find((item) => item?.tagId === tagId);
+      if (entry) entry.lastTitleFeedbackKey = null;
+    },
   };
 }
