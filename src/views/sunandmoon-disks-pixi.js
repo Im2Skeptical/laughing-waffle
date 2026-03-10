@@ -258,6 +258,7 @@ export function createSunAndMoonDisksView({
   getEditableHistoryBounds,
   browseCursorSecond,
   commitCursorSecond,
+  requestPauseBeforeDrag,
   layout = SUN_AND_MOON_DISKS_LAYOUT,
 } = {}) {
   let root = null;
@@ -361,6 +362,8 @@ export function createSunAndMoonDisksView({
 
     const pointerAngleRad = getSpritePointerAngleRad(sprite, event.global);
     if (!Number.isFinite(pointerAngleRad)) return;
+
+    requestPauseBeforeDrag?.();
 
     const dragStartSec = getTSecInt(state);
     const markerAnchorRad = Number.isFinite(ringMarkerAngleByDisk[diskId])

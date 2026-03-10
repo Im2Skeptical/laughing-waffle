@@ -46,7 +46,11 @@ import {
   getGlobalSkillModifier,
   getLeaderInventorySectionCapabilities,
 } from "../src/model/skills.js";
-import { getRenderableEnvEventDeckPlacements } from "../src/views/env-event-deck-pixi.js";
+import {
+  getEnvEventDeckPlacementTargetPosition,
+  getRenderableEnvEventDeckPlacements,
+} from "../src/views/env-event-deck-pixi.js";
+import { EVENT_WIDTH, getBoardColumnXForVisibleCols } from "../src/views/layout-pixi.js";
 
 function assertOk(res, label) {
   assert.equal(res?.ok, true, `${label} failed: ${JSON.stringify(res)}`);
@@ -302,6 +306,55 @@ function runEnvEventDeckPlacementVisibilityChecks() {
       { col: 1, span: 2, instanceId: 23 },
     ],
     "[envDeckView] mixed placement lists should keep only revealed targets"
+  );
+}
+
+function runEnvEventDeckVisibleLayoutTargetChecks() {
+  const screenWidth = 1920;
+  const partiallyVisibleState = {
+    board: { cols: 4 },
+    discovery: {
+      envCols: [
+        { exposed: true, revealed: false },
+        { exposed: true, revealed: true },
+        { exposed: false, revealed: false },
+        { exposed: false, revealed: false },
+      ],
+    },
+  };
+  const fullyVisibleState = {
+    board: { cols: 4 },
+    discovery: {
+      envCols: [
+        { exposed: true, revealed: true },
+        { exposed: true, revealed: true },
+        { exposed: true, revealed: true },
+        { exposed: true, revealed: true },
+      ],
+    },
+  };
+  const placement = { col: 1, span: 1, instanceId: 42 };
+
+  const partialTarget = getEnvEventDeckPlacementTargetPosition(
+    screenWidth,
+    partiallyVisibleState,
+    placement
+  );
+  const fullTarget = getEnvEventDeckPlacementTargetPosition(
+    screenWidth,
+    fullyVisibleState,
+    placement
+  );
+
+  assert.equal(
+    partialTarget.x,
+    getBoardColumnXForVisibleCols(screenWidth, 1, 2) + EVENT_WIDTH / 2,
+    "[envDeckView] placement target should use visible env-column layout"
+  );
+  assert.notEqual(
+    partialTarget.x,
+    fullTarget.x,
+    "[envDeckView] unrevealed columns should compress placement targets"
   );
 }
 
@@ -1692,6 +1745,7 @@ function runLeaderFaithReplayParityChecks() {
 
 function run() {
   runEnvEventDeckPlacementVisibilityChecks();
+  runEnvEventDeckVisibleLayoutTargetChecks();
   runLeaderFaithWarningAndDecayChecks();
   runLeaderFaithEatStreakUpgradeChecks();
   runLeaderFaithEliminationChecks();

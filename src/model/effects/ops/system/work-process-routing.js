@@ -385,7 +385,7 @@ export function seedRoutingWithCandidates(state, target, process, processDef, co
             if (slotState.ordered.includes(endpointId)) continue;
             slotState.ordered.push(endpointId);
             if (slotState.enabled[endpointId] === undefined) {
-              slotState.enabled[endpointId] = false;
+              slotState.enabled[endpointId] = true;
             }
             appended = true;
           }
