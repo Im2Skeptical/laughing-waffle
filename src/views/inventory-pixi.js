@@ -4059,14 +4059,18 @@ export function createInventoryView({
     }
 
     if (tapInteraction) {
+      const tapOwnerId = view?.ownerId ?? dragItem.ownerId ?? sourceOwner;
       const consumeResult = handleConsumeTapInteraction({
-        ownerId: sourceOwner,
+        ownerId: tapOwnerId,
         item,
         sourceEquipmentSlotId,
         view,
       });
       if (consumeResult === "used") {
-        rebuildWindow(sourceOwner);
+        rebuildWindow(tapOwnerId);
+        if (tapOwnerId !== sourceOwner) {
+          rebuildWindow(sourceOwner);
+        }
         finish();
         return;
       }

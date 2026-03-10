@@ -439,6 +439,42 @@ function schedulePlayerActionAtNextSecond(kind, payload, opts) {
   );
 }
 
+function pauseForDiskScrub() {
+  const state = runner.getCursorState?.();
+  if (!state || state.paused === true) return;
+  runner.setTimeScaleTarget?.(0, { requestPause: true });
+  runner.setPaused(true);
+}
+
+function commitPreviewInventoryTransferForUse(spec) {
+  const item = spec?.item;
+  const sourceOwnerId = item?.sourceOwnerId ?? null;
+  const targetOwnerId = spec?.ownerId ?? null;
+  const itemId = spec?.itemId ?? item?.id ?? null;
+  if (sourceOwnerId == null || targetOwnerId == null || itemId == null) {
+    return { ok: true, result: "noPreviewTransfer" };
+  }
+  if (sourceOwnerId === targetOwnerId) {
+    return { ok: true, result: "noPreviewTransfer" };
+  }
+
+  const moveRes = dispatchPlayerAction(
+    ActionKinds.INVENTORY_MOVE,
+    {
+      fromOwnerId: sourceOwnerId,
+      toOwnerId: targetOwnerId,
+      itemId,
+      targetGX: item?.gridX ?? 0,
+      targetGY: item?.gridY ?? 0,
+    },
+    { apCost: 0 }
+  );
+  if (moveRes?.ok !== true) return moveRes;
+
+  actionPlanner?.removeIntent?.(`item:${itemId}`);
+  return { ok: true, result: "previewTransferCommitted" };
+}
+
 function getMergedPreviewVersion() {
   if (runner.isPreviewing?.()) return 0;
   return `${actionPlanner?.getVersion?.() ?? 0}|${liveActionOptimism?.getVersion?.() ?? 0}`;
@@ -1087,6 +1123,38 @@ function applyScenarioDevUiBootstrap() {
   }
 }
 
+function findFirstPawnOwnerId(state) {
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  return pawns[0]?.id ?? null;
+}
+
+function findHubStructureOwnerIdByDefId(state, defId) {
+  const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
+  for (const slot of slots) {
+    const structure = slot?.structure ?? null;
+    if (!structure || structure.defId !== defId) continue;
+    return structure.instanceId ?? null;
+  }
+  return null;
+}
+
+let lastMobileDelveHubVisible = null;
+function syncMobileDelveInventoryAutoOpen() {
+  const state = runner.getCursorState?.();
+  const hubVisible = isHubVisible(state);
+  const justRevealedHub = lastMobileDelveHubVisible === false && hubVisible === true;
+  lastMobileDelveHubVisible = hubVisible;
+  if (!justRevealedHub || mobilePerfActive !== true) return;
+
+  const pawnOwnerId = findFirstPawnOwnerId(state);
+  const templeOwnerId = findHubStructureOwnerIdByDefId(state, "templeRuins");
+  for (const ownerId of [pawnOwnerId, templeOwnerId]) {
+    if (ownerId == null) continue;
+    inventoryView?.revealWindow?.(ownerId, { pinned: true });
+    inventoryView?.rebuildWindow?.(ownerId);
+  }
+}
+
 function normalizeEventLogFocus(entry) {
   const data = entry?.data;
   if (!data || typeof data !== "object") return null;
@@ -1492,6 +1560,14 @@ inventoryView = createInventoryView({
   setBuildPlacementPreview: (preview) =>
     boardView?.setDistributorBuildPreview?.(preview),
   onUseItem: (spec) => {
+    const previewTransferRes = commitPreviewInventoryTransferForUse(spec);
+    if (previewTransferRes?.ok === false) {
+      return {
+        handled: false,
+        reason: previewTransferRes.reason || "previewTransferCommitFailed",
+      };
+    }
+
     const useResult = queueActionWhenPaused(() =>
       dispatchPlayerAction(
         ActionKinds.INVENTORY_USE_ITEM,
@@ -2062,6 +2138,7 @@ const sunMoonDisksView = createSunAndMoonDisksView({
   getEditableHistoryBounds: () => runner.getEditableHistoryBounds?.(),
   browseCursorSecond: (tSec) => runner.browseCursorSecond?.(tSec),
   commitCursorSecond: (tSec) => runner.commitCursorSecond?.(tSec),
+  requestPauseBeforeDrag: () => pauseForDiskScrub(),
   layout: SUN_AND_MOON_DISKS_LAYOUT,
 });
 
@@ -2389,6 +2466,7 @@ app.ticker.add((delta) => {
 
   const frameDt = delta / 60;
   runTimed("runner.update", () => runner.update(frameDt));
+  runTimed("mobileDelveInventory.sync", () => syncMobileDelveInventoryAutoOpen());
   runTimed("skillTree.pauseOpen", () => flushPendingSkillTreeOpen());
   runTimed("liveActionOptimism.update", () => liveActionOptimism?.update?.());
   runTimed("playfieldShader.update", () => playfieldShader.update());

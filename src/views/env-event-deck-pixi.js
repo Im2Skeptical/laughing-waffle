@@ -4,7 +4,7 @@
 
 import { envEventDefs } from "../defs/gamepieces/env-events-defs.js";
 import { ENV_EVENT_DRAW_CADENCE_SEC } from "../defs/gamesettings/gamerules-defs.js";
-import { isEnvColRevealed } from "../model/state.js";
+import { getVisibleEnvColCount, isEnvColRevealed } from "../model/state.js";
 import {
   VIEW_LAYOUT,
   BOARD_COL_GAP,
@@ -13,8 +13,7 @@ import {
   EVENT_HEIGHT,
   EVENT_ROW_Y,
   EVENT_WIDTH,
-  getBoardColumnX,
-  layoutBoardColPos,
+  getBoardColumnXForVisibleCols,
 } from "./layout-pixi.js";
 
 const TWO_PI = Math.PI * 2;
@@ -140,14 +139,12 @@ function resolveDeckVisibilityEnabled(state, layout, getDeckVisibilityEnabled) {
 
 function getBoardRightX(screenWidth, boardCols) {
   const cols = Math.max(1, clampInt(boardCols, BOARD_COLS));
-  const lastColX = getBoardColumnX(screenWidth, cols - 1);
+  const lastColX = getBoardColumnXForVisibleCols(screenWidth, cols - 1, cols);
   return lastColX + BOARD_COL_WIDTH;
 }
 
 function getDeckAnchorPosition({ app, state, layout, sunMoonLayout }) {
-  const cols = Number.isFinite(state?.board?.cols)
-    ? Math.max(1, Math.floor(state.board.cols))
-    : BOARD_COLS;
+  const cols = Math.max(1, getVisibleEnvColCount(state));
   const boardRight = getBoardRightX(app.screen.width, cols);
   const seasonDiskX = Number.isFinite(sunMoonLayout?.season?.x)
     ? sunMoonLayout.season.x
@@ -160,22 +157,22 @@ function getDeckAnchorPosition({ app, state, layout, sunMoonLayout }) {
   return { x, y };
 }
 
-function getPlacementTargetPosition(app, placement) {
+export function getEnvEventDeckPlacementTargetPosition(screenWidth, state, placement) {
   const col = Number.isFinite(placement?.col) ? Math.floor(placement.col) : 0;
   const span =
     Number.isFinite(placement?.span) && placement.span > 0
       ? Math.floor(placement.span)
       : 1;
+  const visibleCols = Math.max(1, getVisibleEnvColCount(state));
   const width = EVENT_WIDTH * span + BOARD_COL_GAP * (span - 1);
-  const x =
-    span > 1
-      ? getBoardColumnX(app.screen.width, col) + width / 2
-      : layoutBoardColPos(app.screen.width, col, EVENT_WIDTH, EVENT_ROW_Y).x +
-        EVENT_WIDTH / 2;
   return {
-    x,
+    x: getBoardColumnXForVisibleCols(screenWidth, col, visibleCols) + width / 2,
     y: EVENT_ROW_Y + EVENT_HEIGHT * 0.5,
   };
+}
+
+function getPlacementTargetPosition(app, state, placement) {
+  return getEnvEventDeckPlacementTargetPosition(app.screen.width, state, placement);
 }
 
 function normalizePlacement(placement) {
@@ -565,7 +562,7 @@ export function createEnvEventDeckView({
       );
       for (let i = 0; i < sortedPlacements.length; i++) {
         const placement = sortedPlacements[i];
-        const target = getPlacementTargetPosition(app, placement);
+        const target = getPlacementTargetPosition(app, state, placement);
         const delaySec = baseDelay + i * placementStaggerSec;
         const startX = forward ? deckPos.x : target.x;
         const startY = forward ? deckPos.y : target.y;
@@ -617,9 +614,7 @@ export function createEnvEventDeckView({
       return;
     }
 
-    const boardCols = Number.isFinite(getState?.()?.board?.cols)
-      ? Math.floor(getState().board.cols)
-      : BOARD_COLS;
+    const boardCols = Math.max(1, getVisibleEnvColCount(state));
     const boardRight = getBoardRightX(app.screen.width, boardCols);
     const dissipateX = boardRight - EVENT_WIDTH * 0.75;
     const dissipateY = deckPos.y - 14;

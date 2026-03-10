@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { Inventory } from "../src/model/inventory-model.js";
+import { seedRoutingWithCandidates } from "../src/model/effects/ops/system/work-process-routing.js";
 import { evaluateProcessRequirementAvailability } from "../src/model/process-requirement-availability.js";
 
 function makeState() {
@@ -302,10 +303,44 @@ function runConsumeFalseSemanticsTest() {
   assert.equal(getTotalByKind(sourceInvA, "hammer"), before);
 }
 
+function runNewRoutingCandidatesDefaultEnabledTest() {
+  const { state, target } = makeTargetAndSources();
+  const requirement = {
+    kind: "item",
+    itemId: "reeds",
+    amount: 1,
+    progress: 0,
+    consume: true,
+    slotId: "materials",
+  };
+  const process = makeProcess(
+    [requirement],
+    {
+      "inv:hub:sourceA": true,
+    },
+    ["inv:hub:sourceA"]
+  );
+  const processDef = makeProcessDef([requirement]);
+
+  const changed = seedRoutingWithCandidates(state, target, process, processDef, {});
+  assert.equal(changed, true, "expected newly valid routing candidates to be appended");
+  assert.equal(
+    process.routing.inputs.materials.ordered.includes("inv:hub:sourceB"),
+    true,
+    "new crafting candidates should be appended to routing order"
+  );
+  assert.equal(
+    process.routing.inputs.materials.enabled["inv:hub:sourceB"],
+    true,
+    "newly appended crafting candidates should default enabled"
+  );
+}
+
 runFulfillableReachableInputsTest();
 runShortageTest();
 runAggregateAcrossEndpointsTest();
 runDisabledInvalidExcludedTest();
 runConsumeFalseSemanticsTest();
+runNewRoutingCandidatesDefaultEnabledTest();
 
 console.log("[test] Process requirement availability checks passed");
