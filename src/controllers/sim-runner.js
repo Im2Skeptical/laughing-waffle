@@ -37,6 +37,7 @@ import {
   mergePersistentKnowledge,
 } from "../model/persistent-memory.js";
 import { resolveEditWindowStatusAtSecond } from "../model/timegraph/edit-policy.js";
+import { getGlobalSkillModifier } from "../model/skills.js";
 import { createActionPlanner } from "./actionmanagers/action-planner.js";
 import {
   perfEnabled,
@@ -83,8 +84,16 @@ export function createSimRunner({
   }
 
   function getEditableHistoryWindowSec() {
-    const raw = Math.floor(BASE_EDITABLE_HISTORY_WINDOW_SEC ?? 0);
-    return Number.isFinite(raw) && raw >= 0 ? raw : 0;
+    const base = Math.floor(BASE_EDITABLE_HISTORY_WINDOW_SEC ?? 0);
+    const bonus = Math.floor(
+      getGlobalSkillModifier(
+        cursorState,
+        "editableHistoryWindowBonusSec",
+        0
+      )
+    );
+    const total = (Number.isFinite(base) ? base : 0) + (Number.isFinite(bonus) ? bonus : 0);
+    return total >= 0 ? total : 0;
   }
 
   function getTimelineMaxReachedHistoryEndSec() {

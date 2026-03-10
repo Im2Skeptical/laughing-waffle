@@ -25,6 +25,7 @@ function formatSkillModifierLabel(scope, key) {
     restStaminaBonusFlat: "rest stamina",
     restStaminaBonusMult: "rest stamina",
     apCapBonus: "AP cap",
+    editableHistoryWindowBonusSec: "editable history",
     projectionHorizonBonusSec: "projection horizon",
     populationFoodMult: "population food",
   };
@@ -44,7 +45,10 @@ function formatNodeUnlockEffect(effect) {
         : null;
     if (!key || !Number.isFinite(amount)) return null;
     const signed = amount >= 0 ? `+${floorInt(amount)}` : `${floorInt(amount)}`;
-    if (key === "projectionHorizonBonusSec") {
+    if (
+      key === "projectionHorizonBonusSec" ||
+      key === "editableHistoryWindowBonusSec"
+    ) {
       return `${formatSkillModifierLabel(scope, key)} ${signed}s`;
     }
     return `${formatSkillModifierLabel(scope, key)} ${signed}`;

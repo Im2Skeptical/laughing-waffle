@@ -67,6 +67,7 @@ const SKILL_MODIFIER_KEYS = new Set([
   "restStaminaBonusFlat",
   "restStaminaBonusMult",
   "apCapBonus",
+  "editableHistoryWindowBonusSec",
   "projectionHorizonBonusSec",
   "populationFoodMult",
 ]);

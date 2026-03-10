@@ -6,6 +6,7 @@ import {
   skillNodes,
   skillProgressionDefs,
 } from "../defs/gamepieces/skill-tree-defs.js";
+import { itemDefs } from "../defs/gamepieces/item-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { envTagDefs } from "../defs/gamesystems/env-tags-defs.js";
@@ -30,14 +31,17 @@ const PAWN_SKILL_MOD_KEYS = Object.freeze([
   "restStaminaBonusFlat",
   "restStaminaBonusMult",
 ]);
+const PAWN_SKILL_MOD_KEY_SET = new Set(PAWN_SKILL_MOD_KEYS);
 
 const PAWN_SKILL_MULTIPLIER_KEYS = new Set(["restStaminaBonusMult"]);
 
 const GLOBAL_SKILL_MOD_KEYS = Object.freeze([
   "apCapBonus",
+  "editableHistoryWindowBonusSec",
   "projectionHorizonBonusSec",
   "populationFoodMult",
 ]);
+const GLOBAL_SKILL_MOD_KEY_SET = new Set(GLOBAL_SKILL_MOD_KEYS);
 
 const GLOBAL_SKILL_MULTIPLIER_KEYS = new Set(["populationFoodMult"]);
 
@@ -51,6 +55,7 @@ const PAWN_SKILL_MOD_DEFAULTS = Object.freeze({
 
 const GLOBAL_SKILL_MOD_DEFAULTS = Object.freeze({
   apCapBonus: 0,
+  editableHistoryWindowBonusSec: 0,
   projectionHorizonBonusSec: 0,
   populationFoodMult: 1,
 });
@@ -176,6 +181,79 @@ function getRuntimeMultiplierFallback(scope, key) {
     return getRuntimeModifierDefault("pawn", key);
   }
   return 1;
+}
+
+function normalizeEquippedEffectList(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter((entry) => entry && typeof entry === "object");
+  }
+  if (typeof raw === "object") return [raw];
+  return [];
+}
+
+function getEquippedItemEffects(item) {
+  const kind = typeof item?.kind === "string" ? item.kind : null;
+  if (!kind) return [];
+  const itemDef = itemDefs?.[kind];
+  if (!itemDef || typeof itemDef !== "object") return [];
+  return normalizeEquippedEffectList(itemDef.equippedEffects);
+}
+
+function applyDerivedModifierEffect(entry, effect, scope, keySet) {
+  const op = effect?.op;
+  const key = typeof effect?.key === "string" ? effect.key : null;
+  if (!key || !keySet.has(key)) return false;
+
+  if (op === "AddModifier") {
+    const amount = Number.isFinite(effect?.amount)
+      ? effect.amount
+      : Number.isFinite(effect?.delta)
+        ? effect.delta
+        : null;
+    if (!Number.isFinite(amount)) return false;
+    const current = Number.isFinite(entry?.[key])
+      ? entry[key]
+      : getRuntimeModifierDefault(scope, key);
+    entry[key] = current + amount;
+    return true;
+  }
+
+  if (op === "MulModifier") {
+    const factor = Number.isFinite(effect?.factor)
+      ? effect.factor
+      : Number.isFinite(effect?.multiplier)
+        ? effect.multiplier
+        : Number.isFinite(effect?.amount)
+          ? effect.amount
+          : null;
+    if (!Number.isFinite(factor)) return false;
+    const current = Number.isFinite(entry?.[key])
+      ? entry[key]
+      : getRuntimeMultiplierFallback(scope, key);
+    entry[key] = current * factor;
+    return true;
+  }
+
+  return false;
+}
+
+function forEachEquippedItemEffect(state, visit) {
+  if (typeof visit !== "function") return;
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  for (const pawn of pawns) {
+    const equipment =
+      pawn?.equipment && typeof pawn.equipment === "object" ? pawn.equipment : null;
+    if (!equipment) continue;
+    for (const item of Object.values(equipment)) {
+      if (!item || typeof item !== "object") continue;
+      const effects = getEquippedItemEffects(item);
+      if (!effects.length) continue;
+      for (const effect of effects) {
+        visit(effect, pawn, item);
+      }
+    }
+  }
 }
 
 function getPawnById(state, pawnId) {
@@ -526,8 +604,7 @@ export function revokeSkillFeatureUnlock(state, featureId) {
 }
 
 export function getGlobalSkillModifier(state, key, fallback = 0) {
-  const runtime = withRuntimeSkillState(state);
-  const value = runtime?.modifiers?.global?.[key];
+  const value = computeGlobalSkillMods(state)?.[key];
   if (Number.isFinite(value)) return value;
   if (Object.prototype.hasOwnProperty.call(GLOBAL_SKILL_MOD_DEFAULTS, key)) {
     return GLOBAL_SKILL_MOD_DEFAULTS[key];
@@ -536,9 +613,7 @@ export function getGlobalSkillModifier(state, key, fallback = 0) {
 }
 
 export function getPawnSkillModifier(state, pawnId, key, fallback = 0) {
-  const runtime = withRuntimeSkillState(state);
-  const entry = getRuntimePawnModifierEntry(runtime, pawnId, false);
-  const value = entry?.[key];
+  const value = computePawnSkillMods(state, pawnId)?.[key];
   if (Number.isFinite(value)) return value;
   if (Object.prototype.hasOwnProperty.call(PAWN_SKILL_MOD_DEFAULTS, key)) {
     return PAWN_SKILL_MOD_DEFAULTS[key];
@@ -710,6 +785,22 @@ export function computePawnSkillMods(state, pawnId) {
     }
   }
 
+  const targetPawn = getPawnById(state, pawnId);
+  const equipment =
+    targetPawn?.equipment && typeof targetPawn.equipment === "object"
+      ? targetPawn.equipment
+      : null;
+  if (equipment) {
+    for (const item of Object.values(equipment)) {
+      if (!item || typeof item !== "object") continue;
+      const effects = getEquippedItemEffects(item);
+      for (const effect of effects) {
+        if (effect?.scope !== "pawn") continue;
+        applyDerivedModifierEffect(out, effect, "pawn", PAWN_SKILL_MOD_KEY_SET);
+      }
+    }
+  }
+
   out.restStaminaBonusMult = Math.max(0, out.restStaminaBonusMult);
   return out;
 }
@@ -720,6 +811,7 @@ export function computeGlobalSkillMods(state) {
 
   const out = {
     apCapBonus: 0,
+    editableHistoryWindowBonusSec: 0,
     projectionHorizonBonusSec: 0,
     populationFoodMult: 1,
     unlockedRecipes: new Set(getDefaultUnlockedRecipes(defsInput)),
@@ -734,6 +826,11 @@ export function computeGlobalSkillMods(state) {
   if (runtimeGlobal) {
     if (Number.isFinite(runtimeGlobal.apCapBonus)) {
       out.apCapBonus += Math.floor(runtimeGlobal.apCapBonus);
+    }
+    if (Number.isFinite(runtimeGlobal.editableHistoryWindowBonusSec)) {
+      out.editableHistoryWindowBonusSec += Math.floor(
+        runtimeGlobal.editableHistoryWindowBonusSec
+      );
     }
     if (Number.isFinite(runtimeGlobal.projectionHorizonBonusSec)) {
       out.projectionHorizonBonusSec += Math.floor(runtimeGlobal.projectionHorizonBonusSec);
@@ -765,6 +862,15 @@ export function computeGlobalSkillMods(state) {
     }
   }
 
+  forEachEquippedItemEffect(state, (effect) => {
+    if (effect?.scope === "pawn") return;
+    applyDerivedModifierEffect(out, effect, "global", GLOBAL_SKILL_MOD_KEY_SET);
+  });
+
+  out.editableHistoryWindowBonusSec = Math.max(
+    0,
+    Math.floor(out.editableHistoryWindowBonusSec)
+  );
   out.populationFoodMult = Math.max(0, out.populationFoodMult);
   return out;
 }

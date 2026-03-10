@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { createSimRunner } from "../src/controllers/sim-runner.js";
-import { ActionKinds } from "../src/model/actions.js";
+import { ActionKinds, applyAction } from "../src/model/actions.js";
 import {
   createTimelineFromInitialState,
   getStateDataAtSecond,
@@ -43,6 +43,7 @@ import {
 } from "../src/model/persistent-memory.js";
 import {
   computeAvailableRecipesAndBuildings,
+  getGlobalSkillModifier,
   getLeaderInventorySectionCapabilities,
 } from "../src/model/skills.js";
 import { getRenderableEnvEventDeckPlacements } from "../src/views/env-event-deck-pixi.js";
@@ -1047,12 +1048,28 @@ function runTimegraphEditPolicyChecks() {
     "rollingEditable window mode should preserve prior behavior"
   );
 
+  const ringDef = itemDefs?.ringOfEternity;
+  assert.ok(ringDef, "ringOfEternity item def should exist");
+  assert.deepEqual(
+    ringDef.equippedEffects,
+    [
+      {
+        op: "AddModifier",
+        scope: "global",
+        key: "editableHistoryWindowBonusSec",
+        amount: 5,
+      },
+    ],
+    "ringOfEternity should grant editable history while equipped"
+  );
+
   const runner = createSimRunner({ setupId: "devGym01" });
   assertOk(runner.init(), "edit policy runner init");
   runner.setPaused(false);
   for (let i = 0; i < 20 * 60; i += 1) {
     runner.update(1 / 60);
   }
+  assertOk(runner.commitCursorSecond(20), "pause edit policy runner at frontier");
 
   const state = runner.getCursorState();
   const leaderId = state?.pawns?.[0]?.id;
@@ -1060,11 +1077,126 @@ function runTimegraphEditPolicyChecks() {
   const leaderInv = state?.ownerInventories?.[leaderId];
   assert.ok(leaderInv, "expected leader inventory for edit policy checks");
 
+  const baseBounds = runner.getEditableHistoryBounds();
+  assert.equal(
+    baseBounds?.windowSec,
+    0,
+    "base editable history window should default to zero"
+  );
+
   const statusBefore = runner.getEditWindowStatusAtSecond(0);
   assert.equal(
     statusBefore?.ok,
     false,
     "without grants, deep history should be outside base editable window"
+  );
+
+  state.skillRuntime = {
+    modifiers: {
+      global: { editableHistoryWindowBonusSec: 5 },
+      pawnById: {},
+    },
+    unlocks: {
+      recipes: [],
+      hubStructures: [],
+      envTags: [],
+      hubTags: [],
+      itemTags: [],
+      features: [],
+    },
+  };
+  const runtimeBonusBounds = runner.getEditableHistoryBounds();
+  assert.equal(
+    runtimeBonusBounds?.windowSec,
+    5,
+    "runtime editable history modifier should expand the window"
+  );
+  assert.equal(
+    runner.getEditWindowStatusAtSecond(15)?.ok,
+    true,
+    "runtime editable history modifier should unlock older seconds deterministically"
+  );
+  assert.equal(
+    runner.getEditWindowStatusAtSecond(14)?.ok,
+    false,
+    "runtime editable history modifier should keep seconds outside its bonus blocked"
+  );
+
+  state.skillRuntime = null;
+
+  const addedRing = Inventory.addNewItem(state, leaderInv, {
+    kind: "ringOfEternity",
+    quantity: 1,
+  });
+  assert.ok(addedRing, "failed to add ringOfEternity item for policy check");
+  const inventoryOnlyRing = leaderInv.items.find((item) => item.kind === "ringOfEternity");
+  assert.ok(inventoryOnlyRing, "expected ringOfEternity in leader inventory");
+  assert.equal(
+    runner.getEditableHistoryBounds()?.windowSec,
+    0,
+    "ringOfEternity should not grant history while only in inventory"
+  );
+
+  const equipRingOne = runner.dispatchAction(ActionKinds.EQUIP_ITEM, {
+    fromOwnerId: leaderId,
+    toOwnerId: leaderId,
+    itemId: inventoryOnlyRing.id,
+    slotId: "ring1",
+  });
+  assertOk(equipRingOne, "equip first ring of eternity");
+  assert.equal(
+    runner.getEditableHistoryBounds()?.windowSec,
+    5,
+    "ringOfEternity should grant +5s while equipped"
+  );
+  assert.equal(
+    runner.getEditWindowStatusAtSecond(15)?.ok,
+    true,
+    "equipped ring should unlock seconds within its +5s window"
+  );
+
+  const addedRingTwo = Inventory.addNewItem(state, leaderInv, {
+    kind: "ringOfEternity",
+    quantity: 1,
+  });
+  assert.ok(addedRingTwo, "failed to add second ringOfEternity item");
+  const secondRing = leaderInv.items.find(
+    (item) => item.kind === "ringOfEternity" && item.id !== inventoryOnlyRing.id
+  );
+  assert.ok(secondRing, "expected second ringOfEternity in leader inventory");
+  const equipRingTwo = runner.dispatchAction(ActionKinds.EQUIP_ITEM, {
+    fromOwnerId: leaderId,
+    toOwnerId: leaderId,
+    itemId: secondRing.id,
+    slotId: "ring2",
+  });
+  assertOk(equipRingTwo, "equip second ring of eternity");
+  assert.equal(
+    runner.getEditableHistoryBounds()?.windowSec,
+    10,
+    "multiple equipped rings should stack additively"
+  );
+  assert.equal(
+    runner.getEditWindowStatusAtSecond(10)?.ok,
+    true,
+    "stacked rings should extend the editable history window additively"
+  );
+  assert.equal(
+    runner.getEditWindowStatusAtSecond(9)?.ok,
+    false,
+    "seconds beyond the stacked ring window should remain blocked"
+  );
+
+  const unequipRingOne = runner.dispatchAction(ActionKinds.UNEQUIP_ITEM, {
+    fromOwnerId: leaderId,
+    toOwnerId: leaderId,
+    slotId: "ring1",
+  });
+  assertOk(unequipRingOne, "unequip first ring of eternity");
+  assert.equal(
+    runner.getEditableHistoryBounds()?.windowSec,
+    5,
+    "unequipping a ring should remove its history bonus immediately"
   );
 
   const added = Inventory.addNewItem(state, leaderInv, {
@@ -1083,6 +1215,110 @@ function runTimegraphEditPolicyChecks() {
     statusAfter?.editableByItemGrant,
     true,
     "absolute editable grant source should be reported"
+  );
+
+  const replayParityState = createInitialState({
+    rngSeed: 987,
+    board: {
+      cols: 1,
+      tiles: ["tile_hinterland"],
+    },
+    hub: {
+      cols: 1,
+      structures: [],
+    },
+    pawns: [{ name: "Replay Leader", role: "leader", hubCol: 0 }],
+    inventories: [
+      {
+        owner: { type: "leaderPawn", index: 0 },
+        items: [{ kind: "ringOfEternity", quantity: 1, gridX: 0, gridY: 0 }],
+      },
+    ],
+  });
+  const replayLeader = replayParityState?.pawns?.[0];
+  const replayInv = replayParityState?.ownerInventories?.[replayLeader?.id];
+  const replayRing = replayInv?.items?.find((item) => item.kind === "ringOfEternity");
+  assert.ok(replayLeader && replayInv && replayRing, "replay parity setup should create a ring");
+  Inventory.removeItem(replayInv, replayRing.id);
+  Inventory.rebuildDerived(replayInv);
+  replayLeader.equipment.ring1 = replayRing;
+  replayParityState.skillRuntime = {
+    modifiers: {
+      global: { editableHistoryWindowBonusSec: 5 },
+      pawnById: {},
+    },
+    unlocks: {
+      recipes: [],
+      hubStructures: [],
+      envTags: [],
+      hubTags: [],
+      itemTags: [],
+      features: [],
+    },
+  };
+  const replayTimeline = createTimelineFromInitialState(replayParityState);
+  const replayRebuilt = rebuildStateAtSecond(replayTimeline, 0);
+  assertOk(replayRebuilt, "editable history replay parity rebuild");
+  assert.equal(
+    getGlobalSkillModifier(
+      replayParityState,
+      "editableHistoryWindowBonusSec",
+      0
+    ),
+    10,
+    "live equipped-plus-runtime state should combine editable history bonuses"
+  );
+  assert.equal(
+    getGlobalSkillModifier(
+      replayRebuilt.state,
+      "editableHistoryWindowBonusSec",
+      0
+    ),
+    10,
+    "rebuilt state should preserve editable history bonuses from equipped items and runtime"
+  );
+
+  const moteConsumeState = createInitialState({
+    rngSeed: 654,
+    board: {
+      cols: 1,
+      tiles: ["tile_hinterland"],
+    },
+    hub: {
+      cols: 1,
+      structures: [],
+    },
+    pawns: [{ name: "Mote Leader", role: "leader", hubCol: 0 }],
+    inventories: [
+      {
+        owner: { type: "leaderPawn", index: 0 },
+        items: [{ kind: "moteOfEternity", quantity: 1, gridX: 0, gridY: 0 }],
+      },
+    ],
+  });
+  moteConsumeState.tSec = 241;
+  moteConsumeState.simStepIndex = 241 * 60;
+  moteConsumeState.paused = true;
+  const moteLeaderId = moteConsumeState?.pawns?.[0]?.id;
+  const moteInv = moteConsumeState?.ownerInventories?.[moteLeaderId];
+  const moteItem = moteInv?.items?.find((item) => item.kind === "moteOfEternity");
+  assert.ok(moteItem, "mote consume setup should create the mote");
+  const useMote = applyAction(moteConsumeState, {
+    kind: ActionKinds.INVENTORY_USE_ITEM,
+    payload: { ownerId: moteLeaderId, itemId: moteItem.id },
+  });
+  assertOk(useMote, "consume mote of eternity");
+  const remainingMotes = moteInv.items.filter((item) => item.kind === "moteOfEternity");
+  const spawnedRings = moteInv.items.filter((item) => item.kind === "ringOfEternity");
+  assert.equal(
+    remainingMotes.length,
+    0,
+    "consuming the mote should remove it from inventory"
+  );
+  assert.equal(
+    spawnedRings.length,
+    1,
+    "consuming the mote should spawn one ring of eternity"
   );
 }
 
