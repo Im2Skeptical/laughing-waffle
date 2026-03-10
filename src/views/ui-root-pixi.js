@@ -389,6 +389,11 @@ function isLiveActionOptimismEnabled() {
 
 liveActionOptimism = createLiveActionOptimism({
   getState: () => runner.getCursorState?.(),
+  getPreviewBoundaryStateData: (tSec) =>
+    runner.getPlannerBoundaryStateData?.(tSec) ?? {
+      ok: false,
+      reason: "noPlannerBoundary",
+    },
   getTimeline: () => runner.getTimeline?.(),
   getOwnerLabel(ownerId) {
     const state = runner.getCursorState?.();

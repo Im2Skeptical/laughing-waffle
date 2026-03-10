@@ -226,6 +226,7 @@ export function createSimRunner({
       applyTimelinePersistentKnowledgeToState(cursorState);
       return cursorState;
     },
+    getPreviewBoundaryStateData: (tSec) => getPlannerBoundaryStateData(tSec),
     onInvalidate: (reason) => onInvalidate?.(`planner:${reason}`),
     onEdit: (reason) => {
       dragPreviewState = null;
@@ -1495,6 +1496,7 @@ export function createSimRunner({
       return state;
     },
     getPreviewStatus,
+    getPlannerBoundaryStateData: (tSec) => getPlannerBoundaryStateData(tSec),
     isPreviewing: () => !!dragPreviewState,
     getEditableHistoryBounds,
     getEditWindowStatusAtSecond: (tSec) => getEditWindowStatusForSecond(tSec),

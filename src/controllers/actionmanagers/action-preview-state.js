@@ -1,24 +1,8 @@
-import { ActionKinds } from "../../model/actions.js";
 import {
   buildRecipePriorityFromSelectedRecipe,
   getTopEnabledRecipeId,
   normalizeRecipePriority,
 } from "../../model/recipe-priority.js";
-import { placementEquals } from "./action-placement-utils.js";
-import { IntentKinds } from "./action-intents.js";
-
-export function clonePlacement(value) {
-  return value && typeof value === "object" ? { ...value } : null;
-}
-
-export function cloneRecipePriority(value) {
-  const ordered = Array.isArray(value?.ordered) ? value.ordered.slice() : [];
-  const enabled = {};
-  for (const recipeId of ordered) {
-    enabled[recipeId] = value?.enabled?.[recipeId] === false ? false : true;
-  }
-  return { ordered, enabled };
-}
 
 export function createEmptyInventoryPreview() {
   return {
@@ -28,94 +12,182 @@ export function createEmptyInventoryPreview() {
   };
 }
 
-function makeItemSnapshot(item) {
+function normalizeOwnerId(ownerIdRaw) {
+  if (typeof ownerIdRaw === "number" && Number.isFinite(ownerIdRaw)) {
+    return Math.floor(ownerIdRaw);
+  }
+  if (typeof ownerIdRaw === "string" && ownerIdRaw.length > 0) {
+    const asNumber = Number(ownerIdRaw);
+    return Number.isFinite(asNumber) ? Math.floor(asNumber) : ownerIdRaw;
+  }
+  return ownerIdRaw;
+}
+
+function sortedStrings(values) {
+  return [...values].sort((left, right) => String(left).localeCompare(String(right)));
+}
+
+function sortedNumbers(values) {
+  return [...values].sort((left, right) => left - right);
+}
+
+function getOrCreateOwnerPreview(previewByOwner, ownerId) {
+  let preview = previewByOwner.get(ownerId);
+  if (!preview) {
+    preview = createEmptyInventoryPreview();
+    previewByOwner.set(ownerId, preview);
+  }
+  return preview;
+}
+
+function cloneTags(tags) {
+  return Array.isArray(tags) ? tags.slice() : [];
+}
+
+function cloneRecipePriority(value) {
+  const ordered = Array.isArray(value?.ordered) ? value.ordered.slice() : [];
+  const enabled = {};
+  for (const recipeId of ordered) {
+    enabled[recipeId] = value?.enabled?.[recipeId] === false ? false : true;
+  }
+  return { ordered, enabled };
+}
+
+function makePreviewItem(item, ownerId, sourceOwnerId = null) {
   if (!item || typeof item !== "object") return null;
   return {
     id: item.id,
     kind: item.kind,
-    quantity: item.quantity,
-    width: item.width,
-    height: item.height,
+    quantity: Math.max(0, Math.floor(item.quantity ?? 0)),
+    width: Math.max(1, Math.floor(item.width ?? 1)),
+    height: Math.max(1, Math.floor(item.height ?? 1)),
     tier: item.tier ?? null,
-    tags: Array.isArray(item.tags) ? item.tags.slice() : [],
+    tags: cloneTags(item.tags),
+    ownerId,
+    sourceOwnerId: sourceOwnerId ?? ownerId,
+    gridX: Math.max(0, Math.floor(item.gridX ?? 0)),
+    gridY: Math.max(0, Math.floor(item.gridY ?? 0)),
+    isGhost: false,
   };
 }
 
-function getOrCreateOwnerPreview(previewByOwner, ownerId) {
-  let entry = previewByOwner.get(ownerId);
-  if (!entry) {
-    entry = createEmptyInventoryPreview();
-    previewByOwner.set(ownerId, entry);
+function compareTagLists(leftTags, rightTags) {
+  const left = Array.isArray(leftTags) ? leftTags : [];
+  const right = Array.isArray(rightTags) ? rightTags : [];
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
   }
-  return entry;
+  return true;
 }
 
-function normalizeHubAnchorCol(state, rawHubCol) {
-  if (!Number.isFinite(rawHubCol)) return null;
-  const hubCol = Math.floor(rawHubCol);
-  const hubOcc = Array.isArray(state?.hub?.occ) ? state.hub.occ : null;
-  if (hubOcc) {
-    const anchor = hubOcc[hubCol];
-    if (anchor && Number.isFinite(anchor.col)) {
-      return Math.floor(anchor.col);
+function compareRecipePriority(left, right) {
+  const a = cloneRecipePriority(left);
+  const b = cloneRecipePriority(right);
+  if (!compareTagLists(a.ordered, b.ordered)) return false;
+  for (const recipeId of a.ordered) {
+    if ((a.enabled[recipeId] === false) !== (b.enabled[recipeId] === false)) {
+      return false;
     }
   }
-  return hubCol;
+  return true;
 }
 
-function normalizeInventoryPlacement(rawPlacement, fallbackOwnerId = null) {
-  if (!rawPlacement || typeof rawPlacement !== "object") return null;
-  const ownerId =
-    rawPlacement.ownerId != null ? rawPlacement.ownerId : fallbackOwnerId;
-  const gx = Number.isFinite(rawPlacement.gx) ? Math.floor(rawPlacement.gx) : null;
-  const gy = Number.isFinite(rawPlacement.gy) ? Math.floor(rawPlacement.gy) : null;
-  if (ownerId == null || gx == null || gy == null) return null;
-  return { ownerId, gx, gy };
+function comparePreviewItems(left, right) {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  return (
+    left.id === right.id &&
+    left.kind === right.kind &&
+    Math.floor(left.quantity ?? 0) === Math.floor(right.quantity ?? 0) &&
+    Math.floor(left.width ?? 1) === Math.floor(right.width ?? 1) &&
+    Math.floor(left.height ?? 1) === Math.floor(right.height ?? 1) &&
+    (left.tier ?? null) === (right.tier ?? null) &&
+    Math.floor(left.gridX ?? 0) === Math.floor(right.gridX ?? 0) &&
+    Math.floor(left.gridY ?? 0) === Math.floor(right.gridY ?? 0) &&
+    compareTagLists(left.tags, right.tags)
+  );
 }
 
-function resolveItemLocationInState(state, itemId, ownerIdHint = null) {
-  if (!state?.ownerInventories || itemId == null) return null;
-  if (ownerIdHint != null) {
-    const hinted = state.ownerInventories[ownerIdHint] || null;
-    const hintedItem =
-      hinted?.itemsById?.[itemId] ||
-      hinted?.items?.find?.((candidate) => candidate?.id === itemId) ||
-      null;
-    if (hintedItem) {
-      return {
-        ownerId: ownerIdHint,
-        placement: {
-          ownerId: ownerIdHint,
-          gx: Math.floor(hintedItem.gridX ?? 0),
-          gy: Math.floor(hintedItem.gridY ?? 0),
-        },
-        item: makeItemSnapshot(hintedItem),
-      };
-    }
-  }
+function sortPreviewItems(items) {
+  items.sort((left, right) => {
+    const yDelta = Math.floor(left?.gridY ?? 0) - Math.floor(right?.gridY ?? 0);
+    if (yDelta !== 0) return yDelta;
+    const xDelta = Math.floor(left?.gridX ?? 0) - Math.floor(right?.gridX ?? 0);
+    if (xDelta !== 0) return xDelta;
+    return Math.floor(left?.id ?? 0) - Math.floor(right?.id ?? 0);
+  });
+}
 
-  for (const [ownerIdRaw, inv] of Object.entries(state.ownerInventories)) {
-    const item =
-      inv?.itemsById?.[itemId] ||
-      inv?.items?.find?.((candidate) => candidate?.id === itemId) ||
-      null;
-    if (!item) continue;
-    const ownerIdNum = Number(ownerIdRaw);
-    const ownerId = Number.isFinite(ownerIdNum) ? ownerIdNum : ownerIdRaw;
-    return {
-      ownerId,
-      placement: {
+function getInventoryItemMap(state) {
+  const byItemId = new Map();
+  const byOwnerId = new Map();
+  const inventories =
+    state?.ownerInventories && typeof state.ownerInventories === "object"
+      ? state.ownerInventories
+      : {};
+
+  for (const [ownerIdRaw, inv] of Object.entries(inventories)) {
+    const ownerId = normalizeOwnerId(ownerIdRaw);
+    const ownerItems = new Map();
+    const items = Array.isArray(inv?.items) ? inv.items : [];
+    for (const item of items) {
+      if (!item || item.id == null) continue;
+      ownerItems.set(item.id, item);
+      byItemId.set(item.id, {
         ownerId,
-        gx: Math.floor(item.gridX ?? 0),
-        gy: Math.floor(item.gridY ?? 0),
-      },
-      item: makeItemSnapshot(item),
-    };
+        item,
+      });
+    }
+    byOwnerId.set(ownerId, ownerItems);
+  }
+
+  return { byItemId, byOwnerId };
+}
+
+function getInventorySignature(state, ownerId) {
+  const inv = state?.ownerInventories?.[ownerId];
+  const items = Array.isArray(inv?.items) ? inv.items : [];
+  return items
+    .map((item) =>
+      JSON.stringify({
+        id: item?.id ?? null,
+        kind: item?.kind ?? null,
+        quantity: Math.max(0, Math.floor(item?.quantity ?? 0)),
+        width: Math.max(1, Math.floor(item?.width ?? 1)),
+        height: Math.max(1, Math.floor(item?.height ?? 1)),
+        tier: item?.tier ?? null,
+        tags: cloneTags(item?.tags),
+        gridX: Math.max(0, Math.floor(item?.gridX ?? 0)),
+        gridY: Math.max(0, Math.floor(item?.gridY ?? 0)),
+      })
+    )
+    .sort()
+    .join("|");
+}
+
+function getPawnPlacement(pawn) {
+  if (!pawn || typeof pawn !== "object") return null;
+  if (Number.isFinite(pawn.envCol)) {
+    return { envCol: Math.floor(pawn.envCol) };
+  }
+  if (Number.isFinite(pawn.hubCol)) {
+    return { hubCol: Math.floor(pawn.hubCol) };
   }
   return null;
 }
 
-function getTileBaselinePreview(state, envCol) {
+function getPawnPlacementSignature(state, pawnId) {
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  const pawn = pawns.find((candidate) => candidate?.id === pawnId) || null;
+  const placement = getPawnPlacement(pawn);
+  if (!placement) return "none";
+  if (Number.isFinite(placement.envCol)) return `env:${placement.envCol}`;
+  if (Number.isFinite(placement.hubCol)) return `hub:${placement.hubCol}`;
+  return "none";
+}
+
+function getTilePlanForState(state, envCol) {
   const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
   const tile = col != null ? state?.board?.occ?.tile?.[col] ?? null : null;
   const recipePriority = normalizeRecipePriority(tile?.systemState?.growth?.recipePriority, {
@@ -146,7 +218,7 @@ function getTileBaselinePreview(state, envCol) {
   };
 }
 
-function getHubBaselinePreview(state, hubCol) {
+function getHubPlanForState(state, hubCol) {
   const col = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
   const structure =
     col != null
@@ -190,415 +262,360 @@ function getHubBaselinePreview(state, hubCol) {
   };
 }
 
-function getOrCreateTilePlan(tilePlanByEnvCol, state, envCol) {
-  const col = Number.isFinite(envCol) ? Math.floor(envCol) : null;
-  if (col == null) return null;
-  let entry = tilePlanByEnvCol.get(col);
-  if (!entry) {
-    entry = getTileBaselinePreview(state, col);
-    tilePlanByEnvCol.set(col, entry);
-  }
-  return entry;
+function getTilePlanSignature(state, envCol) {
+  const plan = getTilePlanForState(state, envCol);
+  return JSON.stringify(plan);
 }
 
-function getOrCreateHubPlan(hubPlanByHubCol, state, hubCol) {
+function getHubPlanSignature(state, hubCol) {
+  const plan = getHubPlanForState(state, hubCol);
+  return JSON.stringify(plan);
+}
+
+function compareTilePlans(left, right) {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  if (!compareTagLists(left.tagIds, right.tagIds)) return false;
+  const leftDisabledKeys = Object.keys(left.tagDisabledById || {}).sort();
+  const rightDisabledKeys = Object.keys(right.tagDisabledById || {}).sort();
+  if (!compareTagLists(leftDisabledKeys, rightDisabledKeys)) return false;
+  for (const key of leftDisabledKeys) {
+    if ((left.tagDisabledById?.[key] === true) !== (right.tagDisabledById?.[key] === true)) {
+      return false;
+    }
+  }
+  return (
+    compareRecipePriority(left.recipePriority, right.recipePriority) &&
+    (left.cropId ?? null) === (right.cropId ?? null)
+  );
+}
+
+function compareHubPlans(left, right) {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  if (!compareTagLists(left.tagIds, right.tagIds)) return false;
+  const leftDisabledKeys = Object.keys(left.tagDisabledById || {}).sort();
+  const rightDisabledKeys = Object.keys(right.tagDisabledById || {}).sort();
+  if (!compareTagLists(leftDisabledKeys, rightDisabledKeys)) return false;
+  for (const key of leftDisabledKeys) {
+    if ((left.tagDisabledById?.[key] === true) !== (right.tagDisabledById?.[key] === true)) {
+      return false;
+    }
+  }
+
+  const leftSystems = Object.keys(left.recipePriorityBySystemId || {}).sort();
+  const rightSystems = Object.keys(right.recipePriorityBySystemId || {}).sort();
+  if (!compareTagLists(leftSystems, rightSystems)) return false;
+  for (const systemId of leftSystems) {
+    if (
+      !compareRecipePriority(
+        left.recipePriorityBySystemId?.[systemId],
+        right.recipePriorityBySystemId?.[systemId]
+      )
+    ) {
+      return false;
+    }
+    if (
+      (left.recipeIdBySystemId?.[systemId] ?? null) !==
+      (right.recipeIdBySystemId?.[systemId] ?? null)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getHubStructureSignature(state, hubCol) {
   const col = Number.isFinite(hubCol) ? Math.floor(hubCol) : null;
-  if (col == null) return null;
-  let entry = hubPlanByHubCol.get(col);
-  if (!entry) {
-    entry = getHubBaselinePreview(state, col);
-    hubPlanByHubCol.set(col, entry);
-  }
-  return entry;
+  const structure =
+    col != null
+      ? state?.hub?.occ?.[col] ?? state?.hub?.slots?.[col]?.structure ?? null
+      : null;
+  if (!structure) return "null";
+  const buildProcesses = Array.isArray(structure?.systemState?.build?.processes)
+    ? structure.systemState.build.processes.length
+    : 0;
+  return JSON.stringify({
+    instanceId: structure.instanceId ?? null,
+    defId: structure.defId ?? null,
+    col: Number.isFinite(structure.col) ? Math.floor(structure.col) : null,
+    span: Number.isFinite(structure.span) ? Math.floor(structure.span) : 1,
+    tags: cloneTags(structure.tags),
+    buildProcesses,
+  });
 }
 
-function applyTileIntentPreview(tilePlanByEnvCol, state, intent) {
-  if (!intent) return;
-  if (intent.kind === IntentKinds.TILE_TAG_ORDER) {
-    const entry = getOrCreateTilePlan(tilePlanByEnvCol, state, intent.envCol);
-    if (!entry) return;
-    entry.tagIds = Array.isArray(intent.tagIds) ? intent.tagIds.slice() : [];
-    return;
+function comparePlacements(left, right) {
+  const a = left ?? null;
+  const b = right ?? null;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (Number.isFinite(a.envCol) || Number.isFinite(b.envCol)) {
+    return Math.floor(a.envCol ?? -1) === Math.floor(b.envCol ?? -1);
   }
-  if (intent.kind === IntentKinds.TILE_TAG_TOGGLE) {
-    const entry = getOrCreateTilePlan(tilePlanByEnvCol, state, intent.envCol);
-    if (!entry || !intent.tagId) return;
-    entry.tagDisabledById[intent.tagId] = intent.disabled === true;
-    return;
-  }
-  if (intent.kind === IntentKinds.TILE_CROP_SELECT) {
-    const entry = getOrCreateTilePlan(tilePlanByEnvCol, state, intent.envCol);
-    if (!entry) return;
-    entry.recipePriority = cloneRecipePriority(intent.recipePriority);
-    entry.cropId = intent.cropId ?? getTopEnabledRecipeId(intent.recipePriority);
-  }
+  return Math.floor(a.hubCol ?? -1) === Math.floor(b.hubCol ?? -1);
 }
 
-function applyHubIntentPreview(hubPlanByHubCol, state, intent) {
-  if (!intent) return;
-  if (intent.kind === IntentKinds.HUB_TAG_ORDER) {
-    const entry = getOrCreateHubPlan(hubPlanByHubCol, state, intent.hubCol);
-    if (!entry) return;
-    entry.tagIds = Array.isArray(intent.tagIds) ? intent.tagIds.slice() : [];
-    return;
+function normalizeTouchedTargets(touchedTargets = {}) {
+  const ownerIds = new Set();
+  const pawnIds = new Set();
+  const envCols = new Set();
+  const hubCols = new Set();
+
+  for (const ownerId of touchedTargets.ownerIds || []) {
+    ownerIds.add(normalizeOwnerId(ownerId));
   }
-  if (intent.kind === IntentKinds.HUB_TAG_TOGGLE) {
-    const entry = getOrCreateHubPlan(hubPlanByHubCol, state, intent.hubCol);
-    if (!entry || !intent.tagId) return;
-    entry.tagDisabledById[intent.tagId] = intent.disabled === true;
-    return;
+  for (const pawnId of touchedTargets.pawnIds || []) {
+    if (Number.isFinite(pawnId)) pawnIds.add(Math.floor(pawnId));
   }
-  if (intent.kind === IntentKinds.HUB_RECIPE_SELECT) {
-    const entry = getOrCreateHubPlan(hubPlanByHubCol, state, intent.hubCol);
-    if (!entry || !intent.systemId) return;
-    entry.recipePriorityBySystemId[intent.systemId] = cloneRecipePriority(
-      intent.recipePriority
-    );
-    entry.recipeIdBySystemId[intent.systemId] =
-      intent.recipeId ?? getTopEnabledRecipeId(intent.recipePriority);
+  for (const envCol of touchedTargets.envCols || []) {
+    if (Number.isFinite(envCol)) envCols.add(Math.floor(envCol));
   }
-}
-
-function applyTileActionPreview(tilePlanByEnvCol, state, action) {
-  const payload = action?.payload || {};
-  if (action?.kind === ActionKinds.SET_TILE_TAG_ORDER) {
-    const entry = getOrCreateTilePlan(tilePlanByEnvCol, state, payload.envCol);
-    if (!entry) return;
-    entry.tagIds = Array.isArray(payload.tagIds)
-      ? payload.tagIds.slice()
-      : Array.isArray(payload.tags)
-      ? payload.tags.slice()
-      : [];
-    return;
-  }
-  if (action?.kind === ActionKinds.TOGGLE_TILE_TAG) {
-    const entry = getOrCreateTilePlan(tilePlanByEnvCol, state, payload.envCol);
-    if (!entry || !payload.tagId) return;
-    entry.tagDisabledById[payload.tagId] = payload.disabled === true;
-    return;
-  }
-  if (action?.kind === ActionKinds.SET_TILE_CROP_SELECTION) {
-    const entry = getOrCreateTilePlan(tilePlanByEnvCol, state, payload.envCol);
-    if (!entry) return;
-    const normalized = payload.recipePriority && typeof payload.recipePriority === "object"
-      ? normalizeRecipePriority(payload.recipePriority, {
-          systemId: "growth",
-          state,
-          includeLocked: false,
-        })
-      : buildRecipePriorityFromSelectedRecipe(payload.cropId ?? null, {
-          systemId: "growth",
-          state,
-          includeLocked: false,
-        });
-    entry.recipePriority = cloneRecipePriority(normalized);
-    entry.cropId = getTopEnabledRecipeId(normalized);
-  }
-}
-
-function applyHubActionPreview(hubPlanByHubCol, state, action) {
-  const payload = action?.payload || {};
-  if (action?.kind === ActionKinds.SET_HUB_TAG_ORDER) {
-    const entry = getOrCreateHubPlan(hubPlanByHubCol, state, payload.hubCol);
-    if (!entry) return;
-    entry.tagIds = Array.isArray(payload.tagIds)
-      ? payload.tagIds.slice()
-      : Array.isArray(payload.tags)
-      ? payload.tags.slice()
-      : [];
-    return;
-  }
-  if (action?.kind === ActionKinds.TOGGLE_HUB_TAG) {
-    const entry = getOrCreateHubPlan(hubPlanByHubCol, state, payload.hubCol);
-    if (!entry || !payload.tagId) return;
-    entry.tagDisabledById[payload.tagId] = payload.disabled === true;
-    return;
-  }
-  if (action?.kind === ActionKinds.SET_HUB_RECIPE_SELECTION) {
-    const entry = getOrCreateHubPlan(hubPlanByHubCol, state, payload.hubCol);
-    if (!entry || !payload.systemId) return;
-    const normalized = payload.recipePriority && typeof payload.recipePriority === "object"
-      ? normalizeRecipePriority(payload.recipePriority, {
-          systemId: payload.systemId,
-          state,
-          includeLocked: false,
-        })
-      : buildRecipePriorityFromSelectedRecipe(payload.recipeId ?? null, {
-          systemId: payload.systemId,
-          state,
-          includeLocked: false,
-        });
-    entry.recipePriorityBySystemId[payload.systemId] = cloneRecipePriority(normalized);
-    entry.recipeIdBySystemId[payload.systemId] = getTopEnabledRecipeId(normalized);
-  }
-}
-
-export function buildPlannerPreviewState({
-  state,
-  baselineIntents,
-  currentIntents,
-  inventoryTransferGhostPreviewEnabled = true,
-} = {}) {
-  const previewByOwner = new Map();
-  const pawnOverrides = new Map();
-  const tilePlanByEnvCol = new Map();
-  const hubPlanByHubCol = new Map();
-
-  const baselineByKey =
-    baselineIntents && typeof baselineIntents.entries === "function"
-      ? baselineIntents
-      : new Map();
-  const currentByKey =
-    currentIntents && typeof currentIntents.entries === "function"
-      ? currentIntents
-      : new Map();
-
-  if (inventoryTransferGhostPreviewEnabled) {
-    const moves = [];
-
-    for (const [key, baseIntent] of baselineByKey.entries()) {
-      if (baseIntent?.kind !== IntentKinds.ITEM_TRANSFER) continue;
-      const cur = currentByKey.get(key);
-      const baseTo = baseIntent.toPlacement;
-      const baseFrom = baseIntent.fromPlacement;
-      if (!cur) {
-        if (baseTo && baseFrom) {
-          moves.push({
-            intentId: key,
-            item: baseIntent.item,
-            from: baseTo,
-            to: baseFrom,
-          });
-        }
-        continue;
-      }
-      if (!placementEquals(cur.toPlacement, baseTo) && baseTo && cur.toPlacement) {
-        moves.push({
-          intentId: key,
-          item: cur.item || baseIntent.item,
-          from: baseTo,
-          to: cur.toPlacement,
-        });
-      }
-    }
-
-    for (const [key, curIntent] of currentByKey.entries()) {
-      if (curIntent?.kind !== IntentKinds.ITEM_TRANSFER) continue;
-      if (baselineByKey.has(key)) continue;
-      const baseFrom = curIntent.baselinePlacement || curIntent.fromPlacement;
-      const to = curIntent.toPlacement;
-      if (baseFrom && to && !placementEquals(baseFrom, to)) {
-        moves.push({
-          intentId: key,
-          item: curIntent.item,
-          from: baseFrom,
-          to,
-        });
-      }
-    }
-
-    for (const move of moves) {
-      const item = move.item;
-      if (!item || !move.from || !move.to) continue;
-      const fromPreview = getOrCreateOwnerPreview(previewByOwner, move.from.ownerId);
-      fromPreview.hiddenItemIds.add(item.id);
-
-      const toPreview = getOrCreateOwnerPreview(previewByOwner, move.to.ownerId);
-      toPreview.overlayItems.push({
-        ...item,
-        sourceOwnerId: move.from.ownerId,
-        ownerId: move.to.ownerId,
-        gridX: move.to.gx,
-        gridY: move.to.gy,
-        intentId: move.intentId,
-        isGhost: false,
-      });
-    }
-
-    for (const [key, curIntent] of currentByKey.entries()) {
-      if (curIntent?.kind !== IntentKinds.ITEM_TRANSFER) continue;
-      if (!curIntent.fromPlacement || !curIntent.item) continue;
-      const preview = getOrCreateOwnerPreview(
-        previewByOwner,
-        curIntent.fromPlacement.ownerId ?? curIntent.fromOwnerId
-      );
-      preview.ghostItems.push({
-        ...curIntent.item,
-        ownerId: curIntent.fromPlacement.ownerId ?? curIntent.fromOwnerId,
-        gridX: curIntent.fromPlacement.gx,
-        gridY: curIntent.fromPlacement.gy,
-        intentId: key,
-        isGhost: true,
-      });
-    }
-  }
-
-  for (const [key, baseIntent] of baselineByKey.entries()) {
-    if (baseIntent?.kind !== IntentKinds.PAWN_MOVE) continue;
-    const cur = currentByKey.get(key);
-    const baseTo = baseIntent.toPlacement ?? null;
-    const baseFrom = baseIntent.fromPlacement ?? null;
-    if (!cur) {
-      if (baseFrom) {
-        pawnOverrides.set(baseIntent.pawnId, clonePlacement(baseFrom));
-      }
-      continue;
-    }
-    const curTo = cur.toPlacement ?? null;
-    if (curTo && !placementEquals(curTo, baseTo)) {
-      pawnOverrides.set(baseIntent.pawnId, clonePlacement(curTo));
-    }
-  }
-
-  for (const [key, curIntent] of currentByKey.entries()) {
-    if (curIntent?.kind !== IntentKinds.PAWN_MOVE) continue;
-    if (baselineByKey.has(key)) continue;
-    const baseFrom = curIntent.baselinePlacement ?? null;
-    const curTo = curIntent.toPlacement ?? null;
-    if (curTo && !placementEquals(curTo, baseFrom)) {
-      pawnOverrides.set(curIntent.pawnId, clonePlacement(curTo));
-    }
-  }
-
-  for (const intent of currentByKey.values()) {
-    applyTileIntentPreview(tilePlanByEnvCol, state, intent);
-    applyHubIntentPreview(hubPlanByHubCol, state, intent);
+  for (const hubCol of touchedTargets.hubCols || []) {
+    if (Number.isFinite(hubCol)) hubCols.add(Math.floor(hubCol));
   }
 
   return {
-    previewByOwner,
-    pawnOverrides,
-    tilePlanByEnvCol,
-    hubPlanByHubCol,
+    ownerIds,
+    pawnIds,
+    envCols,
+    hubCols,
   };
 }
 
-export function buildLiveActionPreviewState({
-  state,
+function makeSignatureRecord(snapshot) {
+  const ownerById = {};
+  const pawnById = {};
+  const tileByEnvCol = {};
+  const hubByHubCol = {};
+  const hubStructureByHubCol = {};
+
+  for (const ownerId of snapshot.touchedTargets.ownerIds) {
+    ownerById[String(ownerId)] = getInventorySignature(snapshot.projectedState, ownerId);
+  }
+  for (const pawnId of snapshot.touchedTargets.pawnIds) {
+    pawnById[String(pawnId)] = getPawnPlacementSignature(snapshot.projectedState, pawnId);
+  }
+  for (const envCol of snapshot.touchedTargets.envCols) {
+    tileByEnvCol[String(envCol)] = getTilePlanSignature(snapshot.projectedState, envCol);
+  }
+  for (const hubCol of snapshot.touchedTargets.hubCols) {
+    hubByHubCol[String(hubCol)] = getHubPlanSignature(snapshot.projectedState, hubCol);
+    hubStructureByHubCol[String(hubCol)] = getHubStructureSignature(
+      snapshot.projectedState,
+      hubCol
+    );
+  }
+
+  return {
+    ownerById,
+    pawnById,
+    tileByEnvCol,
+    hubByHubCol,
+    hubStructureByHubCol,
+  };
+}
+
+export function buildPreviewSnapshot({
+  baselineState,
+  projectedState,
+  touchedTargets,
   actions,
   inventoryTransferGhostPreviewEnabled = true,
 } = {}) {
+  const normalizedTouched = normalizeTouchedTargets(touchedTargets);
   const previewByOwner = new Map();
   const pawnOverrides = new Map();
   const tilePlanByEnvCol = new Map();
   const hubPlanByHubCol = new Map();
-  const orderedActions = Array.isArray(actions) ? actions : [];
+  const actionList = Array.isArray(actions) ? actions.filter(Boolean) : [];
+
+  const baselineItems = getInventoryItemMap(baselineState);
+  const projectedItems = getInventoryItemMap(projectedState);
+
+  for (const ownerId of sortedStrings(normalizedTouched.ownerIds)) {
+    const normalizedOwnerId = normalizeOwnerId(ownerId);
+    const baselineByOwner = baselineItems.byOwnerId.get(normalizedOwnerId) || new Map();
+    const projectedByOwner = projectedItems.byOwnerId.get(normalizedOwnerId) || new Map();
+    const itemIds = new Set([
+      ...baselineByOwner.keys(),
+      ...projectedByOwner.keys(),
+    ]);
+
+    for (const itemId of sortedNumbers(itemIds)) {
+      const baselineItem = baselineByOwner.get(itemId) || null;
+      const projectedItem = projectedByOwner.get(itemId) || null;
+      const baselinePreviewItem = baselineItem
+        ? makePreviewItem(baselineItem, normalizedOwnerId)
+        : null;
+      const projectedPreviewItem = projectedItem
+        ? makePreviewItem(
+            projectedItem,
+            normalizedOwnerId,
+            baselineItems.byItemId.get(itemId)?.ownerId ?? normalizedOwnerId
+          )
+        : null;
+
+      if (comparePreviewItems(baselinePreviewItem, projectedPreviewItem)) continue;
+      const preview = getOrCreateOwnerPreview(previewByOwner, normalizedOwnerId);
+      if (baselinePreviewItem) preview.hiddenItemIds.add(itemId);
+      if (projectedPreviewItem) preview.overlayItems.push(projectedPreviewItem);
+    }
+  }
 
   if (inventoryTransferGhostPreviewEnabled) {
-    const transfersByItemId = new Map();
-
-    for (const action of orderedActions) {
-      if (action?.kind !== ActionKinds.INVENTORY_MOVE) continue;
+    const ghostKeys = new Set();
+    for (const action of actionList) {
+      if (action?.kind !== "inventoryMove") continue;
       const payload = action.payload || {};
       const itemId = payload.itemId ?? payload.item?.id ?? null;
       if (itemId == null) continue;
+      const baselineEntry = baselineItems.byItemId.get(itemId) || null;
+      if (!baselineEntry) continue;
 
-      let transfer = transfersByItemId.get(itemId);
-      if (!transfer) {
-        const fromPlacement =
-          normalizeInventoryPlacement(payload.fromPlacement, payload.fromOwnerId) ??
-          resolveItemLocationInState(state, itemId, payload.fromOwnerId)?.placement ??
-          null;
-        const itemSnapshot =
-          payload.item ??
-          resolveItemLocationInState(state, itemId, payload.fromOwnerId)?.item ??
-          null;
-        transfer = {
-          item: makeItemSnapshot(itemSnapshot),
-          originalPlacement: clonePlacement(fromPlacement),
-          currentPlacement: clonePlacement(fromPlacement),
-        };
-        transfersByItemId.set(itemId, transfer);
-      }
+      const fromOwnerId = baselineEntry.ownerId;
+      const toOwnerId =
+        payload.toPlacement?.ownerId ??
+        payload.toOwnerId ??
+        projectedItems.byItemId.get(itemId)?.ownerId ??
+        null;
+      if (toOwnerId == null || fromOwnerId === toOwnerId) continue;
 
-      const nextPlacement =
-        normalizeInventoryPlacement(payload.toPlacement, payload.toOwnerId) ??
-        (payload.toOwnerId != null &&
-        Number.isFinite(payload.targetGX) &&
-        Number.isFinite(payload.targetGY)
-          ? {
-              ownerId: payload.toOwnerId,
-              gx: Math.floor(payload.targetGX),
-              gy: Math.floor(payload.targetGY),
-            }
-          : null);
-      if (!transfer.item && payload.item) {
-        transfer.item = makeItemSnapshot(payload.item);
-      }
-      if (nextPlacement) {
-        transfer.currentPlacement = clonePlacement(nextPlacement);
-      }
-    }
+      const projectedEntry = projectedItems.byItemId.get(itemId) || null;
+      if (projectedEntry?.ownerId === fromOwnerId) continue;
 
-    for (const transfer of transfersByItemId.values()) {
-      const item = transfer.item;
-      const originalPlacement = transfer.originalPlacement;
-      const currentPlacement = transfer.currentPlacement;
-      if (!item || !originalPlacement || !currentPlacement) continue;
-      if (placementEquals(originalPlacement, currentPlacement)) continue;
+      const ghostKey = `${fromOwnerId}:${itemId}`;
+      if (ghostKeys.has(ghostKey)) continue;
+      ghostKeys.add(ghostKey);
 
-      const fromPreview = getOrCreateOwnerPreview(
-        previewByOwner,
-        originalPlacement.ownerId
-      );
-      fromPreview.hiddenItemIds.add(item.id);
-      fromPreview.ghostItems.push({
-        ...item,
-        ownerId: originalPlacement.ownerId,
-        gridX: originalPlacement.gx,
-        gridY: originalPlacement.gy,
-        intentId: `pendingItem:${item.id}`,
-        isGhost: true,
-      });
-
-      const toPreview = getOrCreateOwnerPreview(previewByOwner, currentPlacement.ownerId);
-      toPreview.overlayItems.push({
-        ...item,
-        sourceOwnerId: originalPlacement.ownerId,
-        ownerId: currentPlacement.ownerId,
-        gridX: currentPlacement.gx,
-        gridY: currentPlacement.gy,
-        intentId: `pendingItem:${item.id}`,
-        isGhost: false,
-      });
+      const preview = getOrCreateOwnerPreview(previewByOwner, fromOwnerId);
+      const ghostItem = makePreviewItem(baselineEntry.item, fromOwnerId, fromOwnerId);
+      if (!ghostItem) continue;
+      ghostItem.isGhost = true;
+      preview.ghostItems.push(ghostItem);
     }
   }
 
-  const pawnMovesByPawnId = new Map();
-  for (const action of orderedActions) {
-    if (action?.kind !== ActionKinds.PLACE_PAWN) continue;
-    const payload = action.payload || {};
-    const pawnId = payload.pawnId ?? null;
-    if (pawnId == null) continue;
-    let move = pawnMovesByPawnId.get(pawnId);
-    if (!move) {
-      const pawn =
-        state?.pawns?.find?.((candidate) => candidate?.id === pawnId) ?? null;
-      const baselinePlacement = normalizePawnPlacement(
-        payload.fromPlacement ?? pawn,
-        state
-      );
-      move = {
-        originalPlacement: baselinePlacement,
-        currentPlacement: baselinePlacement,
-      };
-      pawnMovesByPawnId.set(pawnId, move);
-    }
-    const nextPlacement = normalizePawnPlacement(payload.toPlacement ?? payload, state);
-    if (nextPlacement) {
-      move.currentPlacement = nextPlacement;
+  for (const preview of previewByOwner.values()) {
+    sortPreviewItems(preview.overlayItems);
+    sortPreviewItems(preview.ghostItems);
+  }
+
+  const baselinePawns = new Map(
+    (Array.isArray(baselineState?.pawns) ? baselineState.pawns : [])
+      .filter((pawn) => pawn?.id != null)
+      .map((pawn) => [pawn.id, pawn])
+  );
+  const projectedPawns = new Map(
+    (Array.isArray(projectedState?.pawns) ? projectedState.pawns : [])
+      .filter((pawn) => pawn?.id != null)
+      .map((pawn) => [pawn.id, pawn])
+  );
+  const allPawnIds = new Set([...baselinePawns.keys(), ...projectedPawns.keys()]);
+  for (const pawnId of sortedNumbers(allPawnIds)) {
+    const baselinePlacement = getPawnPlacement(baselinePawns.get(pawnId) || null);
+    const projectedPlacement = getPawnPlacement(projectedPawns.get(pawnId) || null);
+    if (comparePlacements(baselinePlacement, projectedPlacement)) continue;
+    normalizedTouched.pawnIds.add(pawnId);
+    if (projectedPlacement) {
+      pawnOverrides.set(pawnId, projectedPlacement);
     }
   }
 
-  for (const [pawnId, move] of pawnMovesByPawnId.entries()) {
-    if (!move?.currentPlacement) continue;
-    if (placementEquals(move.currentPlacement, move.originalPlacement)) continue;
-    pawnOverrides.set(pawnId, clonePlacement(move.currentPlacement));
+  for (const envCol of sortedNumbers(normalizedTouched.envCols)) {
+    const baselinePlan = getTilePlanForState(baselineState, envCol);
+    const projectedPlan = getTilePlanForState(projectedState, envCol);
+    if (compareTilePlans(baselinePlan, projectedPlan)) continue;
+    tilePlanByEnvCol.set(envCol, projectedPlan);
   }
 
-  for (const action of orderedActions) {
-    applyTileActionPreview(tilePlanByEnvCol, state, action);
-    applyHubActionPreview(hubPlanByHubCol, state, action);
+  for (const hubCol of sortedNumbers(normalizedTouched.hubCols)) {
+    const baselinePlan = getHubPlanForState(baselineState, hubCol);
+    const projectedPlan = getHubPlanForState(projectedState, hubCol);
+    const baselineStructureSig = getHubStructureSignature(baselineState, hubCol);
+    const projectedStructureSig = getHubStructureSignature(projectedState, hubCol);
+    if (!compareHubPlans(baselinePlan, projectedPlan)) {
+      hubPlanByHubCol.set(hubCol, projectedPlan);
+    } else if (baselineStructureSig !== projectedStructureSig) {
+      // Preserve touched build-designate targets for reflection even without a visible overlay.
+      hubPlanByHubCol.set(hubCol, projectedPlan);
+    }
+  }
+
+  const snapshot = {
+    previewByOwner,
+    pawnOverrides,
+    tilePlanByEnvCol,
+    hubPlanByHubCol,
+    touchedTargets: {
+      ownerIds: sortedStrings(normalizedTouched.ownerIds),
+      pawnIds: sortedNumbers(normalizedTouched.pawnIds),
+      envCols: sortedNumbers(normalizedTouched.envCols),
+      hubCols: sortedNumbers(normalizedTouched.hubCols),
+    },
+    projectedState,
+  };
+
+  snapshot.signatures = makeSignatureRecord(snapshot);
+  delete snapshot.projectedState;
+  return snapshot;
+}
+
+export function mergePreviewSnapshots(snapshots = []) {
+  const previewByOwner = new Map();
+  const pawnOverrides = new Map();
+  const tilePlanByEnvCol = new Map();
+  const hubPlanByHubCol = new Map();
+  const ownerIds = new Set();
+  const pawnIds = new Set();
+  const envCols = new Set();
+  const hubCols = new Set();
+  const signatures = {
+    ownerById: {},
+    pawnById: {},
+    tileByEnvCol: {},
+    hubByHubCol: {},
+    hubStructureByHubCol: {},
+  };
+
+  for (const snapshot of snapshots) {
+    if (!snapshot) continue;
+    for (const ownerId of snapshot.touchedTargets?.ownerIds || []) ownerIds.add(ownerId);
+    for (const pawnId of snapshot.touchedTargets?.pawnIds || []) pawnIds.add(pawnId);
+    for (const envCol of snapshot.touchedTargets?.envCols || []) envCols.add(envCol);
+    for (const hubCol of snapshot.touchedTargets?.hubCols || []) hubCols.add(hubCol);
+
+    for (const [ownerId, preview] of snapshot.previewByOwner?.entries?.() || []) {
+      const merged = getOrCreateOwnerPreview(previewByOwner, ownerId);
+      for (const itemId of preview.hiddenItemIds || []) merged.hiddenItemIds.add(itemId);
+      const overlayById = new Map(merged.overlayItems.map((item) => [item.id, item]));
+      for (const item of preview.overlayItems || []) overlayById.set(item.id, item);
+      merged.overlayItems = Array.from(overlayById.values());
+      const ghostById = new Map(merged.ghostItems.map((item) => [item.id, item]));
+      for (const item of preview.ghostItems || []) ghostById.set(item.id, item);
+      merged.ghostItems = Array.from(ghostById.values());
+      sortPreviewItems(merged.overlayItems);
+      sortPreviewItems(merged.ghostItems);
+    }
+
+    for (const [pawnId, placement] of snapshot.pawnOverrides?.entries?.() || []) {
+      pawnOverrides.set(pawnId, placement);
+    }
+    for (const [envCol, plan] of snapshot.tilePlanByEnvCol?.entries?.() || []) {
+      tilePlanByEnvCol.set(envCol, plan);
+    }
+    for (const [hubCol, plan] of snapshot.hubPlanByHubCol?.entries?.() || []) {
+      hubPlanByHubCol.set(hubCol, plan);
+    }
+
+    Object.assign(signatures.ownerById, snapshot.signatures?.ownerById || {});
+    Object.assign(signatures.pawnById, snapshot.signatures?.pawnById || {});
+    Object.assign(signatures.tileByEnvCol, snapshot.signatures?.tileByEnvCol || {});
+    Object.assign(signatures.hubByHubCol, snapshot.signatures?.hubByHubCol || {});
+    Object.assign(
+      signatures.hubStructureByHubCol,
+      snapshot.signatures?.hubStructureByHubCol || {}
+    );
   }
 
   return {
@@ -606,27 +623,50 @@ export function buildLiveActionPreviewState({
     pawnOverrides,
     tilePlanByEnvCol,
     hubPlanByHubCol,
+    touchedTargets: {
+      ownerIds: sortedStrings(ownerIds),
+      pawnIds: sortedNumbers(pawnIds),
+      envCols: sortedNumbers(envCols),
+      hubCols: sortedNumbers(hubCols),
+    },
+    signatures,
   };
 }
 
-function normalizePawnPlacement(value, state = null) {
-  if (!value || typeof value !== "object") return null;
-  if (Number.isFinite(value.envCol) || Number.isFinite(value.toEnvCol)) {
-    return {
-      envCol: Math.floor(
-        Number.isFinite(value.envCol) ? value.envCol : value.toEnvCol
-      ),
-    };
+export function isPreviewSnapshotReflectedInState(state, snapshot) {
+  if (!snapshot) return false;
+
+  for (const ownerId of snapshot.touchedTargets?.ownerIds || []) {
+    const currentSignature = getInventorySignature(state, ownerId);
+    if (currentSignature !== snapshot.signatures?.ownerById?.[String(ownerId)]) {
+      return false;
+    }
   }
-  if (Number.isFinite(value.hubCol) || Number.isFinite(value.toHubCol)) {
-    const hubCol = normalizeHubAnchorCol(
-      state,
-      Number.isFinite(value.hubCol) ? value.hubCol : value.toHubCol
-    );
-    if (!Number.isFinite(hubCol)) return null;
-    return {
-      hubCol,
-    };
+  for (const pawnId of snapshot.touchedTargets?.pawnIds || []) {
+    const currentSignature = getPawnPlacementSignature(state, pawnId);
+    if (currentSignature !== snapshot.signatures?.pawnById?.[String(pawnId)]) {
+      return false;
+    }
   }
-  return null;
+  for (const envCol of snapshot.touchedTargets?.envCols || []) {
+    const currentSignature = getTilePlanSignature(state, envCol);
+    if (currentSignature !== snapshot.signatures?.tileByEnvCol?.[String(envCol)]) {
+      return false;
+    }
+  }
+  for (const hubCol of snapshot.touchedTargets?.hubCols || []) {
+    const currentHubSignature = getHubPlanSignature(state, hubCol);
+    if (currentHubSignature !== snapshot.signatures?.hubByHubCol?.[String(hubCol)]) {
+      return false;
+    }
+    const currentStructureSignature = getHubStructureSignature(state, hubCol);
+    if (
+      currentStructureSignature !==
+      snapshot.signatures?.hubStructureByHubCol?.[String(hubCol)]
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }

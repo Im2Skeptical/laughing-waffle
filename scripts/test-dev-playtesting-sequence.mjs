@@ -62,6 +62,10 @@ function createPlannerHarness(state) {
   return createActionPlanner({
     getTimeline: () => timeline,
     getState: () => state,
+    getPreviewBoundaryStateData: () => ({
+      ok: true,
+      stateData: JSON.parse(JSON.stringify(state)),
+    }),
   });
 }
 

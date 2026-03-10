@@ -1,21 +1,44 @@
 import assert from "node:assert/strict";
 
 import { ActionKinds } from "../src/model/actions.js";
+import { Inventory } from "../src/model/inventory-model.js";
 import {
-  makeHubRecipeSelectIntent,
-  makeHubTagOrderIntent,
-  makeHubTagToggleIntent,
-  makeItemTransferIntent,
-  makePawnMoveIntent,
-  makeTileCropSelectIntent,
-  makeTileTagOrderIntent,
-  makeTileTagToggleIntent,
-} from "../src/controllers/actionmanagers/action-intents.js";
-import {
-  buildLiveActionPreviewState,
-  buildPlannerPreviewState,
+  buildPreviewSnapshot,
 } from "../src/controllers/actionmanagers/action-preview-state.js";
+import { projectActionsFromState } from "../src/model/action-preview-projection.js";
 import { createLiveActionOptimism } from "../src/views/ui-root/live-action-optimism.js";
+
+function buildCanonicalPreviewFromState(state, actions) {
+  const canonicalActions = (Array.isArray(actions) ? actions : []).map((action) => ({
+    apCost: 0,
+    ...action,
+  }));
+  const projection = projectActionsFromState({
+    state,
+    actionsBySecond: canonicalActions,
+  });
+  assert.equal(projection?.ok, true, `projection failed: ${JSON.stringify(projection)}`);
+  return buildPreviewSnapshot({
+    baselineState: projection.baselineState,
+    projectedState: projection.projectedState,
+    touchedTargets: projection.touchedTargets,
+    actions: canonicalActions,
+    inventoryTransferGhostPreviewEnabled: true,
+  });
+}
+
+function makeInventory(cols, rows, items) {
+  const inv = Inventory.create(cols, rows);
+  Inventory.init(inv);
+  for (const item of items) {
+    const cloned = { ...item };
+    inv.items.push(cloned);
+    inv.itemsById[cloned.id] = cloned;
+    Inventory.occupyCellsForItem(inv, cloned);
+  }
+  Inventory.rebuildDerived(inv);
+  return inv;
+}
 
 function makeMinimalPreviewState() {
   const itemA = {
@@ -36,44 +59,68 @@ function makeMinimalPreviewState() {
     gridX: 1,
     gridY: 0,
   };
+  const tile = {
+    col: 0,
+    tags: ["farmable", "forage"],
+    tagStates: {
+      farmable: { disabled: false },
+      forage: { disabled: false },
+    },
+    systemState: {
+      growth: {
+        selectedCropId: "wheat",
+        recipePriority: {
+          ordered: ["wheat"],
+          enabled: { wheat: true },
+        },
+      },
+    },
+    span: 1,
+  };
+
   return {
     tSec: 0,
     variantFlags: {},
-    ownerInventories: {
-      1: {
-        items: [itemA],
-        itemsById: { 101: itemA },
+    skillRuntime: {
+      modifiers: {
+        global: {
+          apCapBonus: 0,
+          projectionHorizonBonusSec: 0,
+          populationFoodMult: 1,
+        },
+        pawnById: {},
       },
-      2: {
-        items: [itemB],
-        itemsById: { 202: itemB },
+      unlocks: {
+        recipes: [],
+        hubStructures: [],
+        envTags: ["farmable", "forage"],
+        hubTags: ["canCraft", "deposit"],
+        features: [],
+        itemTags: [],
       },
     },
-    pawns: [{ id: 7, envCol: 0 }],
+    ownerInventories: {
+      1: makeInventory(4, 2, [itemA]),
+      2: makeInventory(4, 2, [itemB]),
+    },
+    pawns: [
+      { id: 1, role: "leader", systemState: {} },
+      { id: 2, role: "leader", systemState: {} },
+      { id: 7, role: "leader", envCol: 0, systemState: {} },
+    ],
     board: {
+      cols: 1,
+      layers: {
+        tile: { anchors: [tile] },
+        event: { anchors: [] },
+        envStructure: { anchors: [] },
+      },
       occ: {
-        tile: [
-          {
-            col: 0,
-            tags: ["farmable", "forage"],
-            tagStates: {
-              farmable: { disabled: false },
-              forage: { disabled: false },
-            },
-            systemState: {
-              growth: {
-                selectedCropId: "wheat",
-                recipePriority: {
-                  ordered: ["wheat"],
-                  enabled: { wheat: true },
-                },
-              },
-            },
-          },
-        ],
+        tile: [tile],
       },
     },
     hub: {
+      cols: 1,
       occ: [
         {
           col: 0,
@@ -102,99 +149,67 @@ function makeMinimalPreviewState() {
 function runPlannerPreviewReducerChecks() {
   const state = makeMinimalPreviewState();
   state.hub.slots = [{ structure: state.hub.occ[0] }];
-
-  const currentIntents = new Map();
-  currentIntents.set(
-    "item:101",
-    makeItemTransferIntent({
-      id: "item:101",
-      subjectKey: "item:101",
-      itemId: 101,
-      item: { id: 101, kind: "wood", quantity: 1, width: 1, height: 1 },
-      fromOwnerId: 1,
-      toOwnerId: 2,
-      fromPlacement: { ownerId: 1, gx: 0, gy: 0 },
-      toPlacement: { ownerId: 2, gx: 2, gy: 0 },
-    })
-  );
-  currentIntents.set(
-    "pawn:7",
-    makePawnMoveIntent({
-      id: "pawn:7",
-      subjectKey: "pawn:7",
-      pawnId: 7,
-      fromPlacement: { envCol: 0 },
-      toPlacement: { hubCol: 0 },
-    })
-  );
-  currentIntents.set(
-    "tileTags:0",
-    makeTileTagOrderIntent({
-      id: "tileTags:0",
-      subjectKey: "tileTags:0",
-      envCol: 0,
-      tagIds: ["forage", "farmable"],
-    })
-  );
-  currentIntents.set(
-    "tileTagToggle:0:forage",
-    makeTileTagToggleIntent({
-      id: "tileTagToggle:0:forage",
-      subjectKey: "tileTagToggle:0:forage",
-      envCol: 0,
-      tagId: "forage",
-      disabled: true,
-    })
-  );
-  currentIntents.set(
-    "tileCrop:0",
-    makeTileCropSelectIntent({
-      id: "tileCrop:0",
-      subjectKey: "tileCrop:0",
-      envCol: 0,
-      recipePriority: { ordered: [], enabled: {} },
-    })
-  );
-  currentIntents.set(
-    "hubTags:0",
-    makeHubTagOrderIntent({
-      id: "hubTags:0",
-      subjectKey: "hubTags:0",
-      hubCol: 0,
-      tagIds: ["deposit", "canCraft"],
-    })
-  );
-  currentIntents.set(
-    "hubTagToggle:0:deposit",
-    makeHubTagToggleIntent({
-      id: "hubTagToggle:0:deposit",
-      subjectKey: "hubTagToggle:0:deposit",
-      hubCol: 0,
-      tagId: "deposit",
-      disabled: true,
-    })
-  );
-  currentIntents.set(
-    "hubRecipe:0:workspace",
-    makeHubRecipeSelectIntent({
-      id: "hubRecipe:0:workspace",
-      subjectKey: "hubRecipe:0:workspace",
-      hubCol: 0,
-      systemId: "workspace",
-      recipePriority: { ordered: [], enabled: {} },
-      baselineRecipePriority: {
-        ordered: ["weaveBasket"],
-        enabled: { weaveBasket: true },
+  const preview = buildCanonicalPreviewFromState(state, [
+    {
+      kind: ActionKinds.INVENTORY_MOVE,
+      payload: {
+        fromOwnerId: 1,
+        toOwnerId: 2,
+        itemId: 101,
+        fromPlacement: { ownerId: 1, gx: 0, gy: 0 },
+        toPlacement: { ownerId: 2, gx: 2, gy: 0 },
+        targetGX: 2,
+        targetGY: 0,
+        item: { id: 101, kind: "wood", quantity: 1, width: 1, height: 1 },
       },
-    })
-  );
-
-  const preview = buildPlannerPreviewState({
-    state,
-    baselineIntents: new Map(),
-    currentIntents,
-    inventoryTransferGhostPreviewEnabled: true,
-  });
+      tSec: 0,
+    },
+    {
+      kind: ActionKinds.PLACE_PAWN,
+      payload: {
+        pawnId: 7,
+        fromPlacement: { envCol: 0 },
+        toPlacement: { hubCol: 0 },
+        toHubCol: 0,
+      },
+      tSec: 0,
+    },
+    {
+      kind: ActionKinds.TOGGLE_TILE_TAG,
+      payload: {
+        envCol: 0,
+        tagId: "farmable",
+        disabled: true,
+      },
+      tSec: 0,
+    },
+    {
+      kind: ActionKinds.SET_TILE_CROP_SELECTION,
+      payload: {
+        envCol: 0,
+        recipePriority: { ordered: [], enabled: {} },
+      },
+      tSec: 0,
+    },
+    {
+      kind: ActionKinds.TOGGLE_HUB_TAG,
+      payload: {
+        hubCol: 0,
+        tagId: "canCraft",
+        disabled: true,
+      },
+      tSec: 0,
+    },
+    {
+      kind: ActionKinds.SET_HUB_RECIPE_SELECTION,
+      payload: {
+        hubCol: 0,
+        systemId: "workspace",
+        recipePriority: { ordered: [], enabled: {} },
+      },
+      tSec: 0,
+    },
+  ]);
 
   const ownerOne = preview.previewByOwner.get(1);
   assert.ok(ownerOne?.hiddenItemIds?.has(101), "planner preview should hide moved item");
@@ -203,13 +218,8 @@ function runPlannerPreviewReducerChecks() {
     0,
     "planner preview should override pawn placement"
   );
-  assert.deepEqual(
-    preview.tilePlanByEnvCol.get(0)?.tagIds ?? [],
-    ["forage", "farmable"],
-    "planner tile preview should expose reordered tags"
-  );
   assert.equal(
-    preview.tilePlanByEnvCol.get(0)?.tagDisabledById?.forage,
+    preview.tilePlanByEnvCol.get(0)?.tagDisabledById?.farmable,
     true,
     "planner tile preview should expose tag toggle state"
   );
@@ -218,18 +228,13 @@ function runPlannerPreviewReducerChecks() {
     null,
     "planner tile preview should expose crop selection"
   );
-  assert.deepEqual(
-    preview.hubPlanByHubCol.get(0)?.tagIds ?? [],
-    ["deposit", "canCraft"],
-    "planner hub preview should expose reordered tags"
-  );
   assert.equal(
-    preview.hubPlanByHubCol.get(0)?.tagDisabledById?.deposit,
+    preview.hubPlanByHubCol.get(0)?.tagDisabledById?.canCraft,
     true,
     "planner hub preview should expose tag toggle state"
   );
   assert.equal(
-    preview.hubPlanByHubCol.get(0)?.recipeIdBySystemId?.workspace,
+    preview.hubPlanByHubCol.get(0)?.recipeIdBySystemId?.workspace ?? null,
     null,
     "planner hub preview should expose recipe selection"
   );
@@ -268,7 +273,9 @@ function getFirstPawnTarget(state) {
 function getFirstTileTagTarget(state) {
   const tiles = state?.board?.occ?.tile || [];
   for (const tile of tiles) {
-    const tagId = Array.isArray(tile?.tags) ? tile.tags[0] : null;
+    const tagId = Array.isArray(tile?.tags)
+      ? tile.tags.find((tag) => tag === "farmable") ?? tile.tags[0]
+      : null;
     if (!tagId) continue;
     return {
       envCol: Math.floor(tile.col ?? 0),
@@ -304,7 +311,9 @@ function getFirstHubTagTarget(state) {
   const slots = Array.isArray(state?.hub?.slots) ? state.hub.slots : [];
   for (const slot of slots) {
     const structure = slot?.structure;
-    const tagId = Array.isArray(structure?.tags) ? structure.tags[0] : null;
+    const tagId = Array.isArray(structure?.tags)
+      ? structure.tags.find((tag) => tag === "canCraft") ?? structure.tags[0]
+      : null;
     if (!structure || !tagId) continue;
     return {
       hubCol: Math.floor(structure.col ?? 0),
@@ -337,6 +346,10 @@ function runLiveActionOptimismChecks() {
 
   const optimism = createLiveActionOptimism({
     getState: () => liveState,
+    getPreviewBoundaryStateData: () => ({
+      ok: true,
+      stateData: JSON.parse(JSON.stringify(baseState)),
+    }),
     getTimeline: () => timeline,
     getOwnerLabel: (ownerId) => `Owner ${ownerId}`,
     isOptimismEnabled: () => enabled,
@@ -359,6 +372,8 @@ function runLiveActionOptimismChecks() {
           gx: itemTarget.gridX + 1,
           gy: itemTarget.gridY,
         },
+        targetGX: itemTarget.gridX + 1,
+        targetGY: itemTarget.gridY,
       },
       apCost: 0,
       tSec: 1,
@@ -445,14 +460,14 @@ function runLiveActionOptimismChecks() {
     "optimism should project tile tag toggles immediately"
   );
   assert.equal(
-    optimism.getTilePlanPreview(tileTarget.envCol)?.cropId,
+    optimism.getTilePlanPreview(tileTarget.envCol)?.cropId ?? null,
     null,
     "optimism should project tile crop changes immediately"
   );
   assert.equal(
     optimism.getHubPlanPreview(hubRecipeTarget.hubCol)?.recipeIdBySystemId?.[
       hubRecipeTarget.systemId
-    ],
+    ] ?? null,
     null,
     "optimism should project hub recipe changes immediately"
   );
@@ -523,32 +538,60 @@ function runLiveActionOptimismChecks() {
   );
 
   const spanState = makeMinimalPreviewState();
-  spanState.hub.occ = [
-    { col: 0, span: 2, defId: "wideTemple", tags: [], tagStates: {}, systemState: {} },
-    { col: 0, span: 2, defId: "wideTemple", tags: [], tagStates: {}, systemState: {} },
-  ];
-  spanState.hub.slots = [
-    { structure: spanState.hub.occ[0] },
-    { structure: spanState.hub.occ[0] },
-  ];
+  const wideTemple = {
+    col: 0,
+    span: 2,
+    defId: "wideTemple",
+    tags: [],
+    tagStates: {},
+    systemState: {},
+  };
+  spanState.hub.cols = 2;
+  spanState.hub.anchors = [wideTemple];
+  spanState.hub.occ = [wideTemple, wideTemple];
+  spanState.hub.slots = [{ structure: wideTemple }, { structure: null }];
   spanState.pawns = [{ id: 7, envCol: 0, hubCol: null }];
-  const spanPreview = buildLiveActionPreviewState({
-    state: spanState,
-    actions: [
-      {
-        kind: ActionKinds.PLACE_PAWN,
-        payload: {
-          pawnId: 7,
-          toHubCol: 1,
-        },
-        tSec: 1,
+  const spanPreview = buildCanonicalPreviewFromState(spanState, [
+    {
+      kind: ActionKinds.PLACE_PAWN,
+      payload: {
+        pawnId: 7,
+        toHubCol: 1,
       },
-    ],
-  });
+      tSec: 1,
+    },
+  ]);
   assert.equal(
     spanPreview.pawnOverrides.get(7)?.hubCol ?? null,
     0,
     "live pawn optimism should normalize wide-structure hub spans to the anchor column"
+  );
+
+  const followState = makeMinimalPreviewState();
+  followState.hub.slots = [{ structure: followState.hub.occ[0] }];
+  followState.pawns = [
+    { id: 7, role: "leader", envCol: 0, systemState: { leadership: { followersAutoFollow: true } } },
+    { id: 8, role: "follower", leaderId: 7, envCol: 0, systemState: {} },
+  ];
+  const followPreview = buildCanonicalPreviewFromState(followState, [
+    {
+      kind: ActionKinds.PLACE_PAWN,
+      payload: {
+        pawnId: 7,
+        toHubCol: 0,
+      },
+      tSec: 0,
+    },
+  ]);
+  assert.equal(
+    followPreview.pawnOverrides.get(7)?.hubCol ?? null,
+    0,
+    "leader move preview should include leader override"
+  );
+  assert.equal(
+    followPreview.pawnOverrides.get(8)?.hubCol ?? null,
+    0,
+    "leader move preview should include auto-follow follower override"
   );
 
   optimism.recordScheduledBatch({

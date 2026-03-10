@@ -23,7 +23,7 @@ import {
   computeIntentCostSummary,
 } from "./action-costs.js";
 import {
-  buildPlannerPreviewState,
+  buildPreviewSnapshot,
   createEmptyInventoryPreview,
 } from "./action-preview-state.js";
 import { placementEquals } from "./action-placement-utils.js";
@@ -40,6 +40,7 @@ import {
 } from "../../model/skills.js";
 import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
 import { isEnvColExposed, isHubVisible } from "../../model/state.js";
+import { projectActionsFromBoundaryStateData } from "../../model/action-preview-projection.js";
 
 function clonePlacement(p) {
   return p ? { ...p } : null;
@@ -322,6 +323,7 @@ function validatePawnMoveTarget(state, { toHubCol, toEnvCol } = {}) {
 export function createActionPlanner({
   getTimeline,
   getState,
+  getPreviewBoundaryStateData,
   onInvalidate,
   onEdit,
   onInsufficientAp,
@@ -375,6 +377,19 @@ export function createActionPlanner({
 
   function getStateSafe() {
     return typeof getState === "function" ? getState() : null;
+  }
+
+  function getPreviewBoundaryStateDataSafe(tSec) {
+    if (typeof getPreviewBoundaryStateData === "function") {
+      return getPreviewBoundaryStateData(tSec);
+    }
+    const state = getStateSafe();
+    if (!state) return { ok: false, reason: "noPreviewBoundary" };
+    return {
+      ok: true,
+      stateData: JSON.parse(JSON.stringify(state)),
+      fallback: true,
+    };
   }
 
   function isInventoryTransferGhostPreviewEnabled() {
@@ -778,17 +793,35 @@ export function createActionPlanner({
       cap: apCap,
     };
 
-    const previewState = buildPlannerPreviewState({
-      state,
-      baselineIntents,
-      currentIntents: intents,
-      inventoryTransferGhostPreviewEnabled:
-        isInventoryTransferGhostPreviewEnabled(),
-    });
-    cache.previewByOwner = previewState.previewByOwner;
-    cache.pawnOverrides = previewState.pawnOverrides;
-    cache.tilePlanByEnvCol = previewState.tilePlanByEnvCol;
-    cache.hubPlanByHubCol = previewState.hubPlanByHubCol;
+    const previewBoundaryRes = getPreviewBoundaryStateDataSafe(activeSec);
+    if (previewBoundaryRes?.ok && previewBoundaryRes?.stateData != null) {
+      const builtActions = buildActionsFromIntentList(intentList, state);
+      if (builtActions?.ok) {
+        const projection = projectActionsFromBoundaryStateData({
+          boundaryStateData: previewBoundaryRes.stateData,
+          actionsBySecond: [
+            {
+              tSec: Number.isFinite(activeSec) ? Math.floor(activeSec) : 0,
+              actions: builtActions.actions,
+            },
+          ],
+        });
+        if (projection?.ok) {
+          const previewState = buildPreviewSnapshot({
+            baselineState: projection.baselineState,
+            projectedState: projection.projectedState,
+            touchedTargets: projection.touchedTargets,
+            actions: builtActions.actions,
+            inventoryTransferGhostPreviewEnabled:
+              isInventoryTransferGhostPreviewEnabled(),
+          });
+          cache.previewByOwner = previewState.previewByOwner;
+          cache.pawnOverrides = previewState.pawnOverrides;
+          cache.tilePlanByEnvCol = previewState.tilePlanByEnvCol;
+          cache.hubPlanByHubCol = previewState.hubPlanByHubCol;
+        }
+      }
+    }
 
     cache.dirty = false;
   }
@@ -1688,16 +1721,15 @@ export function createActionPlanner({
     return setIntent(intent);
   }
 
-  function buildCommitActions() {
-    ensureActive();
-    const state = getStateSafe();
+  function buildActionsFromIntentList(intentList, state) {
     const actions = [];
-    const costSummary = computeIntentCostSummary(getOrderedIntents(), {
+    const orderedIntents = Array.isArray(intentList) ? intentList : [];
+    const costSummary = computeIntentCostSummary(orderedIntents, {
       stateStart: state,
     });
     const costById = costSummary?.byId || {};
 
-    for (const intent of getOrderedIntents()) {
+    for (const intent of orderedIntents) {
       if (!intent) continue;
       if (intent.kind === IntentKinds.ITEM_TRANSFER) {
         const to = intent.toPlacement;
@@ -1855,7 +1887,17 @@ export function createActionPlanner({
       }
     }
 
-    return { ok: true, actions };
+    return {
+      ok: true,
+      actions,
+      costSummary,
+    };
+  }
+
+  function buildCommitActions() {
+    ensureActive();
+    const state = getStateSafe();
+    return buildActionsFromIntentList(getOrderedIntents(), state);
   }
 
   function resetToTimeline() {

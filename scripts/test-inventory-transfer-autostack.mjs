@@ -76,6 +76,10 @@ function createPlanner(state) {
   return createActionPlanner({
     getTimeline: () => timeline,
     getState: () => state,
+    getPreviewBoundaryStateData: () => ({
+      ok: true,
+      stateData: cloneSerializable(state),
+    }),
   });
 }
 
