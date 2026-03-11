@@ -2150,11 +2150,16 @@ export function createBoardView(opts) {
 
   function clearEnvStructureHover(view) {
     if (!view) return;
+    view.holdHoverForOccupant = false;
+    view.occupantHoverHoldSec = 0;
+    view.childTooltipHoverActive = false;
     view.isHovered = false;
     view.setHoverActive?.(false);
     applyHoverScaleToView(view, 1);
     resetHoverViewY(view);
     restoreFromHover(view.container);
+    view.hoverAnchor = null;
+    view.hoverUiAnchor = null;
     if (view.descText) {
       view.descText.visible = false;
     }
@@ -2242,6 +2247,22 @@ export function createBoardView(opts) {
         ? Math.floor(hover.hubCol)
         : null;
       return hubCol != null && hubCol >= anchorCol && hubCol < anchorCol + span;
+    }
+    if (kind === "envStructure") {
+      const anchorCol = Number.isFinite(view?.structure?.col)
+        ? Math.floor(view.structure.col)
+        : Number.isFinite(view?.col)
+        ? Math.floor(view.col)
+        : null;
+      if (anchorCol == null) return false;
+      const span =
+        Number.isFinite(view?.structure?.span) && view.structure.span > 0
+          ? Math.floor(view.structure.span)
+          : 1;
+      const envCol = Number.isFinite(hover.envCol)
+        ? Math.floor(hover.envCol)
+        : null;
+      return envCol != null && envCol >= anchorCol && envCol < anchorCol + span;
     }
     return false;
   }
@@ -3736,6 +3757,7 @@ export function createBoardView(opts) {
       hoverScale,
       resolveViewBaseY(view)
     );
+    view.hoverAnchor = anchor;
     view.hoverUiAnchor = uiAnchor;
     if (updateHoverContext) {
       setHoverContext("envStructure", anchorCol, span, uiAnchor);
@@ -4768,6 +4790,12 @@ export function createBoardView(opts) {
       cardHeightTarget: height,
       hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
       hoverInfoBottomY: height,
+      hoverAnchor: null,
+      hoverUiAnchor: null,
+      holdHoverForOccupant: false,
+      occupantHoverHoldSec: 0,
+      childTooltipHoverActive: false,
+      pawnCount: 0,
       hoverTextNodes,
       setHoverActive,
       contentPaint,
@@ -4787,6 +4815,7 @@ export function createBoardView(opts) {
 
     cont.on("pointerleave", () => {
       if (activeHover?.view && activeHover.view !== view) return;
+      if (holdHoverForOccupantIfNeeded(view)) return;
       clearActiveHover(view);
     });
 
@@ -5360,10 +5389,11 @@ export function createBoardView(opts) {
 
   }
 
-  function syncEnvStructures(state, cols) {
+  function syncEnvStructures(state, cols, pawnCountsByEnv = null) {
     const occ = state?.board?.occ?.envStructure;
     const seen = new Set();
     const screenWidth = getScreenWidthInt();
+    const pawnCounts = Array.isArray(pawnCountsByEnv) ? pawnCountsByEnv : [];
 
     syncEnvStructureSlots(cols);
 
@@ -5413,6 +5443,11 @@ export function createBoardView(opts) {
         view.container.x = startX;
         view.container.y = ENV_STRUCTURE_ROW_Y;
         view.baseY = ENV_STRUCTURE_ROW_Y;
+        let pawnCount = 0;
+        for (let offset = 0; offset < span; offset += 1) {
+          pawnCount += pawnCounts[anchorCol + offset] || 0;
+        }
+        view.pawnCount = pawnCount;
         updateEnvStructureView(view, structureInst);
       }
     }
@@ -5849,7 +5884,7 @@ export function createBoardView(opts) {
     ensureEventExpiryFxLayerAttached();
     const pawnCounts = getPawnCounts(s, cols, hubCols);
     syncEvents(s, cols);
-    syncEnvStructures(s, cols);
+    syncEnvStructures(s, cols, pawnCounts.env);
     syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
     syncAreaChrome(s, cols, hubCols);
@@ -5983,7 +6018,7 @@ export function createBoardView(opts) {
     syncEventExpiryFxFromTimelineState(s, cols);
     const pawnCounts = getPawnCounts(s, cols, hubCols);
     syncEvents(s, cols);
-    syncEnvStructures(s, cols);
+    syncEnvStructures(s, cols, pawnCounts.env);
     syncTiles(s, cols, pawnCounts.env);
     syncHubStructures(s, hubCols, pawnCounts.hub);
     syncAreaChrome(s, cols, hubCols);

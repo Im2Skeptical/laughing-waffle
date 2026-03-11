@@ -4,8 +4,10 @@ export function createEndpointDescriptorTools({
   isHubDropboxOwnerId,
   isBasketDropboxOwnerId,
   envTileDefs,
+  envStructureDefs,
   hubStructureDefs,
   findStructureById,
+  findEnvStructureById,
   findPawnById,
   findTileById,
   buildBasketTarget,
@@ -32,8 +34,13 @@ export function createEndpointDescriptorTools({
     }
     if (ownerKind === "env") {
       const tile = findTileById?.(state, ownerId);
-      const def = tile ? envTileDefs?.[tile.defId] : null;
-      return def?.name || tile?.defId || `Tile ${ownerId}`;
+      if (tile) {
+        const def = envTileDefs?.[tile.defId];
+        return def?.name || tile?.defId || `Tile ${ownerId}`;
+      }
+      const structure = findEnvStructureById?.(state, ownerId);
+      const def = structure ? envStructureDefs?.[structure.defId] : null;
+      return def?.name || structure?.defId || `Env ${ownerId}`;
     }
     if (ownerKind === "pawn") {
       const pawn = findPawnById?.(state, ownerId);
@@ -63,17 +70,32 @@ export function createEndpointDescriptorTools({
     }
     if (ownerKind === "env") {
       const tile = findTileById?.(state, ownerId);
-      if (!tile) return null;
-      const envCol = Number.isFinite(tile.col)
-        ? Math.floor(tile.col)
-        : Number.isFinite(tile.envCol)
-          ? Math.floor(tile.envCol)
+      if (tile) {
+        const envCol = Number.isFinite(tile.col)
+          ? Math.floor(tile.col)
+          : Number.isFinite(tile.envCol)
+            ? Math.floor(tile.envCol)
+            : null;
+        if (envCol == null) return null;
+        return {
+          kind: "tile",
+          envCol,
+          ownerIds: [tile.instanceId ?? ownerId],
+          systemId: typeof systemId === "string" && systemId.length > 0 ? systemId : null,
+        };
+      }
+      const structure = findEnvStructureById?.(state, ownerId);
+      if (!structure?.instanceId) return null;
+      const envCol = Number.isFinite(structure.col)
+        ? Math.floor(structure.col)
+        : Number.isFinite(structure.envCol)
+          ? Math.floor(structure.envCol)
           : null;
       if (envCol == null) return null;
       return {
-        kind: "tile",
-        envCol,
-        ownerIds: [tile.instanceId ?? ownerId],
+        kind: "envStructure",
+        col: envCol,
+        ownerIds: [structure.instanceId],
         systemId: typeof systemId === "string" && systemId.length > 0 ? systemId : null,
       };
     }
@@ -97,7 +119,10 @@ export function createEndpointDescriptorTools({
     if (parsed.ownerKind === "hub") {
       target = findStructureById?.(state, parsed.ownerId) ?? null;
     } else if (parsed.ownerKind === "env") {
-      target = findTileById?.(state, parsed.ownerId) ?? null;
+      target =
+        findTileById?.(state, parsed.ownerId) ??
+        findEnvStructureById?.(state, parsed.ownerId) ??
+        null;
     } else if (parsed.ownerKind === "pawn" && parsed.systemId === "storage") {
       target = buildBasketTarget?.(state, parsed.ownerId) ?? null;
     }
@@ -200,7 +225,8 @@ export function createEndpointDescriptorTools({
       const id = endpointId.slice("inv:".length);
       const structure = findStructureById?.(state, id);
       if (structure) {
-        const def = hubStructureDefs?.[structure.defId];
+        const def =
+          hubStructureDefs?.[structure.defId] ?? envStructureDefs?.[structure.defId];
         const name = def?.name || structure.defId || id;
         return `${name} Inventory`;
       }

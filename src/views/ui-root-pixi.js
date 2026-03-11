@@ -1920,6 +1920,10 @@ function parseSystemGraphSubjectKey(rawKey) {
     const col = Number.isFinite(Number(value)) ? Math.floor(Number(value)) : null;
     return col == null ? null : { kind: "hub", col };
   }
+  if (kind === "envStructure") {
+    const col = Number.isFinite(Number(value)) ? Math.floor(Number(value)) : null;
+    return col == null ? null : { kind: "envStructure", col };
+  }
   if (kind === "pawn") {
     const id = Number.isFinite(Number(value)) ? Math.floor(Number(value)) : null;
     return id == null ? null : { kind: "pawn", id };
@@ -1940,6 +1944,10 @@ function getCurrentHoverSystemTarget() {
   if (hover.kind === "hub") {
     const col = Number.isFinite(hover.col) ? Math.floor(hover.col) : null;
     return col == null ? null : { kind: "hub", col };
+  }
+  if (hover.kind === "envStructure") {
+    const col = Number.isFinite(hover.col) ? Math.floor(hover.col) : null;
+    return col == null ? null : { kind: "envStructure", col };
   }
   if (hover.kind === "pawn") {
     const id = Number.isFinite(hover.id) ? Math.floor(hover.id) : null;
@@ -1978,7 +1986,14 @@ function focusSystemGraphFromGamepiece(focus) {
   if (!systemGraphView.isOpen?.()) return;
   if (!focus || typeof focus !== "object") return;
   const kind = focus.kind;
-  if (kind !== "tile" && kind !== "hub" && kind !== "pawn") return;
+  if (
+    kind !== "tile" &&
+    kind !== "hub" &&
+    kind !== "envStructure" &&
+    kind !== "pawn"
+  ) {
+    return;
+  }
   if (kind === "tile") {
     const col = Number.isFinite(focus.col) ? Math.floor(focus.col) : null;
     if (col == null) return;
@@ -1989,6 +2004,12 @@ function focusSystemGraphFromGamepiece(focus) {
     const col = Number.isFinite(focus.col) ? Math.floor(focus.col) : null;
     if (col == null) return;
     lockSystemGraphToTarget({ kind: "hub", col }, { forceOpen: true });
+    return;
+  }
+  if (kind === "envStructure") {
+    const col = Number.isFinite(focus.col) ? Math.floor(focus.col) : null;
+    if (col == null) return;
+    lockSystemGraphToTarget({ kind: "envStructure", col }, { forceOpen: true });
     return;
   }
   const id = Number.isFinite(focus.id) ? Math.floor(focus.id) : null;

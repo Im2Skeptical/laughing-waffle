@@ -2,6 +2,7 @@
 
 import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
+import { envStructureDefs } from "../../defs/gamepieces/env-structures-defs.js";
 import { cropDefs } from "../../defs/gamepieces/crops-defs.js";
 import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { recipeDefs } from "../../defs/gamepieces/recipes-defs.js";
@@ -310,6 +311,33 @@ function findHubStructureAtCol(snapshot, col) {
   return null;
 }
 
+function findEnvStructureAtCol(snapshot, col) {
+  const targetCol = Number.isFinite(col) ? Math.floor(col) : null;
+  if (targetCol == null) return null;
+  const occ = Array.isArray(snapshot?.board?.occ?.envStructure)
+    ? snapshot.board.occ.envStructure
+    : null;
+  if (occ?.[targetCol]) return occ[targetCol];
+  const anchors = Array.isArray(snapshot?.board?.layers?.envStructure?.anchors)
+    ? snapshot.board.layers.envStructure.anchors
+    : [];
+  for (const anchor of anchors) {
+    if (!anchor) continue;
+    const base = Number.isFinite(anchor.col) ? Math.floor(anchor.col) : 0;
+    const def = anchor?.defId ? envStructureDefs?.[anchor.defId] : null;
+    const span =
+      Number.isFinite(anchor.span) && anchor.span > 0
+        ? Math.floor(anchor.span)
+        : Number.isFinite(def?.defaultSpan) && def.defaultSpan > 0
+          ? Math.floor(def.defaultSpan)
+          : 1;
+    if (targetCol >= base && targetCol < base + Math.max(1, span)) {
+      return anchor;
+    }
+  }
+  return null;
+}
+
 function findPawnById(snapshot, id) {
   const pawns = snapshot?.pawns;
   if (!Array.isArray(pawns)) return null;
@@ -391,6 +419,12 @@ function resolveHubStructureForTooltip(snapshot, col) {
     snapshot?.hub?.slots?.[index]?.structure ??
     findHubStructureAtCol(snapshot, index)
   );
+}
+
+function resolveEnvStructureForTooltip(snapshot, col) {
+  if (!snapshot || !Number.isFinite(col)) return null;
+  const index = Math.floor(col);
+  return snapshot?.board?.occ?.envStructure?.[index] ?? findEnvStructureAtCol(snapshot, index);
 }
 
 function buildMaturedLegendTooltipSpec(cursorState, col) {
@@ -686,6 +720,14 @@ function buildSystemSnapshotResolver(snapshot, target) {
       hubStructure: col != null ? findHubStructureAtCol(snapshot, col) : null,
     };
   }
+  if (target.kind === "envStructure") {
+    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
+    return {
+      kind: "envStructure",
+      col,
+      envStructure: col != null ? findEnvStructureAtCol(snapshot, col) : null,
+    };
+  }
   if (target.kind === "pawn") {
     const id = target.id;
     return {
@@ -710,7 +752,9 @@ function buildSystemSeriesForTarget(target, state) {
           legendLabel: "No target",
           getLegendTooltipSpec: () => ({
             title: "No target",
-            lines: ["Hover a pawn, tile, or hub structure to inspect systems."],
+            lines: [
+              "Hover a pawn, tile, env structure, or hub structure to inspect systems.",
+            ],
           }),
           getValue: () => 0,
         },
@@ -855,6 +899,53 @@ function buildSystemSeriesForTarget(target, state) {
         },
       });
     }
+  } else if (target.kind === "envStructure") {
+    const col = Number.isFinite(target.col) ? Math.floor(target.col) : null;
+    const structure = col != null ? resolveEnvStructureForTooltip(state, col) : null;
+    const def = structure ? envStructureDefs[structure.defId] : null;
+    label = def?.name || structure?.defId || `Env Structure ${col}`;
+    targetKey = `envStructure:${col}`;
+
+    const ids = new Set([
+      ...Object.keys(structure?.systemState || {}),
+      ...Object.keys(structure?.systemTiers || {}),
+    ]);
+    for (const systemId of ids.values()) {
+      const defSys = envSystemDefs[systemId];
+      const sysLabel = defSys?.ui?.name || systemId;
+      const legendUi = getLegendUiForDomain("env", systemId, sysLabel);
+      series.push({
+        id: `${targetKey}:${systemId}`,
+        label: sysLabel,
+        color: SYSTEM_GRAPH_COLORS[series.length % SYSTEM_GRAPH_COLORS.length],
+        legendIcon: legendUi.icon,
+        legendLabel: legendUi.label,
+        getLegendTooltipSpec: () => ({
+          title: sysLabel,
+          lines: [label],
+        }),
+        getValue: (snapshot) => {
+          const s = col != null ? resolveEnvStructureForTooltip(snapshot, col) : null;
+          const sysState = s?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            s?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
+          return getTierValue(envSystemDefs, systemId, tier);
+        },
+        getValueFromSnapshot: (snapshot, _subject, resolved) => {
+          const s =
+            (resolved?.kind === "envStructure" ? resolved.envStructure : null) ??
+            (col != null ? findEnvStructureAtCol(snapshot, col) : null);
+          const sysState = s?.systemState?.[systemId];
+          if (Number.isFinite(sysState?.cur)) return sysState.cur;
+          if (Number.isFinite(sysState?.value)) return sysState.value;
+          const tier =
+            s?.systemTiers?.[systemId] ?? envSystemDefs[systemId]?.defaultTier;
+          return getTierValue(envSystemDefs, systemId, tier);
+        },
+      });
+    }
   } else if (target.kind === "pawn") {
     const id = target.id;
     const pawn = state?.pawns?.find((candidate) => candidate.id === id);
@@ -961,6 +1052,9 @@ export function createSystemGraphModel({
     if (hover.kind === "hub") {
       return { kind: "hub", col: hover.col };
     }
+    if (hover.kind === "envStructure") {
+      return { kind: "envStructure", col: hover.col };
+    }
     if (hover.kind === "pawn") {
       return { kind: "pawn", id: hover.id };
     }
@@ -974,6 +1068,9 @@ export function createSystemGraphModel({
     }
     if (target.kind === "hub") {
       return `hub:${Math.floor(target.col ?? 0)}`;
+    }
+    if (target.kind === "envStructure") {
+      return `envStructure:${Math.floor(target.col ?? 0)}`;
     }
     if (target.kind === "pawn") {
       return `pawn:${target.id ?? ""}`;
@@ -1020,6 +1117,13 @@ export function createSystemGraphModel({
       const col = Number.isFinite(rawTarget.col) ? Math.floor(rawTarget.col) : null;
       if (col == null) return null;
       return resolveHubStructureForTooltip(snapshot, col) ? { kind: "hub", col } : null;
+    }
+    if (rawTarget.kind === "envStructure") {
+      const col = Number.isFinite(rawTarget.col) ? Math.floor(rawTarget.col) : null;
+      if (col == null) return null;
+      return resolveEnvStructureForTooltip(snapshot, col)
+        ? { kind: "envStructure", col }
+        : null;
     }
     if (rawTarget.kind === "pawn") {
       const id = rawTarget.id ?? null;

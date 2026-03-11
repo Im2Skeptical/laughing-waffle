@@ -2,13 +2,28 @@ export function createProcessWidgetTargetResolver({
   hubStructureDefs,
   itemDefs,
 } = {}) {
-  function findStructureById(state, id) {
+  function findHubStructureById(state, id) {
     const anchors = Array.isArray(state?.hub?.anchors) ? state.hub.anchors : [];
     for (const anchor of anchors) {
       if (!anchor) continue;
       if (String(anchor.instanceId) === String(id)) return anchor;
     }
     return null;
+  }
+
+  function findEnvStructureById(state, id) {
+    const anchors = Array.isArray(state?.board?.layers?.envStructure?.anchors)
+      ? state.board.layers.envStructure.anchors
+      : [];
+    for (const anchor of anchors) {
+      if (!anchor) continue;
+      if (String(anchor.instanceId) === String(id)) return anchor;
+    }
+    return null;
+  }
+
+  function findStructureById(state, id) {
+    return findHubStructureById(state, id) ?? findEnvStructureById(state, id);
   }
 
   function findPawnById(state, id) {
@@ -132,13 +147,17 @@ export function createProcessWidgetTargetResolver({
   function resolveTargetFromRef(state, ref) {
     if (!ref || !state) return null;
     if (ref.kind === "basket") return buildBasketTarget(state, ref.ownerId);
-    if (ref.kind === "hub") return findStructureById(state, ref.id);
-    if (ref.kind === "env") return findTileById(state, ref.id);
+    if (ref.kind === "hub") return findHubStructureById(state, ref.id);
+    if (ref.kind === "env") {
+      return findTileById(state, ref.id) ?? findEnvStructureById(state, ref.id);
+    }
     return null;
   }
 
   return {
     findStructureById,
+    findHubStructureById,
+    findEnvStructureById,
     findPawnById,
     findTileById,
     buildBasketTarget,

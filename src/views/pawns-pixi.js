@@ -197,7 +197,7 @@ export function createPawnsView(opts) {
         : 1;
     if (
       row === "env" &&
-      hover.kind === "tile" &&
+      (hover.kind === "tile" || hover.kind === "envStructure") &&
       col >= hover.col &&
       col < hover.col + span
     ) {

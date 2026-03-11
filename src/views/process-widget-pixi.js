@@ -21,6 +21,7 @@ import {
   isProcessDropboxOwnerId,
 } from "../model/owner-id-protocol.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
+import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { recipeDefs } from "../defs/gamepieces/recipes-defs.js";
 import { cropDefs } from "../defs/gamepieces/crops-defs.js";
@@ -65,9 +66,13 @@ import {
   VIEWPORT_DESIGN_WIDTH,
   TILE_WIDTH,
   TILE_HEIGHT,
+  ENV_STRUCTURE_WIDTH,
+  ENV_STRUCTURE_HEIGHT,
   HUB_STRUCTURE_WIDTH,
   HUB_STRUCTURE_HEIGHT,
   HUB_COL_GAP,
+  BOARD_COL_GAP,
+  ENV_STRUCTURE_ROW_Y,
   TILE_ROW_Y,
   HUB_STRUCTURE_ROW_Y,
   CHARACTER_ROW_OFFSET_Y,
@@ -258,6 +263,7 @@ export function createProcessWidgetView({
     layout && typeof layout === "object" ? layout : VIEW_LAYOUT.processWidget;
   const targetResolver = createProcessWidgetTargetResolver({
     hubStructureDefs,
+    envStructureDefs,
     itemDefs,
   });
   const withdrawUiStateByTarget = new Map();
@@ -320,8 +326,10 @@ export function createProcessWidgetView({
     isHubDropboxOwnerId,
     isBasketDropboxOwnerId,
     envTileDefs,
+    envStructureDefs,
     hubStructureDefs,
     findStructureById,
+    findEnvStructureById,
     findPawnById,
     findTileById,
     buildBasketTarget,
@@ -615,6 +623,34 @@ export function createProcessWidgetView({
       return count;
     }
 
+    if (envStructureDefs[target?.defId]) {
+      const envCol = Number.isFinite(target?.col)
+        ? Math.floor(target.col)
+        : Number.isFinite(target?.envCol)
+          ? Math.floor(target.envCol)
+          : null;
+      if (envCol == null) return null;
+      const span =
+        Number.isFinite(target?.span) && target.span > 0
+          ? Math.floor(target.span)
+          : Number.isFinite(envStructureDefs[target?.defId]?.defaultSpan) &&
+            envStructureDefs[target.defId].defaultSpan > 0
+            ? Math.floor(envStructureDefs[target.defId].defaultSpan)
+            : 1;
+      const end = envCol + Math.max(1, span) - 1;
+      let count = 0;
+      for (const pawn of pawns) {
+        const pawnEnvCol = Number.isFinite(pawn?.envCol)
+          ? Math.floor(pawn.envCol)
+          : null;
+        if (pawnEnvCol == null) continue;
+        if (pawnEnvCol < envCol || pawnEnvCol > end) continue;
+        if (!hasPositiveStamina(pawn)) continue;
+        count += 1;
+      }
+      return count;
+    }
+
     return null;
   }
 
@@ -748,18 +784,34 @@ export function createProcessWidgetView({
 
       const structure = findStructureById(state, ownerId);
       if (structure?.instanceId != null) {
-        const hubCol = Number.isFinite(structure.col)
-          ? Math.floor(structure.col)
-          : Number.isFinite(structure.hubCol)
-            ? Math.floor(structure.hubCol)
-            : null;
-        return {
-          kind: "hub",
-          ownerId: structure.instanceId,
-          ownerIds: [structure.instanceId],
-          hubCol,
-          systemId: "build",
-        };
+        if (hubStructureDefs[structure.defId]) {
+          const hubCol = Number.isFinite(structure.col)
+            ? Math.floor(structure.col)
+            : Number.isFinite(structure.hubCol)
+              ? Math.floor(structure.hubCol)
+              : null;
+          return {
+            kind: "hub",
+            ownerId: structure.instanceId,
+            ownerIds: [structure.instanceId],
+            hubCol,
+            systemId: "build",
+          };
+        }
+        if (envStructureDefs[structure.defId]) {
+          const envCol = Number.isFinite(structure.col)
+            ? Math.floor(structure.col)
+            : Number.isFinite(structure.envCol)
+              ? Math.floor(structure.envCol)
+              : null;
+          return {
+            kind: "envStructure",
+            col: envCol,
+            ownerId: structure.instanceId,
+            ownerIds: [structure.instanceId],
+            systemId: "build",
+          };
+        }
       }
 
       const tile = findTileById(state, ownerId);
@@ -875,6 +927,31 @@ export function createProcessWidgetView({
       return { x: pos.x, y: pos.y, width, height: HUB_STRUCTURE_HEIGHT };
     }
 
+    if (envStructureDefs[target.defId]) {
+      const col = Number.isFinite(target.col)
+        ? Math.floor(target.col)
+        : Number.isFinite(target.envCol)
+          ? Math.floor(target.envCol)
+          : null;
+      if (col == null) return null;
+      const span =
+        Number.isFinite(target.span) && target.span > 0
+          ? Math.floor(target.span)
+          : Number.isFinite(envStructureDefs[target.defId]?.defaultSpan) &&
+            envStructureDefs[target.defId].defaultSpan > 0
+            ? Math.floor(envStructureDefs[target.defId].defaultSpan)
+            : 1;
+      const width =
+        ENV_STRUCTURE_WIDTH * span + BOARD_COL_GAP * Math.max(0, span - 1);
+      const pos = layoutBoardColPos(
+        screenWidth,
+        col,
+        width,
+        ENV_STRUCTURE_ROW_Y
+      );
+      return { x: pos.x, y: pos.y, width, height: ENV_STRUCTURE_HEIGHT };
+    }
+
     const col = Number.isFinite(target.col)
       ? Math.floor(target.col)
       : Number.isFinite(target.envCol)
@@ -908,6 +985,11 @@ export function createProcessWidgetView({
         null
       );
     }
+    if (hover.kind === "envStructure") {
+      const col = Number.isFinite(hover.col) ? Math.floor(hover.col) : null;
+      if (col == null) return null;
+      return state?.board?.occ?.envStructure?.[col] ?? null;
+    }
     return null;
   }
 
@@ -921,7 +1003,8 @@ export function createProcessWidgetView({
     const id = target.instanceId ?? target.id ?? null;
     if (id == null) return null;
     const isHub = !!hubStructureDefs[target.defId];
-    const prefix = isHub ? "hub" : "tile";
+    const isEnvStructure = !!envStructureDefs[target.defId];
+    const prefix = isHub ? "hub" : isEnvStructure ? "envStructure" : "tile";
     return `${prefix}:${id}`;
   }
 
@@ -960,6 +1043,10 @@ export function createProcessWidgetView({
     }
     if (hubStructureDefs[target.defId]) {
       const def = hubStructureDefs[target.defId];
+      return def?.name || target.defId || "Structure";
+    }
+    if (envStructureDefs[target.defId]) {
+      const def = envStructureDefs[target.defId];
       return def?.name || target.defId || "Structure";
     }
     const tileDef = envTileDefs[target.defId];
@@ -1761,6 +1848,10 @@ export function createProcessWidgetView({
 
   function findStructureById(state, id) {
     return targetResolver.findStructureById(state, id);
+  }
+
+  function findEnvStructureById(state, id) {
+    return targetResolver.findEnvStructureById(state, id);
   }
 
   function findPawnById(state, id) {
