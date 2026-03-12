@@ -30,7 +30,11 @@ import {
 } from "./state.js";
 import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
-import { PAWN_ROLE_LEADER, getLeaderById } from "./prestige-system.js";
+import {
+  PAWN_ROLE_LEADER,
+  getLeaderById,
+  getPawnEffectiveWorkUnits,
+} from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
 import { TIER_ASC } from "./effects/core/tiers.js";
 import {
@@ -1666,59 +1670,65 @@ export function stepHubSecond(state, tSec) {
       ensurePawnSystems(pawn);
       const pawnInv = state?.ownerInventories?.[pawn.id] ?? null;
 
-      const pawnContext = {
-        ...baseContext,
-        pawnId: pawn.id,
-        ownerId: pawn.id,
-        pawn,
-        pawnInv,
-      };
+      const repeatLimit = Math.max(1, getPawnEffectiveWorkUnits(state, pawn));
+      for (let iteration = 0; iteration < repeatLimit; iteration++) {
+        const pawnContext = {
+          ...baseContext,
+          pawnId: pawn.id,
+          ownerId: pawn.id,
+          pawn,
+          pawnInv,
+        };
 
-      let executed = false;
-      for (const tagId of tags) {
-        if (isTagDisabled(structure, tagId, isTagUnlocked)) continue;
-        const tagDef = hubTagDefs[tagId];
-        if (!tagDef) continue;
-        const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
-        for (const intent of intents) {
-          if (!intent || typeof intent !== "object") continue;
-          if (
-            intent.requires &&
-            !requirementsPass(intent.requires, seasonKey, structure, true, isTagUnlocked)
-          ) {
-            continue;
+        let executed = false;
+        for (const tagId of tags) {
+          if (isTagDisabled(structure, tagId, isTagUnlocked)) continue;
+          const tagDef = hubTagDefs[tagId];
+          if (!tagDef) continue;
+          const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
+          for (const intent of intents) {
+            if (!intent || typeof intent !== "object") continue;
+            if (iteration > 0 && intent.repeatByActorWorkUnits !== true) continue;
+            if (
+              intent.requires &&
+              !requirementsPass(intent.requires, seasonKey, structure, true, isTagUnlocked)
+            ) {
+              continue;
+            }
+            const resolvedEffect = resolveIntentEffect(intent.effect, structure);
+            if (!resolvedEffect) continue;
+            if (!canExecuteIntentEffect(state, structure, resolvedEffect)) {
+              continue;
+            }
+            let resolvedIntentCost = null;
+            let intentContext = null;
+            if (intent.cost) {
+              intentContext = {
+                ...pawnContext,
+                intentId: intent.id ?? null,
+              };
+              const resolved = resolveCosts(intent.cost, intentContext);
+              if (!resolved) continue;
+              if (!canAffordCosts(resolved, intentContext)) continue;
+              resolvedIntentCost = resolved;
+            }
+            let effectSucceeded = true;
+            if (resolvedEffect) {
+              effectSucceeded = runEffect(state, resolvedEffect, { ...pawnContext });
+            }
+            if (!effectSucceeded) {
+              continue;
+            }
+            if (resolvedIntentCost && intentContext) {
+              applyCosts(resolvedIntentCost, intentContext);
+            }
+            executed = true;
+            break;
           }
-          const resolvedEffect = resolveIntentEffect(intent.effect, structure);
-          if (!resolvedEffect) continue;
-          if (!canExecuteIntentEffect(state, structure, resolvedEffect)) {
-            continue;
-          }
-          let resolvedIntentCost = null;
-          let intentContext = null;
-          if (intent.cost) {
-            intentContext = {
-              ...pawnContext,
-              intentId: intent.id ?? null,
-            };
-            const resolved = resolveCosts(intent.cost, intentContext);
-            if (!resolved) continue;
-            if (!canAffordCosts(resolved, intentContext)) continue;
-            resolvedIntentCost = resolved;
-          }
-          let effectSucceeded = true;
-          if (resolvedEffect) {
-            effectSucceeded = runEffect(state, resolvedEffect, { ...pawnContext });
-          }
-          if (!effectSucceeded) {
-            continue;
-          }
-          if (resolvedIntentCost && intentContext) {
-            applyCosts(resolvedIntentCost, intentContext);
-          }
-          executed = true;
-          break;
+          if (executed) break;
         }
-        if (executed) break;
+
+        if (!executed) break;
       }
     }
   }

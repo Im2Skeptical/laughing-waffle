@@ -16,6 +16,7 @@ import { runEffect } from "./effects/index.js";
 import { resolveCosts, canAffordCosts, applyCosts } from "./costs.js";
 import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
+import { getPawnEffectiveWorkUnits } from "./prestige-system.js";
 import { ensureRecipePriorityState, getEnabledRecipeIds } from "./recipe-priority.js";
 import { computeGlobalSkillMods } from "./skills.js";
 import { isTagHidden } from "./tag-state.js";
@@ -1124,66 +1125,72 @@ export function stepEnvSecond(state, tSec) {
       ensurePawnSystems(pawn);
       const pawnInv = state?.ownerInventories?.[pawnId] ?? null;
 
-      const pawnContext = {
-        ...baseContext,
-        pawnId,
-        ownerId: pawnId,
-        pawn,
-        pawnInv,
-        selectedCropId,
-      };
+      const repeatLimit = Math.max(1, getPawnEffectiveWorkUnits(state, pawn));
+      for (let iteration = 0; iteration < repeatLimit; iteration++) {
+        const pawnContext = {
+          ...baseContext,
+          pawnId,
+          ownerId: pawnId,
+          pawn,
+          pawnInv,
+          selectedCropId,
+        };
 
-      let executed = false;
-      for (const tagId of tags) {
-        if (isTagDisabled(tile, tagId, isTagUnlocked)) continue;
-        const tagDef = envTagDefs[tagId];
-        if (!tagDef) continue;
-        const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
-        for (const intent of intents) {
-          if (!intent || typeof intent !== "object") continue;
-          if (
-            intent.requires &&
-            !requirementsPass(intent.requires, seasonKey, tile, true, isTagUnlocked)
-          ) {
-            continue;
-          }
-          const executionContexts = buildIntentExecutionContexts(
-            intent,
-            pawnContext,
-            tile,
-            state
-          );
-          for (const executionContext of executionContexts) {
-            let resolvedIntentCost = null;
-            let intentContext = null;
-            if (intent.cost) {
-              intentContext = {
-                ...executionContext,
-                intentId: intent.id ?? null,
-              };
-              const resolved = resolveCosts(intent.cost, intentContext);
-              if (!resolved) continue;
-              if (!canAffordCosts(resolved, intentContext)) continue;
-              resolvedIntentCost = resolved;
-            }
-            let effectSucceeded = true;
-            if (intent.effect) {
-              effectSucceeded = runEffect(state, intent.effect, {
-                ...executionContext,
-              });
-            }
-            if (!effectSucceeded) {
+        let executed = false;
+        for (const tagId of tags) {
+          if (isTagDisabled(tile, tagId, isTagUnlocked)) continue;
+          const tagDef = envTagDefs[tagId];
+          if (!tagDef) continue;
+          const intents = Array.isArray(tagDef.intents) ? tagDef.intents : [];
+          for (const intent of intents) {
+            if (!intent || typeof intent !== "object") continue;
+            if (iteration > 0 && intent.repeatByActorWorkUnits !== true) continue;
+            if (
+              intent.requires &&
+              !requirementsPass(intent.requires, seasonKey, tile, true, isTagUnlocked)
+            ) {
               continue;
             }
-            if (resolvedIntentCost && intentContext) {
-              applyCosts(resolvedIntentCost, intentContext);
+            const executionContexts = buildIntentExecutionContexts(
+              intent,
+              pawnContext,
+              tile,
+              state
+            );
+            for (const executionContext of executionContexts) {
+              let resolvedIntentCost = null;
+              let intentContext = null;
+              if (intent.cost) {
+                intentContext = {
+                  ...executionContext,
+                  intentId: intent.id ?? null,
+                };
+                const resolved = resolveCosts(intent.cost, intentContext);
+                if (!resolved) continue;
+                if (!canAffordCosts(resolved, intentContext)) continue;
+                resolvedIntentCost = resolved;
+              }
+              let effectSucceeded = true;
+              if (intent.effect) {
+                effectSucceeded = runEffect(state, intent.effect, {
+                  ...executionContext,
+                });
+              }
+              if (!effectSucceeded) {
+                continue;
+              }
+              if (resolvedIntentCost && intentContext) {
+                applyCosts(resolvedIntentCost, intentContext);
+              }
+              executed = true;
+              break;
             }
-            executed = true;
-            break;
+            if (executed) break;
           }
           if (executed) break;
         }
-        if (executed) break;
+
+        if (!executed) break;
       }
     }
   }

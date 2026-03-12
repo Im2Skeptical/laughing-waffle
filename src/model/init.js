@@ -310,6 +310,7 @@ export function createInitialState(scenario = "devGym01", seed = null) {
       pawn.prestigeCapDebt = 0;
       pawn.prestigeCapEffective = 0;
       pawn.prestigeDebtByFollowerId = {};
+      pawn.workerCount = 0;
       pawn.equipment = createEmptyLeaderEquipment();
       pawn.leaderFaith = {
         tier: LEADER_FAITH_STARTING_TIER,

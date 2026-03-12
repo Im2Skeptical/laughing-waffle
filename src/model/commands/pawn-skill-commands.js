@@ -1,7 +1,7 @@
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC } from "../../defs/gamesettings/gamerules-defs.js";
 import { runEffect } from "../effects/index.js";
-import { adjustFollowerCount } from "../prestige-system.js";
+import { adjustFollowerCount, adjustWorkerCount } from "../prestige-system.js";
 import { ensurePawnAI, isEnvColExposed, isHubVisible } from "../state.js";
 import { evaluateSkillNodeUnlock, getSkillNodeUnlockEffects } from "../skills.js";
 import { getApCapForSecond } from "./ap-helpers.js";
@@ -86,6 +86,16 @@ export function cmdAdjustFollowerCount(state, payload = {}) {
   if (delta === 0) return { ok: true, result: "noChange", leaderId };
 
   return adjustFollowerCount(state, leaderId, delta);
+}
+
+export function cmdAdjustWorkerCount(state, payload = {}) {
+  const leaderId = Number.isFinite(payload.leaderId) ? Math.floor(payload.leaderId) : null;
+  if (leaderId == null) return { ok: false, reason: "badLeaderId" };
+
+  const delta = Number.isFinite(payload.delta) ? Math.trunc(payload.delta) : 0;
+  if (delta === 0) return { ok: true, result: "noChange", leaderId };
+
+  return adjustWorkerCount(state, leaderId, delta);
 }
 
 export function cmdPlacePawn(state, payload = {}) {

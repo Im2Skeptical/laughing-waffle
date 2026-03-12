@@ -3,7 +3,10 @@ import { processSecondChangeForItems } from "../effects/index.js";
 import { stepEnvSecond } from "../env-exec.js";
 import { stepHubSecond } from "../hub-exec.js";
 import { stepPawnSecond } from "../pawn-exec.js";
-import { enforcePrestigeFollowerCap } from "../prestige-system.js";
+import {
+  enforcePrestigeFollowerCap,
+  enforceWorkerPopulationCap,
+} from "../prestige-system.js";
 import {
   buildSeasonDeckForCurrentSeason,
   getCurrentSeasonKey,
@@ -102,6 +105,7 @@ export function cmdTickSimulation(state, dt) {
     stepPawnSecond(state, state.tSec, { placePawn: cmdPlacePawn });
     stepEnvSecond(state, state.tSec);
     stepHubSecond(state, state.tSec);
+    enforceWorkerPopulationCap(state);
     enforcePrestigeFollowerCap(state);
     if (state._seasonChanged) state._seasonChanged = false;
   }

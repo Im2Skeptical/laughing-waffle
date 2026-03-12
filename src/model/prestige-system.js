@@ -23,6 +23,11 @@ import { bumpInvVersion } from "./effects/core/inventory-version.js";
 import { buildPawnSystemDefaults } from "./state.js";
 import { TIER_ASC } from "./effects/core/tiers.js";
 import { buildProcessDropboxOwnerId } from "./owner-id-protocol.js";
+import { buildPawnContext } from "./pawn-access.js";
+import {
+  countAccessibleUnitsByTag,
+  consumeAccessibleUnitsByTag,
+} from "./costs.js";
 
 export const PAWN_ROLE_LEADER = "leader";
 export const PAWN_ROLE_FOLLOWER = "follower";
@@ -331,11 +336,13 @@ export function ensureLeaderPrestigeFields(leader) {
   }
   if (!Number.isFinite(leader.prestigeCapBonus)) leader.prestigeCapBonus = 0;
   if (!Number.isFinite(leader.prestigeCapDebt)) leader.prestigeCapDebt = 0;
+  if (!Number.isFinite(leader.workerCount)) leader.workerCount = 0;
   leader.prestigeCapBaseFromDeposits = Math.max(
     0,
     Math.floor(leader.prestigeCapBaseFromDeposits)
   );
   leader.prestigeCapBonus = Math.max(0, Math.floor(leader.prestigeCapBonus));
+  leader.workerCount = Math.max(0, Math.floor(leader.workerCount));
   if (leader.prestigeCapBaseFromDeposits === 0 && leader.prestigeCapBase > 0) {
     leader.prestigeCapBaseFromDeposits = Math.max(
       0,
@@ -411,6 +418,144 @@ export function getFollowersForLeader(state, leaderId) {
   return out;
 }
 
+function getPopulationCount(state) {
+  const population = Number.isFinite(state?.resources?.population)
+    ? Math.floor(state.resources.population)
+    : 0;
+  return Math.max(0, population);
+}
+
+export function getLeaderWorkerCount(leader) {
+  ensureLeaderPrestigeFields(leader);
+  return Math.max(0, Math.floor(leader?.workerCount ?? 0));
+}
+
+function setLeaderWorkerCount(leader, workerCount) {
+  ensureLeaderPrestigeFields(leader);
+  if (!leader) return 0;
+  const next = Math.max(0, Math.floor(workerCount ?? 0));
+  leader.workerCount = next;
+  return next;
+}
+
+export function getPawnEffectiveWorkUnits(state, pawn) {
+  if (!pawn || typeof pawn !== "object") return 1;
+  if (pawn.role !== PAWN_ROLE_LEADER) return 1;
+  return 1 + getLeaderWorkerCount(pawn);
+}
+
+function getReservedPrestigeForWorkerCount(workerCount) {
+  return Math.max(0, Math.floor(workerCount ?? 0)) * PRESTIGE_COST_PER_FOLLOWER;
+}
+
+function getReservedPrestigeForFollowerCount(followerCount) {
+  return Math.max(0, Math.floor(followerCount ?? 0)) * PRESTIGE_COST_PER_FOLLOWER;
+}
+
+export function getReservedPrestigeForLeaderWorkers(state, leaderId) {
+  const leader = getLeaderById(state, leaderId);
+  return getReservedPrestigeForWorkerCount(getLeaderWorkerCount(leader));
+}
+
+export function getReservedPrestigeForLeaderFollowers(state, leaderId) {
+  const followers = getFollowersForLeader(state, leaderId);
+  return getReservedPrestigeForFollowerCount(followers.length);
+}
+
+export function getReservedPrestigeForLeaderTotal(state, leaderId) {
+  return (
+    getReservedPrestigeForLeaderFollowers(state, leaderId) +
+    getReservedPrestigeForLeaderWorkers(state, leaderId)
+  );
+}
+
+export function getTotalAttachedWorkers(state) {
+  const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+  let total = 0;
+  for (const pawn of pawns) {
+    if (!pawn || pawn.role !== PAWN_ROLE_LEADER) continue;
+    total += getLeaderWorkerCount(pawn);
+  }
+  return total;
+}
+
+export function getAvailablePopulationForWorkers(state) {
+  return Math.max(0, getPopulationCount(state) - getTotalAttachedWorkers(state));
+}
+
+function getAccessibleEdibleCountForLeader(state, leader) {
+  if (!state || !leader || leader.role !== PAWN_ROLE_LEADER) return 0;
+  const ctx = buildPawnContext(
+    state,
+    leader,
+    Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0
+  );
+  return countAccessibleUnitsByTag(ctx, "edible");
+}
+
+function consumeAccessibleEdibleForLeader(state, leader, amount = 1) {
+  if (!state || !leader || leader.role !== PAWN_ROLE_LEADER) return 0;
+  const ctx = buildPawnContext(
+    state,
+    leader,
+    Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0
+  );
+  return consumeAccessibleUnitsByTag(ctx, "edible", amount);
+}
+
+export function getWorkerAdjustmentAvailability(state, leaderId) {
+  const leader = getLeaderById(state, leaderId);
+  if (!leader || leader.role !== PAWN_ROLE_LEADER) {
+    return {
+      ok: false,
+      reason: "noLeader",
+      canAdd: false,
+      canRemove: false,
+      population: getPopulationCount(state),
+      totalWorkers: getTotalAttachedWorkers(state),
+      workerCount: 0,
+      edibleCount: 0,
+      effectivePrestige: 0,
+      reservedTotal: 0,
+    };
+  }
+
+  ensureLeaderPrestigeFields(leader);
+  const workerCount = getLeaderWorkerCount(leader);
+  const totalWorkers = getTotalAttachedWorkers(state);
+  const population = getPopulationCount(state);
+  const effectivePrestige = updateLeaderPrestigeEffective(leader);
+  const reservedFollowers = getReservedPrestigeForLeaderFollowers(state, leader.id);
+  const reservedWorkers = getReservedPrestigeForWorkerCount(workerCount);
+  const reservedTotal = reservedFollowers + reservedWorkers;
+  const nextReservedTotal =
+    reservedFollowers + getReservedPrestigeForWorkerCount(workerCount + 1);
+  const edibleCount = getAccessibleEdibleCountForLeader(state, leader);
+  const hasPopulationRoom = totalWorkers < population;
+  const hasPrestigeRoom = nextReservedTotal <= effectivePrestige;
+  const hasFood = edibleCount > 0;
+  const canAdd = hasPopulationRoom && hasPrestigeRoom && hasFood;
+
+  return {
+    ok: true,
+    leaderId: leader.id,
+    workerCount,
+    totalWorkers,
+    population,
+    edibleCount,
+    effectivePrestige,
+    reservedFollowers,
+    reservedWorkers,
+    reservedTotal,
+    nextReservedTotal,
+    hasPopulationRoom,
+    hasPrestigeRoom,
+    hasFood,
+    canAdd,
+    canRemove: workerCount > 0,
+  };
+}
+
 function sortFollowersLastAddedFirst(list) {
   return list.slice().sort((a, b) => {
     const ai = Number.isFinite(a?.followerCreationOrderIndex)
@@ -425,8 +570,7 @@ function sortFollowersLastAddedFirst(list) {
 }
 
 export function getReservedPrestigeForLeader(state, leaderId) {
-  const followers = getFollowersForLeader(state, leaderId);
-  return followers.length * PRESTIGE_COST_PER_FOLLOWER;
+  return getReservedPrestigeForLeaderTotal(state, leaderId);
 }
 
 function ensureGranaryStore(structure) {
@@ -789,15 +933,27 @@ export function enforcePrestigeFollowerCap(state) {
   if (!state) return { ok: false, despawned: 0 };
   const pawns = Array.isArray(state.pawns) ? state.pawns : [];
   let totalDespawned = 0;
+  let workersRemoved = 0;
 
   for (const leader of pawns) {
     if (!leader || leader.role !== PAWN_ROLE_LEADER) continue;
     ensureLeaderPrestigeFields(leader);
 
     let followers = getFollowersForLeader(state, leader.id);
-    let reserved = followers.length * PRESTIGE_COST_PER_FOLLOWER;
+    let reserved =
+      getReservedPrestigeForFollowerCount(followers.length) +
+      getReservedPrestigeForWorkerCount(getLeaderWorkerCount(leader));
     const effective = updateLeaderPrestigeEffective(leader);
 
+    if (effective >= reserved) continue;
+
+    let workerCount = getLeaderWorkerCount(leader);
+    while (workerCount > 0 && effective < reserved) {
+      workerCount -= 1;
+      setLeaderWorkerCount(leader, workerCount);
+      workersRemoved += 1;
+      reserved -= PRESTIGE_COST_PER_FOLLOWER;
+    }
     if (effective >= reserved) continue;
 
     const ordered = sortFollowersLastAddedFirst(followers);
@@ -811,7 +967,63 @@ export function enforcePrestigeFollowerCap(state) {
     }
   }
 
-  return { ok: true, despawned: totalDespawned };
+  return { ok: true, despawned: totalDespawned, workersRemoved };
+}
+
+export function enforceWorkerPopulationCap(state) {
+  if (!state) return { ok: false, removed: 0 };
+  const population = getPopulationCount(state);
+  const leaders = (Array.isArray(state?.pawns) ? state.pawns : [])
+    .filter((pawn) => pawn?.role === PAWN_ROLE_LEADER)
+    .sort((a, b) => (b?.id ?? 0) - (a?.id ?? 0));
+  let totalWorkers = getTotalAttachedWorkers(state);
+  let removed = 0;
+
+  if (totalWorkers <= population) {
+    return { ok: true, removed, totalWorkers, population };
+  }
+
+  for (const leader of leaders) {
+    if (totalWorkers <= population) break;
+    let workerCount = getLeaderWorkerCount(leader);
+    while (workerCount > 0 && totalWorkers > population) {
+      workerCount -= 1;
+      setLeaderWorkerCount(leader, workerCount);
+      totalWorkers -= 1;
+      removed += 1;
+    }
+  }
+
+  return { ok: true, removed, totalWorkers, population };
+}
+
+export function consumeWorkerMealsAfterLeaderEat(state, leader) {
+  if (!state || !leader || leader.role !== PAWN_ROLE_LEADER) {
+    return { ok: false, paid: 0, lost: 0, workerCount: 0 };
+  }
+  const workerCount = getLeaderWorkerCount(leader);
+  if (workerCount <= 0) {
+    return { ok: true, paid: 0, lost: 0, workerCount: 0 };
+  }
+
+  let paid = 0;
+  for (let i = 0; i < workerCount; i++) {
+    const consumed = consumeAccessibleEdibleForLeader(state, leader, 1);
+    if (consumed <= 0) break;
+    paid += consumed;
+  }
+
+  const lost = Math.max(0, workerCount - paid);
+  if (lost > 0) {
+    setLeaderWorkerCount(leader, paid);
+  }
+
+  return {
+    ok: true,
+    paid,
+    lost,
+    workerCount: getLeaderWorkerCount(leader),
+  };
 }
 
 export function spawnFollowerForLeader(state, leader) {
@@ -940,6 +1152,65 @@ export function adjustFollowerCount(state, leaderId, delta) {
 
   enforcePrestigeFollowerCap(state);
   return { ok: true, result: "followersRemoved", leaderId, removed };
+}
+
+export function adjustWorkerCount(state, leaderId, delta) {
+  if (!state || !Number.isFinite(delta)) {
+    return { ok: false, reason: "badDelta" };
+  }
+  const leader = getLeaderById(state, leaderId);
+  if (!leader || leader.role !== PAWN_ROLE_LEADER) {
+    return { ok: false, reason: "noLeader" };
+  }
+
+  const change = Math.trunc(delta);
+  if (change === 0) return { ok: true, result: "noChange", leaderId };
+
+  if (change < 0) {
+    const current = getLeaderWorkerCount(leader);
+    const removed = Math.min(current, Math.abs(change));
+    setLeaderWorkerCount(leader, current - removed);
+    enforceWorkerPopulationCap(state);
+    enforcePrestigeFollowerCap(state);
+    return { ok: true, result: "workersRemoved", leaderId, removed };
+  }
+
+  let added = 0;
+  for (let i = 0; i < change; i++) {
+    const availability = getWorkerAdjustmentAvailability(state, leader.id);
+    if (!availability.canAdd) {
+      return {
+        ok: added > 0,
+        result: added > 0 ? "workersPartiallyAdded" : "workerAddBlocked",
+        leaderId,
+        added,
+        reason:
+          !availability.hasPopulationRoom
+            ? "populationCap"
+            : !availability.hasPrestigeRoom
+            ? "insufficientPrestige"
+            : "insufficientFood",
+      };
+    }
+
+    const consumed = consumeAccessibleEdibleForLeader(state, leader, 1);
+    if (consumed <= 0) {
+      return {
+        ok: added > 0,
+        result: added > 0 ? "workersPartiallyAdded" : "workerAddBlocked",
+        leaderId,
+        added,
+        reason: "insufficientFood",
+      };
+    }
+
+    setLeaderWorkerCount(leader, getLeaderWorkerCount(leader) + 1);
+    added += 1;
+  }
+
+  enforceWorkerPopulationCap(state);
+  enforcePrestigeFollowerCap(state);
+  return { ok: true, result: "workersAdded", leaderId, added };
 }
 
 export function eliminateLeaderByFaithCollapse(state, leaderId) {

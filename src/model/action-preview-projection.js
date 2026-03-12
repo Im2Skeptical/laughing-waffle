@@ -100,6 +100,10 @@ function collectActionTouchedTargets(action, touchedTargets) {
     case ActionKinds.PLACE_PAWN:
       addTouchedTarget(touchedTargets.pawnIds, payload.pawnId);
       break;
+    case ActionKinds.ADJUST_FOLLOWER_COUNT:
+    case ActionKinds.ADJUST_WORKER_COUNT:
+      addTouchedTarget(touchedTargets.pawnIds, payload.leaderId);
+      break;
     case ActionKinds.SET_TILE_TAG_ORDER:
     case ActionKinds.TOGGLE_TILE_TAG:
     case ActionKinds.SET_TILE_CROP_SELECTION:

@@ -34,6 +34,7 @@ import {
   cmdToggleRoutingTemplateEndpoint,
   cmdDebugQueueEnvEvent,
   cmdAdjustFollowerCount,
+  cmdAdjustWorkerCount,
   cmdBuildDesignate,
   cmdCancelBuild,
   cmdUnlockSkillNode,
@@ -71,6 +72,7 @@ export const ActionKinds = {
   REORDER_ROUTING_TEMPLATE_ENDPOINT: "reorderRoutingTemplateEndpoint",
   TOGGLE_ROUTING_TEMPLATE_ENDPOINT: "toggleRoutingTemplateEndpoint",
   ADJUST_FOLLOWER_COUNT: "adjustFollowerCount",
+  ADJUST_WORKER_COUNT: "adjustWorkerCount",
   UNLOCK_SKILL_NODE: "unlockSkillNode",
   DEBUG_SET_CAP: "debugSetCap",
   DEBUG_QUEUE_ENV_EVENT: "debugQueueEnvEvent",
@@ -104,6 +106,7 @@ function getActionApCost(action) {
     || kind === ActionKinds.TOGGLE_TILE_TAG
     || kind === ActionKinds.TOGGLE_HUB_TAG
     || kind === ActionKinds.ADJUST_FOLLOWER_COUNT
+    || kind === ActionKinds.ADJUST_WORKER_COUNT
   ) {
     console.warn(
       "Action missing apCost; defaulting to 0 for replay safety.",
@@ -302,6 +305,10 @@ export function applyAction(state, action, context = {}) {
 
     case ActionKinds.ADJUST_FOLLOWER_COUNT:
       result = cmdAdjustFollowerCount(state, payload);
+      break;
+
+    case ActionKinds.ADJUST_WORKER_COUNT:
+      result = cmdAdjustWorkerCount(state, payload);
       break;
 
     case ActionKinds.UNLOCK_SKILL_NODE:

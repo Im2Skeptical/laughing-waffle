@@ -365,6 +365,7 @@ function ensureLeaderPrestigeFields(pawn) {
   if (!Number.isFinite(pawn.prestigeCapBonus)) pawn.prestigeCapBonus = 0;
   if (!Number.isFinite(pawn.prestigeCapBase)) pawn.prestigeCapBase = 0;
   if (!Number.isFinite(pawn.prestigeCapDebt)) pawn.prestigeCapDebt = 0;
+  if (!Number.isFinite(pawn.workerCount)) pawn.workerCount = 0;
   const deposits = Math.max(0, Math.floor(pawn.prestigeCapBaseFromDeposits ?? 0));
   const bonus = Math.max(0, Math.floor(pawn.prestigeCapBonus ?? 0));
   const base = Math.max(0, Math.floor(pawn.prestigeCapBase ?? 0));
@@ -373,6 +374,7 @@ function ensureLeaderPrestigeFields(pawn) {
   pawn.prestigeCapBonus = bonus;
   pawn.prestigeCapBase = Math.max(base, deposits + bonus);
   pawn.prestigeCapDebt = debt;
+  pawn.workerCount = Math.max(0, Math.floor(pawn.workerCount ?? 0));
   pawn.prestigeCapEffective = Math.max(
     0,
     pawn.prestigeCapBase - Math.min(debt, pawn.prestigeCapBase)

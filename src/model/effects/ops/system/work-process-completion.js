@@ -5,6 +5,7 @@ import { hubStructureDefs } from "../../../../defs/gamepieces/hub-structure-defs
 import { cloneSerializable } from "../../core/clone.js";
 import { pushGameEvent } from "../../../event-feed.js";
 import { initializeInstanceFromDef } from "../../../state.js";
+import { getPawnEffectiveWorkUnits } from "../../../prestige-system.js";
 
 function normalizeTagList(tags) {
   const raw = Array.isArray(tags) ? tags : [];
@@ -152,7 +153,8 @@ export function applyWorkerCost(workers, cost) {
     const current = Number.isFinite(systemState[key])
       ? Math.floor(systemState[key])
       : 0;
-    const next = Math.max(clampMin, current - amount);
+    const effectiveUnits = getPawnEffectiveWorkUnits(null, worker);
+    const next = Math.max(clampMin, current - amount * effectiveUnits);
     if (next !== current) {
       systemState[key] = next;
       changed = true;
@@ -169,7 +171,7 @@ export function countEnvWorkers(state, envCol) {
   for (const pawn of pawns) {
     if (!pawn) continue;
     const c = Number.isFinite(pawn.envCol) ? Math.floor(pawn.envCol) : null;
-    if (c === col) n++;
+    if (c === col) n += getPawnEffectiveWorkUnits(state, pawn);
   }
   return n;
 }
