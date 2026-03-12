@@ -217,6 +217,7 @@ export function createInventoryView({
   canShowHoverUI,
   tooltipView,
   getState,
+  getOwnerVisibility,
   getPreviewVersion,
   getInventoryPreview,
   getFocusIntent,
@@ -338,6 +339,30 @@ export function createInventoryView({
 
   function getStateSafe() {
     return typeof getState === "function" ? getState() : null;
+  }
+
+  function getOwnerVisibilitySafe(ownerId) {
+    const visibility =
+      typeof getOwnerVisibility === "function"
+        ? getOwnerVisibility(ownerId)
+        : null;
+    if (visibility && typeof visibility === "object") {
+      return {
+        visible: visibility.visible !== false,
+        reason: visibility.reason ?? null,
+        ownerKind: visibility.ownerKind ?? "other",
+        resolvedOwnerId:
+          visibility.resolvedOwnerId !== undefined
+            ? visibility.resolvedOwnerId
+            : ownerId,
+      };
+    }
+    return {
+      visible: true,
+      reason: null,
+      ownerKind: "other",
+      resolvedOwnerId: ownerId,
+    };
   }
 
   function getScreenSize() {
@@ -1597,6 +1622,93 @@ export function createInventoryView({
     buildingManagerView.close(reason);
   }
 
+  function cancelItemDragForOwner(ownerId) {
+    if (!dragItem.active) return;
+    const matchesOwner =
+      String(dragItem.ownerId) === String(ownerId) ||
+      String(dragItem.sourceOwnerOverride) === String(ownerId);
+    if (!matchesOwner) return;
+
+    stage.off("pointermove", onItemDragMove);
+    stage.off("pointerup", onItemDragEnd);
+    stage.off("pointerupoutside", onItemDragEnd);
+    cleanupDragSprite();
+    restoreItemView(dragItem.view);
+    clearActiveDropboxAffordance();
+
+    dragItem.active = false;
+    dragItem.ownerId = null;
+    dragItem.item = null;
+    dragItem.view = null;
+    dragItem.sourceOwnerOverride = null;
+    dragItem.sourceEquipmentSlotId = null;
+    dragItem.lastGlobalPos = null;
+    dragItem.pressStartX = 0;
+    dragItem.pressStartY = 0;
+    dragItem.movedDistanceSq = 0;
+    dragItem.pointerType = null;
+    if (typeof setApDragWarning === "function") {
+      setApDragWarning(false);
+    }
+    if (typeof setDragGhost === "function") {
+      setDragGhost(null);
+    }
+  }
+
+  function concealWindow(ownerId, visibility = null) {
+    const win = windows.get(ownerId);
+    if (!win) return;
+
+    const resolvedVisibility = visibility ?? getOwnerVisibilitySafe(ownerId);
+    win.ownerConcealed = resolvedVisibility.visible === false;
+    win.ownerVisibilityReason = resolvedVisibility.reason ?? null;
+    win.hovered = false;
+    win.focusOutline.visible = false;
+    win.container.visible = false;
+
+    cancelItemDragForOwner(ownerId);
+    if (dragWindow.active && String(dragWindow.ownerId) === String(ownerId)) {
+      dragWindow.active = false;
+      dragWindow.ownerId = null;
+    }
+    if (String(activeSplit?.ownerId) === String(ownerId)) {
+      closeSplitDialog();
+    }
+    clearActiveBuildForOwner(ownerId);
+    closeBuildingManagerForOwner(ownerId);
+    if (consumePrompt?.ownerId === ownerId) {
+      hideConsumePrompt();
+    }
+  }
+
+  function syncWindowOwnerVisibility(win) {
+    if (!win) {
+      return {
+        visible: true,
+        reason: null,
+        ownerKind: "other",
+        resolvedOwnerId: null,
+      };
+    }
+
+    const visibility = getOwnerVisibilitySafe(win.ownerId);
+    const shouldConceal = visibility.visible === false;
+    const wasConcealed = win.ownerConcealed === true;
+    win.ownerConcealed = shouldConceal;
+    win.ownerVisibilityReason = shouldConceal ? visibility.reason ?? null : null;
+
+    if (shouldConceal) {
+      concealWindow(win.ownerId, visibility);
+      return visibility;
+    }
+
+    if (wasConcealed) {
+      refreshWindowVisibility(win);
+    }
+
+    return visibility;
+  }
+
   function setActiveBuild(ownerId, buildSpec) {
     const spec =
       typeof buildSpec === "string"
@@ -2236,6 +2348,8 @@ export function createInventoryView({
       cellSize,
       pinned: false,
       hovered: false,
+      ownerConcealed: false,
+      ownerVisibilityReason: null,
       panelWidth: w,
       panelHeight: h,
       warningOverlay,
@@ -2699,6 +2813,8 @@ export function createInventoryView({
     if (uiBlocked || !canShowHoverUI()) return;
 
     const win = ensureWindow(ownerId);
+    const visibility = syncWindowOwnerVisibility(win);
+    if (visibility.visible === false) return;
     const scaleChanged = applyWindowScale(win);
     if (scaleChanged) {
       rebuildWindow(ownerId);
@@ -2735,7 +2851,7 @@ export function createInventoryView({
       );
     }
 
-    win.container.visible = true;
+    refreshWindowVisibility(win);
   }
 
   function hideOnHoverOut(ownerId) {
@@ -2772,18 +2888,23 @@ export function createInventoryView({
     const win = ensureWindow(ownerId);
     win.pinned = !win.pinned;
     win.pinText.text = win.pinned ? "[*]" : "[ ]";
-
+    const visibility = syncWindowOwnerVisibility(win);
+    if (visibility.visible === false) {
+      return;
+    }
     if (!win.pinned && !win.hovered) {
-      win.container.visible = false;
       clearActiveBuildForOwner(ownerId);
       closeBuildingManagerForOwner(ownerId);
-    } else {
-      win.container.visible = true;
     }
+    refreshWindowVisibility(win);
   }
 
   function refreshWindowVisibility(win) {
     if (!win) return;
+    if (win.ownerConcealed) {
+      win.container.visible = false;
+      return;
+    }
     win.container.visible = !!win.pinned || !!win.hovered;
   }
 
@@ -2799,8 +2920,10 @@ export function createInventoryView({
       }
       for (const win of windows.values()) {
         const shouldFocus = focusOwners.has(win.ownerId);
-        win.focusOutline.visible = shouldFocus;
-        win.container.visible = shouldFocus;
+        const visibility = syncWindowOwnerVisibility(win);
+        const canShow = shouldFocus && visibility.visible !== false;
+        win.focusOutline.visible = canShow;
+        win.container.visible = canShow;
       }
       return;
     }
@@ -2820,8 +2943,10 @@ export function createInventoryView({
       }
       for (const win of windows.values()) {
         const shouldFocus = externalOwners.has(win.ownerId);
-        win.focusOutline.visible = shouldFocus;
-        win.container.visible = shouldFocus;
+        const visibility = syncWindowOwnerVisibility(win);
+        const canShow = shouldFocus && visibility.visible !== false;
+        win.focusOutline.visible = canShow;
+        win.container.visible = canShow;
       }
       return;
     }
@@ -2972,6 +3097,9 @@ export function createInventoryView({
   function rebuildWindow(ownerId) {
     const win = windows.get(ownerId);
     if (!win) return;
+
+    const visibility = syncWindowOwnerVisibility(win);
+    if (visibility.visible === false) return;
 
     const inv = getInventoryForOwner(ownerId);
     if (!inv) {
@@ -3223,12 +3351,16 @@ export function createInventoryView({
   function revealWindow(ownerId, opts = {}) {
     const win = ensureWindow(ownerId);
     if (!win) return { ok: false, reason: "noWindow" };
+    const visibility = syncWindowOwnerVisibility(win);
+    if (visibility.visible === false) {
+      return { ok: false, reason: visibility.reason ?? "ownerHidden" };
+    }
     if (opts.pinned) {
       win.pinned = true;
       win.pinText.text = "[*]";
     }
     win.hovered = true;
-    win.container.visible = true;
+    refreshWindowVisibility(win);
     return { ok: true };
   }
 
@@ -3253,7 +3385,8 @@ export function createInventoryView({
 
     const win = ensureWindow(ownerId);
     if (!win) return { ok: false, reason: "noWindow" };
-    revealWindow(ownerId, { pinned: opts.pinned !== false });
+    const revealRes = revealWindow(ownerId, { pinned: opts.pinned !== false });
+    if (!revealRes?.ok) return revealRes;
     rebuildWindow(ownerId);
 
     const inv = getInventoryForOwner(ownerId);
@@ -4936,6 +5069,7 @@ export function createInventoryView({
 
     dlg.x = globalPos.x;
     dlg.y = globalPos.y;
+    dlg.ownerId = ownerId;
 
     activeSplit = dlg;
 
@@ -5092,6 +5226,7 @@ export function createInventoryView({
           Math.min(screenHeight - displaySize.height - 10, win.container.y)
         );
       }
+      syncWindowOwnerVisibility(win);
       if (!win.container.visible) continue;
 
       const inv = getInventoryForOwner(ownerId);

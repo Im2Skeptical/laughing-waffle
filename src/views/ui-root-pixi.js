@@ -21,6 +21,7 @@ import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
+import { getInventoryOwnerVisibility } from "../model/inventory-owner-visibility.js";
 import { getStateDataAtSecond } from "../model/timeline/index.js";
 import { GRAPH_METRICS } from "../model/graph-metrics.js";
 import { runDeterminismSuite } from "../model/tests/determinism.js";
@@ -1385,6 +1386,9 @@ inventoryView = createInventoryView({
   },
   getInventoryForOwner(ownerId) {
     return runner.getState().ownerInventories[ownerId] || null;
+  },
+  getOwnerVisibility(ownerId) {
+    return getInventoryOwnerVisibility(runner.getState(), ownerId);
   },
   canShowHoverUI: () => interactionController.canShowHoverUI(),
   getState: () => runner.getState(),

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { createSimRunner } from "../src/controllers/sim-runner.js";
 import { ActionKinds } from "../src/model/actions.js";
+import { getInventoryOwnerVisibility } from "../src/model/inventory-owner-visibility.js";
 import { rebuildStateAtSecond } from "../src/model/timeline/index.js";
 import { createPausedActionQueue } from "../src/views/ui-root/paused-action-queue.js";
 
@@ -148,8 +149,10 @@ function getInventoryOwnerWithAtLeastTwoItems(state) {
     const items = Array.isArray(inv?.items) ? inv.items.filter(Boolean) : [];
     if (items.length < 2) continue;
     const ownerIdNum = Number(ownerIdRaw);
+    const ownerId = Number.isFinite(ownerIdNum) ? ownerIdNum : ownerIdRaw;
+    if (getInventoryOwnerVisibility(state, ownerId).visible === false) continue;
     return {
-      ownerId: Number.isFinite(ownerIdNum) ? ownerIdNum : ownerIdRaw,
+      ownerId,
       itemIds: items.slice(0, 2).map((item) => item.id),
     };
   }
@@ -160,10 +163,14 @@ function runDirectDispatchSchedulingChecks() {
   const runner = createSimRunner({ setupId: "devPlaytesting01" });
   assertOk(runner.init(), "direct-dispatch runner init");
 
-  const inventoryTarget = getInventoryOwnerWithAtLeastTwoItems(runner.getCursorState());
-  assert.ok(inventoryTarget, "expected an inventory owner with at least two items");
-
   unpauseRunner(runner);
+  advanceFrames(runner, 5 * 60);
+  const inventoryTarget = getInventoryOwnerWithAtLeastTwoItems(runner.getCursorState());
+  assert.ok(inventoryTarget, "expected a visible inventory owner with at least two items");
+  const scheduledSec = Math.max(
+    0,
+    Math.floor(runner.getCursorState()?.tSec ?? 0) + 1
+  );
   const discardA = runner.dispatchAction(
     ActionKinds.INVENTORY_DISCARD,
     { ownerId: inventoryTarget.ownerId, itemId: inventoryTarget.itemIds[0] },
@@ -180,10 +187,14 @@ function runDirectDispatchSchedulingChecks() {
   assert.equal(discardB.scheduled, true, "direct-dispatch live discard B should schedule");
 
   const scheduledAtNextSecond = (runner.getTimeline()?.actions ?? []).filter(
-    (action) => Math.floor(action?.tSec ?? -1) === 1
+    (action) => Math.floor(action?.tSec ?? -1) === scheduledSec
   );
   const lastTwo = scheduledAtNextSecond.slice(-2);
-  assert.equal(lastTwo.length, 2, "expected two live-scheduled inventory actions at t=1");
+  assert.equal(
+    lastTwo.length,
+    2,
+    `expected two live-scheduled inventory actions at t=${scheduledSec}`
+  );
   assert.deepEqual(
     lastTwo.map((action) => action?.payload?.itemId ?? null),
     inventoryTarget.itemIds,

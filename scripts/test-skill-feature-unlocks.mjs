@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { ActionKinds, applyAction } from "../src/model/actions.js";
 import { runEffect } from "../src/model/effects/index.js";
-import { createInitialState } from "../src/model/game-model.js";
+import { createInitialState, placePawn, updateGame } from "../src/model/game-model.js";
 import {
   skillNodes as skillNodeDefs,
   skillTrees as skillTreeDefs,
@@ -14,6 +14,36 @@ import {
   replaceActionsAtSecond,
 } from "../src/model/timeline/index.js";
 import { hasSkillFeatureUnlock } from "../src/model/skills.js";
+
+function advanceSeconds(state, seconds) {
+  const frames = Math.max(0, Math.floor(seconds * 60));
+  for (let i = 0; i < frames; i += 1) {
+    updateGame(1 / 60, state);
+  }
+}
+
+function getLeader(state) {
+  return (state?.pawns ?? []).find((pawn) => pawn?.role === "leader") ?? null;
+}
+
+function advanceToHubReveal(state) {
+  const leader = getLeader(state);
+  assert.ok(leader, "[skill-feature] leader pawn missing while advancing to hub reveal");
+  advanceSeconds(state, 5);
+  const moveRes = placePawn(state, { pawnId: leader.id, toEnvCol: 1 });
+  assert.equal(
+    moveRes?.ok,
+    true,
+    `[skill-feature] failed to move leader to levee during setup: ${JSON.stringify(moveRes)}`
+  );
+  advanceSeconds(state, 10);
+  assert.equal(
+    state?.discovery?.hubVisible,
+    true,
+    "[skill-feature] setup should reveal the hub before Temple Ruins access tests"
+  );
+  return leader;
+}
 
 function findPathNodeIds(treeId, fromNodeId, toNodeId) {
   if (!treeId || !fromNodeId || !toNodeId) return null;
@@ -297,6 +327,7 @@ function runSolarAstronomySeasonalDeckFeatureChecks() {
 
 function runGraphOpenFeatureUnlockChecks() {
   const state = createInitialState("devPlaytesting01");
+  advanceToHubReveal(state);
   const templeRuins = state?.hub?.occ?.[4] ?? state?.hub?.slots?.[4]?.structure ?? null;
   assert.ok(templeRuins, "[skill-feature] Temple Ruins missing from playtesting setup");
   const templeInv = state?.ownerInventories?.[templeRuins.instanceId];
@@ -363,6 +394,8 @@ function runGraphOpenFeatureUnlockChecks() {
   );
 
   const replaySeed = createInitialState("devPlaytesting01");
+  const replayLeader = getLeader(replaySeed);
+  assert.ok(replayLeader, "[skill-feature] replay leader pawn missing for graph-open replay");
   const replayTempleRuins =
     replaySeed?.hub?.occ?.[4] ?? replaySeed?.hub?.slots?.[4]?.structure ?? null;
   assert.ok(replayTempleRuins, "[skill-feature] replay Temple Ruins missing");
@@ -374,22 +407,47 @@ function runGraphOpenFeatureUnlockChecks() {
   assert.ok(replayMote, "[skill-feature] replay moteOfEternity missing");
 
   const timeline = createTimelineFromInitialState(replaySeed);
-  const replaceRes = replaceActionsAtSecond(timeline, 0, [
-    {
-      kind: ActionKinds.INVENTORY_OPEN_GRAPH_ITEM,
-      payload: {
-        ownerId: replayTempleRuins.instanceId,
-        itemId: replayMote.id,
+  const moveReplaceRes = replaceActionsAtSecond(
+    timeline,
+    5,
+    [
+      {
+        kind: ActionKinds.PLACE_PAWN,
+        payload: {
+          pawnId: replayLeader.id,
+          toEnvCol: 1,
+        },
+        apCost: 0,
       },
-      apCost: 0,
-    },
-  ]);
+    ],
+    { truncateFuture: false }
+  );
+  assert.equal(
+    moveReplaceRes?.ok,
+    true,
+    "[skill-feature] failed to stage levee move before graph-open replay action"
+  );
+  const replaceRes = replaceActionsAtSecond(
+    timeline,
+    15,
+    [
+      {
+        kind: ActionKinds.INVENTORY_OPEN_GRAPH_ITEM,
+        payload: {
+          ownerId: replayTempleRuins.instanceId,
+          itemId: replayMote.id,
+        },
+        apCost: 0,
+      },
+    ],
+    { truncateFuture: false }
+  );
   assert.equal(
     replaceRes?.ok,
     true,
     "[skill-feature] failed to stage graph-open replay action"
   );
-  const rebuilt = rebuildStateAtSecond(timeline, 0);
+  const rebuilt = rebuildStateAtSecond(timeline, 15);
   assert.equal(
     rebuilt?.ok,
     true,
@@ -438,8 +496,8 @@ function runScenarioMemoryFeatureBootstrapChecks() {
 
 function runMysteriousAncientTomeItemUseChecks() {
   const state = createInitialState("devPlaytesting01");
+  const leader = advanceToHubReveal(state);
   state.paused = true;
-  const leader = (state?.pawns ?? []).find((pawn) => pawn?.role === "leader");
   assert.ok(leader, "[skill-feature] leader pawn missing in playtesting setup");
 
   const ownerInv = state?.ownerInventories?.[leader.id];
@@ -457,6 +515,23 @@ function runMysteriousAncientTomeItemUseChecks() {
   assert.ok(templeInv, "[skill-feature] Temple Ruins inventory missing");
   const tome = (templeInv.items || []).find((item) => item?.kind === "mysteriousAncientTome");
   assert.ok(tome, "[skill-feature] mysteriousAncientTome missing from Temple Ruins inventory");
+  const clearedLeaderItem = (ownerInv.items || []).find(
+    (item) => Math.max(1, Math.floor(item?.width ?? 1)) >= 2 && Math.max(1, Math.floor(item?.height ?? 1)) >= 2
+  );
+  assert.ok(clearedLeaderItem, "[skill-feature] expected a 2x2 leader item to clear tome space");
+  const clearSpaceRes = applyAction(state, {
+    kind: ActionKinds.INVENTORY_DISCARD,
+    payload: {
+      ownerId: leader.id,
+      itemId: clearedLeaderItem.id,
+    },
+    apCost: 0,
+  });
+  assert.equal(
+    clearSpaceRes?.ok,
+    true,
+    `[skill-feature] failed to clear leader inventory space for tome: ${JSON.stringify(clearSpaceRes)}`
+  );
 
   const moveRes = applyAction(state, {
     kind: ActionKinds.INVENTORY_MOVE,
@@ -464,8 +539,8 @@ function runMysteriousAncientTomeItemUseChecks() {
       fromOwnerId: templeRuins.instanceId,
       toOwnerId: leader.id,
       itemId: tome.id,
-      targetGX: 0,
-      targetGY: 0,
+      targetGX: clearedLeaderItem.gridX,
+      targetGY: clearedLeaderItem.gridY,
     },
     apCost: 0,
   });
