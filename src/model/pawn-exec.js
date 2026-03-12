@@ -31,6 +31,8 @@ import {
   applyLeaderFaithDecayTick,
   eliminateLeaderByFaithCollapse,
   getLeaderCount,
+  getPawnEffectiveWorkUnits,
+  consumeWorkerMealsAfterLeaderEat,
 } from "./prestige-system.js";
 import { pushGameEvent } from "./event-feed.js";
 import { passiveTimingPasses } from "./passive-timing.js";
@@ -600,6 +602,35 @@ function executeIntent(state, intent, pawn, context, options = {}) {
   return true;
 }
 
+function executeIntentsForPawnSecond(state, pawn, context, intentsToRun) {
+  const repeatLimit = Math.max(1, getPawnEffectiveWorkUnits(state, pawn));
+  let executed = false;
+  let lastIntentId = null;
+
+  for (let iteration = 0; iteration < repeatLimit; iteration++) {
+    const iterContext = buildPawnContext(state, pawn, context?.tSec);
+    let executedThisIteration = false;
+
+    for (const intent of intentsToRun) {
+      if (!intent || typeof intent !== "object") continue;
+      if (iteration > 0 && intent.repeatByActorWorkUnits !== true) continue;
+      const ignoreRequires = pawn.ai.mode === "eat" && intent.id === "eat";
+      if (!executeIntent(state, intent, pawn, iterContext, { ignoreRequires })) {
+        continue;
+      }
+      executed = true;
+      executedThisIteration = true;
+      lastIntentId =
+        typeof intent.id === "string" && intent.id.length > 0 ? intent.id : null;
+      break;
+    }
+
+    if (!executedThisIteration) break;
+  }
+
+  return { executed, executedIntentId: lastIntentId };
+}
+
 function getIntentsForMode(intents, mode) {
   const list = Array.isArray(intents) ? intents : [];
   if (mode === "eat") {
@@ -992,20 +1023,15 @@ export function stepPawnSecond(state, tSec, options = {}) {
       context.localInventories
     );
 
-    let executed = false;
-    let executedIntentId = null;
     const intentsToRun = getIntentsForMode(intents, pawn.ai.mode);
-    for (const intent of intentsToRun) {
-      if (!intent || typeof intent !== "object") continue;
-      const ignoreRequires = pawn.ai.mode === "eat" && intent.id === "eat";
-      if (!executeIntent(state, intent, pawn, context, { ignoreRequires })) {
-        continue;
-      }
-      executed = true;
-      executedIntentId =
-        typeof intent.id === "string" && intent.id.length > 0 ? intent.id : null;
-      break;
-    }
+    const executionResult = executeIntentsForPawnSecond(
+      state,
+      pawn,
+      context,
+      intentsToRun
+    );
+    const executed = executionResult.executed;
+    const executedIntentId = executionResult.executedIntentId;
 
     runPawnDefPassives(state, pawn, passives, tSec, context, {
       idle: !executed && !movedThisSecond,
@@ -1058,6 +1084,10 @@ export function stepPawnSecond(state, tSec, options = {}) {
           itemKind,
         },
       });
+    }
+
+    if (pawn.role === "leader" && executedIntentId === "eat") {
+      consumeWorkerMealsAfterLeaderEat(state, pawn);
     }
 
     if (pawn.role === "leader") {

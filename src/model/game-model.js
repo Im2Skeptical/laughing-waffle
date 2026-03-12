@@ -30,6 +30,7 @@ import {
   cmdCancelBuild,
   canOwnerAcceptItem,
   cmdAdjustFollowerCount,
+  cmdAdjustWorkerCount,
 } from "./commands.js";
 
 // =============================================================================
@@ -116,6 +117,7 @@ export {
   cmdBuildDesignate,
   cmdCancelBuild,
   cmdAdjustFollowerCount,
+  cmdAdjustWorkerCount,
   canOwnerAcceptItem,
 };
 

@@ -99,6 +99,7 @@ export const hubTagDefs = {
       {
         id: "cook_work",
         verb: "Cook",
+        repeatByActorWorkUnits: true,
         requires: {
           processSystem: "cook",
           processTypeFromSystemPriorityKey: "recipePriority",
@@ -128,6 +129,7 @@ export const hubTagDefs = {
       {
         id: "cook_start",
         verb: "Start Cooking",
+        repeatByActorWorkUnits: true,
         requires: {
           processSystem: "cook",
           processTypeFromSystemPriorityKey: "recipePriority",
@@ -178,6 +180,7 @@ export const hubTagDefs = {
       {
         id: "craft_work",
         verb: "Craft",
+        repeatByActorWorkUnits: true,
         requires: {
           processSystem: "craft",
           processTypeFromSystemPriorityKey: "recipePriority",
@@ -210,6 +213,7 @@ export const hubTagDefs = {
       {
         id: "craft_start",
         verb: "Start Crafting",
+        repeatByActorWorkUnits: true,
         requires: {
           processSystem: "craft",
           processTypeFromSystemPriorityKey: "recipePriority",

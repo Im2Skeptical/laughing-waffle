@@ -39,6 +39,11 @@ import { getScrollTimegraphStateFromItem } from "../model/timegraph/edit-policy.
 import { isAnyDropboxOwnerId } from "../model/owner-id-protocol.js";
 import { canStackItems } from "../model/inventory-model.js";
 import {
+  getLeaderWorkerCount,
+  getTotalAttachedWorkers,
+  getWorkerAdjustmentAvailability,
+} from "../model/prestige-system.js";
+import {
   GAMEPIECE_HOVER_SCALE,
   HUB_COLS,
   HUB_COL_GAP,
@@ -96,6 +101,7 @@ const EQUIP_SLOT_BG_OCCUPIED = MUCHA_UI_COLORS.surfaces.panelRaised;
 const EQUIP_SLOT_STROKE = MUCHA_UI_COLORS.surfaces.borderSoft;
 const EQUIP_SLOT_STROKE_ACTIVE = MUCHA_UI_COLORS.accents.gold;
 const LEADER_PANEL_HEIGHT = 86;
+const WORKERS_PANEL_HEIGHT = 96;
 const LEADER_PANEL_PADDING = 6;
 const LEADER_SYSTEMS_ROW_HEIGHT = 34;
 const LEADER_SYSTEMS_ROW_GAP = 6;
@@ -245,6 +251,7 @@ export function createInventoryView({
   splitStackAndPlace,
   cancelItemTransfer,
   adjustFollowerCount,
+  adjustWorkerCount,
   queueActionWhenPaused,
   requestPauseForAction,
   scheduleActionsAtNextSecond,
@@ -445,6 +452,7 @@ export function createInventoryView({
         equipment: false,
         systems: false,
         prestige: false,
+        workers: false,
         skills: false,
         build: false,
       };
@@ -593,6 +601,10 @@ export function createInventoryView({
       debt,
       hungryCount,
       hungryDebt,
+      workerCount: getLeaderWorkerCount(leader),
+      totalWorkers: getTotalAttachedWorkers(state),
+      population: Math.max(0, Math.floor(state?.resources?.population ?? 0)),
+      workerAvailability: getWorkerAdjustmentAvailability(state, leader?.id),
     };
   }
 
@@ -857,6 +869,7 @@ export function createInventoryView({
         equipment: false,
         systems: false,
         prestige: false,
+        workers: false,
         skills: false,
         build: false,
       };
@@ -866,6 +879,7 @@ export function createInventoryView({
         equipment: false,
         systems: false,
         prestige: false,
+        workers: false,
         skills: false,
         build: false,
       };
@@ -873,6 +887,7 @@ export function createInventoryView({
     if (typeof win.sectionState.equipment !== "boolean") win.sectionState.equipment = false;
     if (typeof win.sectionState.systems !== "boolean") win.sectionState.systems = false;
     if (typeof win.sectionState.prestige !== "boolean") win.sectionState.prestige = false;
+    if (typeof win.sectionState.workers !== "boolean") win.sectionState.workers = false;
     if (typeof win.sectionState.skills !== "boolean") win.sectionState.skills = false;
     if (typeof win.sectionState.build !== "boolean") win.sectionState.build = false;
     return win.sectionState;
@@ -1283,6 +1298,14 @@ export function createInventoryView({
     };
   }
 
+  function updateWorkerMirrorHungerRow(row, leader) {
+    if (!row || !leader) return;
+    const visual = getLeaderSystemRowVisual(leader, "hunger");
+    row.labelText.text = visual.label;
+    drawLeaderSystemsBarFill(row, visual.ratio, row.uiColor);
+    drawLeaderHungerThresholdMarkers(row, leader);
+  }
+
   function rebuildLeaderSystemsRows(win, leader) {
     const panel = win?.leaderPanel;
     if (!panel?.systemsRowsContainer) return;
@@ -1372,12 +1395,14 @@ export function createInventoryView({
     const equipVisible = resolvedCaps.equipment !== false;
     const systemsVisible = resolvedCaps.systems === true;
     const prestigeVisible = resolvedCaps.prestige === true;
+    const workersVisible = resolvedCaps.workers === true;
     const skillsVisible = resolvedCaps.skills === true;
     const buildVisible = resolvedCaps.build === true;
 
     const equipExpanded = equipVisible && state.equipment !== false;
     const systemsExpanded = systemsVisible && state.systems !== false;
     const prestigeExpanded = prestigeVisible && state.prestige !== false;
+    const workersExpanded = workersVisible && state.workers !== false;
     const skillsExpanded = skillsVisible && state.skills !== false;
     const buildExpanded = buildVisible && state.build !== false;
 
@@ -1470,6 +1495,15 @@ export function createInventoryView({
       content: panel.prestigeContent,
       contentX: LEADER_PANEL_PADDING,
       contentHeight: LEADER_PANEL_HEIGHT,
+    });
+    layoutSection({
+      visible: workersVisible,
+      expanded: workersExpanded,
+      label: "Workers",
+      header: panel.workersHeader,
+      content: panel.workersContent,
+      contentX: LEADER_PANEL_PADDING,
+      contentHeight: WORKERS_PANEL_HEIGHT,
     });
     layoutSection({
       visible: skillsVisible,
@@ -2362,6 +2396,7 @@ export function createInventoryView({
         equipment: false,
         systems: false,
         prestige: false,
+        workers: false,
         skills: false,
         build: false,
       },
@@ -2466,6 +2501,9 @@ export function createInventoryView({
         BUILD_PANEL_GAP +
         SECTION_HEADER_HEIGHT +
         LEADER_PANEL_HEIGHT +
+        BUILD_PANEL_GAP +
+        SECTION_HEADER_HEIGHT +
+        WORKERS_PANEL_HEIGHT +
         BUILD_PANEL_GAP +
         SECTION_HEADER_HEIGHT +
         SKILLS_PANEL_HEIGHT +
@@ -2625,6 +2663,124 @@ export function createInventoryView({
         }
       });
 
+      const workersHeader = createSectionLozenge("Workers", () => {
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.workers) return;
+        const sectionState = ensureSectionState(win);
+        sectionState.workers = !sectionState.workers;
+        updateLeaderPanel(win);
+      });
+      workersHeader.container.x = LEADER_PANEL_PADDING;
+      workersHeader.container.y = prestigeHeader.container.y + SECTION_HEADER_HEIGHT + LEADER_PANEL_HEIGHT + BUILD_PANEL_GAP;
+      panel.addChild(workersHeader.container);
+
+      const workersContent = new PIXI.Container();
+      workersContent.x = LEADER_PANEL_PADDING;
+      workersContent.y = workersHeader.container.y + SECTION_HEADER_HEIGHT;
+      panel.addChild(workersContent);
+
+      const workerLabel = new PIXI.Text("Workers:", {
+        fill: 0xffffff,
+        fontSize: 12,
+      });
+      workerLabel.x = 0;
+      workerLabel.y = 0;
+      workersContent.addChild(workerLabel);
+
+      const workerCountText = new PIXI.Text("0", {
+        fill: 0xffffaa,
+        fontSize: 13,
+        fontWeight: "bold",
+      });
+      workerCountText.x = workerLabel.x + 66;
+      workerCountText.y = workerLabel.y - 1;
+      workersContent.addChild(workerCountText);
+
+      const workerMinusBtn = new PIXI.Container();
+      workerMinusBtn.x = w - INNER_PADDING * 2 - LEADER_PANEL_PADDING - 46;
+      workerMinusBtn.y = workerLabel.y - 4;
+      workerMinusBtn.eventMode = "static";
+      workerMinusBtn.cursor = "pointer";
+      workersContent.addChild(workerMinusBtn);
+
+      const workerMinusBg = new PIXI.Graphics();
+      workerMinusBg.beginFill(INVENTORY_BUTTON_BG);
+      workerMinusBg.drawRoundedRect(0, 0, 18, 18, 4);
+      workerMinusBg.endFill();
+      workerMinusBtn.addChild(workerMinusBg);
+
+      const workerMinusText = new PIXI.Text("-", {
+        fill: 0xffffff,
+        fontSize: 14,
+      });
+      workerMinusText.x = 6;
+      workerMinusText.y = 1;
+      workerMinusBtn.addChild(workerMinusText);
+
+      const workerPlusBtn = new PIXI.Container();
+      workerPlusBtn.x = w - INNER_PADDING * 2 - LEADER_PANEL_PADDING - 22;
+      workerPlusBtn.y = workerLabel.y - 4;
+      workerPlusBtn.eventMode = "static";
+      workerPlusBtn.cursor = "pointer";
+      workersContent.addChild(workerPlusBtn);
+
+      const workerPlusBg = new PIXI.Graphics();
+      workerPlusBg.beginFill(INVENTORY_BUTTON_BG);
+      workerPlusBg.drawRoundedRect(0, 0, 18, 18, 4);
+      workerPlusBg.endFill();
+      workerPlusBtn.addChild(workerPlusBg);
+
+      const workerPlusText = new PIXI.Text("+", {
+        fill: 0xffffff,
+        fontSize: 13,
+      });
+      workerPlusText.x = 5;
+      workerPlusText.y = 1;
+      workerPlusBtn.addChild(workerPlusText);
+
+      const workerReservedText = new PIXI.Text("", {
+        fill: 0xffffff,
+        fontSize: 12,
+      });
+      workerReservedText.x = 0;
+      workerReservedText.y = workerLabel.y + 18;
+      workersContent.addChild(workerReservedText);
+
+      const workerPopulationText = new PIXI.Text("", {
+        fill: 0xffffff,
+        fontSize: 12,
+      });
+      workerPopulationText.x = 0;
+      workerPopulationText.y = workerReservedText.y + 16;
+      workersContent.addChild(workerPopulationText);
+
+      const workerHungerRow = createLeaderSystemsRow(
+        Math.max(40, w - INNER_PADDING * 2 - LEADER_PANEL_PADDING * 2),
+        ownerId,
+        "hunger",
+        Number.isFinite(win?.uiScale) ? win.uiScale : 1
+      );
+      workerHungerRow.container.y = workerPopulationText.y + 22;
+      workersContent.addChild(workerHungerRow.container);
+
+      workerMinusBtn.on("pointertap", () => {
+        if (uiBlocked) return;
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.workers) return;
+        if (typeof adjustWorkerCount === "function") {
+          adjustWorkerCount({ leaderId: ownerId, delta: -1 });
+        }
+      });
+
+      workerPlusBtn.on("pointertap", () => {
+        if (uiBlocked) return;
+        const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
+        if (!caps.workers) return;
+        if (typeof adjustWorkerCount === "function") {
+          adjustWorkerCount({ leaderId: ownerId, delta: 1 });
+        }
+      });
+
       const skillsHeader = createSectionLozenge("Skills", () => {
         const caps = getLeaderSectionCapabilities(getStateSafe(), getLeaderForOwner(ownerId));
         if (!caps.skills) return;
@@ -2633,14 +2789,7 @@ export function createInventoryView({
         updateLeaderPanel(win);
       });
       skillsHeader.container.x = LEADER_PANEL_PADDING;
-      skillsHeader.container.y =
-        LEADER_PANEL_PADDING +
-        SECTION_HEADER_HEIGHT +
-        systemsPanelHeight +
-        BUILD_PANEL_GAP +
-        SECTION_HEADER_HEIGHT +
-        LEADER_PANEL_HEIGHT +
-        BUILD_PANEL_GAP;
+      skillsHeader.container.y = workersHeader.container.y + SECTION_HEADER_HEIGHT + WORKERS_PANEL_HEIGHT + BUILD_PANEL_GAP;
       panel.addChild(skillsHeader.container);
 
       const skillsContent = new PIXI.Container();
@@ -2772,6 +2921,8 @@ export function createInventoryView({
         systemsContentHeight: systemsPanelHeight,
         prestigeHeader,
         prestigeContent,
+        workersHeader,
+        workersContent,
         skillsHeader,
         skillsContent,
         buildHeader,
@@ -2781,6 +2932,12 @@ export function createInventoryView({
         followerCountText,
         minusBtn,
         plusBtn,
+        workerCountText,
+        workerReservedText,
+        workerPopulationText,
+        workerMinusBtn,
+        workerPlusBtn,
+        workerHungerRow,
         skillPointsText,
         unlockedNodesText,
         openSkillTreeButton,
@@ -3518,6 +3675,17 @@ export function createInventoryView({
       panel.followerCountText.text = String(data.followerCount);
     }
 
+    if (sectionCaps.workers) {
+      const workerCount = Math.max(0, Math.floor(data.workerCount ?? 0));
+      const totalWorkers = Math.max(0, Math.floor(data.totalWorkers ?? 0));
+      const population = Math.max(0, Math.floor(data.population ?? 0));
+      const workerReserved = workerCount * PRESTIGE_COST_PER_FOLLOWER;
+      panel.workerCountText.text = String(workerCount);
+      panel.workerReservedText.text = `Reserved: ${workerReserved}`;
+      panel.workerPopulationText.text = `Population: ${totalWorkers}/${population}`;
+      updateWorkerMirrorHungerRow(panel.workerHungerRow, leader);
+    }
+
     const canMinus = sectionCaps.prestige && data.followerCount > 0;
     panel.minusBtn.alpha = canMinus ? 1 : 0.35;
     panel.minusBtn.eventMode = canMinus ? "static" : "none";
@@ -3525,6 +3693,19 @@ export function createInventoryView({
     panel.plusBtn.alpha = sectionCaps.prestige ? 1 : 0.35;
     panel.plusBtn.eventMode = sectionCaps.prestige ? "static" : "none";
     panel.plusBtn.cursor = sectionCaps.prestige ? "pointer" : "default";
+
+    const workerAvailability =
+      data.workerAvailability && typeof data.workerAvailability === "object"
+        ? data.workerAvailability
+        : null;
+    const canWorkerMinus = sectionCaps.workers && Math.max(0, Math.floor(data.workerCount ?? 0)) > 0;
+    const canWorkerPlus = sectionCaps.workers && workerAvailability?.canAdd === true;
+    panel.workerMinusBtn.alpha = canWorkerMinus ? 1 : 0.35;
+    panel.workerMinusBtn.eventMode = canWorkerMinus ? "static" : "none";
+    panel.workerMinusBtn.cursor = canWorkerMinus ? "pointer" : "default";
+    panel.workerPlusBtn.alpha = canWorkerPlus ? 1 : 0.35;
+    panel.workerPlusBtn.eventMode = canWorkerPlus ? "static" : "none";
+    panel.workerPlusBtn.cursor = canWorkerPlus ? "pointer" : "default";
 
     if (sectionCaps.skills && panel.skillPointsText) {
       const skillPoints = Number.isFinite(leader?.skillPoints)

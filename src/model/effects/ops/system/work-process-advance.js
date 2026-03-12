@@ -23,6 +23,7 @@ import {
   finalizeBuildProcess,
   rollQualityTier,
 } from "./work-process-completion.js";
+import { getPawnEffectiveWorkUnits } from "../../../prestige-system.js";
 
 const TIER_KEYS = ["bronze", "silver", "gold", "diamond"];
 
@@ -143,7 +144,10 @@ function advanceSingleProcess({
         workers = countEnvWorkers(state, context?.envCol);
       } else if (workersFrom === "hubAnchor") {
         hubWorkers = resolveHubWorkers(state, target, context);
-        workers = hubWorkers.length;
+        workers = hubWorkers.reduce(
+          (sum, worker) => sum + getPawnEffectiveWorkUnits(state, worker),
+          0
+        );
       } else {
         workers = 1;
       }

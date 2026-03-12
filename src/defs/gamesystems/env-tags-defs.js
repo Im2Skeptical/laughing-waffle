@@ -176,6 +176,7 @@ export const envTagDefs = {
       {
         id: "farmHarvest",
         verb: "harvest",
+        repeatByActorWorkUnits: true,
         requires: { hasMaturedPool: true },
         cost: {
           charges: [
@@ -204,6 +205,7 @@ export const envTagDefs = {
       {
         id: "farmPlant",
         verb: "plant",
+        repeatByActorWorkUnits: true,
         selectedCropFromPriority: true,
         requires: {
           hasSelectedCrop: true,
@@ -314,6 +316,7 @@ export const envTagDefs = {
       {
         id: "fish",
         verb: "fish",
+        repeatByActorWorkUnits: true,
         cost: {
           charges: [
             {
@@ -347,6 +350,7 @@ export const envTagDefs = {
       {
         id: "forage",
         verb: "forage",
+        repeatByActorWorkUnits: true,
         cost: {
           charges: [
             {

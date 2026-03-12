@@ -849,3 +849,40 @@ export function applyCosts(resolvedCosts, ctx) {
     }
   }
 }
+
+export function countAccessibleUnitsByTag(ctx, tag) {
+  if (!ctx || typeof tag !== "string" || tag.length <= 0) return 0;
+  const inv = getInventoryForRef(ctx, "pawnInv");
+  const localInventories = getLocalInventories(ctx);
+  const pools = getDistributorPools(ctx);
+  return (
+    countItemUnitsByTag(inv, tag) +
+    countLocalInventoryUnitsByTag(localInventories, tag) +
+    countPoolUnitsByTag(pools, tag)
+  );
+}
+
+export function consumeAccessibleUnitsByTag(ctx, tag, amount, charge = null) {
+  if (!ctx || typeof tag !== "string" || tag.length <= 0) return 0;
+  let remaining = Math.max(0, Math.floor(amount ?? 0));
+  if (remaining <= 0) return 0;
+
+  const inv = getInventoryForRef(ctx, "pawnInv");
+  const localInventories = getLocalInventories(ctx);
+  const pools = getDistributorPools(ctx);
+
+  remaining -= consumeFromInventoryForTag(inv, tag, remaining, charge);
+  if (remaining > 0) {
+    remaining -= consumeFromLocalInventoriesByTag(
+      localInventories,
+      tag,
+      remaining,
+      charge
+    );
+  }
+  if (remaining > 0) {
+    remaining -= consumeFromPoolByTag(pools, tag, remaining);
+  }
+
+  return Math.max(0, Math.floor(amount ?? 0)) - remaining;
+}

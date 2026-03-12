@@ -679,6 +679,7 @@ export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
       equipment: false,
       systems: false,
       prestige: false,
+      workers: false,
       skills: false,
       build: false,
     };
@@ -689,6 +690,7 @@ export function getLeaderInventorySectionCapabilities(state, leaderPawnId) {
     equipment: true,
     systems: true,
     prestige: hasSkillFeatureUnlock(state, "ui.inventory.prestige"),
+    workers: hasSkillFeatureUnlock(state, "ui.inventory.prestige"),
     skills: hasSkillFeatureUnlock(state, "ui.inventory.skills"),
     build: availability.hubStructureIds.size > 0,
   };

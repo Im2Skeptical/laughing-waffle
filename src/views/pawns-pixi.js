@@ -561,6 +561,10 @@ export function createPawnsView(opts) {
           ? faithTierRaw
           : "gold";
       lines.push(`Faith (${faithTier})`);
+      const workers = Number.isFinite(pawn?.workerCount)
+        ? Math.max(0, Math.floor(pawn.workerCount))
+        : 0;
+      lines.push(`Workers: ${workers}`);
     }
 
     return lines;
@@ -870,6 +874,24 @@ export function createPawnsView(opts) {
     flashRing.visible = false;
     inkLayer.addChild(flashRing);
 
+    const workerBadge = new PIXI.Container();
+    workerBadge.visible = false;
+    workerBadge.x = shapeRadius - 4;
+    workerBadge.y = -shapeRadius + 4;
+    inkLayer.addChild(workerBadge);
+
+    const workerBadgeBg = new PIXI.Graphics();
+    workerBadge.addChild(workerBadgeBg);
+
+    const workerBadgeText = new PIXI.Text("0", {
+      fill: 0xffffff,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    applyTextResolution(workerBadgeText, 1);
+    workerBadgeText.anchor.set(0.5);
+    workerBadge.addChild(workerBadgeText);
+
     layer.addChild(container);
     registerPaintContainer(paintLayer);
 
@@ -881,6 +903,9 @@ export function createPawnsView(opts) {
       shadow,
       redGlow,
       flashRing,
+      workerBadge,
+      workerBadgeBg,
+      workerBadgeText,
       flashTimeout: null,
       selfHover: false,
       attachedScale: 1,
@@ -1238,6 +1263,23 @@ export function createPawnsView(opts) {
       const nextLabel = getLabelForPawn(view.pawn, followerOrdinalByPawnId);
       if (view.label && view.label.text !== nextLabel) {
         view.label.text = nextLabel;
+      }
+      if (view.workerBadge && view.workerBadgeBg && view.workerBadgeText) {
+        const workerCount = Number.isFinite(view?.pawn?.workerCount)
+          ? Math.max(0, Math.floor(view.pawn.workerCount))
+          : 0;
+        view.workerBadge.visible = view?.pawn?.role === "leader" && workerCount > 0;
+        if (view.workerBadge.visible) {
+          view.workerBadgeText.text = String(workerCount);
+          const radius = Math.max(8, Math.ceil(view.workerBadgeText.width / 2) + 4);
+          view.workerBadgeBg.clear();
+          view.workerBadgeBg.beginFill(0x232323, 0.95);
+          view.workerBadgeBg.lineStyle(1.5, 0xf2d16b, 1);
+          view.workerBadgeBg.drawCircle(0, 0, radius);
+          view.workerBadgeBg.endFill();
+          view.workerBadgeText.x = 0;
+          view.workerBadgeText.y = 0;
+        }
       }
       updateStaminaVisual(view, view.pawn);
     }

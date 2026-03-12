@@ -1555,6 +1555,18 @@ inventoryView = createInventoryView({
       }
       return res;
     }),
+  adjustWorkerCount: ({ leaderId, delta }) =>
+    queueActionWhenPaused(() => {
+      const res = dispatchPlayerAction(
+        ActionKinds.ADJUST_WORKER_COUNT,
+        { leaderId, delta },
+        { apCost: 0 }
+      );
+      if (leaderId != null) {
+        inventoryView.rebuildWindow?.(leaderId);
+      }
+      return res;
+    }),
   requestPauseForAction,
   scheduleActionsAtNextSecond: (actions, opts) =>
     schedulePlayerActionsAtNextSecond(actions, opts),
