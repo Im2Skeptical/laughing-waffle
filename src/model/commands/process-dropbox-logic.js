@@ -29,6 +29,10 @@ function cloneRequirementEntries(requirements) {
       amount: Math.max(0, Math.floor(entry.amount ?? 0)),
       progress: Math.max(0, Math.floor(entry.progress ?? 0)),
       consume: entry.consume !== false,
+      requirementType:
+        typeof entry.requirementType === "string" && entry.requirementType.length > 0
+          ? entry.requirementType
+          : null,
     }));
 }
 
@@ -41,6 +45,10 @@ function normalizeRequirementsView(requirements) {
       amount: Math.max(0, Math.floor(entry.amount ?? 0)),
       progress: Math.max(0, Math.floor(entry.progress ?? 0)),
       consume: entry.consume !== false,
+      requirementType:
+        typeof entry.requirementType === "string" && entry.requirementType.length > 0
+          ? entry.requirementType
+          : null,
     }));
 }
 
@@ -390,6 +398,10 @@ function ensureMutableProcessRequirements(state, process, target, systemId) {
       req.amount = Math.max(0, Math.floor(req.amount ?? 0));
       req.progress = Math.max(0, Math.floor(req.progress ?? 0));
       req.consume = req.consume !== false;
+      req.requirementType =
+        typeof req.requirementType === "string" && req.requirementType.length > 0
+          ? req.requirementType
+          : null;
     }
     return process.requirements;
   }

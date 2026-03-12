@@ -296,10 +296,10 @@ function runConsumeFalseSemanticsTest() {
   });
 
   const req = getFirstRequirement(result);
-  assert.equal(result.canFulfillAll, true);
-  assert.equal(req.fulfillable, true);
-  assert.equal(req.reachableFromInputs, 3);
-  assert.equal(req.accessibleTotal, 3);
+  assert.equal(result.canFulfillAll, false);
+  assert.equal(req.fulfillable, false);
+  assert.equal(req.reachableFromInputs, 1);
+  assert.equal(req.accessibleTotal, 1);
   assert.equal(getTotalByKind(sourceInvA, "hammer"), before);
 }
 

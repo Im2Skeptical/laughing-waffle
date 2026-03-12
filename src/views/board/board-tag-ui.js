@@ -12,11 +12,16 @@ import {
 } from "../../model/skills.js";
 import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
 import { getDroppedItemKindsForPool } from "../../model/persistent-memory.js";
+import { getEnvTagExecutionPreview } from "../../model/tag-execution-preview.js";
 import { isEnvColRevealed } from "../../model/state.js";
 import { isTagHidden } from "../../model/tag-state.js";
 import { TILE_WIDTH } from "../layout-pixi.js";
 import { getDisplayObjectWorldScale } from "../ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
+import {
+  getLiveUiTimeSec,
+  stepAnimatedRatio,
+} from "../ui-helpers/progress-animation.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
 
 const TAG_PILL_HEIGHT = 20;
@@ -37,6 +42,7 @@ const TAG_PILL_BORDER_ACTIVE = MUCHA_UI_COLORS.surfaces.border;
 const TAG_PILL_BORDER_TOP = MUCHA_UI_COLORS.surfaces.border;
 const TAG_PILL_BORDER_LOW = MUCHA_UI_COLORS.surfaces.borderSoft;
 const TAG_PILL_BORDER_BYPASSED = 0x8e5b53;
+const TAG_PILL_BORDER_SKIPPED = MUCHA_UI_COLORS.accents.gold;
 const TAG_PILL_TEXT = MUCHA_UI_COLORS.ink.primary;
 const TAG_PILL_TEXT_LOW = MUCHA_UI_COLORS.ink.secondary;
 const TAG_PILL_TEXT_BYPASSED = MUCHA_UI_COLORS.ink.alert;
@@ -61,6 +67,13 @@ const TAG_PILL_STYLES = {
     borderColor: TAG_PILL_BORDER_LOW,
     textColor: TAG_PILL_TEXT_LOW,
     alpha: 0.7,
+    rowScale: 1,
+  },
+  skipped: {
+    bgColor: TAG_PILL_BG_LOW,
+    borderColor: TAG_PILL_BORDER_SKIPPED,
+    textColor: TAG_PILL_TEXT,
+    alpha: 0.95,
     rowScale: 1,
   },
   bypassed: {
@@ -192,12 +205,39 @@ export function createTagUi(opts) {
   }
 
   function getUiClockSec() {
-    const state = getGameState?.() || null;
-    const tSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
-    const simStep = Number.isFinite(state?.simStepIndex)
-      ? Math.max(0, Math.floor(state.simStepIndex) % 60) / 60
-      : 0;
-    return tSec + simStep;
+    return getLiveUiTimeSec(getGameState?.() || null);
+  }
+
+  function getUiSecondPhase() {
+    return clamp01(getUiClockSec() - Math.floor(getUiClockSec()));
+  }
+
+  function getFrameDtSec(frameCtx) {
+    return Number.isFinite(frameCtx?.dtSec) ? Math.max(0, frameCtx.dtSec) : 0;
+  }
+
+  function shouldSnapFrame(frameCtx) {
+    return frameCtx?.snap === true;
+  }
+
+  function resolveAnimatedRatio(holder, displayKey, targetRatio, frameCtx) {
+    const target = clamp01(targetRatio);
+    const current = Number.isFinite(holder?.[displayKey]) ? holder[displayKey] : target;
+    const next = stepAnimatedRatio(current, target, getFrameDtSec(frameCtx), {
+      snap: shouldSnapFrame(frameCtx),
+      settleSec: 0.15,
+    });
+    holder[displayKey] = next;
+    return next;
+  }
+
+  function resolveDisplayedRatio(holder, displayKey, targetRatio, frameCtx, opts = null) {
+    if (opts?.live === true) {
+      const target = clamp01(targetRatio);
+      holder[displayKey] = target;
+      return target;
+    }
+    return resolveAnimatedRatio(holder, displayKey, targetRatio, frameCtx);
   }
 
   function lerpChannel(from, to, ratio) {
@@ -473,6 +513,38 @@ export function createTagUi(opts) {
     );
   }
 
+  function getTileWorkerCount(tileInst) {
+    const state = getGameState?.() || null;
+    const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
+    const col = Number.isFinite(tileInst?.col) ? Math.floor(tileInst.col) : null;
+    if (col == null) return 0;
+    let count = 0;
+    for (const pawn of pawns) {
+      const envCol = Number.isFinite(pawn?.envCol) ? Math.floor(pawn.envCol) : null;
+      if (envCol !== col) continue;
+      count += 1;
+    }
+    return count;
+  }
+
+  function getLiveProcessRuntime(process, opts = {}) {
+    const progress = Math.max(0, Math.floor(process?.progress ?? 0));
+    const duration = Math.max(
+      1,
+      Math.floor(process?.durationSec ?? opts?.fallbackDuration ?? 1)
+    );
+    const mode = process?.mode === "time" ? "time" : "work";
+    let ratio = duration > 0 ? progress / duration : 0;
+    if (progress < duration) {
+      if (mode === "time") {
+        ratio = (progress + getUiSecondPhase()) / duration;
+      } else if ((opts?.workerCount ?? 0) > 0) {
+        ratio = (progress + getUiSecondPhase() * opts.workerCount) / duration;
+      }
+    }
+    return { progress, duration, mode, ratio: clamp01(ratio) };
+  }
+
   function formatBuildRequirementLabel(req) {
     if (!req || typeof req !== "object") return "Material";
     if (req.kind === "item") {
@@ -602,11 +674,12 @@ export function createTagUi(opts) {
     return lerpHexColor(baseColor, REQUIREMENT_READY_PULSE_COLOR, pulsePhase);
   }
 
-  function resolveProcessFeedback(process, fallbackLabel, color) {
+  function resolveProcessFeedback(tileInst, process, fallbackLabel, color) {
     if (!process || typeof process !== "object") {
       return {
         ratio: 0,
         color,
+        live: false,
         tooltipLines: [`Status: ${fallbackLabel} idle`],
       };
     }
@@ -621,6 +694,7 @@ export function createTagUi(opts) {
       return {
         ratio: required > 0 ? progress / required : 0,
         color,
+        live: false,
         tooltipLines: [
           `Status: ${fallbackLabel} loading`,
           `${label}: ${progress}/${required}`,
@@ -628,13 +702,27 @@ export function createTagUi(opts) {
       };
     }
 
-    const progress = Math.max(0, Math.floor(process.progress ?? 0));
-    const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
+    const runtime = getLiveProcessRuntime(process, {
+      workerCount: getTileWorkerCount(tileInst),
+      fallbackDuration: 1,
+    });
     return {
-      ratio: duration > 0 ? progress / duration : 0,
+      ratio: runtime.ratio,
       color,
-      tooltipLines: [`Status: ${fallbackLabel} ${progress}/${duration}`],
+      live: true,
+      tooltipLines: [`Status: ${fallbackLabel} ${runtime.progress}/${runtime.duration}`],
     };
+  }
+
+  function getDiscreteRemainingSec(remainingSec) {
+    if (!Number.isFinite(remainingSec)) return 0;
+    return Math.max(0, Math.ceil(Math.max(0, remainingSec) - 0.0001));
+  }
+
+  function getGrowthElapsedSec(process, fallbackNowSec) {
+    const nowSec = Number.isFinite(fallbackNowSec) ? fallbackNowSec : getUiClockSec();
+    const startSec = Number.isFinite(process?.startSec) ? process.startSec : nowSec;
+    return Math.max(0, nowSec - startSec);
   }
 
   function resolveFarmTitleFeedback(tileInst) {
@@ -684,12 +772,8 @@ export function createTagUi(opts) {
         const duration = Number.isFinite(oldest.durationSec)
           ? Math.max(1, Math.floor(oldest.durationSec))
           : fallback;
-        const nowSec = Math.floor(getGameState?.()?.tSec ?? 0);
-        const elapsed = Math.max(
-          0,
-          Math.floor(nowSec - Math.floor(oldest.startSec ?? nowSec))
-        );
-        const remaining = Math.max(0, duration - elapsed);
+        const elapsed = getGrowthElapsedSec(oldest, getUiClockSec());
+        const remaining = getDiscreteRemainingSec(duration - elapsed);
         return {
           ratio: clamp01(elapsed / Math.max(1, duration)),
           color: GROWTH_BAR_COLORS.maturing,
@@ -714,14 +798,52 @@ export function createTagUi(opts) {
     };
   }
 
-  function getActiveTileTagIds(tileInst, pawnCountRaw) {
-    const tags = getVisibleTags(tileInst);
-    const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
-    const pawnCount =
-      Number.isFinite(pawnCountRaw) && pawnCountRaw > 0
-        ? Math.floor(pawnCountRaw)
-        : 0;
-    return new Set(pawnCount > 0 ? enabledTags.slice(0, pawnCount) : []);
+  function getPreviewTileForExecution(tileInst, tags) {
+    const preview = getTilePreview(tileInst);
+    if (!preview) return tileInst;
+
+    const nextTile = {
+      ...tileInst,
+      tags: Array.isArray(tags) ? tags.slice() : Array.isArray(tileInst?.tags) ? tileInst.tags.slice() : [],
+    };
+    const growthState = getGrowthSystemState(tileInst);
+    if (growthState !== tileInst?.systemState?.growth) {
+      nextTile.systemState = {
+        ...(tileInst?.systemState || {}),
+        growth: growthState,
+      };
+    }
+    return nextTile;
+  }
+
+  function getTileTagStatusPreview(tileInst, tags) {
+    const state = getGameState?.() || null;
+    const previewTile = getPreviewTileForExecution(tileInst, tags);
+    return getEnvTagExecutionPreview({
+      state,
+      tile: previewTile,
+      tags,
+      isTagDisabled,
+      isTagUnlocked,
+    });
+  }
+
+  function formatTagExecutionStatus(status) {
+    if (!status || status.disabled) return "Status: disabled";
+    if (status.active) return "Status: active";
+    if (status.passiveActive) return "Status: active";
+    if (status.skipped) {
+      const reason =
+        status.skipReason === "requirements"
+          ? "requirements"
+          : status.skipReason === "cost"
+            ? "cost"
+            : status.skipReason === "effect"
+              ? "effect"
+              : "gating";
+      return `Status: skipped (${reason})`;
+    }
+    return "Status: idle";
   }
 
   function getActiveTransientFeedback(view, tagId) {
@@ -745,7 +867,7 @@ export function createTagUi(opts) {
     };
   }
 
-  function getTagTitleFeedback(view, entry, tileInst, activeTagIds) {
+  function getTagTitleFeedback(view, entry, tileInst, tagStatus) {
     const config = getTagTitleFeedbackConfig(entry?.tagId);
     if (!config) return null;
 
@@ -759,6 +881,7 @@ export function createTagUi(opts) {
         fillMode: "bar",
         alpha: TAG_TITLE_FILL_ALPHA,
         ...resolveProcessFeedback(
+          tileInst,
           process,
           getTagLabel(entry.tagId),
           getSystemUi("build").color
@@ -774,7 +897,7 @@ export function createTagUi(opts) {
     }
 
     if (config.variant === "roll") {
-      const isActive = activeTagIds instanceof Set && activeTagIds.has(entry.tagId);
+      const isActive = tagStatus?.active === true || tagStatus?.passiveActive === true;
       const pulsePhase =
         0.5 +
         0.5 *
@@ -785,7 +908,7 @@ export function createTagUi(opts) {
               2
           );
       const transient = getActiveTransientFeedback(view, entry.tagId);
-      const tooltipLines = [isActive ? "Status: active" : "Status: idle"];
+      const tooltipLines = [formatTagExecutionStatus(tagStatus)];
       if (transient?.headline) {
         tooltipLines.push(
           transient.detail
@@ -835,8 +958,11 @@ export function createTagUi(opts) {
 
   function buildTagHoverLines(view, entry, tileInst) {
     const lines = buildTagTooltipLines(tileInst, entry.tagId);
-    const activeTagIds = getActiveTileTagIds(tileInst, view?.pawnCount);
-    const feedback = getTagTitleFeedback(view, entry, tileInst, activeTagIds);
+    const tags = getVisibleTags(tileInst);
+    const preview = getTileTagStatusPreview(tileInst, tags);
+    const tagStatus = preview?.statusById?.[entry.tagId] || null;
+    const feedback = getTagTitleFeedback(view, entry, tileInst, tagStatus);
+    lines.push(formatTagExecutionStatus(tagStatus));
     if (feedback?.tooltipLines?.length) {
       lines.push(...feedback.tooltipLines);
     }
@@ -936,12 +1062,8 @@ export function createTagUi(opts) {
           const duration = Number.isFinite(oldest.durationSec)
             ? Math.floor(oldest.durationSec)
             : fallback;
-          const nowSec = Math.floor(getGameState?.()?.tSec ?? 0);
-          const elapsed = Math.max(
-            0,
-            Math.floor(nowSec - Math.floor(oldest.startSec ?? nowSec))
-          );
-          const remaining = Math.max(0, duration - elapsed);
+          const elapsed = getGrowthElapsedSec(oldest, getUiClockSec());
+          const remaining = getDiscreteRemainingSec(duration - elapsed);
           lines.push(`Planting: ${processes.length} process(es)`);
           lines.push(`Matures in ~${duration}s`);
           if (Number.isFinite(remaining)) {
@@ -1401,10 +1523,18 @@ export function createTagUi(opts) {
     }
   }
 
-  function renderTagPillFeedback(entry, feedback) {
+  function renderTagPillFeedback(entry, feedback, frameCtx = null) {
     if (!entry?.titleFill || !entry?.titleFlash) return;
-
-    const ratio = clamp01(feedback?.fillMode === "full" ? 1 : feedback?.ratio ?? 0);
+    const targetRatio = clamp01(
+      feedback?.fillMode === "full" ? 1 : feedback?.ratio ?? 0
+    );
+    const ratio = resolveDisplayedRatio(
+      entry,
+      "displayFillRatio",
+      targetRatio,
+      frameCtx,
+      { live: feedback?.live === true || feedback?.fillMode === "full" }
+    );
     const fillAlpha = clamp01(feedback?.alpha ?? 0);
     const fillColor = Number.isFinite(feedback?.color) ? Math.floor(feedback.color) : 0;
     const flash = feedback?.flash || null;
@@ -1561,8 +1691,15 @@ export function createTagUi(opts) {
     row.labelText.text = label;
   }
 
-  function renderSystemRowBar(row, label, ratio, color) {
-    const ratioKey = quantizeSystemBarRatio(ratio);
+  function renderSystemRowBar(row, label, ratio, color, frameCtx = null, opts = null) {
+    const displayRatio = resolveDisplayedRatio(
+      row,
+      "displayRatio",
+      ratio,
+      frameCtx,
+      opts
+    );
+    const ratioKey = quantizeSystemBarRatio(displayRatio);
     const renderKey = `bar|${color}|${ratioKey}|${label}`;
     if (row.lastBarRenderKey === renderKey) return;
     setSystemRowLabel(row, label);
@@ -1578,7 +1715,7 @@ export function createTagUi(opts) {
     row.lastBarRenderKey = renderKey;
   }
 
-  function updateSystemRow(view, row, tileInst) {
+  function updateSystemRow(view, row, tileInst, frameCtx = null) {
     if (!row) return;
     const systemId = row.systemId;
     if (!systemId) return;
@@ -1586,7 +1723,7 @@ export function createTagUi(opts) {
     if (systemId === "build") {
       const process = getBuildProcess(tileInst);
       if (!process) {
-        renderSystemRowBar(row, "Build", 0, row.uiColor);
+        renderSystemRowBar(row, "Build", 0, row.uiColor, frameCtx);
         return;
       }
       if (row.buildKind === "requirement") {
@@ -1594,7 +1731,13 @@ export function createTagUi(opts) {
           ? process.requirements[row.buildReqIndex]
           : null;
         if (!req) {
-          renderSystemRowBar(row, row.buildLabel || "Material", 0, row.uiColor);
+          renderSystemRowBar(
+            row,
+            row.buildLabel || "Material",
+            0,
+            row.uiColor,
+            frameCtx
+          );
           return;
         }
         const required = Math.max(0, Math.floor(req.amount ?? 0));
@@ -1609,14 +1752,23 @@ export function createTagUi(opts) {
           row,
           `${label} ${progress}/${required}`,
           ratio,
-          color
+          color,
+          frameCtx
         );
         return;
       }
-      const progress = Math.max(0, Math.floor(process.progress ?? 0));
-      const duration = Math.max(1, Math.floor(process.durationSec ?? 1));
-      const ratio = duration > 0 ? progress / duration : 0;
-      renderSystemRowBar(row, `Build ${progress}/${duration}`, ratio, row.uiColor);
+      const runtime = getLiveProcessRuntime(process, {
+        workerCount: getTileWorkerCount(tileInst),
+        fallbackDuration: 1,
+      });
+      renderSystemRowBar(
+        row,
+        `Build ${runtime.progress}/${runtime.duration}`,
+        runtime.ratio,
+        row.uiColor,
+        frameCtx,
+        { live: true }
+      );
       return;
     }
     if (systemId === "hydration") {
@@ -1624,7 +1776,7 @@ export function createTagUi(opts) {
       const cur = Number.isFinite(hyd?.cur) ? Math.floor(hyd.cur) : 0;
       const max = Number.isFinite(hyd?.max) ? Math.floor(hyd.max) : 0;
       const ratio = max > 0 ? cur / max : 0;
-      renderSystemRowBar(row, `${cur}/${max}`, ratio, row.uiColor);
+      renderSystemRowBar(row, `${cur}/${max}`, ratio, row.uiColor, frameCtx);
       return;
     }
 
@@ -1651,7 +1803,13 @@ export function createTagUi(opts) {
       }
 
       if (!cropId) {
-        renderSystemRowBar(row, "Select Crop", 0, GROWTH_BAR_COLORS.idle);
+        renderSystemRowBar(
+          row,
+          "Select Crop",
+          0,
+          GROWTH_BAR_COLORS.idle,
+          frameCtx
+        );
         row.lastMaturedMax = 0;
         return;
       }
@@ -1666,7 +1824,8 @@ export function createTagUi(opts) {
           row,
           `Harvest ${formatCompactCount(maturedTotal)}`,
           ratio,
-          GROWTH_BAR_COLORS.harvesting
+          GROWTH_BAR_COLORS.harvesting,
+          frameCtx
         );
         return;
       }
@@ -1689,18 +1848,15 @@ export function createTagUi(opts) {
           const duration = Number.isFinite(oldest.durationSec)
             ? Math.floor(oldest.durationSec)
             : fallback;
-          const nowSec = Math.floor(getGameState?.()?.tSec ?? 0);
-          const elapsed = Math.max(
-            0,
-            Math.floor(nowSec - Math.floor(oldest.startSec ?? nowSec))
-          );
-          const remaining = Math.max(0, duration - elapsed);
+          const elapsed = getGrowthElapsedSec(oldest, getUiClockSec());
+          const remaining = getDiscreteRemainingSec(duration - elapsed);
           const ratio = clamp01(elapsed / Math.max(1, duration));
           renderSystemRowBar(
             row,
             `Maturing ${remaining}s`,
             ratio,
-            GROWTH_BAR_COLORS.maturing
+            GROWTH_BAR_COLORS.maturing,
+            frameCtx
           );
           return;
         }
@@ -1710,7 +1866,8 @@ export function createTagUi(opts) {
         row,
         `Plant ${cropName}`,
         getHydrationRatio(tileInst),
-        GROWTH_BAR_COLORS.planting
+        GROWTH_BAR_COLORS.planting,
+        frameCtx
       );
       return;
     }
@@ -1725,25 +1882,35 @@ export function createTagUi(opts) {
     renderSystemRowTier(row, formatTierLabel(tier), tier);
   }
 
-  function updateTagEntry(view, entry, tileInst, topTagId, hasPawn, activeTagIds) {
+  function updateTagEntry(
+    view,
+    entry,
+    tileInst,
+    topTagId,
+    hasPawn,
+    tagStatus,
+    frameCtx = null
+  ) {
     if (!entry) return;
     entry.row.cursor = "grab";
-    const isDisabled = isTagDisabled(tileInst, entry.tagId);
+    const isDisabled = tagStatus?.disabled === true || isTagDisabled(tileInst, entry.tagId);
     const isActive =
       hasPawn &&
       !isDisabled &&
-      (activeTagIds instanceof Set
-        ? activeTagIds.has(entry.tagId)
-        : entry.tagId === topTagId);
+      (tagStatus?.active === true || tagStatus?.passiveActive === true);
+    const isSkipped = hasPawn && !isDisabled && tagStatus?.skipped === true && !isActive;
     const isTopInactive =
       !hasPawn && entry.tagId === topTagId && !isDisabled;
-    const isLowerPriority = !isDisabled && entry.tagId !== topTagId;
+    const isLowerPriority =
+      !isDisabled && !isActive && !isSkipped && entry.tagId !== topTagId;
 
     let style = TAG_PILL_STYLES.low;
     if (isDisabled) {
       style = TAG_PILL_STYLES.bypassed;
     } else if (isActive) {
       style = TAG_PILL_STYLES.active;
+    } else if (isSkipped) {
+      style = TAG_PILL_STYLES.skipped;
     } else if (isTopInactive) {
       style = TAG_PILL_STYLES.topInactive;
     } else if (isLowerPriority) {
@@ -1754,11 +1921,12 @@ export function createTagUi(opts) {
     updateActionVisual(entry, isDisabled);
     renderTagPillFeedback(
       entry,
-      isDisabled ? null : getTagTitleFeedback(view, entry, tileInst, activeTagIds)
+      isDisabled ? null : getTagTitleFeedback(view, entry, tileInst, tagStatus),
+      frameCtx
     );
 
     for (const row of entry.systemRows || []) {
-      updateSystemRow(view, row, tileInst);
+      updateSystemRow(view, row, tileInst, frameCtx);
     }
   }
 
@@ -1787,17 +1955,21 @@ export function createTagUi(opts) {
     return applyExpandedTag(view, nextTagId);
   }
 
-  function updateTagEntries(view, tileInst) {
+  function updateTagEntries(view, tileInst, frameCtx = null) {
     const tags = getVisibleTags(tileInst);
-    const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
-    const topTagId = enabledTags[0] ?? null;
     const pawnCount =
       Number.isFinite(view?.pawnCount) && view.pawnCount > 0
         ? Math.floor(view.pawnCount)
         : 0;
     const hasPawn = pawnCount > 0;
-    const activeTagIds = getActiveTileTagIds(tileInst, pawnCount);
-    const activeTagId = hasPawn ? enabledTags[0] ?? null : null;
+    const statusPreview = getTileTagStatusPreview(tileInst, tags);
+    const topTagId = statusPreview?.firstEnabledTagId ?? null;
+    const activeTagId =
+      hasPawn
+        ? statusPreview?.firstActiveTagId ??
+          statusPreview?.firstSkippedTagId ??
+          topTagId
+        : null;
     if (syncExpandedTagToActive(view, activeTagId)) {
       layoutTagEntries(view);
     }
@@ -1808,7 +1980,7 @@ export function createTagUi(opts) {
       const desired = buildRowsForBuildProcess(tileInst);
       const signature = getBuildRowSignature(desired);
       if (signature !== buildEntry.buildRowSignature) {
-        rebuildTileTags(view, tileInst);
+        rebuildTileTags(view, tileInst, frameCtx);
         return;
       }
     }
@@ -1820,12 +1992,13 @@ export function createTagUi(opts) {
         tileInst,
         topTagId,
         hasPawn,
-        activeTagIds
+        statusPreview?.statusById?.[entry.tagId] || null,
+        frameCtx
       );
     }
   }
 
-  function rebuildTileTags(view, tileInst) {
+  function rebuildTileTags(view, tileInst, frameCtx = null) {
     const tags = getVisibleTags(tileInst);
     view.tagSignature = tags.join("|");
 
@@ -1844,8 +2017,14 @@ export function createTagUi(opts) {
       Number.isFinite(view?.pawnCount) && view.pawnCount > 0
         ? Math.floor(view.pawnCount)
         : 0;
-    const enabledTags = tags.filter((tagId) => !isTagDisabled(tileInst, tagId));
-    const activeTagId = pawnCount > 0 ? enabledTags[0] ?? null : null;
+    const statusPreview = getTileTagStatusPreview(tileInst, tags);
+    const activeTagId =
+      pawnCount > 0
+        ? statusPreview?.firstActiveTagId ??
+          statusPreview?.firstSkippedTagId ??
+          statusPreview?.firstEnabledTagId ??
+          null
+        : null;
     if (!view.expandedTagId && activeTagId) {
       view.expandedTagId = activeTagId;
     }
@@ -1878,7 +2057,7 @@ export function createTagUi(opts) {
     }
 
     layoutTagEntries(view);
-    updateTagEntries(view, tileInst);
+    updateTagEntries(view, tileInst, { ...(frameCtx || {}), dtSec: 0, snap: true });
   }
 
   return {

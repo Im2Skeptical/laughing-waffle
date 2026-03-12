@@ -27,6 +27,10 @@ function normalizeRequirementEntry(entry) {
 
   const amount = Math.max(0, safeFloor(entry.amount, 0));
   const progress = Math.max(0, safeFloor(entry.progress, 0));
+  const requirementType =
+    typeof entry.requirementType === "string" && entry.requirementType.length > 0
+      ? entry.requirementType
+      : null;
   if (amount <= 0) return null;
 
   if (kind === "item") {
@@ -41,6 +45,7 @@ function normalizeRequirementEntry(entry) {
       amount,
       progress,
       consume: entry.consume !== false,
+      requirementType,
       slotId:
         typeof entry.slotId === "string" && entry.slotId.length > 0
           ? entry.slotId
@@ -58,6 +63,7 @@ function normalizeRequirementEntry(entry) {
       amount,
       progress,
       consume: entry.consume !== false,
+      requirementType,
       slotId:
         typeof entry.slotId === "string" && entry.slotId.length > 0
           ? entry.slotId
@@ -76,6 +82,7 @@ function normalizeRequirementEntry(entry) {
     amount,
     progress,
     consume: entry.consume !== false,
+    requirementType,
     slotId:
       typeof entry.slotId === "string" && entry.slotId.length > 0
         ? entry.slotId
@@ -380,15 +387,24 @@ function spendRequirementUnitFromEndpoint(endpointSim, requirement) {
   if (!endpointSim || !requirement) return false;
   if (requirement.kind === "item" || requirement.kind === "tag") {
     if (endpointSim.kind === "inventory") {
+      if (requirement.consume === false) {
+        return consumeInventoryUnit(endpointSim.target, requirement);
+      }
       return consumeInventoryUnit(endpointSim.target, requirement);
     }
     if (endpointSim.kind === "pool") {
+      if (requirement.consume === false) {
+        return consumePoolUnit(endpointSim, requirement);
+      }
       return consumePoolUnit(endpointSim, requirement);
     }
     return false;
   }
   if (requirement.kind === "resource") {
     if (endpointSim.kind !== "resource") return false;
+    if (requirement.consume === false) {
+      return consumeResourceUnit(endpointSim.target, requirement);
+    }
     return consumeResourceUnit(endpointSim.target, requirement);
   }
   return false;
@@ -471,17 +487,6 @@ function spendRequirementUnits({
 
   const needed = Math.max(0, safeFloor(unitsNeeded, 0));
   if (needed <= 0) return 0;
-
-  if (requirement.consume === false) {
-    for (const endpointId of endpointIds) {
-      const endpointSim = getOrCreateEndpointSimState(endpointCache, state, endpointId);
-      if (!endpointSim) continue;
-      if (canSpendRequirementUnitFromEndpoint(endpointSim, requirement)) {
-        return needed;
-      }
-    }
-    return 0;
-  }
 
   let spentCount = 0;
   for (let i = 0; i < needed; i += 1) {

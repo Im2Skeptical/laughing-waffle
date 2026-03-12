@@ -18,6 +18,10 @@ export function normalizeProcessRequirements(requirements) {
     if (!entry || typeof entry !== "object") continue;
     const consume =
       typeof entry.consume === "boolean" ? entry.consume : entry.consume !== false;
+    const requirementType =
+      typeof entry.requirementType === "string" && entry.requirementType.length
+        ? entry.requirementType
+        : null;
     const slotId =
       typeof entry.slotId === "string" && entry.slotId.length ? entry.slotId : null;
     const kind =
@@ -50,6 +54,7 @@ export function normalizeProcessRequirements(requirements) {
           progress: Math.max(0, Math.floor(entry.progress ?? 0)),
           consume,
           slotId,
+          requirementType,
         });
       } else if (tag) {
         out.push({
@@ -59,6 +64,7 @@ export function normalizeProcessRequirements(requirements) {
           progress: Math.max(0, Math.floor(entry.progress ?? 0)),
           consume,
           slotId,
+          requirementType,
         });
       } else if (resource) {
         out.push({
@@ -68,6 +74,7 @@ export function normalizeProcessRequirements(requirements) {
           progress: Math.max(0, Math.floor(entry.progress ?? 0)),
           consume,
           slotId,
+          requirementType,
         });
       }
       continue;
@@ -81,9 +88,14 @@ export function normalizeProcessRequirements(requirements) {
       progress: Math.max(0, Math.floor(entry.progress ?? 0)),
       consume,
       slotId,
+      requirementType,
     });
   }
   return out;
+}
+
+function isPresenceRequirement(requirement) {
+  return requirement?.consume === false;
 }
 
 export function areRequirementsComplete(process) {
@@ -120,6 +132,10 @@ export function ensureProcessRequirements(process, processDef) {
       amount: Math.max(0, Math.floor(req.amount ?? 0)),
       progress: Math.max(0, Math.floor(req.progress ?? 0)),
       consume: req.consume !== false,
+      requirementType:
+        typeof req.requirementType === "string" && req.requirementType.length
+          ? req.requirementType
+          : null,
     }));
     return { reqs: process.requirements, changed: true };
   }
@@ -145,9 +161,138 @@ export function ensureProcessRequirements(process, processDef) {
       req.consume = req.consume !== false;
       changed = true;
     }
+    if (
+      req.requirementType != null &&
+      (typeof req.requirementType !== "string" || req.requirementType.length <= 0)
+    ) {
+      req.requirementType = null;
+      changed = true;
+    }
   }
 
   return { reqs, changed };
+}
+
+function countInventoryRequirementUnits(inv, requirement, remaining) {
+  if (!inv || !Array.isArray(inv.items) || remaining <= 0) return 0;
+  let total = 0;
+  for (const item of inv.items) {
+    if (!item || Math.floor(item.quantity ?? 0) <= 0) continue;
+    if (requirement.kind === "item" && item.kind !== requirement.itemId) continue;
+    if (
+      requirement.kind === "tag" &&
+      (!Array.isArray(item.tags) || !item.tags.includes(requirement.tag))
+    ) {
+      continue;
+    }
+    total += Math.max(0, Math.floor(item.quantity ?? 0));
+    if (total >= remaining) return remaining;
+  }
+  return Math.min(remaining, total);
+}
+
+function countPoolRequirementUnits(endpoint, requirement, remaining) {
+  const pool = endpoint?.target;
+  if (!pool || typeof pool !== "object" || remaining <= 0) return 0;
+  const itemId = getPoolCandidateItemId(endpoint, requirement);
+  if (!itemId) return 0;
+  let total = 0;
+  if (isTierBucket(pool)) {
+    for (const tier of TIER_ASC) {
+      total += Math.max(0, Math.floor(pool[tier] ?? 0));
+      if (total >= remaining) return remaining;
+    }
+    return Math.min(remaining, total);
+  }
+  const bucket = pool[itemId];
+  if (!bucket || typeof bucket !== "object") return 0;
+  for (const tier of TIER_ASC) {
+    total += Math.max(0, Math.floor(bucket[tier] ?? 0));
+    if (total >= remaining) return remaining;
+  }
+  return Math.min(remaining, total);
+}
+
+function countResourceRequirementUnits(resources, requirement, remaining) {
+  if (!resources || !requirement?.resource || remaining <= 0) return 0;
+  return Math.min(
+    remaining,
+    Math.max(0, Math.floor(resources[requirement.resource] ?? 0))
+  );
+}
+
+function countRequirementUnitsAtEndpoint(endpoint, requirement, remaining) {
+  if (!endpoint || !requirement || remaining <= 0) return 0;
+  if (requirement.kind === "item" || requirement.kind === "tag") {
+    if (endpoint.kind === "inventory") {
+      return countInventoryRequirementUnits(endpoint.target, requirement, remaining);
+    }
+    if (endpoint.kind === "pool") {
+      return countPoolRequirementUnits(endpoint, requirement, remaining);
+    }
+    return 0;
+  }
+  if (requirement.kind === "resource") {
+    if (endpoint.kind !== "resource") return 0;
+    return countResourceRequirementUnits(endpoint.target, requirement, remaining);
+  }
+  return 0;
+}
+
+export function syncPresenceRequirements(
+  state,
+  target,
+  process,
+  processDef,
+  context
+) {
+  const ensured = ensureProcessRequirements(process, processDef);
+  const reqs = ensured.reqs || [];
+  let changed = ensured.changed;
+  for (const req of reqs) {
+    if (!req || typeof req !== "object") continue;
+    if (!isPresenceRequirement(req)) continue;
+    const required = Math.max(0, Math.floor(req.amount ?? 0));
+    const slotDef = resolveSlotDef(processDef, "inputs", req.slotId);
+    if (!slotDef) {
+      if ((req.progress ?? 0) !== 0) {
+        req.progress = 0;
+        changed = true;
+      }
+      continue;
+    }
+    const slotState = resolveSlotState(process, "inputs", slotDef);
+    if (!slotState) {
+      if ((req.progress ?? 0) !== 0) {
+        req.progress = 0;
+        changed = true;
+      }
+      continue;
+    }
+    const candidates = listCandidateEndpoints(state, process, slotDef, target, context);
+    let remaining = required;
+    let accessible = 0;
+    for (const endpointRaw of slotState.ordered || []) {
+      if (remaining <= 0) break;
+      const enabled = slotState.enabled?.[endpointRaw];
+      if (enabled === false && !isDropEndpoint(endpointRaw)) continue;
+      const endpointId = resolveEndpointIdForRouting(endpointRaw, process, context);
+      if (!endpointId) continue;
+      if (!isEndpointValidForSlot(endpointId, candidates, processDef)) continue;
+      const endpoint = resolveEndpointTarget(state, endpointId);
+      if (!endpoint) continue;
+      const count = countRequirementUnitsAtEndpoint(endpoint, req, remaining);
+      if (count <= 0) continue;
+      accessible += count;
+      remaining -= count;
+    }
+    const nextProgress = Math.min(required, accessible);
+    if (Math.max(0, Math.floor(req.progress ?? 0)) !== nextProgress) {
+      req.progress = nextProgress;
+      changed = true;
+    }
+  }
+  return { changed, reqs };
 }
 
 export function resolveSlotDef(processDef, slotKind, slotId) {
@@ -486,17 +631,24 @@ export function advanceProcessRequirements(
 ) {
   const ensured = ensureProcessRequirements(process, processDef);
   const reqs = ensured.reqs || [];
-  if (!reqs.length) return { changed: ensured.changed, done: true };
+  if (!reqs.length) {
+    return { changed: ensured.changed, done: true, spentBudget: 0 };
+  }
 
   let remainingBudget = Number.isFinite(budget) ? Math.floor(budget) : 0;
   if (remainingBudget <= 0) {
-    return { changed: ensured.changed, done: areRequirementsComplete(process) };
+    return {
+      changed: ensured.changed,
+      done: areRequirementsComplete(process),
+      spentBudget: 0,
+    };
   }
 
   let changed = ensured.changed;
   for (const req of reqs) {
     if (remainingBudget <= 0) break;
     if (!req || typeof req !== "object") continue;
+    if (isPresenceRequirement(req)) continue;
     const required = Math.max(0, Math.floor(req.amount ?? 0));
     const progress = Math.max(0, Math.floor(req.progress ?? 0));
     const remaining = required - progress;
@@ -542,5 +694,9 @@ export function advanceProcessRequirements(
     }
   }
 
-  return { changed, done: areRequirementsComplete(process) };
+  return {
+    changed,
+    done: areRequirementsComplete(process),
+    spentBudget: Math.max(0, Math.floor(budget ?? 0)) - remainingBudget,
+  };
 }
