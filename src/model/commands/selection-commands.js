@@ -129,6 +129,10 @@ function cloneRequirementsForProcess(requirements) {
       amount: Math.max(0, Math.floor(entry.amount ?? 0)),
       progress: Math.max(0, Math.floor(entry.progress ?? 0)),
       consume: entry.consume !== false,
+      requirementType:
+        typeof entry.requirementType === "string" && entry.requirementType.length > 0
+          ? entry.requirementType
+          : null,
     }));
 }
 

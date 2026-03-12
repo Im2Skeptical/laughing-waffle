@@ -299,26 +299,49 @@ export function createProcessWidgetCardModules({
 
   function getRequirementRows(reqs) {
     if (!Array.isArray(reqs) || reqs.length === 0) return [];
-    if (reqs.length > 3) {
+    const toolRows = reqs
+      .filter((req) => req?.consume === false || req?.requirementType === "tool")
+      .map((req) => {
+        const amount = Math.max(0, Math.floor(req?.amount ?? 0));
+        const progress = Math.max(0, Math.floor(req?.progress ?? 0));
+        return {
+          label: formatRequirementLabel(req),
+          progress,
+          amount,
+          accessibleTotal: null,
+          displayMode: "badge",
+          badgeState: progress >= amount && amount > 0 ? "ready" : "missing",
+        };
+      });
+    const materialReqs = reqs.filter(
+      (req) => !(req?.consume === false || req?.requirementType === "tool")
+    );
+    if (materialReqs.length > 3) {
       let totalAmount = 0;
       let totalProgress = 0;
-      for (const req of reqs) {
+      for (const req of materialReqs) {
         totalAmount += Math.max(0, Math.floor(req.amount ?? 0));
         totalProgress += Math.max(0, Math.floor(req.progress ?? 0));
       }
-      return [
+      return toolRows.concat([
         {
           label: "Items",
           progress: totalProgress,
           amount: totalAmount,
+          accessibleTotal: null,
+          displayMode: "bar",
         },
-      ];
+      ]);
     }
-    return reqs.map((req) => ({
-      label: formatRequirementLabel(req),
-      progress: Math.max(0, Math.floor(req.progress ?? 0)),
-      amount: Math.max(0, Math.floor(req.amount ?? 0)),
-    }));
+    return toolRows.concat(
+      materialReqs.map((req) => ({
+        label: formatRequirementLabel(req),
+        progress: Math.max(0, Math.floor(req.progress ?? 0)),
+        amount: Math.max(0, Math.floor(req.amount ?? 0)),
+        accessibleTotal: null,
+        displayMode: "bar",
+      }))
+    );
   }
 
   function getPrestigeTotals(process) {
@@ -686,7 +709,9 @@ export function createProcessWidgetCardModules({
     const bg = new PIXI.Graphics();
     container.addChild(bg);
 
-    const title = new PIXI.Text("Materials", {
+    const rows = Array.isArray(rowsOverride) ? rowsOverride : getRequirementRows(reqs);
+    const hasToolRows = rows.some((row) => row?.displayMode === "badge");
+    const title = new PIXI.Text(hasToolRows ? "Materials & Tools" : "Materials", {
       fill: COLORS.moduleText,
       fontSize: 11,
       fontWeight: "bold",
@@ -696,7 +721,6 @@ export function createProcessWidgetCardModules({
     container.addChild(title);
 
     let y = title.y + 14;
-    const rows = Array.isArray(rowsOverride) ? rowsOverride : getRequirementRows(reqs);
     if (rows.length === 0) {
       const none = new PIXI.Text("None", {
         fill: COLORS.moduleSub,
@@ -708,6 +732,47 @@ export function createProcessWidgetCardModules({
       y += 12;
     } else {
       for (const row of rows) {
+        if (row?.displayMode === "badge") {
+          const label = new PIXI.Text(String(row.label || "Tool"), {
+            fill: COLORS.moduleSub,
+            fontSize: 10,
+          });
+          label.x = MODULE_PAD;
+          label.y = y;
+          fitTextToWidth(
+            label,
+            String(row.label || "Tool"),
+            Math.max(20, width - MODULE_PAD * 2 - 40)
+          );
+          container.addChild(label);
+
+          const badgeLabel = row.badgeState === "ready" ? "Ready" : "Missing";
+          const badgeColor =
+            row.badgeState === "ready" ? 0x5a8a55 : COLORS.pillInvalid;
+          const badgeBorder =
+            row.badgeState === "ready" ? COLORS.progressFill : COLORS.dangerBorder;
+          const badgeText = new PIXI.Text(badgeLabel, {
+            fill: COLORS.moduleText,
+            fontSize: 9,
+            fontWeight: "bold",
+          });
+          const badgeWidth = Math.max(34, Math.ceil(badgeText.width) + 10);
+          const badgeHeight = 14;
+          const badgeX = width - MODULE_PAD - badgeWidth;
+          const badgeY = y - 1;
+          const badgeBg = new PIXI.Graphics();
+          badgeBg.lineStyle(1, badgeBorder, 0.95);
+          badgeBg.beginFill(badgeColor, 0.92);
+          badgeBg.drawRoundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 7);
+          badgeBg.endFill();
+          container.addChild(badgeBg);
+          badgeText.x = badgeX + Math.floor((badgeWidth - badgeText.width) / 2);
+          badgeText.y = badgeY + Math.floor((badgeHeight - badgeText.height) / 2);
+          container.addChild(badgeText);
+
+          y += 18;
+          continue;
+        }
         const reachable = Number.isFinite(row.accessibleTotal)
           ? Math.max(0, Math.floor(row.accessibleTotal))
           : null;

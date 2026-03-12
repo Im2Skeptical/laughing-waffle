@@ -1088,6 +1088,9 @@ export function createProcessWidgetView({
           const label = formatRequirementLabel(req);
           const amount = Math.max(0, Math.floor(req?.amount ?? 0));
           const current = Math.max(0, Math.floor(req?.progress ?? 0));
+          if (isToolRequirement(req)) {
+            return `${label} ${current >= amount ? "Ready" : "Missing"}`;
+          }
           return `${label} ${current}/${amount}`;
         });
     }
@@ -1103,6 +1106,39 @@ export function createProcessWidgetView({
       if (progress < amount) return false;
     }
     return true;
+  }
+
+  function isToolRequirement(req) {
+    return req?.consume === false || req?.requirementType === "tool";
+  }
+
+  function buildRequirementRowFromEntry(req, loaded, required, accessibleTotal = null) {
+    const amount = Math.max(0, Math.floor(required ?? req?.amount ?? 0));
+    const progress = Math.max(0, Math.floor(loaded ?? req?.progress ?? 0));
+    const tool = isToolRequirement(req);
+    if (tool) {
+      const reachable = Number.isFinite(accessibleTotal)
+        ? Math.max(0, Math.floor(accessibleTotal))
+        : progress;
+      return {
+        label: formatRequirementLabel(req),
+        progress,
+        amount,
+        accessibleTotal: reachable,
+        displayMode: "badge",
+        badgeState: reachable >= amount && amount > 0 ? "ready" : "missing",
+      };
+    }
+    return {
+      label: formatRequirementLabel(req),
+      progress,
+      amount,
+      accessibleTotal:
+        Number.isFinite(accessibleTotal) && accessibleTotal >= 0
+          ? Math.max(0, Math.floor(accessibleTotal))
+          : null,
+      displayMode: "bar",
+    };
   }
 
   function canRecipeEntryAdvanceNow(entry, availability = null) {
@@ -1223,6 +1259,19 @@ export function createProcessWidgetView({
     for (const entry of availability.requirements) {
       const req = entry?.requirement || null;
       if (!req) continue;
+      if (isToolRequirement(req)) {
+        const key = `tool:${req.kind}:${req.itemId || req.tag || req.resource || ""}`;
+        rowsByKey.set(
+          key,
+          buildRequirementRowFromEntry(
+            req,
+            entry?.loaded,
+            entry?.required,
+            entry?.accessibleTotal
+          )
+        );
+        continue;
+      }
       let fallbackKey = "unknown:";
       if (req.kind === "item") fallbackKey = `item:${req.itemId || ""}`;
       else if (req.kind === "tag") fallbackKey = `tag:${req.tag || ""}`;
@@ -1236,6 +1285,7 @@ export function createProcessWidgetView({
           progress: 0,
           amount: 0,
           accessibleTotal: 0,
+          displayMode: "bar",
         });
       }
       const row = rowsByKey.get(key);

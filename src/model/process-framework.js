@@ -62,6 +62,7 @@ function normalizeRequirementEntry(entry) {
   const itemId = normalizeString(entry.itemId);
   const tag = normalizeString(entry.tag || entry.itemTag);
   const resource = normalizeString(entry.resource);
+  const requirementType = normalizeString(entry.requirementType);
   const amount = Math.max(0, safeFloor(entry.amount, 0));
   const progress = Math.max(0, safeFloor(entry.progress, 0));
   const consume =
@@ -84,6 +85,7 @@ function normalizeRequirementEntry(entry) {
     progress,
     consume,
     slotId,
+    requirementType,
   };
 }
 
@@ -158,6 +160,7 @@ function buildRecipeRequirements(recipeDef) {
       amount,
       progress: 0,
       consume: true,
+      requirementType: "material",
     });
   }
   const tools = Array.isArray(recipeDef?.toolRequirements)
@@ -174,6 +177,7 @@ function buildRecipeRequirements(recipeDef) {
       amount,
       progress: 0,
       consume: false,
+      requirementType: "tool",
     });
   }
   return reqs;

@@ -14,6 +14,7 @@ import {
   ensureProcessRequirements,
   seedRoutingWithCandidates,
   advanceProcessRequirements,
+  syncPresenceRequirements,
 } from "./work-process-routing.js";
 import { applyProcessOutputs } from "./work-process-outputs.js";
 import {
@@ -135,6 +136,7 @@ function advanceSingleProcess({
 
   let inc = deltaTime;
   let hubWorkers = null;
+  let reqRes = null;
   if (mode === "work") {
     if (typeof effect.workersFrom === "string") {
       const workersFrom = effect.workersFrom;
@@ -158,8 +160,22 @@ function advanceSingleProcess({
     return { changed, keep: true, progressed: false };
   }
 
+  if (processDef) {
+    const presenceRes = syncPresenceRequirements(
+      state,
+      target,
+      process,
+      processDef,
+      context
+    );
+    if (presenceRes.changed) {
+      changed = true;
+      progressed = true;
+    }
+  }
+
   if (processDef && !areRequirementsComplete(process)) {
-    const reqRes = advanceProcessRequirements(
+    reqRes = advanceProcessRequirements(
       state,
       target,
       process,
@@ -174,6 +190,8 @@ function advanceSingleProcess({
     if (!reqRes.done) {
       return { changed, keep: true, progressed };
     }
+    const spentBudget = Math.max(0, Math.floor(reqRes.spentBudget ?? 0));
+    inc = Math.max(0, inc - spentBudget);
   }
 
   const cur = Number.isFinite(process.progress) ? process.progress : 0;
@@ -184,7 +202,7 @@ function advanceSingleProcess({
     progressed = true;
   }
 
-  if (next !== cur && hubWorkers && effect.workerCost) {
+  if ((reqRes?.changed || next !== cur) && hubWorkers && effect.workerCost) {
     if (applyWorkerCost(hubWorkers, effect.workerCost)) {
       changed = true;
     }

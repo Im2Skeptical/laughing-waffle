@@ -24,6 +24,10 @@ import { isTagHidden } from "../model/tag-state.js";
 import { createTagUi, TAG_LAYOUT } from "./board/board-tag-ui.js";
 import { createHubTagUi, HUB_TAG_LAYOUT } from "./board/hub-tag-ui.js";
 import { createPillDragController } from "./ui-helpers/pill-drag-controller.js";
+import {
+  getLiveUiTimeSec,
+  shouldSnapProgressAnimation,
+} from "./ui-helpers/progress-animation.js";
 import { bindTouchLongPress } from "./ui-helpers/touch-long-press.js";
 import { createTilePanels } from "./board/board-tile-panels.js";
 import { createHubPanels } from "./board/hub-structure-panels.js";
@@ -317,6 +321,7 @@ export function createBoardView(opts) {
   const activeEventExpiryFx = [];
   let eventSnapshotsById = new Map();
   let areaChrome = null;
+  let prevProgressAnimationTimeSec = null;
   const eventExpiryFxLayer = eventLayer ? new PIXI.Container() : null;
   if (eventExpiryFxLayer) {
     eventExpiryFxLayer.sortableChildren = true;
@@ -557,6 +562,17 @@ export function createBoardView(opts) {
       return performance.now();
     }
     return Date.now();
+  }
+
+  function buildProgressAnimationFrameContext(state, dt) {
+    const liveTimeSec = getLiveUiTimeSec(state);
+    const snap = shouldSnapProgressAnimation(prevProgressAnimationTimeSec, state);
+    prevProgressAnimationTimeSec = liveTimeSec;
+    return {
+      dtSec: Number.isFinite(dt) ? Math.max(0, dt) : 0,
+      liveTimeSec,
+      snap,
+    };
   }
 
   function getStructureSpan(structure, fallbackCol = null) {
@@ -4337,7 +4353,7 @@ export function createBoardView(opts) {
     return view;
   }
 
-  function updateTileView(view, tileInst, pawnCount) {
+  function updateTileView(view, tileInst, pawnCount, frameCtx = null) {
     view.tile = tileInst;
     view.pawnCount = pawnCount;
     const ui = getTileUi(tileInst, getGameState?.());
@@ -4350,9 +4366,9 @@ export function createBoardView(opts) {
     }
     const signature = getVisibleTileTagSignature(tileInst);
     if (signature !== view.tagSignature) {
-      tagUi?.rebuildTileTags?.(view, tileInst);
+      tagUi?.rebuildTileTags?.(view, tileInst, frameCtx);
     }
-    tagUi?.updateTagEntries?.(view, tileInst);
+    tagUi?.updateTagEntries?.(view, tileInst, frameCtx);
 
     if (pawnCount > 0) {
       view.pawnBadge.visible = true;
@@ -5227,7 +5243,7 @@ export function createBoardView(opts) {
     return { env: envCounts, hub: hubCounts };
   }
 
-  function syncTiles(state, cols, pawnCountsByCol = null) {
+  function syncTiles(state, cols, pawnCountsByCol = null, frameCtx = null) {
     const tileOcc = state?.board?.occ?.tile;
     const pawnCounts = Array.isArray(pawnCountsByCol)
       ? pawnCountsByCol
@@ -5271,7 +5287,7 @@ export function createBoardView(opts) {
         activeView.container.x = pos.x;
         activeView.container.y = pos.y;
         activeView.baseY = pos.y;
-        updateTileView(activeView, tileInst, pawnCounts[col] || 0);
+        updateTileView(activeView, tileInst, pawnCounts[col] || 0, frameCtx);
       }
     }
 
@@ -5634,7 +5650,7 @@ export function createBoardView(opts) {
     hubSlotsLayoutKey = layoutKey;
   }
 
-  function syncHubStructures(state, cols, pawnCountsByHub = null) {
+  function syncHubStructures(state, cols, pawnCountsByHub = null, frameCtx = null) {
     const occ = state?.hub?.occ;
     const seen = new Set();
     const screenWidth = getScreenWidthInt();
@@ -5717,9 +5733,9 @@ export function createBoardView(opts) {
       }
       const signature = getVisibleHubTagSignature(view.structure);
       if (signature !== view.tagSignature) {
-        hubTagUi?.rebuildStructureTags?.(view, view.structure);
+        hubTagUi?.rebuildStructureTags?.(view, view.structure, frameCtx);
       } else {
-        hubTagUi?.updateTagEntries?.(view, view.structure);
+        hubTagUi?.updateTagEntries?.(view, view.structure, frameCtx);
       }
     }
   }
@@ -5839,6 +5855,7 @@ export function createBoardView(opts) {
     hubStructureViews.clear();
     hubSlotViews.length = 0;
     hubSlotsLayoutKey = "";
+    prevProgressAnimationTimeSec = null;
 
     const s = getGameState?.();
     lastProcessedGameEventId = getMaxEventFeedId(s?.gameEventFeed);
@@ -5974,18 +5991,20 @@ export function createBoardView(opts) {
   function update(dt) {
     const s = getGameState?.();
     if (!s?.board) {
+      prevProgressAnimationTimeSec = null;
       tagOrdersPanel?.close?.();
       return;
     }
 
+    const progressFrameCtx = buildProgressAnimationFrameContext(s, dt);
     const cols = getVisibleBoardCols(s);
     const hubCols = getVisibleHubCols(s);
     syncEventExpiryFxFromTimelineState(s, cols);
     const pawnCounts = getPawnCounts(s, cols, hubCols);
     syncEvents(s, cols);
     syncEnvStructures(s, cols);
-    syncTiles(s, cols, pawnCounts.env);
-    syncHubStructures(s, hubCols, pawnCounts.hub);
+    syncTiles(s, cols, pawnCounts.env, progressFrameCtx);
+    syncHubStructures(s, hubCols, pawnCounts.hub, progressFrameCtx);
     syncAreaChrome(s, cols, hubCols);
     updateDistributorRangeOverlays();
     updateBuildPlacementOverlays();
