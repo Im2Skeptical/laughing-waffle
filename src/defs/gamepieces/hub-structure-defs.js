@@ -11,7 +11,7 @@ export const hubStructureDefs = {
     maxInstances: 1,
     tags: ["canCook", "canCraft"],
     systems: {},
-    inventory: { cols: 5, rows: 10 },
+    inventory: { cols: 5, rows: 6 },
     build: {
       laborSec: 20,
       requirements: [
@@ -34,7 +34,7 @@ export const hubStructureDefs = {
     maxInstances: 1,
     tags: ["canRest"],
     systems: {},
-    inventory: { cols: 5, rows: 10 },
+    inventory: { cols: 5, rows: 6 },
     ui: {
       title: "Makeshift Shelter",
       lines: ["Shelter appropriated from the remnants of the old world."],
@@ -50,7 +50,7 @@ export const hubStructureDefs = {
     maxInstances: 1,
     tags: ["build"],
     systems: {},
-    inventory: { cols: 5, rows: 10 },
+    inventory: { cols: 5, rows: 6 },
     ui: {
       title: "Temple Ruins",
       lines: ["A collapsed sanctuary waits to be reclaimed."],
@@ -69,7 +69,7 @@ export const hubStructureDefs = {
       vacancy: 12,
     },
     systems: {},
-    inventory: { cols: 5, rows: 10 },
+    inventory: { cols: 5, rows: 6 },
     build: {
       laborSec: 15,
       placementMode: "upgrade",
@@ -158,7 +158,7 @@ export const hubStructureDefs = {
     maxInstances: 1,
     tags: ["depositable", "distributor"],
     systems: {},
-    inventory: { cols: 6, rows: 8 },
+    inventory: { cols: 6, rows: 6 },
     deposit: {
       systemId: "storehouseStore",
       poolKey: "byKindTier",
