@@ -49,6 +49,8 @@ import {
   HUB_STRUCTURE_WIDTH,
   HUB_STRUCTURE_HEIGHT,
   GAMEPIECE_HOVER_SCALE,
+  GAMEPIECE_HOVER_ZOOM_IN_TWEEN_SEC,
+  GAMEPIECE_HOVER_ZOOM_OUT_TWEEN_SEC,
   GAMEPIECE_SHADOW_COLOR,
   GAMEPIECE_SHADOW_ALPHA,
   GAMEPIECE_SHADOW_OFFSET_X,
@@ -105,6 +107,7 @@ export function createBoardView(opts) {
     onProcessCogClick,
     onGamepieceTapForSystemFocus,
     getExternalFocus,
+    canStartHoverZoomIn,
   } = opts;
 
   const tileViews = [];
@@ -173,7 +176,6 @@ export function createBoardView(opts) {
   const ORDERS_BUTTON_STROKE = 0xdbe2e8;
   const ORDERS_BUTTON_ICON = 0x4f5862;
   const HOVER_VIEW_SCREEN_PAD = 8;
-  const HOVER_VIEW_Y_BIAS = 18;
   const CARD_HEIGHT_TWEEN_SEC = 0.14;
   const HOVER_SCALE_MIN = 0.55;
   const CARD_BOTTOM_PAD = 10;
@@ -1975,23 +1977,31 @@ export function createBoardView(opts) {
     contentShadow.addChild(shadow);
 
     container.addChild(content);
+    let hoverActive = false;
 
     function setActive(active) {
-      const scale = active ? GAMEPIECE_HOVER_SCALE : 1;
-      content.scale.set(scale);
-      shadow.visible = active && GAMEPIECE_SHADOW_ALPHA > 0;
-      container.zIndex = active ? 20 : 0;
-      const textNodes =
-        typeof getTextNodes === "function" ? getTextNodes() : getTextNodes;
-      if (textNodes) {
-        setTextResolution(
-          textNodes,
-          active ? HOVER_TEXT_RESOLUTION : BASE_TEXT_RESOLUTION
-        );
-      }
+      hoverActive = !!active;
     }
 
-    return { content, contentPaint, contentInk, setActive };
+    function syncHoverZIndex() {
+      container.zIndex =
+        hoverActive || content.scale?.x > 1.001 || shadow.alpha > 0.001 ? 20 : 0;
+    }
+
+    function setScale(scale) {
+      const nextScale = Number.isFinite(scale) ? scale : 1;
+      content.scale.set(nextScale);
+      syncHoverZIndex();
+    }
+
+    function setShadowAlpha(alpha) {
+      const nextAlpha = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+      shadow.alpha = nextAlpha;
+      shadow.visible = nextAlpha > 0.001 && GAMEPIECE_SHADOW_ALPHA > 0;
+      syncHoverZIndex();
+    }
+
+    return { content, contentPaint, contentInk, setActive, setScale, setShadowAlpha };
   }
 
   function getScaledAnchorRect(container, width, height, scale, baseY = null) {
@@ -2000,6 +2010,35 @@ export function createBoardView(opts) {
     const cy = container.y + height / 2;
     const anchorBaseY = Number.isFinite(baseY) ? baseY : container.y;
     const offsetY = container.y - anchorBaseY;
+    const scaledWidth = width * s;
+    const scaledHeight = height * s;
+    return {
+      x: cx - scaledWidth / 2,
+      y: cy - scaledHeight / 2,
+      width: scaledWidth,
+      height: scaledHeight,
+      scale: s,
+      centerX: cx,
+      centerY: cy,
+      offsetY,
+    };
+  }
+
+  function getScaledAnchorRectAtPosition(
+    x,
+    y,
+    width,
+    height,
+    scale,
+    baseY = null
+  ) {
+    const s = Number.isFinite(scale) ? scale : 1;
+    const safeX = Number.isFinite(x) ? x : 0;
+    const safeY = Number.isFinite(y) ? y : 0;
+    const cx = safeX + width / 2;
+    const cy = safeY + height / 2;
+    const anchorBaseY = Number.isFinite(baseY) ? baseY : safeY;
+    const offsetY = safeY - anchorBaseY;
     const scaledWidth = width * s;
     const scaledHeight = height * s;
     return {
@@ -2125,12 +2164,9 @@ export function createBoardView(opts) {
     view.occupantHoverHoldSec = 0;
     view.childTooltipHoverActive = false;
     view.isHovered = false;
+    view.hoverCleanupPending = true;
     view.setHoverActive?.(false);
-    applyHoverScaleToView(view, 1);
-    resetHoverViewY(view);
-    restoreFromHover(view.container);
-    view.hoverAnchor = null;
-    view.hoverUiAnchor = null;
+    setHoverScaleTarget(view, 1);
     updateTileTagLayoutForHoverState(view);
     clearHoverContext();
     tooltipView?.hide?.();
@@ -2140,10 +2176,9 @@ export function createBoardView(opts) {
   function clearEventHover(view) {
     if (!view) return;
     view.isHovered = false;
+    view.hoverCleanupPending = true;
     view.setHoverActive?.(false);
-    applyHoverScaleToView(view, 1);
-    resetHoverViewY(view);
-    restoreFromHover(view.container);
+    setHoverScaleTarget(view, 1);
     clearHoverContext();
     tooltipView?.hide?.();
   }
@@ -2154,12 +2189,9 @@ export function createBoardView(opts) {
     view.occupantHoverHoldSec = 0;
     view.childTooltipHoverActive = false;
     view.isHovered = false;
+    view.hoverCleanupPending = true;
     view.setHoverActive?.(false);
-    applyHoverScaleToView(view, 1);
-    resetHoverViewY(view);
-    restoreFromHover(view.container);
-    view.hoverAnchor = null;
-    view.hoverUiAnchor = null;
+    setHoverScaleTarget(view, 1);
     if (view.descText) {
       view.descText.visible = false;
     }
@@ -2173,12 +2205,9 @@ export function createBoardView(opts) {
     view.occupantHoverHoldSec = 0;
     view.childTooltipHoverActive = false;
     view.isHovered = false;
+    view.hoverCleanupPending = true;
     view.setHoverActive?.(false);
-    applyHoverScaleToView(view, 1);
-    resetHoverViewY(view);
-    restoreFromHover(view.container);
-    view.hoverAnchor = null;
-    view.hoverUiAnchor = null;
+    setHoverScaleTarget(view, 1);
     updateHubStructureViewUi(view, view.structure, { force: true });
     clearHoverContext();
     tooltipView?.hide?.();
@@ -2287,6 +2316,15 @@ export function createBoardView(opts) {
 
   function fitHoverViewY(view, baseHeight, bottomExtent = null, hoverScale = null) {
     if (!view?.container) return;
+    view.container.y = resolveFittedHoverViewY(
+      resolveViewBaseY(view),
+      baseHeight,
+      bottomExtent,
+      hoverScale
+    );
+  }
+
+  function resolveFittedHoverViewY(baseY, baseHeight, bottomExtent = null, hoverScale = null) {
     const safeBaseHeight = Number.isFinite(baseHeight)
       ? Math.max(1, Math.floor(baseHeight))
       : 1;
@@ -2294,11 +2332,8 @@ export function createBoardView(opts) {
       ? Math.max(safeBaseHeight, bottomExtent)
       : safeBaseHeight;
     const screenHeight = Math.max(1, Math.floor(app?.screen?.height ?? 1));
-    const baseY = resolveViewBaseY(view);
     const scale = Number.isFinite(hoverScale)
       ? hoverScale
-      : Number.isFinite(view?.hoverScaleApplied)
-      ? view.hoverScaleApplied
       : Number.isFinite(GAMEPIECE_HOVER_SCALE)
       ? GAMEPIECE_HOVER_SCALE
       : 1;
@@ -2308,12 +2343,40 @@ export function createBoardView(opts) {
     const minY = HOVER_VIEW_SCREEN_PAD + topOffset;
     const maxY =
       screenHeight - HOVER_VIEW_SCREEN_PAD - halfBase - scaledBottomOffset;
-    const preferredY = baseY + HOVER_VIEW_Y_BIAS;
+    const preferredY = baseY;
     const nextY =
       minY <= maxY
         ? Math.max(minY, Math.min(maxY, preferredY))
         : baseY;
-    view.container.y = Math.round(nextY);
+    return Math.round(nextY);
+  }
+
+  function getProjectedHoverUiAnchor(view, width, baseHeight, bottomExtent = null) {
+    if (!view?.container) return null;
+    const resolvedBaseY = resolveViewBaseY(view);
+    const projectedHeight = Number.isFinite(view.cardHeightTarget)
+      ? Math.max(1, view.cardHeightTarget)
+      : Number.isFinite(view.cardHeightCurrent)
+      ? Math.max(1, view.cardHeightCurrent)
+      : Math.max(1, baseHeight);
+    const projectedBottom = Number.isFinite(bottomExtent)
+      ? Math.max(projectedHeight, bottomExtent)
+      : projectedHeight;
+    const projectedScale = resolveAdaptiveHoverScale(projectedHeight);
+    const projectedY = resolveFittedHoverViewY(
+      resolvedBaseY,
+      projectedHeight,
+      projectedBottom,
+      projectedScale
+    );
+    return getScaledAnchorRectAtPosition(
+      view.container.x,
+      projectedY,
+      width,
+      Math.max(1, baseHeight),
+      projectedScale,
+      resolvedBaseY
+    );
   }
 
   function resolveAdaptiveHoverScale(heightPx) {
@@ -2333,14 +2396,181 @@ export function createBoardView(opts) {
     const nextScale = Number.isFinite(scale) ? scale : 1;
     if (view.hoverScaleApplied === nextScale && view.content.scale?.x === nextScale) return;
     view.hoverScaleApplied = nextScale;
-    view.content.scale.set(nextScale);
+    view.setHoverScale?.(nextScale);
     const textNodes = Array.isArray(view.hoverTextNodes) ? view.hoverTextNodes : null;
     if (textNodes) {
-      const targetResolution = view.isHovered
+      const targetResolution = nextScale > 1.001
         ? Math.max(BASE_TEXT_RESOLUTION, Math.ceil(BASE_TEXT_RESOLUTION * nextScale))
         : BASE_TEXT_RESOLUTION;
       setTextResolution(textNodes, targetResolution);
     }
+  }
+
+  function isHoverZoomExpanded(view) {
+    if (!view) return false;
+    const currentScale = Number.isFinite(view.hoverScaleApplied) ? view.hoverScaleApplied : 1;
+    const targetScale = Number.isFinite(view.hoverScaleTarget) ? view.hoverScaleTarget : 1;
+    const currentShadow = Number.isFinite(view.hoverShadowAlphaApplied)
+      ? view.hoverShadowAlphaApplied
+      : 0;
+    const targetShadow = Number.isFinite(view.hoverShadowAlphaTarget)
+      ? view.hoverShadowAlphaTarget
+      : 0;
+    return (
+      currentScale > 1.001 ||
+      targetScale > 1.001 ||
+      currentShadow > 0.001 ||
+      targetShadow > 0.001
+    );
+  }
+
+  function setHoverScaleTarget(view, scale) {
+    if (!view) return;
+    view.hoverScaleTarget = Number.isFinite(scale) ? scale : 1;
+  }
+
+  function hasPendingHoverScaleAnimation(view) {
+    if (!view) return false;
+    const current = Number.isFinite(view.hoverScaleApplied) ? view.hoverScaleApplied : 1;
+    const target = Number.isFinite(view.hoverScaleTarget) ? view.hoverScaleTarget : 1;
+    return Math.abs(target - current) > 0.001;
+  }
+
+  function hasPendingCardHeightAnimation(view) {
+    if (!view) return false;
+    const current = Number.isFinite(view.cardHeightCurrent)
+      ? Math.max(1, view.cardHeightCurrent)
+      : null;
+    const target = Number.isFinite(view.cardHeightTarget)
+      ? Math.max(1, view.cardHeightTarget)
+      : Number.isFinite(view.baseCardHeight)
+      ? Math.max(1, view.baseCardHeight)
+      : null;
+    if (current == null || target == null) return false;
+    return Math.abs(target - current) > 0.5;
+  }
+
+  function setHoverShadowAlphaTarget(view, alpha) {
+    if (!view) return;
+    view.hoverShadowAlphaTarget = Number.isFinite(alpha) ? alpha : 0;
+  }
+
+  function hasPendingHoverShadowAnimation(view) {
+    if (!view) return false;
+    const current = Number.isFinite(view.hoverShadowAlphaApplied)
+      ? view.hoverShadowAlphaApplied
+      : 0;
+    const target = Number.isFinite(view.hoverShadowAlphaTarget)
+      ? view.hoverShadowAlphaTarget
+      : 0;
+    return Math.abs(target - current) > 0.001;
+  }
+
+  function applyHoverShadowAlphaToView(view, alpha) {
+    if (!view) return;
+    const nextAlpha = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+    if (view.hoverShadowAlphaApplied === nextAlpha) return;
+    view.hoverShadowAlphaApplied = nextAlpha;
+    view.setHoverShadowAlpha?.(nextAlpha);
+  }
+
+  function animateHoverShadowAlpha(view, dt) {
+    if (!view) return false;
+    const target = Number.isFinite(view.hoverShadowAlphaTarget)
+      ? view.hoverShadowAlphaTarget
+      : 0;
+    if (!Number.isFinite(view.hoverShadowAlphaApplied)) {
+      applyHoverShadowAlphaToView(view, target);
+      return true;
+    }
+    const current = view.hoverShadowAlphaApplied;
+    const diff = target - current;
+    if (Math.abs(diff) < 0.001) {
+      if (Math.abs(current - target) < 1e-6) return false;
+      applyHoverShadowAlphaToView(view, target);
+      return true;
+    }
+    const stepDt = Number.isFinite(dt) ? Math.max(0, dt) : 1 / 60;
+    const tweenSec = Math.max(
+      0.0001,
+      target < current
+        ? GAMEPIECE_HOVER_ZOOM_OUT_TWEEN_SEC
+        : GAMEPIECE_HOVER_ZOOM_IN_TWEEN_SEC
+    );
+    const t = Math.min(1, stepDt / tweenSec);
+    applyHoverShadowAlphaToView(view, current + diff * t);
+    return true;
+  }
+
+  function animateHoverScale(view, dt) {
+    if (!view) return false;
+    const target = Number.isFinite(view.hoverScaleTarget) ? view.hoverScaleTarget : 1;
+    if (!Number.isFinite(view.hoverScaleApplied)) {
+      applyHoverScaleToView(view, target);
+      return true;
+    }
+    const current = view.hoverScaleApplied;
+    const diff = target - current;
+    if (Math.abs(diff) < 0.001) {
+      if (Math.abs(current - target) < 1e-6) return false;
+      applyHoverScaleToView(view, target);
+      return true;
+    }
+    const stepDt = Number.isFinite(dt) ? Math.max(0, dt) : 1 / 60;
+    const tweenSec = Math.max(
+      0.0001,
+      target < current
+        ? GAMEPIECE_HOVER_ZOOM_OUT_TWEEN_SEC
+        : GAMEPIECE_HOVER_ZOOM_IN_TWEEN_SEC
+    );
+    const t = Math.min(1, stepDt / tweenSec);
+    applyHoverScaleToView(view, current + diff * t);
+    return true;
+  }
+
+  function shouldAllowHoverZoomIn(view) {
+    if (isHoverZoomExpanded(view)) return true;
+    return canStartHoverZoomIn?.() !== false;
+  }
+
+  function isHoverZoomDownActive(view) {
+    if (!view) return false;
+    if (view.isHovered) return false;
+    return hasPendingHoverScaleAnimation(view) || hasPendingHoverShadowAnimation(view);
+  }
+
+  function hasActiveHoverZoomDown() {
+    for (const view of tileViews) {
+      if (isHoverZoomDownActive(view)) return true;
+    }
+    for (const view of eventViews.values()) {
+      if (isHoverZoomDownActive(view)) return true;
+    }
+    for (const view of envStructureViews.values()) {
+      if (isHoverZoomDownActive(view)) return true;
+    }
+    for (const view of hubStructureViews.values()) {
+      if (isHoverZoomDownActive(view)) return true;
+    }
+    return false;
+  }
+
+  function finalizeHoverExit(view, onFinalize = null) {
+    if (!view?.hoverCleanupPending) return false;
+    if (
+      hasPendingCardHeightAnimation(view) ||
+      hasPendingHoverScaleAnimation(view) ||
+      hasPendingHoverShadowAnimation(view)
+    ) {
+      return false;
+    }
+    applyHoverScaleToView(view, 1);
+    applyHoverShadowAlphaToView(view, 0);
+    resetHoverViewY(view);
+    restoreFromHover(view.container);
+    view.hoverCleanupPending = false;
+    onFinalize?.();
+    return true;
   }
 
   function animateCardHeight(view, dt) {
@@ -2427,18 +2657,35 @@ export function createBoardView(opts) {
 
   function refreshTileHoverPresentation(view, dt = 0, { updateHoverContext = true } = {}) {
     if (!view) return null;
+    const currentScale = Number.isFinite(view.hoverScaleApplied) ? view.hoverScaleApplied : 1;
+    if (
+      !view.isHovered &&
+      !view.hoverCleanupPending &&
+      !hasPendingCardHeightAnimation(view) &&
+      !hasPendingHoverShadowAnimation(view)
+    ) {
+      if (Math.abs(currentScale - 1) <= 0.001) return null;
+    }
     updateTileTagLayoutForHoverState(view);
     const heightChanged = animateCardHeight(view, dt);
     if (heightChanged) {
       redrawTileCardVisuals(view);
       updateTileTagLayoutForHoverState(view);
     }
+    const wantsHoverZoom = view.isHovered && shouldAllowHoverZoomIn(view);
+    const targetScale = wantsHoverZoom ? resolveAdaptiveHoverScale(view.cardHeightCurrent) : 1;
+    setHoverScaleTarget(view, targetScale);
+    setHoverShadowAlphaTarget(view, wantsHoverZoom ? 1 : 0);
+    animateHoverScale(view, dt);
+    animateHoverShadowAlpha(view, dt);
     if (!view.isHovered) {
-      applyHoverScaleToView(view, 1);
+      finalizeHoverExit(view, () => {
+        view.hoverAnchor = null;
+        view.hoverUiAnchor = null;
+      });
       return null;
     }
-    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
-    applyHoverScaleToView(view, hoverScale);
+    const hoverScale = Number.isFinite(view.hoverScaleApplied) ? view.hoverScaleApplied : 1;
     fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
     const anchor = getScaledAnchorRect(
       view.container,
@@ -2468,7 +2715,12 @@ export function createBoardView(opts) {
           : 1;
       setHoverContext("tile", anchorCol, span, uiAnchor);
     }
-    return uiAnchor;
+    return getProjectedHoverUiAnchor(
+      view,
+      TILE_WIDTH,
+      Math.max(1, view.baseCardHeight ?? TILE_HEIGHT),
+      view.hoverInfoBottomY
+    );
   }
 
   function applyTileHover(view) {
@@ -2477,6 +2729,7 @@ export function createBoardView(opts) {
     view.setHoverActive?.(true);
     elevateForHover(view.container);
     view.isHovered = true;
+    view.hoverCleanupPending = false;
     const anchor = refreshTileHoverPresentation(view, 0, { updateHoverContext: true });
     tooltipView?.show?.(
       {
@@ -2611,14 +2864,16 @@ export function createBoardView(opts) {
   ) {
     if (!view) return null;
     const baseHeight = Math.max(1, view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT);
-    const currentHeight = Number.isFinite(view.cardHeightCurrent)
-      ? view.cardHeightCurrent
-      : baseHeight;
-    const targetHeight = Number.isFinite(view.cardHeightTarget)
-      ? view.cardHeightTarget
-      : baseHeight;
-    const hasPendingAnimation = Math.abs(targetHeight - currentHeight) > 0.5;
-    if (!view.isHovered && !hasPendingAnimation) {
+    const hasPendingHeight = hasPendingCardHeightAnimation(view);
+    const hasPendingScale = hasPendingHoverScaleAnimation(view);
+    const hasPendingShadow = hasPendingHoverShadowAnimation(view);
+    if (
+      !view.isHovered &&
+      !view.hoverCleanupPending &&
+      !hasPendingHeight &&
+      !hasPendingScale &&
+      !hasPendingShadow
+    ) {
       return null;
     }
     if (!view.isHovered) {
@@ -2628,7 +2883,15 @@ export function createBoardView(opts) {
         redrawHubCardVisuals(view);
         updateHubStructureViewUi(view, view.structure, { force: true });
       }
-      applyHoverScaleToView(view, 1);
+      setHoverScaleTarget(view, 1);
+      setHoverShadowAlphaTarget(view, 0);
+      animateHoverScale(view, dt);
+      animateHoverShadowAlpha(view, dt);
+      finalizeHoverExit(view, () => {
+        view.hoverAnchor = null;
+        view.hoverUiAnchor = null;
+        updateHubStructureViewUi(view, view.structure, { force: true });
+      });
       return null;
     }
     updateHubStructureViewUi(view, view.structure, { force: true });
@@ -2637,12 +2900,13 @@ export function createBoardView(opts) {
       redrawHubCardVisuals(view);
       updateHubStructureViewUi(view, view.structure, { force: true });
     }
-    if (!view.isHovered) {
-      applyHoverScaleToView(view, 1);
-      return null;
-    }
-    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
-    applyHoverScaleToView(view, hoverScale);
+    const wantsHoverZoom = shouldAllowHoverZoomIn(view);
+    const hoverScaleTarget = wantsHoverZoom ? resolveAdaptiveHoverScale(view.cardHeightCurrent) : 1;
+    setHoverScaleTarget(view, hoverScaleTarget);
+    setHoverShadowAlphaTarget(view, wantsHoverZoom ? 1 : 0);
+    animateHoverScale(view, dt);
+    animateHoverShadowAlpha(view, dt);
+    const hoverScale = Number.isFinite(view.hoverScaleApplied) ? view.hoverScaleApplied : 1;
     fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
     const anchor = getScaledAnchorRect(
       view.container,
@@ -2663,7 +2927,7 @@ export function createBoardView(opts) {
     if (updateHoverContext) {
       setHoverContext("hub", anchorCol, span, uiAnchor);
     }
-    return uiAnchor;
+    return getProjectedHoverUiAnchor(view, width, baseHeight, view.hoverInfoBottomY);
   }
 
   function applyHubStructureHover(view) {
@@ -2685,6 +2949,7 @@ export function createBoardView(opts) {
     view.setHoverActive?.(true);
     elevateForHover(view.container);
     view.isHovered = true;
+    view.hoverCleanupPending = false;
     const anchor = refreshHubHoverPresentation(view, width, span, anchorCol, 0, {
       updateHoverContext: true,
     });
@@ -3722,6 +3987,18 @@ export function createBoardView(opts) {
   ) {
     if (!view) return null;
     const baseHeight = Math.max(1, view.baseCardHeight ?? ENV_STRUCTURE_HEIGHT);
+    const hasPendingHeight = hasPendingCardHeightAnimation(view);
+    const hasPendingScale = hasPendingHoverScaleAnimation(view);
+    const hasPendingShadow = hasPendingHoverShadowAnimation(view);
+    if (
+      !view.isHovered &&
+      !view.hoverCleanupPending &&
+      !hasPendingHeight &&
+      !hasPendingScale &&
+      !hasPendingShadow
+    ) {
+      return null;
+    }
     if (view.descText) {
       view.descText.visible = !!view.isHovered;
     }
@@ -3736,12 +4013,22 @@ export function createBoardView(opts) {
     if (changed) {
       redrawEnvStructureCard(view);
     }
+    const wantsHoverZoom = view.isHovered && shouldAllowHoverZoomIn(view);
+    setHoverScaleTarget(
+      view,
+      wantsHoverZoom ? resolveAdaptiveHoverScale(view.cardHeightCurrent) : 1
+    );
+    setHoverShadowAlphaTarget(view, wantsHoverZoom ? 1 : 0);
+    animateHoverScale(view, dt);
+    animateHoverShadowAlpha(view, dt);
     if (!view.isHovered) {
-      applyHoverScaleToView(view, 1);
+      finalizeHoverExit(view, () => {
+        view.hoverAnchor = null;
+        view.hoverUiAnchor = null;
+      });
       return null;
     }
-    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
-    applyHoverScaleToView(view, hoverScale);
+    const hoverScale = Number.isFinite(view.hoverScaleApplied) ? view.hoverScaleApplied : 1;
     fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
     const anchor = getScaledAnchorRect(
       view.container,
@@ -3762,7 +4049,7 @@ export function createBoardView(opts) {
     if (updateHoverContext) {
       setHoverContext("envStructure", anchorCol, span, uiAnchor);
     }
-    return uiAnchor;
+    return getProjectedHoverUiAnchor(view, width, baseHeight, view.hoverInfoBottomY);
   }
 
   function applyEnvStructureHover(view) {
@@ -3784,6 +4071,7 @@ export function createBoardView(opts) {
     view.setHoverActive?.(true);
     elevateForHover(view.container);
     view.isHovered = true;
+    view.hoverCleanupPending = false;
     const anchor = refreshEnvStructureHoverPresentation(view, width, span, anchorCol, 0, {
       updateHoverContext: true,
     });
@@ -4108,6 +4396,8 @@ export function createBoardView(opts) {
       contentPaint,
       contentInk,
       setActive: setHoverActive,
+      setScale: setHoverScale,
+      setShadowAlpha: setHoverShadowAlpha,
     } = attachHoverFx(
       cont,
       TILE_WIDTH,
@@ -4296,6 +4586,8 @@ export function createBoardView(opts) {
       contentPaint,
       contentInk,
       content,
+      setHoverScale,
+      setHoverShadowAlpha,
       baseBg,
       cardFill,
       cardFillColor: color,
@@ -4304,7 +4596,11 @@ export function createBoardView(opts) {
       cardHeight: TILE_HEIGHT,
       cardHeightCurrent: TILE_HEIGHT,
       cardHeightTarget: TILE_HEIGHT,
-      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverScaleApplied: 1,
+      hoverScaleTarget: 1,
+      hoverShadowAlphaApplied: 0,
+      hoverShadowAlphaTarget: 0,
+      hoverCleanupPending: false,
       hoverInfoBottomY: TILE_HEIGHT,
       pawnBadge,
       pawnText,
@@ -4420,6 +4716,18 @@ export function createBoardView(opts) {
   ) {
     if (!view) return null;
     const baseHeight = Math.max(1, view.baseCardHeight ?? EVENT_HEIGHT);
+    const hasPendingHeight = hasPendingCardHeightAnimation(view);
+    const hasPendingScale = hasPendingHoverScaleAnimation(view);
+    const hasPendingShadow = hasPendingHoverShadowAnimation(view);
+    if (
+      !view.isHovered &&
+      !view.hoverCleanupPending &&
+      !hasPendingHeight &&
+      !hasPendingScale &&
+      !hasPendingShadow
+    ) {
+      return null;
+    }
     const descBottom =
       Number.isFinite(view.descText?.y) && Number.isFinite(view.descText?.height)
         ? view.descText.y + view.descText.height
@@ -4437,12 +4745,21 @@ export function createBoardView(opts) {
       redrawEventCard(view);
       updateEventRemaining(view, getGameState?.());
     }
+    const wantsHoverZoom = view.isHovered && shouldAllowHoverZoomIn(view);
+    setHoverScaleTarget(
+      view,
+      wantsHoverZoom ? resolveAdaptiveHoverScale(view.cardHeightCurrent) : 1
+    );
+    setHoverShadowAlphaTarget(view, wantsHoverZoom ? 1 : 0);
+    animateHoverScale(view, dt);
+    animateHoverShadowAlpha(view, dt);
     if (!view.isHovered) {
-      applyHoverScaleToView(view, 1);
+      finalizeHoverExit(view, () => {
+        view.hoverUiAnchor = null;
+      });
       return null;
     }
-    const hoverScale = resolveAdaptiveHoverScale(view.cardHeightCurrent);
-    applyHoverScaleToView(view, hoverScale);
+    const hoverScale = Number.isFinite(view.hoverScaleApplied) ? view.hoverScaleApplied : 1;
     fitHoverViewY(view, view.cardHeightCurrent, view.hoverInfoBottomY, hoverScale);
     const anchor = getScaledAnchorRect(
       view.container,
@@ -4462,7 +4779,12 @@ export function createBoardView(opts) {
     if (updateHoverContext) {
       setHoverContext("event", col, span, uiAnchor);
     }
-    return uiAnchor;
+    return getProjectedHoverUiAnchor(
+      view,
+      view.cardWidth ?? view.width ?? EVENT_WIDTH,
+      baseHeight,
+      view.hoverInfoBottomY
+    );
   }
 
   function applyEventHover(view, col, span) {
@@ -4471,6 +4793,7 @@ export function createBoardView(opts) {
     view.setHoverActive?.(true);
     elevateForHover(view.container);
     view.isHovered = true;
+    view.hoverCleanupPending = false;
     const anchor = refreshEventHoverPresentation(view, col, span, 0, {
       updateHoverContext: true,
     });
@@ -4507,6 +4830,8 @@ export function createBoardView(opts) {
       contentPaint,
       contentInk,
       setActive: setHoverActive,
+      setScale: setHoverScale,
+      setShadowAlpha: setHoverShadowAlpha,
     } = attachHoverFx(
       cont,
       width,
@@ -4581,7 +4906,11 @@ export function createBoardView(opts) {
       baseCardHeight: EVENT_HEIGHT,
       cardHeightCurrent: EVENT_HEIGHT,
       cardHeightTarget: EVENT_HEIGHT,
-      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverScaleApplied: 1,
+      hoverScaleTarget: 1,
+      hoverShadowAlphaApplied: 0,
+      hoverShadowAlphaTarget: 0,
+      hoverCleanupPending: false,
       hoverInfoBottomY: EVENT_HEIGHT,
       baseBg,
       cardFill,
@@ -4595,8 +4924,11 @@ export function createBoardView(opts) {
       timerDrainMask,
       hoverTextNodes,
       setHoverActive,
+      setHoverScale,
+      setHoverShadowAlpha,
       contentPaint,
       baseY: EVENT_ROW_Y,
+      hoverUiAnchor: null,
     };
 
     cont.on("pointerenter", () => {
@@ -4730,6 +5062,8 @@ export function createBoardView(opts) {
       contentPaint,
       contentInk,
       setActive: setHoverActive,
+      setScale: setHoverScale,
+      setShadowAlpha: setHoverShadowAlpha,
     } = attachHoverFx(
       cont,
       width,
@@ -4788,7 +5122,11 @@ export function createBoardView(opts) {
       baseCardHeight: height,
       cardHeightCurrent: height,
       cardHeightTarget: height,
-      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverScaleApplied: 1,
+      hoverScaleTarget: 1,
+      hoverShadowAlphaApplied: 0,
+      hoverShadowAlphaTarget: 0,
+      hoverCleanupPending: false,
       hoverInfoBottomY: height,
       hoverAnchor: null,
       hoverUiAnchor: null,
@@ -4798,6 +5136,8 @@ export function createBoardView(opts) {
       pawnCount: 0,
       hoverTextNodes,
       setHoverActive,
+      setHoverScale,
+      setHoverShadowAlpha,
       contentPaint,
     };
 
@@ -4910,6 +5250,8 @@ export function createBoardView(opts) {
       contentPaint,
       contentInk,
       setActive: setHoverActive,
+      setScale: setHoverScale,
+      setShadowAlpha: setHoverShadowAlpha,
     } = attachHoverFx(
       cont,
       width,
@@ -5118,6 +5460,8 @@ export function createBoardView(opts) {
       hoverTextNodes,
       structureHasInventory,
       setHoverActive,
+      setHoverScale,
+      setHoverShadowAlpha,
       baseBg,
       cardFill,
       cardFillColor: color,
@@ -5126,7 +5470,11 @@ export function createBoardView(opts) {
       cardHeight: height,
       cardHeightCurrent: height,
       cardHeightTarget: height,
-      hoverScaleApplied: GAMEPIECE_HOVER_SCALE,
+      hoverScaleApplied: 1,
+      hoverScaleTarget: 1,
+      hoverShadowAlphaApplied: 0,
+      hoverShadowAlphaTarget: 0,
+      hoverCleanupPending: false,
       hoverInfoBottomY: height,
       uiSignature: null,
       apOverlay,
@@ -6098,6 +6446,7 @@ export function createBoardView(opts) {
     init,
     rebuildAll,
     update,
+    hasActiveHoverZoomDown,
     getInventoryOwnerAtGlobalPos,
     setDistributorBuildPreview(spec) {
       if (!spec) {

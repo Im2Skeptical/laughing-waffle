@@ -619,6 +619,7 @@ const uiLayers = {
   controlsLayer: new PIXI.Container(),
   hoverLayer: new PIXI.Container(),
   inventoryLayer: new PIXI.Container(),
+  inventoryHoverLayer: new PIXI.Container(),
   tooltipLayer: new PIXI.Container(),
   dragLayer: new PIXI.Container(),
   debugLayer: new PIXI.Container(),
@@ -636,8 +637,9 @@ app.stage.addChild(
   uiLayers.pawnLayer,
   uiLayers.stateTintLayer,
   uiLayers.controlsLayer,
-  uiLayers.hoverLayer,
   uiLayers.inventoryLayer,
+  uiLayers.hoverLayer,
+  uiLayers.inventoryHoverLayer,
   uiLayers.tooltipLayer,
   uiLayers.dragLayer,
   uiLayers.debugLayer,
@@ -910,6 +912,7 @@ function setMainUiVisible(visible) {
   uiLayers.controlsLayer.visible = visible;
   uiLayers.hoverLayer.visible = visible;
   uiLayers.inventoryLayer.visible = visible;
+  uiLayers.inventoryHoverLayer.visible = visible;
   uiLayers.tooltipLayer.visible = visible;
   uiLayers.dragLayer.visible = visible;
   uiLayers.debugLayer.visible = visible;
@@ -1352,6 +1355,7 @@ const setApDragWarning = (active) => {
 };
 inventoryView = createInventoryView({
   layer: uiLayers.inventoryLayer,
+  hoverLayer: uiLayers.inventoryHoverLayer,
   dragLayer: uiLayers.dragLayer,
   layout: VIEW_LAYOUT.inventory,
   tooltipView,
@@ -1661,7 +1665,17 @@ backdropView = createBackdropView({
   paintStyleController: playfieldShader,
 });
 
-const boardView = createBoardView({
+let boardView = null;
+let pawnsView = null;
+
+function canStartGamepieceHoverZoomIn() {
+  return !(
+    boardView?.hasActiveHoverZoomDown?.() ||
+    pawnsView?.hasActiveHoverZoomDown?.()
+  );
+}
+
+boardView = createBoardView({
   app,
   tileLayer: uiLayers.tileLayer,
   eventLayer: uiLayers.eventLayer,
@@ -1701,9 +1715,10 @@ const boardView = createBoardView({
     focusSystemGraphFromGamepiece(focus);
   },
   getExternalFocus: () => getExternalUiFocus(),
+  canStartHoverZoomIn: () => canStartGamepieceHoverZoomIn(),
 });
 
-const pawnsView = createPawnsView({
+pawnsView = createPawnsView({
   app,
   layer: uiLayers.pawnLayer,
   hoverLayer: uiLayers.hoverLayer,
@@ -1729,6 +1744,7 @@ const pawnsView = createPawnsView({
   getPreviewHubCol: (pawnId) =>
     getMergedPawnOverridePlacement(pawnId)?.hubCol ?? null,
   getPreviewPlacement: (pawnId) => getMergedPawnOverridePlacement(pawnId),
+  canStartHoverZoomIn: () => canStartGamepieceHoverZoomIn(),
   onPawnDropped({ pawnId, dropPos }) {
     if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();

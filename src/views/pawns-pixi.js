@@ -25,6 +25,8 @@ import {
   CHARACTER_ROW_OFFSET_Y,
   VIEW_LAYOUT,
   GAMEPIECE_HOVER_SCALE,
+  GAMEPIECE_HOVER_ZOOM_IN_TWEEN_SEC,
+  GAMEPIECE_HOVER_ZOOM_OUT_TWEEN_SEC,
   GAMEPIECE_SHADOW_COLOR,
   GAMEPIECE_SHADOW_ALPHA,
   GAMEPIECE_SHADOW_OFFSET_X,
@@ -59,6 +61,7 @@ export function createPawnsView(opts) {
     getExternalFocus,
     getPreviewHubCol,
     getPreviewPlacement,
+    canStartHoverZoomIn,
   } = opts;
 
   const viewsById = new Map();
@@ -66,6 +69,7 @@ export function createPawnsView(opts) {
   const DRAG_GHOST_REFRESH_MS = 50;
   const FAN_SPACING = 40;
   const RADIUS = 20;
+  const PAWN_HOVER_ZINDEX = 30;
   const LEADER_DIAMOND_SCALE = 1.15;
   let focusGhost = null;
   let focusedPawnId = null;
@@ -230,17 +234,146 @@ export function createPawnsView(opts) {
 
   function getEffectiveScale(view) {
     const attached = Number.isFinite(view.attachedScale) ? view.attachedScale : 1;
-    const hover = view.selfHover ? GAMEPIECE_HOVER_SCALE : 1;
+    const hover = Number.isFinite(view.selfHoverScaleApplied)
+      ? view.selfHoverScaleApplied
+      : 1;
     return Math.max(attached, hover);
+  }
+
+  function setPawnSelfHoverScale(view, scale) {
+    if (!view) return;
+    view.selfHoverScaleApplied = Number.isFinite(scale) ? scale : 1;
+  }
+
+  function isPawnHoverZoomExpanded(view) {
+    if (!view) return false;
+    const currentScale = Number.isFinite(view.selfHoverScaleApplied)
+      ? view.selfHoverScaleApplied
+      : 1;
+    const targetScale = Number.isFinite(view.selfHoverScaleTarget)
+      ? view.selfHoverScaleTarget
+      : 1;
+    const currentShadow = Number.isFinite(view.hoverShadowAlphaApplied)
+      ? view.hoverShadowAlphaApplied
+      : 0;
+    const targetShadow = Number.isFinite(view.hoverShadowAlphaTarget)
+      ? view.hoverShadowAlphaTarget
+      : 0;
+    return (
+      currentScale > 1.001 ||
+      targetScale > 1.001 ||
+      currentShadow > 0.001 ||
+      targetShadow > 0.001
+    );
+  }
+
+  function animatePawnSelfHoverScale(view, dt) {
+    if (!view) return false;
+    const target = Number.isFinite(view.selfHoverScaleTarget)
+      ? view.selfHoverScaleTarget
+      : 1;
+    const current = Number.isFinite(view.selfHoverScaleApplied)
+      ? view.selfHoverScaleApplied
+      : 1;
+    const diff = target - current;
+    if (Math.abs(diff) < 0.001) {
+      if (Math.abs(current - target) < 1e-6) return false;
+      setPawnSelfHoverScale(view, target);
+      return true;
+    }
+    const stepDt = Number.isFinite(dt) ? Math.max(0, dt) : 1 / 60;
+    const tweenSec = Math.max(
+      0.0001,
+      target < current
+        ? GAMEPIECE_HOVER_ZOOM_OUT_TWEEN_SEC
+        : GAMEPIECE_HOVER_ZOOM_IN_TWEEN_SEC
+    );
+    const t = Math.min(1, stepDt / tweenSec);
+    setPawnSelfHoverScale(view, current + diff * t);
+    return true;
+  }
+
+  function buildPawnHoverAnchor(view) {
+    if (!view?.container) return null;
+    const scale = getEffectiveScale(view);
+    return getScaledAnchorFromCenter(
+      view.container.x,
+      view.container.y,
+      RADIUS * 2,
+      RADIUS * 2,
+      scale
+    );
+  }
+
+  function setPawnHoverShadowAlpha(view, alpha) {
+    if (!view?.shadow) return;
+    const nextAlpha = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+    view.hoverShadowAlphaApplied = nextAlpha;
+    view.shadow.alpha = nextAlpha;
+    view.shadow.visible = nextAlpha > 0.001 && GAMEPIECE_SHADOW_ALPHA > 0;
+  }
+
+  function animatePawnHoverShadowAlpha(view, dt) {
+    if (!view) return false;
+    const target = Number.isFinite(view.hoverShadowAlphaTarget)
+      ? view.hoverShadowAlphaTarget
+      : 0;
+    const current = Number.isFinite(view.hoverShadowAlphaApplied)
+      ? view.hoverShadowAlphaApplied
+      : 0;
+    const diff = target - current;
+    if (Math.abs(diff) < 0.001) {
+      if (Math.abs(current - target) < 1e-6) return false;
+      setPawnHoverShadowAlpha(view, target);
+      return true;
+    }
+    const stepDt = Number.isFinite(dt) ? Math.max(0, dt) : 1 / 60;
+    const tweenSec = Math.max(
+      0.0001,
+      target < current
+        ? GAMEPIECE_HOVER_ZOOM_OUT_TWEEN_SEC
+        : GAMEPIECE_HOVER_ZOOM_IN_TWEEN_SEC
+    );
+    const t = Math.min(1, stepDt / tweenSec);
+    setPawnHoverShadowAlpha(view, current + diff * t);
+    return true;
+  }
+
+  function shouldAllowPawnHoverZoomIn(view) {
+    if (isPawnHoverZoomExpanded(view)) return true;
+    return canStartHoverZoomIn?.() !== false;
+  }
+
+  function hasActiveHoverZoomDown() {
+    for (const view of viewsById.values()) {
+      if (view.selfHover) continue;
+      const scalePending =
+        Number.isFinite(view.selfHoverScaleTarget) &&
+        Number.isFinite(view.selfHoverScaleApplied) &&
+        Math.abs(view.selfHoverScaleTarget - view.selfHoverScaleApplied) > 0.001;
+      const shadowPending =
+        Number.isFinite(view.hoverShadowAlphaTarget) &&
+        Number.isFinite(view.hoverShadowAlphaApplied) &&
+        Math.abs(view.hoverShadowAlphaTarget - view.hoverShadowAlphaApplied) > 0.001;
+      if (scalePending || shadowPending) return true;
+    }
+    return false;
   }
 
   function applyPawnScale(view) {
     const scale = getEffectiveScale(view);
     view.container.scale.set(scale);
     applyTextResolution(view.label, scale);
-    view.shadow.visible = scale > 1 && GAMEPIECE_SHADOW_ALPHA > 0;
-    view.container.zIndex = scale > 1 ? 20 : 0;
-    if (scale > 1) {
+    view.container.zIndex =
+      scale > 1 ||
+      (Number.isFinite(view.hoverShadowAlphaApplied) && view.hoverShadowAlphaApplied > 0.001)
+        ? PAWN_HOVER_ZINDEX
+        : 0;
+    if (
+      view.selfHover ||
+      scale > 1 ||
+      (Number.isFinite(view.hoverShadowAlphaApplied) && view.hoverShadowAlphaApplied > 0.001)
+    ) {
       elevateForHover(view);
     } else {
       restoreFromHover(view);
@@ -830,6 +963,7 @@ export function createPawnsView(opts) {
       );
     }
     shadow.endFill();
+    shadow.alpha = 0;
     shadow.visible = false;
     shadowLayer.addChild(shadow);
 
@@ -883,6 +1017,10 @@ export function createPawnsView(opts) {
       flashRing,
       flashTimeout: null,
       selfHover: false,
+      selfHoverScaleApplied: 1,
+      selfHoverScaleTarget: 1,
+      hoverShadowAlphaApplied: 0,
+      hoverShadowAlphaTarget: 0,
       attachedScale: 1,
       hoverParent: null,
       hoverIndex: null,
@@ -901,17 +1039,14 @@ export function createPawnsView(opts) {
       if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI())
         return;
       view.selfHover = true;
+      const canZoomIn = shouldAllowPawnHoverZoomIn(view);
+      view.selfHoverScaleTarget = canZoomIn ? GAMEPIECE_HOVER_SCALE : 1;
+      view.hoverShadowAlphaTarget = canZoomIn ? 1 : 0;
       applyPawnScale(view);
 
       const tt = getTooltipSafe();
       const scale = getEffectiveScale(view);
-      const anchor = getScaledAnchorFromCenter(
-        container.x,
-        container.y,
-        RADIUS * 2,
-        RADIUS * 2,
-        scale
-      );
+      const anchor = buildPawnHoverAnchor(view);
       tt?.show?.({ ...makePawnTooltipSpec(pawnData), scale }, anchor);
 
       const inv = getInvSafe();
@@ -931,7 +1066,8 @@ export function createPawnsView(opts) {
 
     function hideHover() {
       view.selfHover = false;
-      applyPawnScale(view);
+      view.selfHoverScaleTarget = 1;
+      view.hoverShadowAlphaTarget = 0;
       const inv = getInvSafe();
       inv?.hideOnHoverOut?.(pawn.id);
 
@@ -1001,6 +1137,10 @@ export function createPawnsView(opts) {
       interactionSafe.startDrag?.({ type: "pawn", id: pawnData.id });
       requestPauseForAction?.();
       view.selfHover = false;
+      view.selfHoverScaleTarget = 1;
+      view.selfHoverScaleApplied = 1;
+      view.hoverShadowAlphaTarget = 0;
+      setPawnHoverShadowAlpha(view, 0);
       view.attachedScale = 1;
       applyPawnScale(view);
       hideHover();
@@ -1229,7 +1369,7 @@ export function createPawnsView(opts) {
     }
   }
 
-  function update() {
+  function update(dt) {
     const pawns = getPawnsSafe();
     const followerOrdinalByPawnId = getFollowerOrdinalByPawnId(pawns);
     syncPawnViews(pawns, followerOrdinalByPawnId);
@@ -1238,6 +1378,34 @@ export function createPawnsView(opts) {
       const nextLabel = getLabelForPawn(view.pawn, followerOrdinalByPawnId);
       if (view.label && view.label.text !== nextLabel) {
         view.label.text = nextLabel;
+      }
+      if (animatePawnSelfHoverScale(view, dt)) {
+        applyPawnScale(view);
+      }
+      if (animatePawnHoverShadowAlpha(view, dt)) {
+        applyPawnScale(view);
+      }
+      if (view.selfHover) {
+        const canZoomIn = shouldAllowPawnHoverZoomIn(view);
+        view.selfHoverScaleTarget = canZoomIn ? GAMEPIECE_HOVER_SCALE : 1;
+        view.hoverShadowAlphaTarget = canZoomIn ? 1 : 0;
+      }
+      if (view.selfHover) {
+        const scale = getEffectiveScale(view);
+        const anchor = buildPawnHoverAnchor(view);
+        const pawnData = view.pawn;
+        getTooltipSafe()?.show?.({ ...makePawnTooltipSpec(pawnData), scale }, anchor);
+        getInvSafe()?.showOnHover?.(pawnData?.id, anchor);
+        const placement = getHoverPlacementForPawn(pawnData);
+        interactionSafe.setHoveredPawn?.({
+          kind: "pawn",
+          id: pawnData?.id,
+          envCol: placement.envCol,
+          hubCol: placement.hubCol,
+          centerX: view.container.x,
+          centerY: view.container.y,
+          scale,
+        });
       }
       updateStaminaVisual(view, view.pawn);
     }
@@ -1274,6 +1442,7 @@ export function createPawnsView(opts) {
     rebuildAll,
     update,
     updatePositionsFromModel,
+    hasActiveHoverZoomDown,
     getViewForId: (id) => viewsById.get(id) || null,
     getInventoryOwnerAtGlobalPos,
   };

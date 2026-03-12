@@ -362,6 +362,8 @@ export const HUB_STRUCTURE_WIDTH = toPositiveInt(HUB_LAYOUT.structureWidth, 112)
 export const HUB_STRUCTURE_HEIGHT = toPositiveInt(HUB_LAYOUT.structureHeight, 168);
 
 export const GAMEPIECE_HOVER_SCALE = 1.8;
+export const GAMEPIECE_HOVER_ZOOM_IN_TWEEN_SEC = 0.08;
+export const GAMEPIECE_HOVER_ZOOM_OUT_TWEEN_SEC = 0.01;
 export const GAMEPIECE_SHADOW_COLOR = 0x000000;
 export const GAMEPIECE_SHADOW_ALPHA = 0.25;
 export const GAMEPIECE_SHADOW_OFFSET_X = 6;

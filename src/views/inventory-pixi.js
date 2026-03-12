@@ -163,6 +163,11 @@ const INVENTORY_GRID_LINE = MUCHA_UI_COLORS.surfaces.borderSoft;
 const INVENTORY_BUTTON_BG = MUCHA_UI_COLORS.surfaces.header;
 const INVENTORY_PROMPT_BG = MUCHA_UI_COLORS.surfaces.panelSoft;
 const INVENTORY_PROMPT_STROKE = MUCHA_UI_COLORS.surfaces.border;
+const INVENTORY_WINDOW_Z_BASE = 40;
+const INVENTORY_WINDOW_Z_PINNED = INVENTORY_WINDOW_Z_BASE;
+const INVENTORY_WINDOW_Z_HOVERED = INVENTORY_WINDOW_Z_BASE + 20;
+const INVENTORY_WINDOW_Z_HOVERED_PINNED = INVENTORY_WINDOW_Z_BASE + 30;
+const INVENTORY_WINDOW_Z_FOCUSED = INVENTORY_WINDOW_Z_BASE + 40;
 const INVENTORY_TOOLTIP_MIN_SCALE = Number.isFinite(GAMEPIECE_HOVER_SCALE)
   ? Math.max(1, GAMEPIECE_HOVER_SCALE)
   : 2;
@@ -211,6 +216,7 @@ function formatItemGlyphLabel(def, item) {
 
 export function createInventoryView({
   layer,
+  hoverLayer = null,
   dragLayer,
   getOwnerLabel,
   getInventoryForOwner,
@@ -256,6 +262,8 @@ export function createInventoryView({
   layout = null,
 }) {
   const stage = layer.parent;
+  if (layer) layer.sortableChildren = true;
+  if (hoverLayer) hoverLayer.sortableChildren = true;
   const inventoryLayout =
     layout && typeof layout === "object" ? layout : VIEW_LAYOUT.inventory;
 
@@ -422,6 +430,34 @@ export function createInventoryView({
       width: Math.max(1, Math.floor((win?.panelWidth ?? 0) * scale)),
       height: Math.max(1, Math.floor((win?.panelHeight ?? 0) * scale)),
     };
+  }
+
+  function getWindowStackZIndex(win) {
+    if (!win) return INVENTORY_WINDOW_Z_BASE;
+    if (win.forceStackFront) return INVENTORY_WINDOW_Z_FOCUSED;
+    if (win.hovered && win.pinned) return INVENTORY_WINDOW_Z_HOVERED_PINNED;
+    if (win.hovered) return INVENTORY_WINDOW_Z_HOVERED;
+    return INVENTORY_WINDOW_Z_PINNED;
+  }
+
+  function getWindowParentLayer(win) {
+    if (win?.hovered || win?.forceStackFront) {
+      return hoverLayer || layer;
+    }
+    return layer;
+  }
+
+  function syncWindowParentLayer(win) {
+    if (!win?.container) return;
+    const targetLayer = getWindowParentLayer(win);
+    if (!targetLayer || win.container.parent === targetLayer) return;
+    targetLayer.addChild(win.container);
+  }
+
+  function syncWindowStackOrder(win) {
+    if (!win?.container) return;
+    syncWindowParentLayer(win);
+    win.container.zIndex = getWindowStackZIndex(win);
   }
 
   function getLeaderForOwner(ownerId) {
@@ -2231,7 +2267,7 @@ export function createInventoryView({
 
     const c = new PIXI.Container();
     c.visible = false;
-    c.zIndex = 40;
+    c.zIndex = INVENTORY_WINDOW_Z_BASE;
     layer.addChild(c);
 
     // Background
@@ -2365,6 +2401,7 @@ export function createInventoryView({
         skills: false,
         build: false,
       },
+      forceStackFront: false,
       uiScale: 1,
       itemViews: [],
       bin: {
@@ -2374,6 +2411,7 @@ export function createInventoryView({
     };
 
     applyWindowScale(win);
+    syncWindowStackOrder(win);
     windows.set(ownerId, win);
 
     // Header drag is handled by the shared header helper.
@@ -2852,6 +2890,7 @@ export function createInventoryView({
     }
 
     refreshWindowVisibility(win);
+    syncWindowStackOrder(win);
   }
 
   function hideOnHoverOut(ownerId) {
@@ -2864,6 +2903,7 @@ export function createInventoryView({
       clearActiveBuildForOwner(ownerId);
       closeBuildingManagerForOwner(ownerId);
     }
+    syncWindowStackOrder(win);
     if (consumePrompt?.ownerId === ownerId && !win.pinned) {
       hideConsumePrompt();
     }
@@ -2877,6 +2917,8 @@ export function createInventoryView({
     win.hovered = false;
     win.container.visible = false;
     win.pinText.text = "[ ]";
+    win.forceStackFront = false;
+    syncWindowStackOrder(win);
     clearActiveBuildForOwner(ownerId);
     closeBuildingManagerForOwner(ownerId);
     if (consumePrompt?.ownerId === ownerId) {
@@ -2897,15 +2939,18 @@ export function createInventoryView({
       closeBuildingManagerForOwner(ownerId);
     }
     refreshWindowVisibility(win);
+    syncWindowStackOrder(win);
   }
 
   function refreshWindowVisibility(win) {
     if (!win) return;
     if (win.ownerConcealed) {
       win.container.visible = false;
+      syncWindowStackOrder(win);
       return;
     }
     win.container.visible = !!win.pinned || !!win.hovered;
+    syncWindowStackOrder(win);
   }
 
   function applyFocusVisibility(focusIntent) {
@@ -2923,7 +2968,9 @@ export function createInventoryView({
         const visibility = syncWindowOwnerVisibility(win);
         const canShow = shouldFocus && visibility.visible !== false;
         win.focusOutline.visible = canShow;
+        win.forceStackFront = canShow;
         win.container.visible = canShow;
+        syncWindowStackOrder(win);
       }
       return;
     }
@@ -2946,13 +2993,16 @@ export function createInventoryView({
         const visibility = syncWindowOwnerVisibility(win);
         const canShow = shouldFocus && visibility.visible !== false;
         win.focusOutline.visible = canShow;
+        win.forceStackFront = canShow;
         win.container.visible = canShow;
+        syncWindowStackOrder(win);
       }
       return;
     }
 
     for (const win of windows.values()) {
       win.focusOutline.visible = false;
+      win.forceStackFront = false;
       refreshWindowVisibility(win);
     }
   }
@@ -3361,6 +3411,7 @@ export function createInventoryView({
     }
     win.hovered = true;
     refreshWindowVisibility(win);
+    syncWindowStackOrder(win);
     return { ok: true };
   }
 
@@ -4620,7 +4671,14 @@ export function createInventoryView({
   }
 
   function findWindowAt(globalPos) {
-    for (const win of windows.values()) {
+    const ordered = Array.from(windows.values()).sort((a, b) => {
+      const zDelta = (b?.container?.zIndex ?? 0) - (a?.container?.zIndex ?? 0);
+      if (zDelta !== 0) return zDelta;
+      const bIndex = b?.container?.parent?.getChildIndex?.(b.container) ?? 0;
+      const aIndex = a?.container?.parent?.getChildIndex?.(a.container) ?? 0;
+      return bIndex - aIndex;
+    });
+    for (const win of ordered) {
       const c = win.container;
       const displaySize = getWindowDisplaySize(win);
 
