@@ -5,6 +5,7 @@ import { createActionPlanner } from "../src/controllers/actionmanagers/action-pl
 import { envStructureDefs } from "../src/defs/gamepieces/env-structures-defs.js";
 import { placePawn, createInitialState, updateGame } from "../src/model/game-model.js";
 import { getBuildProcess } from "../src/model/build-helpers.js";
+import { getInventoryOwnerVisibility } from "../src/model/inventory-owner-visibility.js";
 import { hasEnvTagUnlock } from "../src/model/skills.js";
 import {
   deserializeGameState,
@@ -55,6 +56,13 @@ function getInventorySignature(state, ownerId) {
     )
     .sort()
     .join("|");
+}
+
+function getFirstInventoryItemId(state, ownerId) {
+  const items = Array.isArray(state?.ownerInventories?.[ownerId]?.items)
+    ? state.ownerInventories[ownerId].items
+    : [];
+  return items[0]?.id ?? null;
 }
 
 function createPlannerHarness(state) {
@@ -134,6 +142,36 @@ function runInitAssertions() {
   assert.match(getInventorySignature(state, hubStructure.instanceId), /moteOfEternity:1/);
   assert.match(getInventorySignature(state, hubStructure.instanceId), /mysteriousAncientTome:1/);
   assert.equal(getInventorySignature(state, leader.id), "", "leader should not start with relic items");
+  assert.deepEqual(
+    getInventoryOwnerVisibility(state, hubStructure.instanceId),
+    {
+      visible: false,
+      reason: "hubHidden",
+      ownerKind: "hub",
+      resolvedOwnerId: hubStructure.instanceId,
+    },
+    "hidden hub owner visibility should report hubHidden before delve"
+  );
+
+  const hiddenTempleItemId = getFirstInventoryItemId(state, hubStructure.instanceId);
+  assert.ok(hiddenTempleItemId != null, "Temple Ruins should start with an inventory item");
+  state.paused = true;
+  const hiddenInventoryDiscard = applyAction(
+    state,
+    {
+      kind: ActionKinds.INVENTORY_DISCARD,
+      payload: { ownerId: hubStructure.instanceId, itemId: hiddenTempleItemId },
+      apCost: 0,
+    },
+    { isReplay: false }
+  );
+  assert.equal(hiddenInventoryDiscard?.ok, false, "hidden Temple Ruins inventory should reject discard");
+  assert.equal(
+    hiddenInventoryDiscard?.reason,
+    "hubHidden",
+    "hidden Temple Ruins inventory should report hubHidden"
+  );
+  state.paused = false;
 
   const hiddenEnvMove = placePawn(state, { pawnId: leader.id, toEnvCol: 1 });
   assert.equal(hiddenEnvMove?.ok, false, "hidden env placement should fail");
@@ -209,6 +247,41 @@ function runLiveSequenceAndAssertions() {
   advanceSeconds(state, 5);
   assert.equal(isHubVisible(state), true, "delve should reveal the hub");
   assert.ok(!getTileAt(state, 1)?.tags?.includes("delve"), "delve tag should be removed after completion");
+  assert.deepEqual(
+    getInventoryOwnerVisibility(state, initialHubStructure.instanceId),
+    {
+      visible: true,
+      reason: null,
+      ownerKind: "hub",
+      resolvedOwnerId: initialHubStructure.instanceId,
+    },
+    "Temple Ruins inventory should become visible after delve"
+  );
+
+  const visibleDiscardState = deserializeGameState(serializeGameState(state));
+  const visibleTemple = getHubStructureAt(visibleDiscardState, 4);
+  assert.ok(visibleTemple, "Temple Ruins should still exist in cloned post-delve state");
+  visibleDiscardState.paused = true;
+  const visibleTempleItemId = getFirstInventoryItemId(
+    visibleDiscardState,
+    visibleTemple.instanceId
+  );
+  assert.ok(visibleTempleItemId != null, "Temple Ruins inventory should still contain an item after delve");
+  const visibleInventoryDiscard = applyAction(
+    visibleDiscardState,
+    {
+      kind: ActionKinds.INVENTORY_DISCARD,
+      payload: { ownerId: visibleTemple.instanceId, itemId: visibleTempleItemId },
+      apCost: 0,
+    },
+    { isReplay: false }
+  );
+  assert.equal(visibleInventoryDiscard?.ok, true, "visible Temple Ruins inventory should allow discard");
+  assert.notEqual(
+    getInventorySignature(visibleDiscardState, visibleTemple.instanceId),
+    initialHubInventory,
+    "discard should mutate visible Temple Ruins inventory once it is visible"
+  );
 
   state.paused = true;
   const plannerAfterDelve = createPlannerHarness(state);
@@ -310,6 +383,34 @@ function runReplayParityAssertions(liveState, afterFirstExploreInventory, replay
     afterFirstExploreInventory,
     getInventorySignature(replayAtFive.state, getLeader(replayAtFive.state).id),
     "sample package drops should be deterministic across replay"
+  );
+
+  const replayBeforeDelve = rebuildStateAtSecond(timeline, 14);
+  assert.equal(
+    replayBeforeDelve?.ok,
+    true,
+    `timeline rebuild before delve failed: ${JSON.stringify(replayBeforeDelve)}`
+  );
+  const hiddenReplayTemple = getHubStructureAt(replayBeforeDelve.state, 4);
+  assert.ok(hiddenReplayTemple, "expected Temple Ruins before delve in replay");
+  assert.equal(
+    getInventoryOwnerVisibility(replayBeforeDelve.state, hiddenReplayTemple.instanceId).visible,
+    false,
+    "Temple Ruins inventory should be hidden before delve in replay"
+  );
+
+  const replayAfterDelve = rebuildStateAtSecond(timeline, 15);
+  assert.equal(
+    replayAfterDelve?.ok,
+    true,
+    `timeline rebuild after delve failed: ${JSON.stringify(replayAfterDelve)}`
+  );
+  const visibleReplayTemple = getHubStructureAt(replayAfterDelve.state, 4);
+  assert.ok(visibleReplayTemple, "expected Temple Ruins after delve in replay");
+  assert.equal(
+    getInventoryOwnerVisibility(replayAfterDelve.state, visibleReplayTemple.instanceId).visible,
+    true,
+    "Temple Ruins inventory should be visible after delve in replay"
   );
 }
 

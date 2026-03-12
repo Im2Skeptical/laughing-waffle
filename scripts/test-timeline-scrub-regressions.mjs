@@ -35,6 +35,7 @@ import {
 import { deserializeGameState, serializeGameState } from "../src/model/state.js";
 import { createInitialState, updateGame } from "../src/model/game-model.js";
 import { handleSpawnFromDropTable } from "../src/model/effects/ops/game-ops.js";
+import { getInventoryOwnerVisibility } from "../src/model/inventory-owner-visibility.js";
 import { Inventory } from "../src/model/inventory-model.js";
 import { stepPawnSecond } from "../src/model/pawn-exec.js";
 import {
@@ -355,6 +356,83 @@ function runEnvEventDeckVisibleLayoutTargetChecks() {
     partialTarget.x,
     fullTarget.x,
     "[envDeckView] unrevealed columns should compress placement targets"
+  );
+}
+
+function getHubStructureAt(state, hubCol) {
+  return state?.hub?.occ?.[hubCol] ?? state?.hub?.slots?.[hubCol]?.structure ?? null;
+}
+
+function runHiddenHubInventoryVisibilityChecks() {
+  const initial = createInitialState("devPlaytesting01", 123);
+  const initialTemple = getHubStructureAt(initial, 4);
+  assert.ok(initialTemple, "[hiddenHubInventory] expected Temple Ruins at init");
+
+  assert.deepEqual(
+    getInventoryOwnerVisibility(initial, initialTemple.instanceId),
+    {
+      visible: false,
+      reason: "hubHidden",
+      ownerKind: "hub",
+      resolvedOwnerId: initialTemple.instanceId,
+    },
+    "[hiddenHubInventory] initial Temple Ruins owner should be hidden"
+  );
+
+  const timeline = createTimelineFromInitialState(initial);
+  const leader = (initial?.pawns ?? []).find((pawn) => pawn?.role === "leader");
+  assert.ok(leader?.id != null, "[hiddenHubInventory] expected leader pawn");
+
+  assertOk(
+    replaceActionsAtSecond(
+      timeline,
+      5,
+      [
+        {
+          kind: ActionKinds.PLACE_PAWN,
+          apCost: 0,
+          payload: { pawnId: leader.id, toEnvCol: 1 },
+        },
+      ],
+      { truncateFuture: false }
+    ),
+    "[hiddenHubInventory] schedule levee move"
+  );
+
+  const beforeDelve = rebuildStateAtSecond(timeline, 14);
+  assertOk(beforeDelve, "[hiddenHubInventory] rebuild @14");
+  const beforeTemple = getHubStructureAt(beforeDelve.state, 4);
+  assert.ok(beforeTemple, "[hiddenHubInventory] expected Temple Ruins before delve");
+  assert.equal(
+    getInventoryOwnerVisibility(beforeDelve.state, beforeTemple.instanceId).visible,
+    false,
+    "[hiddenHubInventory] Temple Ruins should remain hidden before delve completes"
+  );
+
+  assertOk(
+    replaceActionsAtSecond(
+      timeline,
+      15,
+      [
+        {
+          kind: ActionKinds.PLACE_PAWN,
+          apCost: 0,
+          payload: { pawnId: leader.id, toHubCol: 4 },
+        },
+      ],
+      { truncateFuture: false }
+    ),
+    "[hiddenHubInventory] schedule hub move"
+  );
+
+  const afterDelve = rebuildStateAtSecond(timeline, 15);
+  assertOk(afterDelve, "[hiddenHubInventory] rebuild @15");
+  const afterTemple = getHubStructureAt(afterDelve.state, 4);
+  assert.ok(afterTemple, "[hiddenHubInventory] expected Temple Ruins after delve");
+  assert.equal(
+    getInventoryOwnerVisibility(afterDelve.state, afterTemple.instanceId).visible,
+    true,
+    "[hiddenHubInventory] Temple Ruins should become visible at delve completion"
   );
 }
 
@@ -1746,6 +1824,7 @@ function runLeaderFaithReplayParityChecks() {
 function run() {
   runEnvEventDeckPlacementVisibilityChecks();
   runEnvEventDeckVisibleLayoutTargetChecks();
+  runHiddenHubInventoryVisibilityChecks();
   runLeaderFaithWarningAndDecayChecks();
   runLeaderFaithEatStreakUpgradeChecks();
   runLeaderFaithEliminationChecks();

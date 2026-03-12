@@ -22,6 +22,7 @@ import {
 } from "../owner-id-protocol.js";
 import { applyPrestigeDeposit } from "../prestige-system.js";
 import { isItemUseCurrentlyAvailable } from "../item-use-policy.js";
+import { getInventoryOwnerVisibility } from "../inventory-owner-visibility.js";
 import { getScrollTimegraphStateFromItem } from "../timegraph/edit-policy.js";
 import { canOwnerAcceptItem } from "./owner-acceptance.js";
 import {
@@ -47,6 +48,12 @@ function normalizeItemEffectList(raw) {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === "object") return [raw];
   return [];
+}
+
+function getHiddenOwnerAccessError(state, ownerId) {
+  const visibility = getInventoryOwnerVisibility(state, ownerId);
+  if (visibility.visible !== false) return null;
+  return { ok: false, reason: visibility.reason ?? "ownerHidden" };
 }
 
 export function cmdWithdrawHubPoolItem(
@@ -313,6 +320,11 @@ export function cmdMoveItemBetweenOwners(
   state,
   { fromOwnerId, toOwnerId, itemId, targetGX, targetGY }
 ) {
+  const hiddenFromOwner = getHiddenOwnerAccessError(state, fromOwnerId);
+  if (hiddenFromOwner) return hiddenFromOwner;
+  const hiddenToOwner = getHiddenOwnerAccessError(state, toOwnerId);
+  if (hiddenToOwner) return hiddenToOwner;
+
   const fromInv = state.ownerInventories[fromOwnerId];
   const toInv = state.ownerInventories[toOwnerId];
   if (!fromInv || !toInv) return { ok: false, reason: "noInventory" };
@@ -868,6 +880,9 @@ export function cmdMoveLeaderEquipmentToSlot(
 }
 
 export function cmdSplitStackAndPlace(state, ownerId, itemId, amount, targetGX, targetGY) {
+  const hiddenOwner = getHiddenOwnerAccessError(state, ownerId);
+  if (hiddenOwner) return hiddenOwner;
+
   const inv = state.ownerInventories[ownerId];
   if (!inv) return { ok: false, reason: "noInventory" };
 
@@ -898,6 +913,9 @@ export function cmdSplitStackAndPlace(state, ownerId, itemId, amount, targetGX, 
 }
 
 export function cmdStackItemsInOwner(state, { ownerId, sourceItemId, targetItemId, amount }) {
+  const hiddenOwner = getHiddenOwnerAccessError(state, ownerId);
+  if (hiddenOwner) return hiddenOwner;
+
   const inv = state.ownerInventories[ownerId];
   if (!inv) return { ok: false, reason: "noInventory" };
 
@@ -924,6 +942,8 @@ export function cmdUseItem(
 ) {
   if (ownerId == null) return { ok: false, reason: "badOwner" };
   if (itemId == null) return { ok: false, reason: "badItem" };
+  const hiddenOwner = getHiddenOwnerAccessError(state, ownerId);
+  if (hiddenOwner) return hiddenOwner;
   if (sourceEquipmentSlotId != null) {
     return { ok: false, reason: "equipmentUseUnsupported" };
   }
@@ -973,6 +993,8 @@ export function cmdUseItem(
 export function cmdOpenGraphItem(state, { ownerId, itemId } = {}) {
   if (ownerId == null) return { ok: false, reason: "badOwner" };
   if (itemId == null) return { ok: false, reason: "badItem" };
+  const hiddenOwner = getHiddenOwnerAccessError(state, ownerId);
+  if (hiddenOwner) return hiddenOwner;
 
   const inv = state?.ownerInventories?.[ownerId];
   if (!inv) return { ok: false, reason: "noInventory" };
@@ -1018,6 +1040,8 @@ export function cmdOpenGraphItem(state, { ownerId, itemId } = {}) {
 export function cmdDiscardItemFromOwner(state, { ownerId, itemId } = {}) {
   if (ownerId == null) return { ok: false, reason: "badOwner" };
   if (itemId == null) return { ok: false, reason: "badItem" };
+  const hiddenOwner = getHiddenOwnerAccessError(state, ownerId);
+  if (hiddenOwner) return hiddenOwner;
 
   const inv = state?.ownerInventories?.[ownerId];
   if (!inv) return { ok: false, reason: "noInventory" };
