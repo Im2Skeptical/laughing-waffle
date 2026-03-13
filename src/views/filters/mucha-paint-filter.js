@@ -22,8 +22,12 @@ uniform float u_misregisterMode;
 uniform float u_vignetteStrength;
 uniform float u_vignetteInner;
 uniform float u_vignetteOuter;
+uniform float u_worldSpaceMode;
 uniform vec2 u_stageSize;
 uniform vec2 u_worldOffset;
+uniform vec2 u_cameraPosition;
+uniform float u_cameraScale;
+uniform vec4 u_worldBounds;
 
 float hash(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -84,7 +88,15 @@ void main() {
   float intensity = max(0.0, u_intensity);
   float warp = clamp(u_timeWarp, 0.0, 1.0);
   float noiseScale = max(0.2, u_noiseScale);
-  vec2 worldPx = uv * inputSize.xy + u_worldOffset;
+  vec2 stageSize = max(u_stageSize, vec2(1.0));
+  vec2 screenPx = vec2(gl_FragCoord.x, stageSize.y - gl_FragCoord.y);
+  float worldSpaceMode = step(0.5, u_worldSpaceMode);
+  float safeCameraScale = max(0.0001, u_cameraScale);
+  vec2 worldPx = mix(
+    screenPx,
+    (screenPx - u_cameraPosition) / safeCameraScale,
+    worldSpaceMode
+  );
 
   // Organic wobble affects sampling fields only (not geometry).
   float wobbleAmount = max(0.0, u_wobbleAmount);
@@ -160,8 +172,15 @@ void main() {
   float grain = (grainA * 0.7 + grainB * 0.3) * 2.0 - 1.0;
   graded += grain * (0.03 * max(0.0, u_grain) * intensity * (0.6 + vintage * 0.6));
 
-  vec2 stageSize = max(u_stageSize, vec2(1.0));
-  vec2 stageUv = clamp(worldPx / stageSize, vec2(0.0), vec2(1.0));
+  vec2 stageUv = clamp(screenPx / stageSize, vec2(0.0), vec2(1.0));
+  if (worldSpaceMode > 0.5) {
+    vec2 worldBoundsSize = max(u_worldBounds.zw, vec2(1.0));
+    stageUv = clamp(
+      (worldPx - u_worldBounds.xy) / worldBoundsSize,
+      vec2(0.0),
+      vec2(1.0)
+    );
+  }
   float vignetteInner = clamp(u_vignetteInner, 0.0, 0.95);
   float vignetteOuter = clamp(
     max(u_vignetteOuter, vignetteInner + 0.01),
@@ -220,6 +239,7 @@ export function createMuchaPaintFilter(opts = {}) {
     u_vignetteStrength: toFinite(opts.u_vignetteStrength, 0.08),
     u_vignetteInner: toFinite(opts.u_vignetteInner, 0.38),
     u_vignetteOuter: toFinite(opts.u_vignetteOuter, 0.92),
+    u_worldSpaceMode: toFinite(opts.u_worldSpaceMode, 0),
     u_stageSize: [
       toFinite(opts.u_stageSizeX, 1),
       toFinite(opts.u_stageSizeY, 1),
@@ -227,6 +247,17 @@ export function createMuchaPaintFilter(opts = {}) {
     u_worldOffset: [
       toFinite(opts.u_worldOffsetX, 0),
       toFinite(opts.u_worldOffsetY, 0),
+    ],
+    u_cameraPosition: [
+      toFinite(opts.u_cameraPositionX, 0),
+      toFinite(opts.u_cameraPositionY, 0),
+    ],
+    u_cameraScale: toFinite(opts.u_cameraScale, 1),
+    u_worldBounds: [
+      toFinite(opts.u_worldBoundsX, 0),
+      toFinite(opts.u_worldBoundsY, 0),
+      toFinite(opts.u_worldBoundsWidth, 1),
+      toFinite(opts.u_worldBoundsHeight, 1),
     ],
   });
 }

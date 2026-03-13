@@ -196,5 +196,17 @@ export function createChromeView({
     root.destroy({ children: true });
   }
 
-  return { init, refresh, update, destroy };
+  function getScreenRect() {
+    if (!root.visible) return null;
+    const bounds = root.getBounds?.();
+    if (!bounds) return null;
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    };
+  }
+
+  return { init, refresh, update, destroy, getScreenRect };
 }

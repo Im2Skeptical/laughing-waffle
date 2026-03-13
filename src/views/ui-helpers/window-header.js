@@ -258,12 +258,25 @@ export function createWindowHeader(opts = {}) {
     offsetY: 0,
   };
 
+  function toDragParentLocal(globalPoint) {
+    if (!dragTarget?.parent || !globalPoint) return null;
+    if (typeof dragTarget.parent.toLocal === "function") {
+      return dragTarget.parent.toLocal(globalPoint);
+    }
+    return {
+      x: Number(globalPoint.x) || 0,
+      y: Number(globalPoint.y) || 0,
+    };
+  }
+
   function onDragMove(ev) {
     if (!dragState.active || !dragTarget) return;
     const g = ev?.data?.global;
     if (!g) return;
-    dragTarget.x = g.x - dragState.offsetX;
-    dragTarget.y = g.y - dragState.offsetY;
+    const local = toDragParentLocal(g);
+    if (!local) return;
+    dragTarget.x = local.x - dragState.offsetX;
+    dragTarget.y = local.y - dragState.offsetY;
   }
 
   function onDragEndInternal() {
@@ -280,9 +293,11 @@ export function createWindowHeader(opts = {}) {
     if (typeof canDrag === "function" && !canDrag()) return;
     const g = ev?.data?.global;
     if (!g) return;
+    const local = toDragParentLocal(g);
+    if (!local) return;
     dragState.active = true;
-    dragState.offsetX = g.x - dragTarget.x;
-    dragState.offsetY = g.y - dragTarget.y;
+    dragState.offsetX = local.x - dragTarget.x;
+    dragState.offsetY = local.y - dragTarget.y;
     stage.on("pointermove", onDragMove);
     stage.on("pointerup", onDragEndInternal);
     stage.on("pointerupoutside", onDragEndInternal);

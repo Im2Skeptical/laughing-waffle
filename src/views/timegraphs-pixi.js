@@ -1281,6 +1281,11 @@ export function createMetricGraphView({
     return !!root.visible;
   }
 
+  function getScreenRect() {
+    if (!root.visible || typeof root.getBounds !== "function") return null;
+    return root.getBounds();
+  }
+
   function render() {
     if (!root.visible) return;
     resolveMetric();
@@ -1357,6 +1362,7 @@ export function createMetricGraphView({
     close,
     destroy,
     isOpen,
+    getScreenRect,
     render,
     setWindowSpecResolver,
     setCommitPolicyResolver,

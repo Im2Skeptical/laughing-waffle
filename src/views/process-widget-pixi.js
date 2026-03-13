@@ -1228,6 +1228,28 @@ export function createProcessWidgetView({
     };
   }
 
+  function getContainerScreenPosition(container) {
+    if (!container) return { x: 0, y: 0 };
+    const global = container.getGlobalPosition?.();
+    if (!global) {
+      return {
+        x: Number(container.x) || 0,
+        y: Number(container.y) || 0,
+      };
+    }
+    return { x: global.x, y: global.y };
+  }
+
+  function setContainerScreenPosition(container, x, y) {
+    if (!container) return;
+    const parentPoint =
+      typeof container.parent?.toLocal === "function"
+        ? container.parent.toLocal({ x, y })
+        : { x, y };
+    container.x = Math.round(parentPoint.x);
+    container.y = Math.round(parentPoint.y);
+  }
+
   function canRecipeEntryAdvanceNow(entry, availability = null) {
     const process = entry?.process || null;
     if (!process) return false;
@@ -4134,8 +4156,12 @@ export function createProcessWidgetView({
         const screen = getScreenSize();
         const maxX = Math.max(8, screen.width - width - 8);
         const maxY = Math.max(8, screen.height - height - 8);
-        win.container.x = Math.max(8, Math.min(maxX, win.container.x));
-        win.container.y = Math.max(8, Math.min(maxY, win.container.y));
+        const current = getContainerScreenPosition(win.container);
+        setContainerScreenPosition(
+          win.container,
+          Math.max(8, Math.min(maxX, current.x)),
+          Math.max(8, Math.min(maxY, current.y))
+        );
       }
       if (win.group) {
         const entries = collectProcessEntries(state, target, win.systemId);
@@ -4509,13 +4535,25 @@ export function createProcessWidgetView({
     x = Math.max(8, Math.min(maxX, x));
     y = Math.max(8, Math.min(maxY, y));
 
-    win.container.x = Math.round(x);
-    win.container.y = Math.round(y);
+    setContainerScreenPosition(win.container, x, y);
     win.hasPosition = true;
     return true;
   }
 
   function init() {}
+
+  function getOccludingScreenRects() {
+    const rects = [];
+    for (const win of windows.values()) {
+      const container = win?.container;
+      if (!container?.visible || typeof container.getBounds !== "function") continue;
+      const bounds = container.getBounds();
+      if (bounds) rects.push(bounds);
+    }
+    const manualRect = recipeManualWindow?.getScreenRect?.();
+    if (manualRect) rects.push(manualRect);
+    return rects;
+  }
 
   return {
     init,
@@ -4531,6 +4569,7 @@ export function createProcessWidgetView({
     setExternalFocusTarget,
     clearExternalFocusTarget,
     showBasketWidgetForOwner,
+    getOccludingScreenRects,
   };
 }
 

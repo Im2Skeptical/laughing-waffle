@@ -682,11 +682,21 @@ export function createScrollGraphOrchestrator({
     }
   }
 
+  function getOccludingScreenRects() {
+    const rects = [];
+    for (const record of windowsByItemId.values()) {
+      const rect = record?.view?.getScreenRect?.();
+      if (rect) rects.push(rect);
+    }
+    return rects;
+  }
+
   return {
     handleUseItem,
     handleInvalidate,
     update,
     closeWindowForItemId,
     closeAllGraphs,
+    getOccludingScreenRects,
   };
 }

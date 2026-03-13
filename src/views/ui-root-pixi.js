@@ -62,6 +62,11 @@ import { createRunCompleteView } from "./run-complete-pixi.js";
 import { createPlayfieldMuchaStyle } from "./playfield-mucha-style.js";
 import { createBackdropView } from "./backdrop-pixi.js";
 import {
+  createPlayfieldCamera,
+  isPointInsideRect,
+  resolvePanBounds,
+} from "./playfield-camera.js";
+import {
   createSunAndMoonDisksView,
   SUN_AND_MOON_DISKS_LAYOUT,
 } from "./sunandmoon-disks-pixi.js";
@@ -304,6 +309,7 @@ let skillTreeEditorView = null;
 let mainUiHiddenBySkillTree = false;
 let pendingSkillTreeOpenLeaderPawnId = null;
 let playfieldShader = null;
+let playfieldCamera = null;
 let stateTintOverlay = null;
 let lastStateTintKey = "__init__";
 let stateTintCurrentR = 1;
@@ -323,6 +329,16 @@ const FULL_VIEW_REBUILD_REASONS = new Set([
   "saveLoad",
   "plannerClear",
 ]);
+const PLAYFIELD_CAMERA_LAYOUT =
+  VIEW_LAYOUT?.playfieldCamera &&
+  typeof VIEW_LAYOUT.playfieldCamera === "object"
+    ? VIEW_LAYOUT.playfieldCamera
+    : {};
+const PLAYFIELD_CAMERA_MEMBERSHIP =
+  PLAYFIELD_CAMERA_LAYOUT?.membership &&
+  typeof PLAYFIELD_CAMERA_LAYOUT.membership === "object"
+    ? PLAYFIELD_CAMERA_LAYOUT.membership
+    : {};
 const NOOP_ACTION_LOG_VIEW = {
   init() {},
   update() {},
@@ -363,9 +379,16 @@ const runner = createSimRunner({
       boardView.rebuildAll();
       pawnsView.rebuildAll();
     }
+    if (
+      PLAYFIELD_CAMERA_LAYOUT?.resetOnScenarioLoad !== false &&
+      FULL_VIEW_REBUILD_REASONS.has(reason)
+    ) {
+      playfieldCamera?.reset?.();
+    }
     backdropView?.refresh?.();
     chromeView.refresh?.();
     timeControlsView.refresh?.();
+    playfieldCamera?.resize?.();
   },
   onPlannerApReject: () => {
     flashActionLogAp?.();
@@ -596,6 +619,7 @@ function resizeCanvas() {
   yearEndPerformanceView?.resize?.();
   runCompleteView?.resize?.();
   backdropView?.refresh?.();
+  playfieldCamera?.resize?.();
   if (stateTintOverlay) {
     redrawStateTintOverlayBounds();
   }
@@ -609,6 +633,8 @@ document?.addEventListener?.("webkitfullscreenchange", resizeCanvas);
 resizeCanvas();
 
 const uiLayers = {
+  cameraRoot: new PIXI.Container(),
+  fixedHudRoot: new PIXI.Container(),
   backgroundLayer: new PIXI.Container(),
   tileLayer: new PIXI.Container(),
   eventLayer: new PIXI.Container(),
@@ -616,35 +642,56 @@ const uiLayers = {
   hubStructuresLayer: new PIXI.Container(),
   pawnLayer: new PIXI.Container(),
   stateTintLayer: new PIXI.Container(),
-  controlsLayer: new PIXI.Container(),
+  cameraControlsLayer: new PIXI.Container(),
+  fixedControlsLayer: new PIXI.Container(),
   hoverLayer: new PIXI.Container(),
   inventoryLayer: new PIXI.Container(),
   inventoryHoverLayer: new PIXI.Container(),
   tooltipLayer: new PIXI.Container(),
   dragLayer: new PIXI.Container(),
-  debugLayer: new PIXI.Container(),
+  fixedDebugLayer: new PIXI.Container(),
   skillTreeLayer: new PIXI.Container(),
 };
 
-app.stage.eventMode = "static";
-app.stage.hitArea = app.screen;
-app.stage.addChild(
+uiLayers.cameraRoot.addChild(
   uiLayers.backgroundLayer,
   uiLayers.tileLayer,
   uiLayers.eventLayer,
   uiLayers.envStructuresLayer,
   uiLayers.hubStructuresLayer,
   uiLayers.pawnLayer,
-  uiLayers.stateTintLayer,
-  uiLayers.controlsLayer,
+  uiLayers.cameraControlsLayer,
   uiLayers.inventoryLayer,
   uiLayers.hoverLayer,
   uiLayers.inventoryHoverLayer,
-  uiLayers.tooltipLayer,
-  uiLayers.dragLayer,
-  uiLayers.debugLayer,
+  uiLayers.tooltipLayer
+);
+uiLayers.fixedHudRoot.addChild(
+  uiLayers.fixedControlsLayer,
+  uiLayers.fixedDebugLayer,
+  uiLayers.dragLayer
+);
+
+app.stage.eventMode = "static";
+app.stage.hitArea = app.screen;
+app.stage.addChild(
+  uiLayers.cameraRoot,
+  uiLayers.stateTintLayer,
+  uiLayers.fixedHudRoot,
   uiLayers.skillTreeLayer
 );
+
+let lastPointerStagePos = null;
+function captureStagePointerPosition(ev) {
+  const global = ev?.data?.global;
+  if (!global) return;
+  lastPointerStagePos = {
+    x: Number(global.x) || 0,
+    y: Number(global.y) || 0,
+  };
+}
+app.stage.on("pointermove", captureStagePointerPosition);
+app.stage.on("pointerdown", captureStagePointerPosition);
 
 stateTintOverlay = new PIXI.Graphics();
 stateTintOverlay.eventMode = "none";
@@ -675,6 +722,18 @@ function toHexColor(r, g, b) {
 
 function lerp(from, to, t) {
   return from + (to - from) * t;
+}
+
+function isCameraMember(memberKey, fallback = true) {
+  if (!memberKey || typeof memberKey !== "string") return fallback;
+  if (!Object.prototype.hasOwnProperty.call(PLAYFIELD_CAMERA_MEMBERSHIP, memberKey)) {
+    return fallback;
+  }
+  return PLAYFIELD_CAMERA_MEMBERSHIP[memberKey] !== false;
+}
+
+function pickHudLayer(memberKey, fallbackCameraLayer, fallbackFixedLayer) {
+  return isCameraMember(memberKey, true) ? fallbackCameraLayer : fallbackFixedLayer;
 }
 
 function resolveTimeStateKey() {
@@ -903,19 +962,9 @@ function clearExternalUiFocus() {
 }
 
 function setMainUiVisible(visible) {
-  uiLayers.backgroundLayer.visible = visible;
-  uiLayers.tileLayer.visible = visible;
-  uiLayers.eventLayer.visible = visible;
-  uiLayers.envStructuresLayer.visible = visible;
-  uiLayers.hubStructuresLayer.visible = visible;
-  uiLayers.pawnLayer.visible = visible;
-  uiLayers.controlsLayer.visible = visible;
-  uiLayers.hoverLayer.visible = visible;
-  uiLayers.inventoryLayer.visible = visible;
-  uiLayers.inventoryHoverLayer.visible = visible;
-  uiLayers.tooltipLayer.visible = visible;
-  uiLayers.dragLayer.visible = visible;
-  uiLayers.debugLayer.visible = visible;
+  uiLayers.cameraRoot.visible = visible;
+  uiLayers.stateTintLayer.visible = visible;
+  uiLayers.fixedHudRoot.visible = visible;
 }
 
 function restoreMainUiAfterSkillTree() {
@@ -1357,6 +1406,7 @@ inventoryView = createInventoryView({
   layer: uiLayers.inventoryLayer,
   hoverLayer: uiLayers.inventoryHoverLayer,
   dragLayer: uiLayers.dragLayer,
+  stage: app.stage,
   layout: VIEW_LAYOUT.inventory,
   tooltipView,
   getOwnerLabel(ownerId) {
@@ -1635,6 +1685,7 @@ inventoryView = createInventoryView({
       reason: useResult?.reason || "itemUseFailed",
     };
   },
+  screenToWorld: (point) => playfieldCamera?.screenToWorld?.(point) ?? point,
 });
 
 function togglePause() {
@@ -1668,6 +1719,8 @@ playfieldShader = createPlayfieldMuchaStyle({
     width: app.screen.width,
     height: app.screen.height,
   }),
+  getPlayfieldCameraState: () => playfieldCamera?.getCameraState?.() ?? null,
+  getPlayfieldWorldBounds: () => resolvePanBounds(PLAYFIELD_CAMERA_LAYOUT),
 });
 applyMobilePerformanceProfile();
 
@@ -1680,11 +1733,52 @@ backdropView = createBackdropView({
 let boardView = null;
 let pawnsView = null;
 
+function collectHoverZoomBlockRects() {
+  const rects = [];
+  const pushRects = (nextRects) => {
+    if (!Array.isArray(nextRects)) return;
+    for (const rect of nextRects) {
+      if (rect) rects.push(rect);
+    }
+  };
+
+  pushRects(inventoryView?.getOccludingScreenRects?.());
+  pushRects(processWidgetView?.getOccludingScreenRects?.());
+  pushRects(scrollGraphOrchestrator?.getOccludingScreenRects?.());
+
+  for (const view of [
+    goldGraphView,
+    grainGraphView,
+    foodGraphView,
+    systemGraphView,
+    apGraphView,
+    popGraphView,
+  ]) {
+    const rect = view?.getScreenRect?.();
+    if (rect) rects.push(rect);
+  }
+  return rects;
+}
+
+function isPointerInsideHoverZoomBlocker() {
+  if (!lastPointerStagePos) return false;
+  const point = lastPointerStagePos;
+  for (const rect of collectHoverZoomBlockRects()) {
+    if (isPointInsideRect(point, rect)) return true;
+  }
+  return false;
+}
+
 function canStartGamepieceHoverZoomIn() {
   return !(
+    isPointerInsideHoverZoomBlocker() ||
     boardView?.hasActiveHoverZoomDown?.() ||
     pawnsView?.hasActiveHoverZoomDown?.()
   );
+}
+
+function canShowGamepieceHoverUi() {
+  return !isPointerInsideHoverZoomBlocker();
 }
 
 boardView = createBoardView({
@@ -1694,7 +1788,7 @@ boardView = createBoardView({
   envStructuresLayer: uiLayers.envStructuresLayer,
   hubStructuresLayer: uiLayers.hubStructuresLayer,
   hoverLayer: uiLayers.hoverLayer,
-  inspectorLayer: uiLayers.controlsLayer,
+  inspectorLayer: uiLayers.cameraControlsLayer,
   getGameState: () => runner.getState(),
   interaction: interactionController,
   actionPlanner: previewPlanner,
@@ -1728,6 +1822,7 @@ boardView = createBoardView({
   },
   getExternalFocus: () => getExternalUiFocus(),
   canStartHoverZoomIn: () => canStartGamepieceHoverZoomIn(),
+  canShowGamepieceHoverUi: () => canShowGamepieceHoverUi(),
 });
 
 pawnsView = createPawnsView({
@@ -1735,6 +1830,8 @@ pawnsView = createPawnsView({
   layer: uiLayers.pawnLayer,
   hoverLayer: uiLayers.hoverLayer,
   paintStyleController: playfieldShader,
+  screenToWorld: (point) => playfieldCamera?.screenToWorld?.(point) ?? point,
+  worldToScreen: (point) => playfieldCamera?.worldToScreen?.(point) ?? point,
   getPawns: () => runner.getState().pawns,
   getHubSlots: () => runner.getState().hub.slots,
   getGameState: () => runner.getState(),
@@ -1757,9 +1854,11 @@ pawnsView = createPawnsView({
     getMergedPawnOverridePlacement(pawnId)?.hubCol ?? null,
   getPreviewPlacement: (pawnId) => getMergedPawnOverridePlacement(pawnId),
   canStartHoverZoomIn: () => canStartGamepieceHoverZoomIn(),
+  canShowGamepieceHoverUi: () => canShowGamepieceHoverUi(),
   onPawnDropped({ pawnId, dropPos }) {
     if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();
+    const worldDropPos = playfieldCamera?.screenToWorld?.(dropPos) ?? dropPos;
     const envCols = getVisibleEnvColCount(state);
     const hubCols = isHubVisible(state) && Array.isArray(state?.hub?.slots)
       ? state.hub.slots.length
@@ -1767,8 +1866,8 @@ pawnsView = createPawnsView({
 
     const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
     const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT / 2;
-    const distToTile = Math.abs(dropPos.y - tileCenterY);
-    const distToHub = Math.abs(dropPos.y - hubCenterY);
+    const distToTile = Math.abs(worldDropPos.y - tileCenterY);
+    const distToHub = Math.abs(worldDropPos.y - hubCenterY);
     const targetRow = distToTile <= distToHub ? "env" : "hub";
 
     const colCount = targetRow === "env" ? envCols : hubCols;
@@ -1780,7 +1879,7 @@ pawnsView = createPawnsView({
         targetRow === "env"
           ? getBoardColumnCenterXForVisibleCols(app.screen.width, col, envCols)
           : getHubColumnCenterXForVisibleCols(app.screen.width, col, hubCols);
-      const dx = dropPos.x - cx;
+      const dx = worldDropPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {
         bestDist2 = d2;
@@ -1827,7 +1926,11 @@ pawnsView = createPawnsView({
 
 processWidgetView = createProcessWidgetView({
   app,
-  layer: uiLayers.controlsLayer,
+  layer: pickHudLayer(
+    "processWidget",
+    uiLayers.cameraControlsLayer,
+    uiLayers.fixedControlsLayer
+  ),
   layout: VIEW_LAYOUT.processWidget,
   getGameState: () => runner.getState(),
   interaction: interactionController,
@@ -1852,7 +1955,7 @@ let systemGraphTargetMode = "hover";
 let goldGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.cameraControlsLayer,
   controller: goldGraphController,
   runner,
   interaction: interactionController,
@@ -1864,7 +1967,7 @@ let goldGraphView = createRunnerMetricGraph({
 let grainGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.cameraControlsLayer,
   controller: grainGraphController,
   runner,
   interaction: interactionController,
@@ -1876,7 +1979,7 @@ let grainGraphView = createRunnerMetricGraph({
 let foodGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.cameraControlsLayer,
   controller: foodGraphController,
   runner,
   interaction: interactionController,
@@ -1888,7 +1991,7 @@ let foodGraphView = createRunnerMetricGraph({
 let systemGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.cameraControlsLayer,
   controller: systemGraphController,
   runner,
   interaction: interactionController,
@@ -1903,7 +2006,7 @@ let systemGraphView = createRunnerMetricGraph({
 let apGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.cameraControlsLayer,
   controller: apGraphController,
   runner,
   interaction: interactionController,
@@ -1924,7 +2027,7 @@ let apGraphView = createRunnerMetricGraph({
 let popGraphView = createRunnerMetricGraph({
   createMetricGraphView,
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.cameraControlsLayer,
   controller: popGraphController,
   runner,
   interaction: interactionController,
@@ -2154,7 +2257,7 @@ scrollGraphOrchestrator = createScrollGraphOrchestrator({
     const spec = {
       createMetricGraphView,
       app,
-      layer: uiLayers.controlsLayer,
+      layer: uiLayers.cameraControlsLayer,
       controller,
       runner,
       interaction: interactionController,
@@ -2178,7 +2281,11 @@ scrollGraphOrchestrator = createScrollGraphOrchestrator({
 
 const chromeView = createChromeView({
   app,
-  layer: uiLayers.controlsLayer,
+  layer: pickHudLayer(
+    "headerBar",
+    uiLayers.cameraControlsLayer,
+    uiLayers.fixedControlsLayer
+  ),
   getGameState: () => runner.getState(),
   paintStyleController: playfieldShader,
   isVisible: (state) =>
@@ -2188,7 +2295,11 @@ const chromeView = createChromeView({
 // NEW: Sun/Moon rotating disks HUD view
 const sunMoonDisksView = createSunAndMoonDisksView({
   app,
-  layer: uiLayers.controlsLayer,
+  layer: pickHudLayer(
+    "sunMoonDisks",
+    uiLayers.cameraControlsLayer,
+    uiLayers.fixedControlsLayer
+  ),
   getState: () => runner.getState(),
   getDiskVisibility: (state) => ({
     moon: hasSkillFeatureUnlock(state, "ui.disk.moon"),
@@ -2204,7 +2315,11 @@ const sunMoonDisksView = createSunAndMoonDisksView({
 
 const timeControlsView = createTimeControlsView({
   app,
-  layer: uiLayers.controlsLayer,
+  layer: pickHudLayer(
+    "timeControls",
+    uiLayers.cameraControlsLayer,
+    uiLayers.fixedControlsLayer
+  ),
   getGameState: () => runner.getState(),
   togglePause,
   isPausePending: () => runner.isPausePending?.() ?? false,
@@ -2265,7 +2380,11 @@ const timeControlsView = createTimeControlsView({
 
 const envEventDeckView = createEnvEventDeckView({
   app,
-  layer: uiLayers.controlsLayer,
+  layer: pickHudLayer(
+    "envEventDeck",
+    uiLayers.cameraControlsLayer,
+    uiLayers.fixedControlsLayer
+  ),
   getState: () => runner.getState(),
   getDeckVisibilityEnabled: (state) =>
     hasSkillFeatureUnlock(state, "ui.deck.event"),
@@ -2347,7 +2466,11 @@ async function toggleFullscreen() {
 
 const debugView = createDebugOverlay({
   app,
-  layer: uiLayers.debugLayer,
+  layer: pickHudLayer(
+    "debugOverlay",
+    uiLayers.cameraControlsLayer,
+    uiLayers.fixedDebugLayer
+  ),
   layout: VIEW_LAYOUT.debugOverlay,
   runner,
   onLoadScenario: (setupId) => {
@@ -2392,7 +2515,11 @@ const debugView = createDebugOverlay({
 if (isBootVariantFlagEnabled("actionLogEnabled")) {
   actionLogView = createActionLogView({
     app,
-    layer: uiLayers.controlsLayer,
+    layer: pickHudLayer(
+      "actionLog",
+      uiLayers.cameraControlsLayer,
+      uiLayers.fixedControlsLayer
+    ),
     getPlanner: () => previewPlanner,
     getTimeline: () => runner.getTimeline(),
     getCursorState: () => runner.getCursorState(),
@@ -2423,7 +2550,11 @@ if (isBootVariantFlagEnabled("actionLogEnabled")) {
 }
 
 eventLogView = createEventLogView({
-  layer: uiLayers.controlsLayer,
+  layer: pickHudLayer(
+    "eventLog",
+    uiLayers.cameraControlsLayer,
+    uiLayers.fixedControlsLayer
+  ),
   getState: () => runner.getState(),
   isVisible: () =>
     hasSkillFeatureUnlock(runner.getState?.(), "ui.log.event"),
@@ -2437,13 +2568,13 @@ eventLogView = createEventLogView({
 
 yearEndPerformanceView = createYearEndPerformanceView({
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.fixedControlsLayer,
   onClose: handleYearEndPerformanceClose,
 });
 
 runCompleteView = createRunCompleteView({
   app,
-  layer: uiLayers.controlsLayer,
+  layer: uiLayers.fixedControlsLayer,
   onClose: handleRunCompleteClose,
 });
 
@@ -2459,6 +2590,33 @@ skillTreeEditorView = createSkillTreeEditorView({
   app,
   layer: uiLayers.skillTreeLayer,
   layout: VIEW_LAYOUT.skillTreeEditor,
+});
+
+playfieldCamera = createPlayfieldCamera({
+  app,
+  root: uiLayers.cameraRoot,
+  layout: PLAYFIELD_CAMERA_LAYOUT,
+  getFixedUiRects: () => {
+    const rects = [];
+    if (!isCameraMember("headerBar", false)) {
+      const rect = chromeView?.getScreenRect?.();
+      if (rect) rects.push(rect);
+    }
+    if (!isCameraMember("eventLog", false)) {
+      const rect = eventLogView?.getScreenRect?.();
+      if (rect) rects.push(rect);
+    }
+    if (!isCameraMember("debugOverlay", false)) {
+      const rect = debugView?.getScreenRect?.();
+      if (rect) rects.push(rect);
+    }
+    return rects;
+  },
+  canStartPan: () =>
+    !interactionController?.isDragging?.() &&
+    !boardView?.hasActiveDrag?.() &&
+    !sunMoonDisksView?.isDragging?.(),
+  canInteract: () => !mainUiHiddenBySkillTree,
 });
 
 flashActionLogAp = () => actionLogView.flashInsufficientAp?.();
