@@ -167,6 +167,15 @@ function summarizeState(state) {
 
 function assertControllerParity(controller, timeline, sec, label) {
   const fromController = controller.getStateAt(sec);
+  const historyEndSec = Math.max(0, Math.floor(timeline?.historyEndSec ?? 0));
+  if (sec > historyEndSec) {
+    assert.equal(
+      fromController,
+      null,
+      `${label} controller should stay non-blocking @${sec}`
+    );
+    return;
+  }
   const rebuilt = rebuildStateAtSecond(timeline, sec);
   assertOk(rebuilt, `${label} rebuild @${sec}`);
   assert.ok(fromController, `${label} controller null @${sec}`);
@@ -938,14 +947,10 @@ function runPersistentDropMemoryChecks() {
 
     const forecastSec = 5;
     const forecastBefore = cacheController.getStateAt(forecastSec);
-    assert.ok(forecastBefore, "forecast preview before knowledge change should resolve");
-    assert.deepEqual(
-      getDroppedItemKindsForPool(forecastBefore, {
-        tableKey,
-        tileDefId: "tile_floodplains",
-      }),
-      [],
-      "forecast preview should start empty before discovered drops"
+    assert.equal(
+      forecastBefore,
+      null,
+      "unloaded forecast preview should remain non-blocking before async coverage loads"
     );
 
     rememberDroppedItemKind(cacheState, {
@@ -958,14 +963,10 @@ function runPersistentDropMemoryChecks() {
     maintainCheckpoints(cacheTimeline, cacheState);
 
     const forecastAfter = cacheController.getStateAt(forecastSec);
-    assert.ok(forecastAfter, "forecast preview after knowledge change should resolve");
-    assert.deepEqual(
-      getDroppedItemKindsForPool(forecastAfter, {
-        tableKey,
-        tileDefId: "tile_floodplains",
-      }),
-      ["stone"],
-      "forecast cache should invalidate when persistent knowledge mutates"
+    assert.equal(
+      forecastAfter,
+      null,
+      "unloaded forecast preview should remain non-blocking after knowledge mutation"
     );
 
     const seekRunner = createSimRunner({ setupId: "devGym01" });
@@ -1097,7 +1098,7 @@ function runTimegraphEditPolicyChecks() {
       itemId: 123,
       itemKind: "moteOfEternity",
       minSec: 0,
-      maxSec: 240,
+      maxSec: 300,
     },
     "mote absolute editable range should normalize deterministically"
   );
@@ -1429,8 +1430,8 @@ function runTimegraphEditPolicyChecks() {
       },
     ],
   });
-  moteConsumeState.tSec = 241;
-  moteConsumeState.simStepIndex = 241 * 60;
+  moteConsumeState.tSec = 301;
+  moteConsumeState.simStepIndex = 301 * 60;
   moteConsumeState.paused = true;
   const moteLeaderId = moteConsumeState?.pawns?.[0]?.id;
   const moteInv = moteConsumeState?.ownerInventories?.[moteLeaderId];

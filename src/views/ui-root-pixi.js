@@ -20,6 +20,7 @@ import { evaluateProcessDropboxDragStatus } from "../model/commands/process-drop
 import { setupDefs } from "../defs/gamesettings/scenarios-defs.js";
 import { normalizeVariantFlags } from "../defs/gamesettings/variant-flags-defs.js";
 import { createSimRunner } from "../controllers/sim-runner.js";
+import { createTimegraphForecastWorkerService } from "../controllers/timegraph-forecast-worker-service.js";
 import { createTimeGraphController } from "../model/timegraph-controller.js";
 import { getInventoryOwnerVisibility } from "../model/inventory-owner-visibility.js";
 import { getStateDataAtSecond } from "../model/timeline/index.js";
@@ -334,6 +335,7 @@ const NOOP_ACTION_LOG_VIEW = {
 };
 let scrollGraphOrchestrator = null;
 let liveActionOptimism = null;
+const forecastWorkerService = createTimegraphForecastWorkerService();
 
 const runner = createSimRunner({
   setupId: BOOT_SETUP_ID,
@@ -343,6 +345,9 @@ const runner = createSimRunner({
       reason === "scrubBrowse" || reason === "scrubCommit";
     // Keep cursor-only browse/commit lean; all other mutation reasons should
     // invalidate controllers immediately (including planner:* edits).
+    if (!cursorOnlyReason) {
+      forecastWorkerService.handleTimelineInvalidation?.(reason);
+    }
     if (cursorOnlyReason) return;
     goldGraphController.handleInvalidate(reason);
     grainGraphController.handleInvalidate(reason);
@@ -556,30 +561,35 @@ const goldGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.gold,
+  forecastWorkerService,
 });
 
 const grainGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.grain,
+  forecastWorkerService,
 });
 
 const foodGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.food,
+  forecastWorkerService,
 });
 
 const apGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.ap,
+  forecastWorkerService,
 });
 
 const popGraphController = createTimeGraphController({
   getTimeline: () => runner.getTimeline(),
   getCursorState: () => runner.getCursorState(),
   metric: GRAPH_METRICS.population,
+  forecastWorkerService,
 });
 
 function resizeCanvas() {
@@ -1338,6 +1348,7 @@ const systemGraphModel = createSystemGraphModel({
   interactionController,
   runner,
   createController: createTimeGraphController,
+  forecastWorkerService,
 });
 const systemGraphController = systemGraphModel.controller;
 
@@ -2150,6 +2161,7 @@ scrollGraphOrchestrator = createScrollGraphOrchestrator({
   interactionController,
   createMetricController: createTimeGraphController,
   createSystemGraphModel,
+  forecastWorkerService,
   buildGraphView: ({ controller, metric, getMetricDef, openPosition }) => {
     const spec = {
       createMetricGraphView,

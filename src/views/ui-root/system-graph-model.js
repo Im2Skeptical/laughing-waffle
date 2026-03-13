@@ -1033,6 +1033,7 @@ export function createSystemGraphModel({
   interactionController,
   runner,
   createController,
+  forecastWorkerService = null,
 }) {
   let lastSystemGraphTargetKey = null;
   let nextSystemGraphTargetUpdateAtMs = 0;
@@ -1092,6 +1093,7 @@ export function createSystemGraphModel({
     getTimeline: () => runner.getTimeline(),
     getCursorState: () => runner.getCursorState(),
     metric,
+    forecastWorkerService,
   });
 
   function applySystemGraphTarget(target, targetKey = null) {

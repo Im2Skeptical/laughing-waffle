@@ -7,6 +7,10 @@ import { GRAPH_METRICS } from "../graph-metrics.js";
 import { buildProjectionStateStepWindowFromStateData } from "../projection.js";
 import { deserializeGameState } from "../state.js";
 import { canonicalizeSnapshot } from "../canonicalize.js";
+import {
+  getActionSecondsInRange,
+  getStateDataAtSecond,
+} from "../timeline/index.js";
 import { BASE_PROJECTION_HORIZON_SEC } from "../../defs/gamesettings/gamerules-defs.js";
 import {
   perfEnabled,
@@ -56,17 +60,27 @@ function purgePastStateData(stateDataByBoundary, historyEndSec) {
   return;
 }
 
+function nowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
 export function createTimeGraphController({
   getTimeline,
   getCursorState,
   metric = GRAPH_METRICS.gold,
   projectionCache,
+  forecastWorkerService = null,
 
   // Stage 4: decouple plotting resolution from scrubbing resolution
   historyStrideSec = 1,
   forecastStepSec = DEFAULT_FORECAST_STEP_SEC,
   horizonSec = BASE_PROJECTION_HORIZON_SEC,
 } = {}) {
+  const ASYNC_FORECAST_STEP_SEC = 1;
+  const ASYNC_FORECAST_REQUEST_POLL_MS = 250;
   let graphCache = null;
   let metricDef = resolveMetricDef(metric);
   let activeSeries = resolveSeries(metricDef, null, null);
@@ -100,6 +114,174 @@ export function createTimeGraphController({
 
   let seriesOverride = null;
   let labelOverride = null;
+  let lastAsyncForecastPollMs = -Infinity;
+  let lastAsyncForecastToken = null;
+  let lastAsyncForecastHistoryEndSec = -1;
+  let lastAsyncForecastDesiredEndSec = -1;
+  let lastAsyncForecastCoverageEndSec = -1;
+
+  function getTimelineToken(tl) {
+    return projection.getTimelineToken?.(tl) ?? null;
+  }
+
+  function getAsyncForecastCoverageEndSec(tl) {
+    const historyEndSec = clampSec(tl?.historyEndSec ?? 0);
+    const meta = projection.getForecastAsyncMeta?.() ?? null;
+    const timelineToken = getTimelineToken(tl);
+    if (
+      meta &&
+      typeof timelineToken === "string" &&
+      meta.forecastAsyncToken === timelineToken &&
+      clampSec(meta.forecastAsyncStepSec) === ASYNC_FORECAST_STEP_SEC
+    ) {
+      return Math.max(historyEndSec, clampSec(meta.forecastAsyncEndSec));
+    }
+    return historyEndSec;
+  }
+
+  function buildScheduledActionsBySecond(tl, startSec, endSec) {
+    const start = clampSec(startSec);
+    const end = clampSec(endSec);
+    if (!tl || end <= start) return [];
+    const actionSecs = getActionSecondsInRange(tl, start + 1, end, {
+      copy: false,
+    });
+    if (!Array.isArray(actionSecs) || !actionSecs.length) return [];
+
+    const out = [];
+    for (const sec of actionSecs) {
+      const actions =
+        tl.actionsBySec && typeof tl.actionsBySec.get === "function"
+          ? tl.actionsBySec.get(sec)
+          : null;
+      if (!Array.isArray(actions) || !actions.length) continue;
+      out.push({
+        tSec: sec,
+        actions: actions.map((action) => ({ ...action, tSec: sec })),
+      });
+    }
+    return out;
+  }
+
+  function setForecastRuntimeState({
+    coverageEndSec,
+    pending,
+    requestedEndSec,
+  } = {}) {
+    if (!graphCache?.window) return false;
+    const nextCoverageEndSec = clampSec(coverageEndSec);
+    const nextRequestedEndSec = clampSec(requestedEndSec);
+    const nextPending = pending === true;
+    const changed =
+      clampSec(graphCache.window.forecastCoverageEndSec) !== nextCoverageEndSec ||
+      clampSec(graphCache.window.forecastRequestedEndSec) !== nextRequestedEndSec ||
+      graphCache.window.forecastPending !== nextPending;
+    graphCache.window.forecastCoverageEndSec = nextCoverageEndSec;
+    graphCache.window.forecastRequestedEndSec = nextRequestedEndSec;
+    graphCache.window.forecastPending = nextPending;
+    if (changed) {
+      graphCache.version = ++cacheVersion;
+      invalidateSubjectValues();
+    }
+    return changed;
+  }
+
+  function requestAsyncForecastCoverage(tl, { force = false } = {}) {
+    if (!graphCache?.window || !forecastWorkerService) {
+      setForecastRuntimeState({
+        coverageEndSec: clampSec(tl?.historyEndSec ?? 0),
+        requestedEndSec: clampSec(tl?.historyEndSec ?? 0),
+        pending: false,
+      });
+      return null;
+    }
+
+    const historyEndSec = clampSec(tl?.historyEndSec ?? 0);
+    const desiredEndSec = historyEndSec + clampSec(horizonSecCur ?? 0);
+    const timelineToken = getTimelineToken(tl);
+    if (typeof timelineToken !== "string") return null;
+    const coverageEndSec = getAsyncForecastCoverageEndSec(tl);
+    const requestedEndSec = Math.max(
+      desiredEndSec,
+      clampSec(graphCache.window.forecastRequestedEndSec ?? historyEndSec)
+    );
+    const pending = coverageEndSec < requestedEndSec;
+
+    setForecastRuntimeState({
+      coverageEndSec,
+      requestedEndSec,
+      pending,
+    });
+    if (!pending) {
+      return {
+        ok: true,
+        coverageEndSec,
+        requestedEndSec,
+        pending: false,
+      };
+    }
+
+    const currentMs = nowMs();
+    const needsFreshPreparation =
+      force ||
+      timelineToken !== lastAsyncForecastToken ||
+      historyEndSec !== lastAsyncForecastHistoryEndSec ||
+      requestedEndSec !== lastAsyncForecastDesiredEndSec ||
+      coverageEndSec !== lastAsyncForecastCoverageEndSec;
+    if (
+      !needsFreshPreparation &&
+      currentMs - lastAsyncForecastPollMs < ASYNC_FORECAST_REQUEST_POLL_MS
+    ) {
+      return {
+        ok: true,
+        coverageEndSec,
+        requestedEndSec,
+        pending: true,
+      };
+    }
+    lastAsyncForecastPollMs = currentMs;
+    lastAsyncForecastToken = timelineToken;
+    lastAsyncForecastHistoryEndSec = historyEndSec;
+    lastAsyncForecastDesiredEndSec = requestedEndSec;
+    lastAsyncForecastCoverageEndSec = coverageEndSec;
+
+    const boundaryRes = getStateDataAtSecond(tl, historyEndSec);
+    if (!boundaryRes?.ok || boundaryRes?.stateData == null) {
+      return null;
+    }
+
+    const requestRes = forecastWorkerService.requestCoverage?.({
+      projectionCache: projection,
+      timeline: tl,
+      timelineToken,
+      historyEndSec,
+      stepSec: ASYNC_FORECAST_STEP_SEC,
+      desiredEndSec: requestedEndSec,
+      boundaryStateData: boundaryRes.stateData,
+      scheduledActionsBySecond: buildScheduledActionsBySecond(
+        tl,
+        historyEndSec,
+        requestedEndSec
+      ),
+    });
+
+    const nextCoverageEndSec =
+      requestRes && Number.isFinite(requestRes.coverageEndSec)
+        ? requestRes.coverageEndSec
+        : getAsyncForecastCoverageEndSec(tl);
+    const nextRequestedEndSec =
+      requestRes && Number.isFinite(requestRes.requestedEndSec)
+        ? requestRes.requestedEndSec
+        : requestedEndSec;
+    const nextPending = requestRes?.pending === true;
+
+    setForecastRuntimeState({
+      coverageEndSec: nextCoverageEndSec,
+      requestedEndSec: nextRequestedEndSec,
+      pending: nextPending,
+    });
+    return requestRes ?? null;
+  }
 
   function resolveActiveSeries(cursorState) {
     if (Array.isArray(seriesOverride) && seriesOverride.length) {
@@ -256,6 +438,9 @@ export function createTimeGraphController({
         forecast: [],
         forecastValuesBySec: new Map(),
         forecastValuesMeta: null,
+        forecastCoverageEndSec: historyEndSec,
+        forecastPending: false,
+        forecastRequestedEndSec: historyEndSec,
       },
       stateDataByBoundary: new Map(),
       series: activeSeries,
@@ -273,6 +458,7 @@ export function createTimeGraphController({
     windowDirty = false;
     seriesDirty = false;
     valuesDirty = false;
+    requestAsyncForecastCoverage(tl, { force: true });
     return { ok: true };
   }
 
@@ -888,6 +1074,7 @@ export function createTimeGraphController({
         graphCache.version = ++cacheVersion;
       }
     }
+    requestAsyncForecastCoverage(tl);
   }
 
   function ensureCache() {
@@ -909,6 +1096,16 @@ export function createTimeGraphController({
   }
 
   function getData() {
+    const tl = getTimeline?.();
+    if (tl) {
+      const coverageEndSec = getAsyncForecastCoverageEndSec(tl);
+      setForecastRuntimeState({
+        coverageEndSec,
+        requestedEndSec:
+          graphCache?.window?.forecastRequestedEndSec ?? clampSec(tl.historyEndSec ?? 0),
+        pending: graphCache?.window?.forecastPending === true,
+      });
+    }
     return {
       cache: graphCache,
       metric: metricDef,
@@ -918,6 +1115,11 @@ export function createTimeGraphController({
       horizonSec: horizonSecCur,
       historyStrideSec: historyStrideSecCur,
       forecastStepSec: forecastStepSecCur,
+      forecastCoverageEndSec:
+        graphCache?.window?.forecastCoverageEndSec ?? null,
+      forecastPending: graphCache?.window?.forecastPending === true,
+      forecastRequestedEndSec:
+        graphCache?.window?.forecastRequestedEndSec ?? null,
       cacheVersion: graphCache?.version ?? cacheVersion,
       projectionCacheSize: projection.getSize?.(),
       projectionCacheCap: projection.maxEntries,
@@ -984,7 +1186,10 @@ export function createTimeGraphController({
 
       const historyStart = perfNowMs();
       const historyValues =
-        getSeriesValuesForSeconds(historySecs, { focus: !!focus }) ?? new Map();
+        getSeriesValuesForSeconds(historySecs, {
+          focus: !!focus,
+          allowSyncForecast: false,
+        }) ?? new Map();
       recordProjectionHistoryBuild({
         ms: perfNowMs() - historyStart,
         points: historySecs.length,
@@ -992,7 +1197,10 @@ export function createTimeGraphController({
 
       const forecastStart = perfNowMs();
       const forecastValues =
-        getSeriesValuesForSeconds(forecastSecs, { focus: !!focus }) ?? new Map();
+        getSeriesValuesForSeconds(forecastSecs, {
+          focus: !!focus,
+          allowSyncForecast: false,
+        }) ?? new Map();
       recordProjectionForecastBuild({
         ms: perfNowMs() - forecastStart,
         points: forecastSecs.length,
@@ -1001,12 +1209,16 @@ export function createTimeGraphController({
       valuesBySec = new Map([...historyValues, ...forecastValues]);
     } else {
       valuesBySec =
-        getSeriesValuesForSeconds(sampleSecs, { focus: !!focus }) ?? new Map();
+        getSeriesValuesForSeconds(sampleSecs, {
+          focus: !!focus,
+          allowSyncForecast: false,
+        }) ?? new Map();
     }
 
     const points = sampleSecs.map((sec) => ({
       tSec: sec,
-      values: valuesBySec.get(sec) ?? {},
+      pending: sec > historyEndSec && !valuesBySec.has(sec),
+      values: valuesBySec.get(sec) ?? null,
     }));
 
     return { ok: true, points, seconds: sampleSecs, samplingSig };
@@ -1016,10 +1228,8 @@ export function createTimeGraphController({
     tl,
     seconds,
     historyEndSec,
-    seriesSig,
-    focus
+    seriesSig
   ) {
-    if (focus) return null;
     if (!graphCache?.window) return null;
 
     const requested = Array.from(
@@ -1032,11 +1242,12 @@ export function createTimeGraphController({
     if (!requested.length) return null;
 
     const baseSec = clampSec(historyEndSec);
-    const stepSec = Math.max(1, Math.floor(forecastStepSecCur ?? 1));
+    const stepSec = ASYNC_FORECAST_STEP_SEC;
     const maxSec = requested[requested.length - 1];
     const resolverFactory = getResolverFactory();
     const key = subjectKey ?? "__global__";
     const meta = graphCache.window.forecastValuesMeta;
+    const coverageEndSec = getAsyncForecastCoverageEndSec(tl);
 
     const canReuse =
       meta &&
@@ -1050,22 +1261,11 @@ export function createTimeGraphController({
       graphCache.window.forecastValuesBySec instanceof Map;
 
     if (!canReuse) {
-      const forecastRes = projection.ensureForecastWindow(
-        tl,
-        maxSec,
-        undefined,
-        stepSec
-      );
-      if (!forecastRes?.ok) {
-        graphCache.window.forecastValuesBySec = new Map();
-        graphCache.window.forecastValuesMeta = null;
-        return null;
-      }
       graphCache.window.forecastValuesBySec = new Map();
       graphCache.window.forecastValuesMeta = {
         baseSec,
         historyEndSec: baseSec,
-        endSec: maxSec,
+        endSec: coverageEndSec,
         stepSec,
         seriesSig,
         subjectKey: key,
@@ -1075,16 +1275,14 @@ export function createTimeGraphController({
 
     const valuesBySec = graphCache.window.forecastValuesBySec;
     for (const sec of requested) {
+      if (sec > coverageEndSec) continue;
       if (valuesBySec.has(sec)) continue;
-      const stateRes = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        stepSec
-      );
-      if (!stateRes?.ok) continue;
+      const sigRes = projection.ensureSignature?.(tl);
+      const stateData =
+        sigRes?.changed === true ? null : projection.getStateData?.(sec) ?? null;
+      if (stateData == null) continue;
       const values = computeValuesFromStateData(
-        stateRes.stateData,
+        stateData,
         activeSeries,
         subject,
         resolverFactory
@@ -1092,16 +1290,16 @@ export function createTimeGraphController({
       valuesBySec.set(sec, values);
     }
     if (graphCache.window.forecastValuesMeta) {
-      graphCache.window.forecastValuesMeta.endSec = Math.max(
-        graphCache.window.forecastValuesMeta.endSec ?? 0,
-        maxSec
-      );
+      graphCache.window.forecastValuesMeta.endSec = coverageEndSec;
     }
 
     return graphCache.window.forecastValuesBySec;
   }
 
-  function getSeriesValuesForSeconds(seconds, { focus = false } = {}) {
+  function getSeriesValuesForSeconds(
+    seconds,
+    { focus = false, allowSyncForecast = focus } = {}
+  ) {
     const tl = getTimeline?.();
     if (!tl || !graphCache) return null;
     const historyEndSec = clampSec(tl.historyEndSec ?? 0);
@@ -1129,8 +1327,7 @@ export function createTimeGraphController({
       tl,
       seconds,
       historyEndSec,
-      seriesSig,
-      !!focus
+      seriesSig
     );
     const resolverFactory = getResolverFactory();
     for (const secRaw of seconds || []) {
@@ -1162,6 +1359,9 @@ export function createTimeGraphController({
         }
       }
       if (stateData == null) {
+        if (sec > historyEndSec && allowSyncForecast !== true) {
+          continue;
+        }
         const res = projection.ensureStateAtSecond(
           tl,
           sec,
@@ -1169,8 +1369,6 @@ export function createTimeGraphController({
           forecastStepSecCur
         );
         if (!res?.ok) {
-          valuesBySec.set(sec, {});
-          pushSubjectValueSec(entry, sec, valuesBySec);
           continue;
         }
         stateData = res.stateData ?? null;
@@ -1205,6 +1403,7 @@ export function createTimeGraphController({
         return cachedProjectionData;
       }
       recordTimegraphCacheMiss();
+      return null;
     }
     const res = projection.ensureStateAtSecond(
       tl,

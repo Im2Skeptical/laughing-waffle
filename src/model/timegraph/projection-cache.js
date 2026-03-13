@@ -21,9 +21,6 @@ function computeTimelineSignature(tl) {
   const actions = Array.isArray(tl?.actions) ? tl.actions : [];
   const len = actions.length;
   const last = len ? actions[len - 1] : null;
-  const revision = Number.isFinite(tl?.revision)
-    ? Math.floor(tl.revision)
-    : 0;
   const persistentKnowledgeRef = tl?.persistentKnowledge ?? null;
   return {
     baseRef: tl?.baseStateData ?? null,
@@ -31,7 +28,6 @@ function computeTimelineSignature(tl) {
     actionsLen: len,
     lastRef: last,
     lastSec: last ? Math.floor(last.tSec ?? 0) : 0,
-    revision,
     persistentKnowledgeRef,
   };
 }
@@ -44,7 +40,6 @@ function signatureEquals(a, b) {
     a.actionsLen === b.actionsLen &&
     a.lastRef === b.lastRef &&
     a.lastSec === b.lastSec &&
-    a.revision === b.revision &&
     a.persistentKnowledgeRef === b.persistentKnowledgeRef
   );
 }
@@ -54,10 +49,15 @@ export function createProjectionCache({
   maxEntries = null,
 } = {}) {
   let signature = null;
+  let signatureVersion = 0;
   let forecastBaseSec = 0;
   let forecastEndSec = 0;
   let forecastStepSec = 1;
   let forecastDtStep = null;
+  let forecastAsyncBaseSec = 0;
+  let forecastAsyncEndSec = 0;
+  let forecastAsyncStepSec = 1;
+  let forecastAsyncToken = null;
   const stateDataBySecond = new Map();
   const bytesBySecond = new Map();
   let stateDataSizeSamples = 0;
@@ -75,10 +75,15 @@ export function createProjectionCache({
 
   function reset(nextSignature) {
     signature = nextSignature || null;
+    signatureVersion += 1;
     forecastBaseSec = 0;
     forecastEndSec = 0;
     forecastStepSec = 1;
     forecastDtStep = null;
+    forecastAsyncBaseSec = 0;
+    forecastAsyncEndSec = 0;
+    forecastAsyncStepSec = 1;
+    forecastAsyncToken = null;
     stateDataBySecond.clear();
     bytesBySecond.clear();
     approxBytesTotal = 0;
@@ -169,7 +174,12 @@ export function createProjectionCache({
     const nextSig = computeTimelineSignature(tl);
     const changed = !signatureEquals(nextSig, signature);
     if (changed) reset(nextSig);
-    return { changed, signature };
+    return { changed, signature, signatureVersion };
+  }
+
+  function getTimelineToken(tl) {
+    ensureSignature(tl);
+    return `sig:${signatureVersion}`;
   }
 
   function ensureForecastWindow(tl, targetEndSec, dtStep, stepSec) {
@@ -393,10 +403,74 @@ export function createProjectionCache({
     return { ok: false, reason: "forecastMissing" };
   }
 
+  function mergeForecastChunk(tl, chunk = {}) {
+    if (!tl) return { ok: false, reason: "noTimeline" };
+
+    const token = typeof chunk?.timelineToken === "string"
+      ? chunk.timelineToken
+      : null;
+    if (!token) return { ok: false, reason: "missingTimelineToken" };
+
+    const chunkHistoryEndSec = clampSec(chunk?.historyEndSec ?? tl.historyEndSec ?? 0);
+    const currentHistoryEndSec = clampSec(tl?.historyEndSec ?? chunkHistoryEndSec);
+    const baseSec = clampSec(chunk?.baseSec ?? chunkHistoryEndSec);
+    const endSec = clampSec(chunk?.endSec ?? baseSec);
+    const stepSec = Math.max(1, Math.floor(chunk?.stepSec ?? 1));
+    const currentToken = getTimelineToken(tl);
+    if (currentToken !== token) {
+      return { ok: false, reason: "staleTimelineToken" };
+    }
+    purgePastForecastIfNeeded(currentHistoryEndSec);
+
+    if (
+      forecastAsyncToken !== token ||
+      forecastAsyncStepSec !== stepSec
+    ) {
+      forecastAsyncToken = token;
+      forecastAsyncBaseSec = baseSec;
+      forecastAsyncEndSec = Math.max(baseSec, currentHistoryEndSec);
+      forecastAsyncStepSec = stepSec;
+    }
+    if (baseSec < forecastAsyncBaseSec || baseSec > forecastAsyncEndSec) {
+      return { ok: false, reason: "staleBaseSec" };
+    }
+
+    const entries = Array.isArray(chunk?.stateDataBySecond)
+      ? chunk.stateDataBySecond
+      : chunk?.stateDataBySecond instanceof Map
+        ? Array.from(chunk.stateDataBySecond.entries())
+        : [];
+    for (const entry of entries) {
+      const sec = Array.isArray(entry) ? entry[0] : entry?.sec;
+      const stateData = Array.isArray(entry) ? entry[1] : entry?.stateData;
+      if (stateData == null) continue;
+      setForecastState(sec, currentHistoryEndSec, stateData);
+    }
+
+    if (chunk?.lastStateData != null) {
+      setForecastState(endSec, currentHistoryEndSec, chunk.lastStateData);
+      absorbTimelinePersistentKnowledge(tl, chunk.lastStateData);
+    }
+
+    forecastAsyncEndSec = Math.max(forecastAsyncEndSec, endSec);
+    return {
+      ok: true,
+      forecastAsyncEndSec,
+    };
+  }
+
   return {
     ensureSignature,
+    getTimelineToken,
     ensureStateAtSecond,
     ensureForecastWindow,
+    mergeForecastChunk,
+    getForecastAsyncMeta: () => ({
+      forecastAsyncBaseSec,
+      forecastAsyncEndSec,
+      forecastAsyncStepSec,
+      forecastAsyncToken,
+    }),
     getStateData: (sec) => touch(clampSec(sec)),
     setStateData: (sec, data) => {
       const t = clampSec(sec);

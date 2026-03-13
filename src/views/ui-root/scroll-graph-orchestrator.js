@@ -150,6 +150,14 @@ function clearScrollConfigFromView(view) {
   view.setEventMarkerResolver?.(null);
 }
 
+function isFrozenStaticScrollRecord(record) {
+  return !!(
+    record &&
+    record.subjectId !== "systems" &&
+    record.scrollState?.frozen === true
+  );
+}
+
 function normalizeScrollWindowBasePosition(scrollWindowBasePosition) {
   const x = Number.isFinite(scrollWindowBasePosition?.x)
     ? Math.floor(scrollWindowBasePosition.x)
@@ -274,6 +282,7 @@ export function createScrollGraphOrchestrator({
   interactionController,
   createMetricController,
   createSystemGraphModel,
+  forecastWorkerService = null,
   buildGraphView,
   scrollWindowBasePosition = null,
   onBeforeOpenGraphItem = null,
@@ -438,6 +447,7 @@ export function createScrollGraphOrchestrator({
         interactionController,
         runner,
         createController: createMetricController,
+        forecastWorkerService,
       });
       controller = systemModel?.controller ?? null;
       getMetricDef = () => controller?.getData?.().metric;
@@ -453,6 +463,7 @@ export function createScrollGraphOrchestrator({
         getTimeline: () => runner.getTimeline(),
         getCursorState: () => runner.getCursorState(),
         metric,
+        forecastWorkerService,
       });
     }
     if (!controller) return null;
@@ -658,9 +669,12 @@ export function createScrollGraphOrchestrator({
         record.systemModel?.refreshTargetThrottled?.(nowMs);
       }
 
-      record.controller?.setActive?.(true);
-      record.controller?.update?.();
-      if (!Number.isFinite(record.itemUnavailableStartSec)) {
+      const frozenStaticRecord = isFrozenStaticScrollRecord(record);
+      record.controller?.setActive?.(!frozenStaticRecord);
+      if (!frozenStaticRecord) {
+        record.controller?.update?.();
+      }
+      if (!Number.isFinite(record.itemUnavailableStartSec) && !liveItem) {
         const inferredUnavailableSec =
           resolveItemUnavailableStartSecFromSnapshots(record);
         if (Number.isFinite(inferredUnavailableSec)) {

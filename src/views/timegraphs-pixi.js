@@ -50,6 +50,13 @@ const ITEM_UNAVAILABLE_ZONE_ALPHA = Math.min(
   1,
   TIME_STATE_GRAPH_BG_ALPHA * 3.5
 );
+const FORECAST_PENDING_ZONE_ALPHA = Math.min(
+  1,
+  TIME_STATE_GRAPH_BG_ALPHA * 4.5
+);
+const FORECAST_REVEAL_RATE_SEC_PER_SEC = 120;
+const FORECAST_REVEAL_PLOT_THROTTLE_MS = 16;
+const FORECAST_REVEAL_MARKER_ALPHA = 0.92;
 
 function normalizeHistoryZoneSegments(rawSegments, { minSec, maxSec, historyEndSec }) {
   const min = Math.max(0, Math.floor(minSec ?? 0));
@@ -375,9 +382,117 @@ export function createMetricGraphView({
   let legendSignature = "";
   let hoveredLegendSeriesId = null;
   const legendEntriesBySeriesId = new Map();
+  let forecastRevealAnimatedEndSec = 0;
+  let forecastRevealTargetEndSec = 0;
+  let forecastRevealLastTickMs = 0;
+  let forecastRevealHistoryEndSec = 0;
+  let forecastRevealVisibleEndSec = 0;
+  let plotSnapshotKey = "";
+  let plotSnapshot = null;
 
   function clampInt(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v | 0));
+  }
+
+  function invalidatePlotSnapshot() {
+    plotSnapshotKey = "";
+    plotSnapshot = null;
+  }
+
+  function resetForecastReveal(animatedEndSec, targetEndSec, historyEndSec, nowMs) {
+    const historyEnd = Math.max(0, Math.floor(historyEndSec ?? 0));
+    const animatedEnd = Math.max(
+      historyEnd,
+      Math.floor(animatedEndSec ?? historyEnd)
+    );
+    const targetEnd = Math.max(
+      animatedEnd,
+      Math.floor(targetEndSec ?? animatedEnd)
+    );
+    forecastRevealAnimatedEndSec = animatedEnd;
+    forecastRevealTargetEndSec = targetEnd;
+    forecastRevealLastTickMs = nowMs;
+    forecastRevealHistoryEndSec = historyEnd;
+    forecastRevealVisibleEndSec = animatedEnd;
+    invalidatePlotSnapshot();
+  }
+
+  function getAnimatedForecastCoverageEndSec(nowMs, historyEndSec) {
+    const historyEnd = Math.max(0, Math.floor(historyEndSec ?? 0));
+    forecastRevealHistoryEndSec = historyEnd;
+    const targetEnd = Math.max(
+      historyEnd,
+      Math.floor(forecastRevealTargetEndSec ?? historyEnd)
+    );
+    const currentEnd = Math.max(
+      historyEnd,
+      Number(forecastRevealAnimatedEndSec ?? historyEnd)
+    );
+    if (targetEnd <= currentEnd) {
+      forecastRevealAnimatedEndSec = targetEnd;
+      forecastRevealLastTickMs = nowMs;
+      forecastRevealVisibleEndSec = targetEnd;
+      return targetEnd;
+    }
+    const elapsedMs = Math.max(0, nowMs - forecastRevealLastTickMs);
+    forecastRevealLastTickMs = nowMs;
+    if (elapsedMs <= 0) return currentEnd;
+    const revealDeltaSec =
+      (elapsedMs / 1000) * Math.max(1, FORECAST_REVEAL_RATE_SEC_PER_SEC);
+    const animatedEnd = Math.min(targetEnd, currentEnd + revealDeltaSec);
+    forecastRevealAnimatedEndSec = Math.max(historyEnd, animatedEnd);
+    forecastRevealVisibleEndSec = forecastRevealAnimatedEndSec;
+    return forecastRevealAnimatedEndSec;
+  }
+
+  function syncForecastRevealTarget(actualCoverageEndSec, historyEndSec, nowMs) {
+    const historyEnd = Math.max(0, Math.floor(historyEndSec ?? 0));
+    const previousHistoryEnd = Math.max(
+      0,
+      Math.floor(forecastRevealHistoryEndSec ?? 0)
+    );
+    const actualEnd = Math.max(
+      historyEnd,
+      Math.floor(actualCoverageEndSec ?? historyEnd)
+    );
+    const targetEnd = Math.max(
+      historyEnd,
+      Math.floor(forecastRevealTargetEndSec ?? historyEnd)
+    );
+    const hasRevealState =
+      Number.isFinite(forecastRevealTargetEndSec) &&
+      Number.isFinite(forecastRevealAnimatedEndSec);
+
+    if (
+      !hasRevealState ||
+      historyEnd < previousHistoryEnd ||
+      actualEnd < targetEnd ||
+      actualEnd < forecastRevealAnimatedEndSec
+    ) {
+      resetForecastReveal(historyEnd, actualEnd, historyEnd, nowMs);
+      return forecastRevealAnimatedEndSec;
+    }
+
+    if (historyEnd !== previousHistoryEnd) {
+      const clampedAnimatedEnd = Math.max(
+        historyEnd,
+        Number(forecastRevealAnimatedEndSec ?? historyEnd)
+      );
+      forecastRevealAnimatedEndSec = clampedAnimatedEnd;
+      forecastRevealVisibleEndSec = clampedAnimatedEnd;
+      forecastRevealTargetEndSec = Math.max(actualEnd, clampedAnimatedEnd);
+      forecastRevealHistoryEndSec = historyEnd;
+      forecastRevealLastTickMs = nowMs;
+    }
+
+    if (actualEnd > targetEnd) {
+      forecastRevealTargetEndSec = actualEnd;
+      forecastRevealLastTickMs = nowMs;
+      forecastRevealHistoryEndSec = historyEnd;
+      return forecastRevealAnimatedEndSec;
+    }
+
+    return forecastRevealAnimatedEndSec;
   }
 
   function getGridStep(rangeSec, targetLines = 12) {
@@ -833,26 +948,30 @@ export function createMetricGraphView({
     }
   }
 
-  function drawPlot() {
-    resolveMetric();
-    const perfStart = perfEnabled() ? perfNowMs() : 0;
-    plotG.clear();
+  function getPlotSnapshot() {
     const data = controller.getData?.() ?? {};
     const seriesList = getActiveSeries();
-    drawLegend(seriesList);
     const cs = getCursorState?.();
     const cursorSec = Math.floor(cs?.tSec ?? 0);
+    const sampleCursorSec = zoomed ? cursorSec : null;
+    const cacheVersion =
+      Number.isFinite(data.cacheVersion) ? data.cacheVersion : -1;
+    const snapshotKey = `${cacheVersion}|${minSec}:${maxSec}|${zoomed ? 1 : 0}|${
+      sampleCursorSec == null ? "stable" : sampleCursorSec
+    }`;
+    if (plotSnapshot && plotSnapshotKey === snapshotKey) {
+      return plotSnapshot;
+    }
+
     const sampleRes = controller.getSamplesForWindow?.({
       startSec: minSec,
       endSec: maxSec,
       focus: zoomed,
-      cursorSec,
+      cursorSec: sampleCursorSec,
     });
     const sampledPoints = Array.isArray(sampleRes?.points)
       ? sampleRes.points
       : [];
-
-    if (!sampledPoints.length || !seriesList.length) return;
 
     let pointsForDraw = sampledPoints;
     const maxPlotPoints = Math.min(
@@ -872,19 +991,16 @@ export function createMetricGraphView({
       pointsForDraw = decimated;
     }
 
-    if (!pointsForDraw.length) return;
-
-    function resolveValue(point, seriesDef) {
-      const t = Math.max(0, Math.floor(point?.tSec ?? 0));
-      const override = seriesValueOverrideResolver?.(
-        t,
-        seriesDef.id,
-        point,
-        cursorSec
-      );
-      if (Number.isFinite(override)) return override;
-      return getSeriesValue(point, seriesDef.id);
-    }
+    const tl = getTimeline?.();
+    const historyEndSec = Math.max(0, Math.floor(tl?.historyEndSec ?? 0));
+    const actualForecastCoverageEndSec = Math.max(
+      historyEndSec,
+      Math.floor(data?.forecastCoverageEndSec ?? historyEndSec)
+    );
+    const editableBounds = getEditableHistoryBounds?.();
+    const minEditableSec = Number.isFinite(editableBounds?.minEditableSec)
+      ? Math.max(0, Math.floor(editableBounds.minEditableSec))
+      : 0;
 
     const seriesValues = new Map();
     for (const s of seriesList) {
@@ -894,12 +1010,26 @@ export function createMetricGraphView({
     let minValue = 0;
     let maxValue = -Infinity;
     for (let i = 0; i < pointsForDraw.length; i++) {
-      const p = pointsForDraw[i];
-      for (const s of seriesList) {
-        const v = resolveValue(p, s);
-        const arr = seriesValues.get(s.id);
-        if (arr) arr[i] = v;
-        if (v > maxValue) maxValue = v;
+      const point = pointsForDraw[i];
+      const t = Math.max(0, Math.floor(point?.tSec ?? 0));
+      for (const seriesDef of seriesList) {
+        let value = null;
+        if (point?.pending !== true && !(t > historyEndSec && t > actualForecastCoverageEndSec)) {
+          const override = seriesValueOverrideResolver?.(
+            t,
+            seriesDef.id,
+            point,
+            sampleCursorSec
+          );
+          value = Number.isFinite(override)
+            ? override
+            : getSeriesValue(point, seriesDef.id);
+        }
+        const arr = seriesValues.get(seriesDef.id);
+        if (arr) arr[i] = value;
+        if (Number.isFinite(value) && value > maxValue) {
+          maxValue = value;
+        }
       }
     }
 
@@ -909,36 +1039,7 @@ export function createMetricGraphView({
     if (maxValue <= minValue) {
       maxValue = minValue + 1;
     }
-
-    const pad = (maxValue - minValue) * 0.1;
-    maxValue += pad;
-
-    function yForValue(v) {
-      const tRaw = (v - minValue) / Math.max(1e-6, maxValue - minValue);
-      const t = Math.max(0, Math.min(1, tRaw));
-      return plot.y + plot.h - t * plot.h;
-    }
-
-    const tl = getTimeline?.();
-    const historyEndSec = Math.max(0, Math.floor(tl?.historyEndSec ?? 0));
-    const editableBounds = getEditableHistoryBounds?.();
-    const minEditableSec = Number.isFinite(editableBounds?.minEditableSec)
-      ? Math.max(0, Math.floor(editableBounds.minEditableSec))
-      : 0;
-
-    function drawZone(startSec, endSec, color, alpha = TIME_STATE_GRAPH_BG_ALPHA) {
-      const start = Math.max(minSec, Math.min(maxSec, startSec));
-      const end = Math.max(minSec, Math.min(maxSec, endSec));
-      if (!(end > start)) return;
-      const x0 = timeToX(start);
-      const x1 = timeToX(end);
-      const left = Math.max(plot.x, Math.min(x0, x1));
-      const right = Math.min(plot.x + plot.w, Math.max(x0, x1));
-      if (!(right > left)) return;
-      plotG.beginFill(color, alpha);
-      plotG.drawRect(left, plot.y, right - left, plot.h);
-      plotG.endFill();
-    }
+    maxValue += (maxValue - minValue) * 0.1;
 
     const defaultHistoryZones = computeHistoryZoneSegments({
       minSec,
@@ -970,6 +1071,113 @@ export function createMetricGraphView({
       customHistoryZones,
       { minSec, maxSec }
     );
+
+    const markerActionSecs = getMarkerActionSecs(
+      minSec,
+      maxSec,
+      Math.floor(plot.w * MAX_ACTION_MARKERS_DENSITY)
+    );
+    const markerSecs = getMarkerSeconds(markerActionSecs);
+    const rawEventMarkers =
+      typeof eventMarkerResolver === "function"
+        ? eventMarkerResolver({
+            minSec,
+            maxSec,
+            historyEndSec,
+            timeline: tl,
+            cursorState: cs,
+            graphData: data,
+          })
+        : null;
+    const eventMarkers = normalizeEventMarkers(rawEventMarkers, { minSec, maxSec });
+
+    plotSnapshotKey = snapshotKey;
+    plotSnapshot = {
+      data,
+      tl,
+      cs,
+      cursorSec,
+      seriesList,
+      pointsForDraw,
+      seriesValues,
+      minValue,
+      maxValue,
+      historyEndSec,
+      actualForecastCoverageEndSec,
+      historyZones,
+      itemUnavailableZones,
+      markerSecs,
+      eventMarkers,
+    };
+    return plotSnapshot;
+  }
+
+  function drawPlot() {
+    resolveMetric();
+    const perfStart = perfEnabled() ? perfNowMs() : 0;
+    plotG.clear();
+    const snapshot = getPlotSnapshot();
+    const data = snapshot?.data ?? {};
+    const seriesList = Array.isArray(snapshot?.seriesList)
+      ? snapshot.seriesList
+      : [];
+    drawLegend(seriesList);
+    const pointsForDraw = Array.isArray(snapshot?.pointsForDraw)
+      ? snapshot.pointsForDraw
+      : [];
+    if (!pointsForDraw.length || !seriesList.length) return;
+
+    const tl = snapshot?.tl ?? getTimeline?.();
+    const cs = snapshot?.cs ?? getCursorState?.();
+    const cursorSec = Math.floor(snapshot?.cursorSec ?? cs?.tSec ?? 0);
+    const historyEndSec = Math.max(
+      0,
+      Math.floor(snapshot?.historyEndSec ?? tl?.historyEndSec ?? 0)
+    );
+    const actualForecastCoverageEndSec = Math.max(
+      historyEndSec,
+      Math.floor(
+        snapshot?.actualForecastCoverageEndSec ?? data?.forecastCoverageEndSec ?? historyEndSec
+      )
+    );
+    const visibleForecastCoverageEndSec = Math.max(
+      historyEndSec,
+      Math.min(
+        actualForecastCoverageEndSec,
+        forecastRevealHistoryEndSec === historyEndSec
+          ? Number(forecastRevealVisibleEndSec ?? historyEndSec)
+          : historyEndSec
+      )
+    );
+    const seriesValues = snapshot?.seriesValues ?? new Map();
+    const minValue = Number.isFinite(snapshot?.minValue) ? snapshot.minValue : 0;
+    const maxValue = Number.isFinite(snapshot?.maxValue) ? snapshot.maxValue : 100;
+
+    function yForValue(v) {
+      const tRaw = (v - minValue) / Math.max(1e-6, maxValue - minValue);
+      const t = Math.max(0, Math.min(1, tRaw));
+      return plot.y + plot.h - t * plot.h;
+    }
+
+    function drawZone(startSec, endSec, color, alpha = TIME_STATE_GRAPH_BG_ALPHA) {
+      const start = Math.max(minSec, Math.min(maxSec, startSec));
+      const end = Math.max(minSec, Math.min(maxSec, endSec));
+      if (!(end > start)) return;
+      const x0 = timeToX(start);
+      const x1 = timeToX(end);
+      const left = Math.max(plot.x, Math.min(x0, x1));
+      const right = Math.min(plot.x + plot.w, Math.max(x0, x1));
+      if (!(right > left)) return;
+      plotG.beginFill(color, alpha);
+      plotG.drawRect(left, plot.y, right - left, plot.h);
+      plotG.endFill();
+    }
+    const historyZones = Array.isArray(snapshot?.historyZones)
+      ? snapshot.historyZones
+      : [];
+    const itemUnavailableZones = Array.isArray(snapshot?.itemUnavailableZones)
+      ? snapshot.itemUnavailableZones
+      : [];
     for (const zone of historyZones) {
       if (zone.kind === "fixedHistory") {
         drawZone(zone.startSec, zone.endSec, TIME_STATE_COLORS.fixedHistory);
@@ -980,6 +1188,14 @@ export function createMetricGraphView({
       }
     }
     drawZone(historyEndSec, maxSec, TIME_STATE_COLORS.forecast);
+    if (visibleForecastCoverageEndSec < maxSec) {
+      drawZone(
+        visibleForecastCoverageEndSec,
+        maxSec,
+        TIMEGRAPH_THEME.panelBorder,
+        FORECAST_PENDING_ZONE_ALPHA
+      );
+    }
     for (const zone of itemUnavailableZones) {
       drawZone(
         zone.startSec,
@@ -1030,9 +1246,16 @@ export function createMetricGraphView({
       for (let i = 0; i < pointsForDraw.length; i++) {
         const p = pointsForDraw[i];
         const t = p.tSec ?? 0;
-
+        const value = values[i];
+        if (t > historyEndSec && t > visibleForecastCoverageEndSec) {
+          first = true;
+          continue;
+        }
+        if (!Number.isFinite(value)) {
+          first = true;
+          continue;
+        }
         const x = timeToX(t);
-        const value = Number.isFinite(values[i]) ? values[i] : 0;
         const y = yForValue(value);
 
         if (first) {
@@ -1044,13 +1267,27 @@ export function createMetricGraphView({
       }
     }
 
+    if (visibleForecastCoverageEndSec < maxSec) {
+      const markerX = timeToX(visibleForecastCoverageEndSec);
+      plotG.lineStyle(
+        2,
+        TIMEGRAPH_THEME.forecastMarker,
+        FORECAST_REVEAL_MARKER_ALPHA
+      );
+      plotG.moveTo(markerX, plot.y + 1);
+      plotG.lineTo(markerX, plot.y + plot.h - 1);
+      plotG.beginFill(TIMEGRAPH_THEME.forecastMarker, 0.98);
+      plotG.drawCircle(markerX, plot.y + 7, 4);
+      plotG.endFill();
+      plotG.beginFill(TIMEGRAPH_THEME.forecastMarker, 0.42);
+      plotG.drawRect(markerX, plot.y, 2, plot.h);
+      plotG.endFill();
+    }
+
     // Markers (actions)
-    const markerActionSecs = getMarkerActionSecs(
-      minSec,
-      maxSec,
-      Math.floor(plot.w * MAX_ACTION_MARKERS_DENSITY)
-    );
-    const markerSecs = getMarkerSeconds(markerActionSecs);
+    const markerSecs = Array.isArray(snapshot?.markerSecs)
+      ? snapshot.markerSecs
+      : [];
     if (markerSecs.length) {
       plotG.beginFill(TIMEGRAPH_THEME.actionMarker);
       plotG.lineStyle(0);
@@ -1063,18 +1300,9 @@ export function createMetricGraphView({
       plotG.endFill();
     }
 
-    const rawEventMarkers =
-      typeof eventMarkerResolver === "function"
-        ? eventMarkerResolver({
-            minSec,
-            maxSec,
-            historyEndSec,
-            timeline: tl,
-            cursorState: cs,
-            graphData: data,
-          })
-        : null;
-    const eventMarkers = normalizeEventMarkers(rawEventMarkers, { minSec, maxSec });
+    const eventMarkers = Array.isArray(snapshot?.eventMarkers)
+      ? snapshot.eventMarkers
+      : [];
     for (const marker of eventMarkers) {
       const x = timeToX(marker.tSec);
       const color = Number.isFinite(marker?.color)
@@ -1166,7 +1394,17 @@ export function createMetricGraphView({
 
     const restored = controller.getStateAt(scrubSec);
     if (restored) {
+      if (statusNote === "Forecast loading") {
+        statusNote = "";
+      }
       setPreviewState?.(restored);
+    } else {
+      const tl = getTimeline?.();
+      const historyEnd = Math.floor(tl?.historyEndSec ?? 0);
+      if (scrubSec > historyEnd) {
+        statusNote = "Forecast loading";
+        clearPreviewState?.();
+      }
     }
     drawScrub();
   }
@@ -1208,6 +1446,12 @@ export function createMetricGraphView({
     }
 
     if (isForecast) {
+      if (controller?.getStateDataAt?.(scrubSec) == null) {
+        statusNote = "Forecast loading";
+        clearPreviewState?.();
+        drawScrub();
+        return;
+      }
       statusNote = "Preview only - click Commit to jump";
       applyPreviewThrottled(true);
       return;
@@ -1239,6 +1483,7 @@ export function createMetricGraphView({
   zoomBtn.on("pointertap", (e) => {
     e.stopPropagation();
     zoomed = !zoomed;
+    invalidatePlotSnapshot();
     statusNote = "";
     render();
   });
@@ -1261,6 +1506,8 @@ export function createMetricGraphView({
     const defaultY = app.screen.height - WIN_H - 800;
     root.x = openPosition?.x ?? defaultX;
     root.y = openPosition?.y ?? defaultY;
+    invalidatePlotSnapshot();
+    resetForecastReveal(0, 0, 0, performance.now());
     controller?.setActive?.(true);
     controller.handleInvalidate?.("open");
     controller.ensureCache();
@@ -1271,6 +1518,8 @@ export function createMetricGraphView({
     if (!root.visible) return;
     root.visible = false;
     isScrubbing = false;
+    invalidatePlotSnapshot();
+    resetForecastReveal(0, 0, 0, performance.now());
     clearLegendEntries();
     tooltipView?.hide?.();
     clearPreviewState?.();
@@ -1289,19 +1538,40 @@ export function createMetricGraphView({
     drawLegend(getActiveSeries());
     const now = performance.now();
     const data = controller.getData?.() ?? {};
-    const boundsKey = `${minSec}:${maxSec}`;
+    const tl = getTimeline?.();
+    const historyEndSec = Math.max(0, Math.floor(tl?.historyEndSec ?? 0));
+    const actualForecastCoverageEndSec = Math.max(
+      historyEndSec,
+      Math.floor(data?.forecastCoverageEndSec ?? historyEndSec)
+    );
+    syncForecastRevealTarget(actualForecastCoverageEndSec, historyEndSec, now);
+    const visibleForecastCoverageEndSec = getAnimatedForecastCoverageEndSec(
+      now,
+      historyEndSec
+    );
+    forecastRevealVisibleEndSec = visibleForecastCoverageEndSec;
+    const boundsKey = `${minSec}:${maxSec}:${Math.floor(visibleForecastCoverageEndSec * 10)}`;
     const cacheVersion =
       Number.isFinite(data.cacheVersion) ? data.cacheVersion : -1;
     const versionChanged =
       cacheVersion !== lastPlotVersion || boundsKey !== lastPlotBoundsKey;
+    const revealAnimating =
+      Math.max(
+        historyEndSec,
+        Math.floor(forecastRevealTargetEndSec ?? historyEndSec)
+      ) -
+        visibleForecastCoverageEndSec >
+      0.001;
     const shouldPlot =
-      isScrubbing || zoomed
-        ? now - lastPlotMs >= PLOT_THROTTLE_MS
-        : versionChanged && now - lastPlotMs >= PLOT_THROTTLE_MS;
+      revealAnimating
+        ? now - lastPlotMs >= FORECAST_REVEAL_PLOT_THROTTLE_MS
+        : isScrubbing || zoomed
+          ? now - lastPlotMs >= PLOT_THROTTLE_MS
+          : versionChanged && now - lastPlotMs >= PLOT_THROTTLE_MS;
     if (shouldPlot) {
       drawPlot();
       lastPlotMs = now;
-      lastPlotVersion = cacheVersion;
+      lastPlotVersion = revealAnimating ? -1 : cacheVersion;
       lastPlotBoundsKey = boundsKey;
     }
     drawScrub();
@@ -1312,6 +1582,7 @@ export function createMetricGraphView({
   function setWindowSpecResolver(nextResolver) {
     windowSpecResolver =
       typeof nextResolver === "function" ? nextResolver : null;
+    invalidatePlotSnapshot();
     statusNote = "";
   }
 
@@ -1324,18 +1595,21 @@ export function createMetricGraphView({
   function setSeriesValueOverrideResolver(nextResolver) {
     seriesValueOverrideResolver =
       typeof nextResolver === "function" ? nextResolver : null;
+    invalidatePlotSnapshot();
     statusNote = "";
   }
 
   function setHistoryZoneResolver(nextResolver) {
     historyZoneResolver =
       typeof nextResolver === "function" ? nextResolver : null;
+    invalidatePlotSnapshot();
     statusNote = "";
   }
 
   function setEventMarkerResolver(nextResolver) {
     eventMarkerResolver =
       typeof nextResolver === "function" ? nextResolver : null;
+    invalidatePlotSnapshot();
     lastPlotVersion = -1;
     lastPlotBoundsKey = "";
     statusNote = "";
