@@ -761,5 +761,16 @@ export function createDebugOverlay({
       autoPauseBtn.text.x = Math.round((autoPauseBtn.width - autoPauseBtn.text.width) * 0.5);
       autoPauseBtn.bg.tint = autoPauseEnabled ? 0x2f9b4c : 0xffffff;
     },
+    getScreenRect: () => {
+      if (!root.visible) return null;
+      const bounds = root.getBounds?.();
+      if (!bounds) return null;
+      return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      };
+    },
   };
 }

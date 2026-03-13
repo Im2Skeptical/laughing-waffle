@@ -631,5 +631,16 @@ export function createEventLogView({
     update,
     container,
     clearSelection,
+    getScreenRect() {
+      if (!container.visible) return null;
+      const bounds = container.getBounds?.();
+      if (!bounds) return null;
+      return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      };
+    },
   };
 }

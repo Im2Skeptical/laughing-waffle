@@ -306,6 +306,8 @@ export function createPlayfieldMuchaStyle({
   getTimeline,
   getPreviewStatus,
   getViewportSize,
+  getPlayfieldCameraState,
+  getPlayfieldWorldBounds,
 } = {}) {
   const config = normalizeMuchaStyleConfig(layout);
   let enabled = config.enabled;
@@ -477,6 +479,14 @@ export function createPlayfieldMuchaStyle({
 
     const preset = QUALITY_PRESETS[quality];
     const baseWarp = clamp01(warpInfo.warp);
+    const playfieldCameraState =
+      typeof getPlayfieldCameraState === "function"
+        ? getPlayfieldCameraState()
+        : null;
+    const playfieldWorldBounds =
+      typeof getPlayfieldWorldBounds === "function"
+        ? getPlayfieldWorldBounds()
+        : null;
 
     for (const [container, entry] of registry.entries()) {
       if (!container || container.destroyed) {
@@ -578,12 +588,39 @@ export function createPlayfieldMuchaStyle({
       sanitizeUniform(uniforms, "u_vignetteStrength", profile.vignetteStrength);
       sanitizeUniform(uniforms, "u_vignetteInner", profile.vignetteInner);
       sanitizeUniform(uniforms, "u_vignetteOuter", profile.vignetteOuter);
+      sanitizeUniform(uniforms, "u_worldSpaceMode", 0);
+      sanitizeUniform(uniforms, "u_cameraScale", 1);
 
       const stageSize = ensureVec2Uniform(uniforms, "u_stageSize");
       const worldOffset = ensureVec2Uniform(uniforms, "u_worldOffset");
-      const wt = container.worldTransform;
-      const offsetX = Number.isFinite(wt?.tx) ? wt.tx : 0;
-      const offsetY = Number.isFinite(wt?.ty) ? wt.ty : 0;
+      const cameraPosition = ensureVec2Uniform(uniforms, "u_cameraPosition");
+      if (!Array.isArray(uniforms.u_worldBounds) || uniforms.u_worldBounds.length < 4) {
+        uniforms.u_worldBounds = [0, 0, 1, 1];
+      }
+      const worldBoundsVec4 = uniforms.u_worldBounds;
+      const useWorldSpace =
+        profileName === "playfield" || profileName === "backdrop";
+      const cameraX = Number.isFinite(playfieldCameraState?.x)
+        ? playfieldCameraState.x
+        : 0;
+      const cameraY = Number.isFinite(playfieldCameraState?.y)
+        ? playfieldCameraState.y
+        : 0;
+      const cameraScale = Number.isFinite(playfieldCameraState?.scale)
+        ? playfieldCameraState.scale
+        : 1;
+      const worldBoundsX = Number.isFinite(playfieldWorldBounds?.minX)
+        ? playfieldWorldBounds.minX
+        : 0;
+      const worldBoundsY = Number.isFinite(playfieldWorldBounds?.minY)
+        ? playfieldWorldBounds.minY
+        : 0;
+      const worldBoundsWidth = Number.isFinite(playfieldWorldBounds?.width)
+        ? playfieldWorldBounds.width
+        : stageWidth;
+      const worldBoundsHeight = Number.isFinite(playfieldWorldBounds?.height)
+        ? playfieldWorldBounds.height
+        : stageHeight;
 
       uniforms.u_timeSec = timeSec;
       uniforms.u_timeWarp = animationWarp;
@@ -601,10 +638,18 @@ export function createPlayfieldMuchaStyle({
       uniforms.u_vignetteStrength = vignetteStrength;
       uniforms.u_vignetteInner = vignetteInner;
       uniforms.u_vignetteOuter = vignetteOuter;
+      uniforms.u_worldSpaceMode = useWorldSpace ? 1 : 0;
       stageSize[0] = stageWidth;
       stageSize[1] = stageHeight;
-      worldOffset[0] = offsetX;
-      worldOffset[1] = offsetY;
+      worldOffset[0] = 0;
+      worldOffset[1] = 0;
+      cameraPosition[0] = cameraX;
+      cameraPosition[1] = cameraY;
+      uniforms.u_cameraScale = cameraScale;
+      worldBoundsVec4[0] = worldBoundsX;
+      worldBoundsVec4[1] = worldBoundsY;
+      worldBoundsVec4[2] = worldBoundsWidth;
+      worldBoundsVec4[3] = worldBoundsHeight;
     }
   }
 

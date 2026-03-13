@@ -112,6 +112,7 @@ export function createBoardView(opts) {
     onGamepieceTapForSystemFocus,
     getExternalFocus,
     canStartHoverZoomIn,
+    canShowGamepieceHoverUi,
   } = opts;
 
   const tileViews = [];
@@ -133,6 +134,14 @@ export function createBoardView(opts) {
   if (hoverLayer) hoverLayer.sortableChildren = true;
 
   const tileInspectorLayer = inspectorLayer || hoverLayer || tileLayer;
+
+  function canShowGamepieceHoverUiNow() {
+    if (interaction?.canShowHoverUI?.() === false) return false;
+    if (typeof canShowGamepieceHoverUi === "function") {
+      return canShowGamepieceHoverUi() !== false;
+    }
+    return true;
+  }
 
   const TAG_DRAG_SCALE = 1.06;
   const TAG_DRAG_RELEASE_PAD = 12;
@@ -2029,6 +2038,7 @@ export function createBoardView(opts) {
     const scaledWidth = width * s;
     const scaledHeight = height * s;
     return {
+      coordinateSpace: "parent",
       x: cx - scaledWidth / 2,
       y: cy - scaledHeight / 2,
       width: scaledWidth,
@@ -2058,6 +2068,7 @@ export function createBoardView(opts) {
     const scaledWidth = width * s;
     const scaledHeight = height * s;
     return {
+      coordinateSpace: "parent",
       x: cx - scaledWidth / 2,
       y: cy - scaledHeight / 2,
       width: scaledWidth,
@@ -2979,6 +2990,7 @@ export function createBoardView(opts) {
       const bounds = anchor || view.hoverUiAnchor || view.hoverAnchor;
       if (bounds) {
         inventoryView.showOnHover(view.structure.instanceId, {
+          coordinateSpace: bounds.coordinateSpace ?? "parent",
           x: bounds.x,
           y: bounds.y,
           width: bounds.width,
@@ -3067,6 +3079,7 @@ export function createBoardView(opts) {
       );
       if (inventoryView && view.structureHasInventory?.()) {
         inventoryView.showOnHover(view.structure.instanceId, {
+          coordinateSpace: anchor.coordinateSpace ?? "parent",
           x: anchor.x,
           y: anchor.y,
           width: anchor.width,
@@ -3127,7 +3140,7 @@ export function createBoardView(opts) {
 
   function restoreHoverAfterRebuild(pendingHover, pointerPos) {
     if (!pendingHover || !pointerPos) return;
-    if (!interaction?.canShowHoverUI?.()) return;
+    if (!canShowGamepieceHoverUiNow()) return;
     if (pendingHover.kind === "tile") {
       const view = tileViews[pendingHover.col];
       if (!view) return;
@@ -4520,7 +4533,7 @@ export function createBoardView(opts) {
     let tileLongPress = null;
 
     cont.on("pointerenter", () => {
-        if (!interaction?.canShowHoverUI?.()) return;
+        if (!canShowGamepieceHoverUiNow()) return;
         if (activeTagDrag && activeTagDrag !== view) return;
         const anchorCol = Number.isFinite(view.tile?.col)
           ? Math.floor(view.tile.col)
@@ -4643,7 +4656,7 @@ export function createBoardView(opts) {
       app,
       target: cont,
       shouldStart: () => {
-        if (!interaction?.canShowHoverUI?.()) return false;
+        if (!canShowGamepieceHoverUiNow()) return false;
         if (activeTagDrag && activeTagDrag !== view) return false;
         return true;
       },
@@ -4948,7 +4961,7 @@ export function createBoardView(opts) {
     };
 
     cont.on("pointerenter", () => {
-      if (!interaction?.canShowHoverUI?.()) return;
+      if (!canShowGamepieceHoverUiNow()) return;
       if (activeTagDrag) return;
       setActiveHover({
         view,
@@ -4983,7 +4996,7 @@ export function createBoardView(opts) {
     bindTouchLongPress({
       app,
       target: cont,
-      shouldStart: () => !!interaction?.canShowHoverUI?.() && !activeTagDrag,
+      shouldStart: () => canShowGamepieceHoverUiNow() && !activeTagDrag,
       onLongPress: () => {
         setActiveHover({
           view,
@@ -5158,7 +5171,7 @@ export function createBoardView(opts) {
     };
 
     cont.on("pointerenter", () => {
-      if (!interaction?.canShowHoverUI?.()) return;
+      if (!canShowGamepieceHoverUiNow()) return;
       if (activeTagDrag) return;
       setActiveHover({
         view,
@@ -5194,7 +5207,7 @@ export function createBoardView(opts) {
     bindTouchLongPress({
       app,
       target: cont,
-      shouldStart: () => !!interaction?.canShowHoverUI?.() && !activeTagDrag,
+      shouldStart: () => canShowGamepieceHoverUiNow() && !activeTagDrag,
       onLongPress: () => {
         setActiveHover({
           view,
@@ -5514,7 +5527,7 @@ export function createBoardView(opts) {
     const hubLongPress = bindTouchLongPress({
       app,
       target: cont,
-      shouldStart: () => !!interaction?.canShowHoverUI?.() && !activeTagDrag,
+      shouldStart: () => canShowGamepieceHoverUiNow() && !activeTagDrag,
       onLongPress: () => {
         setActiveHover({
           view,
@@ -5535,7 +5548,7 @@ export function createBoardView(opts) {
     });
 
     cont.on("pointerenter", () => {
-      if (!interaction?.canShowHoverUI?.()) return;
+      if (!canShowGamepieceHoverUiNow()) return;
       if (activeTagDrag) return;
       setActiveHover({
         view,
@@ -6379,6 +6392,10 @@ export function createBoardView(opts) {
       return;
     }
 
+    if (activeHover?.view && !canShowGamepieceHoverUiNow()) {
+      clearActiveHover(activeHover.view);
+    }
+
     const progressFrameCtx = buildProgressAnimationFrameContext(s, dt);
     const cols = getVisibleBoardCols(s);
     const hubCols = getVisibleHubCols(s);
@@ -6466,6 +6483,9 @@ export function createBoardView(opts) {
     rebuildAll,
     update,
     hasActiveHoverZoomDown,
+    hasActiveDrag() {
+      return !!activeTagDrag || !!activeHubTagDrag;
+    },
     getInventoryOwnerAtGlobalPos,
     setDistributorBuildPreview(spec) {
       if (!spec) {

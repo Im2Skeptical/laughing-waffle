@@ -788,5 +788,6 @@ export function createSunAndMoonDisksView({
     applyLayout,
     destroy,
     getRoot: () => root,
+    isDragging: () => !!dragSession,
   };
 }

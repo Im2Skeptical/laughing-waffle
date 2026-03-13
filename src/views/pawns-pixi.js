@@ -62,6 +62,9 @@ export function createPawnsView(opts) {
     getPreviewHubCol,
     getPreviewPlacement,
     canStartHoverZoomIn,
+    canShowGamepieceHoverUi,
+    screenToWorld,
+    worldToScreen,
   } = opts;
 
   const viewsById = new Map();
@@ -173,6 +176,16 @@ export function createPawnsView(opts) {
 
   function getTooltipSafe() {
     return tooltipView || null;
+  }
+
+  function canShowGamepieceHoverUiNow() {
+    if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI()) {
+      return false;
+    }
+    if (typeof canShowGamepieceHoverUi === "function") {
+      return canShowGamepieceHoverUi() !== false;
+    }
+    return true;
   }
 
   function registerPaintContainer(container) {
@@ -295,14 +308,10 @@ export function createPawnsView(opts) {
 
   function buildPawnHoverAnchor(view) {
     if (!view?.container) return null;
-    const scale = getEffectiveScale(view);
-    return getScaledAnchorFromCenter(
-      view.container.x,
-      view.container.y,
-      RADIUS * 2,
-      RADIUS * 2,
-      scale
-    );
+    return {
+      coordinateSpace: "screen",
+      getAnchorRect: () => view.container?.getBounds?.() ?? null,
+    };
   }
 
   function setPawnHoverShadowAlpha(view, alpha) {
@@ -539,16 +548,42 @@ export function createPawnsView(opts) {
     };
   }
 
+  function toWorldPoint(globalPos) {
+    if (!globalPos) return null;
+    if (typeof screenToWorld === "function") {
+      const world = screenToWorld(globalPos);
+      if (world && Number.isFinite(world.x) && Number.isFinite(world.y)) {
+        return world;
+      }
+    }
+    return {
+      x: Number(globalPos.x) || 0,
+      y: Number(globalPos.y) || 0,
+    };
+  }
+
+  function toContainerParentLocal(container, globalPos) {
+    if (!container?.parent || !globalPos) return null;
+    if (typeof container.parent.toLocal === "function") {
+      return container.parent.toLocal(globalPos);
+    }
+    return {
+      x: Number(globalPos.x) || 0,
+      y: Number(globalPos.y) || 0,
+    };
+  }
+
   function getDropTargetFromPos(globalPos) {
     const state = getStateSafe();
-    if (!globalPos || !state) return null;
+    const worldPos = toWorldPoint(globalPos);
+    if (!worldPos || !state) return null;
     const envCols = getEnvColsSafe();
     const hubCols = getHubColsSafe();
 
     const tileCenterY = TILE_ROW_Y + TILE_HEIGHT / 2;
     const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT / 2;
-    const distToTile = Math.abs(globalPos.y - tileCenterY);
-    const distToHub = Math.abs(globalPos.y - hubCenterY);
+    const distToTile = Math.abs(worldPos.y - tileCenterY);
+    const distToHub = Math.abs(worldPos.y - hubCenterY);
     const targetRow = distToTile <= distToHub ? "env" : "hub";
 
     const colCount = targetRow === "env" ? envCols : hubCols;
@@ -559,7 +594,7 @@ export function createPawnsView(opts) {
     let bestDist2 = Infinity;
     for (let col = 0; col < colCount; col++) {
       const cx = targetCenters[col];
-      const dx = globalPos.x - cx;
+      const dx = worldPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {
         bestDist2 = d2;
@@ -1061,8 +1096,7 @@ export function createPawnsView(opts) {
     // -----------------------------------------------------------------------
     function showHover() {
       const pawnData = view.pawn || pawn;
-      if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI())
-        return;
+      if (!canShowGamepieceHoverUiNow()) return;
       view.selfHover = true;
       const canZoomIn = shouldAllowPawnHoverZoomIn(view);
       view.selfHoverScaleTarget = canZoomIn ? GAMEPIECE_HOVER_SCALE : 1;
@@ -1118,7 +1152,7 @@ export function createPawnsView(opts) {
         if (interactionSafe.isDragging && interactionSafe.isDragging()) {
           return false;
         }
-        return !!interactionSafe.canShowHoverUI?.();
+        return canShowGamepieceHoverUiNow();
       },
       onLongPress: () => {
         if (interactionSafe.isDragging && interactionSafe.isDragging()) return;
@@ -1148,7 +1182,9 @@ export function createPawnsView(opts) {
 
       const g = ev.data.global;
       pointerDownPos = { x: g.x, y: g.y };
-      dragOffset = { x: container.x - g.x, y: container.y - g.y };
+      const local = toContainerParentLocal(container, g);
+      if (!local) return;
+      dragOffset = { x: container.x - local.x, y: container.y - local.y };
 
       app.stage.on("pointermove", onMove);
       app.stage.on("pointerup", onUp);
@@ -1191,8 +1227,10 @@ export function createPawnsView(opts) {
 
       if (!dragging) return;
 
-      container.x = g.x + dragOffset.x;
-      container.y = g.y + dragOffset.y;
+      const local = toContainerParentLocal(container, g);
+      if (!local) return;
+      container.x = local.x + dragOffset.x;
+      container.y = local.y + dragOffset.y;
       updatePawnDragGhost(pawnData, g);
     }
 
@@ -1411,6 +1449,10 @@ export function createPawnsView(opts) {
         applyPawnScale(view);
       }
       if (view.selfHover) {
+        if (!canShowGamepieceHoverUiNow()) {
+          hideHover();
+          continue;
+        }
         const canZoomIn = shouldAllowPawnHoverZoomIn(view);
         view.selfHoverScaleTarget = canZoomIn ? GAMEPIECE_HOVER_SCALE : 1;
         view.hoverShadowAlphaTarget = canZoomIn ? 1 : 0;

@@ -224,6 +224,7 @@ export function createInventoryView({
   layer,
   hoverLayer = null,
   dragLayer,
+  stage = null,
   getOwnerLabel,
   getInventoryForOwner,
   canShowHoverUI,
@@ -266,9 +267,10 @@ export function createInventoryView({
   flashActionGhost,
   setBuildPlacementPreview,
   onUseItem,
+  screenToWorld,
   layout = null,
 }) {
-  const stage = layer.parent;
+  const interactionStage = stage || layer.parent;
   if (layer) layer.sortableChildren = true;
   if (hoverLayer) hoverLayer.sortableChildren = true;
   const inventoryLayout =
@@ -381,10 +383,10 @@ export function createInventoryView({
   }
 
   function getScreenSize() {
-    const hitAreaWidth = Number(stage?.hitArea?.width);
-    const hitAreaHeight = Number(stage?.hitArea?.height);
-    const stageWidth = Number(stage?.width);
-    const stageHeight = Number(stage?.height);
+    const hitAreaWidth = Number(interactionStage?.hitArea?.width);
+    const hitAreaHeight = Number(interactionStage?.hitArea?.height);
+    const stageWidth = Number(interactionStage?.width);
+    const stageHeight = Number(interactionStage?.height);
 
     const width = Number.isFinite(hitAreaWidth) && hitAreaWidth > 0
       ? hitAreaWidth
@@ -401,6 +403,91 @@ export function createInventoryView({
       width: Math.max(1, Math.floor(width)),
       height: Math.max(1, Math.floor(height)),
     };
+  }
+
+  function getDisplayObjectScreenPosition(displayObject) {
+    if (!displayObject) return { x: 0, y: 0 };
+    const global = displayObject.getGlobalPosition?.();
+    if (!global) {
+      return {
+        x: Number(displayObject.x) || 0,
+        y: Number(displayObject.y) || 0,
+      };
+    }
+    return { x: global.x, y: global.y };
+  }
+
+  function setDisplayObjectScreenPosition(displayObject, x, y) {
+    if (!displayObject) return { x, y };
+    const parentPoint =
+      typeof displayObject.parent?.toLocal === "function"
+        ? displayObject.parent.toLocal({ x, y })
+        : { x, y };
+    displayObject.x = parentPoint.x;
+    displayObject.y = parentPoint.y;
+    return parentPoint;
+  }
+
+  function toWorldPoint(globalPos) {
+    if (!globalPos) return null;
+    if (typeof screenToWorld === "function") {
+      const world = screenToWorld(globalPos);
+      if (world && Number.isFinite(world.x) && Number.isFinite(world.y)) {
+        return world;
+      }
+    }
+    return {
+      x: Number(globalPos.x) || 0,
+      y: Number(globalPos.y) || 0,
+    };
+  }
+
+  function resolveHoverAnchor(anchor) {
+    let source = anchor;
+    if (typeof source === "function") {
+      source = source();
+    }
+    if (source && typeof source.getAnchorRect === "function") {
+      source = {
+        ...source.getAnchorRect(),
+        coordinateSpace: source.coordinateSpace,
+      };
+    }
+    if (!source || typeof source !== "object") return null;
+    return {
+      x: Number(source.x) || 0,
+      y: Number(source.y) || 0,
+      width: Number(source.width) || 0,
+      height: Number(source.height) || 0,
+      coordinateSpace:
+        source.coordinateSpace === "screen" ? "screen" : "parent",
+    };
+  }
+
+  function positionWindowFromHoverAnchor(win, anchor) {
+    if (!win?.container) return;
+    const resolvedAnchor = resolveHoverAnchor(anchor);
+    if (!resolvedAnchor) return;
+    const displaySize = getWindowDisplaySize(win);
+    let x = resolvedAnchor.x + resolvedAnchor.width + 10;
+    let y = resolvedAnchor.y;
+
+    if (resolvedAnchor.coordinateSpace === "screen") {
+      const { width: screenWidth, height: screenHeight } = getScreenSize();
+      if (x + displaySize.width > screenWidth) {
+        x = resolvedAnchor.x - displaySize.width - 10;
+      }
+      if (y + displaySize.height > screenHeight) {
+        y = screenHeight - displaySize.height - 10;
+      }
+      if (x < 10) x = 10;
+      if (y < 10) y = 10;
+      setDisplayObjectScreenPosition(win.container, x, y);
+      return;
+    }
+
+    win.container.x = x;
+    win.container.y = y;
   }
 
   function getViewportWidthPx() {
@@ -1201,7 +1288,10 @@ export function createInventoryView({
           lines: buildLeaderSystemTooltipLines(leader, systemId),
           scale: getInventoryTooltipScale(uiScale, icon),
         },
-        icon.getBounds()
+        {
+          coordinateSpace: "screen",
+          getAnchorRect: () => icon.getBounds(),
+        }
       );
     });
     icon.on("pointerout", () => {
@@ -1699,9 +1789,9 @@ export function createInventoryView({
       String(dragItem.sourceOwnerOverride) === String(ownerId);
     if (!matchesOwner) return;
 
-    stage.off("pointermove", onItemDragMove);
-    stage.off("pointerup", onItemDragEnd);
-    stage.off("pointerupoutside", onItemDragEnd);
+    interactionStage.off("pointermove", onItemDragMove);
+    interactionStage.off("pointerup", onItemDragEnd);
+    interactionStage.off("pointerupoutside", onItemDragEnd);
     cleanupDragSprite();
     restoreItemView(dragItem.view);
     clearActiveDropboxAffordance();
@@ -1994,10 +2084,11 @@ export function createInventoryView({
   }
 
   function isHubPlacementZone(globalPos) {
-    if (!globalPos) return false;
+    const worldPos = toWorldPoint(globalPos);
+    if (!worldPos) return false;
     return (
-      globalPos.y >= HUB_STRUCTURE_ROW_Y &&
-      globalPos.y <= HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT
+      worldPos.y >= HUB_STRUCTURE_ROW_Y &&
+      worldPos.y <= HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT
     );
   }
 
@@ -2030,15 +2121,19 @@ export function createInventoryView({
     ghost.panel.x = panelX;
     ghost.panel.y = Math.max(0, (ghostHeight - panelHeight) / 2);
 
-    ghost.container.x = globalPos.x + 10;
-    ghost.container.y = globalPos.y + 10;
+    setDisplayObjectScreenPosition(
+      ghost.container,
+      globalPos.x + 10,
+      globalPos.y + 10
+    );
   }
 
   function resolveHubColFromPos(state, globalPos, screenWidth) {
-    if (!state || !globalPos) return null;
+    const worldPos = toWorldPoint(globalPos);
+    if (!state || !worldPos) return null;
     const hubTop = HUB_STRUCTURE_ROW_Y;
     const hubBottom = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT;
-    if (globalPos.y < hubTop || globalPos.y > hubBottom) return null;
+    if (worldPos.y < hubTop || worldPos.y > hubBottom) return null;
 
     const hubCols = Array.isArray(state?.hub?.slots)
       ? state.hub.slots.length
@@ -2048,7 +2143,7 @@ export function createInventoryView({
     let bestDist2 = Infinity;
     for (let col = 0; col < hubCols; col++) {
       const cx = getHubColumnCenterX(screenWidth, col);
-      const dx = globalPos.x - cx;
+      const dx = worldPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {
         bestDist2 = d2;
@@ -2327,7 +2422,7 @@ export function createInventoryView({
     apOverlay.eventMode = "none";
 
     const headerUi = createWindowHeader({
-      stage,
+      stage: interactionStage,
       parent: c,
       width: w,
       height: HEADER_HEIGHT,
@@ -3015,34 +3110,21 @@ export function createInventoryView({
       rebuildWindow(ownerId);
     }
     win.hovered = true;
+    win.hoverAnchor = anchor || null;
 
     if (!win.pinned && anchor) {
-      const displaySize = getWindowDisplaySize(win);
-      let x = anchor.x + anchor.width + 10;
-      let y = anchor.y;
-
-      const { width: screenWidth, height: screenHeight } = getScreenSize();
-      if (x + displaySize.width > screenWidth) {
-        x = anchor.x - displaySize.width - 10;
-      }
-      if (y + displaySize.height > screenHeight) {
-        y = screenHeight - displaySize.height - 10;
-      }
-      if (x < 10) x = 10;
-      if (y < 10) y = 10;
-
-      win.container.x = x;
-      win.container.y = y;
+      positionWindowFromHoverAnchor(win, anchor);
     } else if (scaleChanged && win.container.visible) {
       const displaySize = getWindowDisplaySize(win);
       const { width: screenWidth, height: screenHeight } = getScreenSize();
-      win.container.x = Math.max(
-        10,
-        Math.min(screenWidth - displaySize.width - 10, win.container.x)
-      );
-      win.container.y = Math.max(
-        10,
-        Math.min(screenHeight - displaySize.height - 10, win.container.y)
+      const current = getDisplayObjectScreenPosition(win.container);
+      setDisplayObjectScreenPosition(
+        win.container,
+        Math.max(10, Math.min(screenWidth - displaySize.width - 10, current.x)),
+        Math.max(
+          10,
+          Math.min(screenHeight - displaySize.height - 10, current.y)
+        )
       );
     }
 
@@ -3055,6 +3137,7 @@ export function createInventoryView({
     if (!win) return;
 
     win.hovered = false;
+    win.hoverAnchor = null;
     if (!win.pinned) {
       win.container.visible = false;
       clearActiveBuildForOwner(ownerId);
@@ -3072,6 +3155,7 @@ export function createInventoryView({
 
     win.pinned = false;
     win.hovered = false;
+    win.hoverAnchor = null;
     win.container.visible = false;
     win.pinText.text = "[ ]";
     win.forceStackFront = false;
@@ -3374,13 +3458,15 @@ export function createInventoryView({
       c.on("pointerover", () => {
         if (dragItem.active) return;
         if (!tooltipView) return;
-        const bounds = c.getBounds();
         tooltipView.show(
           {
             ...makeItemTooltipSpec(item, ownerId),
             scale: getInventoryTooltipScale(win?.uiScale, c),
           },
-          bounds
+          {
+            coordinateSpace: "screen",
+            getAnchorRect: () => c.getBounds(),
+          }
         );
       });
 
@@ -3948,7 +4034,8 @@ export function createInventoryView({
     if (!consumePrompt?.container || !consumePrompt?.bg || !consumePrompt?.text) {
       return;
     }
-    if (!bounds) return;
+    const resolvedBounds = typeof bounds === "function" ? bounds() : bounds;
+    if (!resolvedBounds) return;
     const text = consumePrompt.text;
     const bg = consumePrompt.bg;
     const width = Math.max(64, Math.ceil(text.width) + 16);
@@ -3961,8 +4048,11 @@ export function createInventoryView({
     text.x = Math.floor((width - text.width) / 2);
     text.y = Math.floor((height - text.height) / 2) - 1;
 
-    consumePrompt.container.x = Math.round(bounds.x + (bounds.width - width) * 0.5);
-    consumePrompt.container.y = Math.round(bounds.y + (bounds.height - height) * 0.5);
+    setDisplayObjectScreenPosition(
+      consumePrompt.container,
+      Math.round(resolvedBounds.x + (resolvedBounds.width - width) * 0.5),
+      Math.round(resolvedBounds.y + (resolvedBounds.height - height) * 0.5)
+    );
   }
 
   function showConsumePrompt({ ownerId, itemId, sourceEquipmentSlotId, view }) {
@@ -3973,7 +4063,8 @@ export function createInventoryView({
     prompt.ownerId = ownerId;
     prompt.itemId = itemId;
     prompt.sourceEquipmentSlotId = sourceEquipmentSlotId ?? null;
-    prompt.anchorBounds = bounds;
+    prompt.anchorBounds =
+      typeof view?.getBounds === "function" ? () => view.getBounds() : bounds;
     prompt.holdSec = CONSUME_PROMPT_HOLD_SEC;
     prompt.fadeSec = CONSUME_PROMPT_FADE_SEC;
     prompt.totalSec = prompt.holdSec + prompt.fadeSec;
@@ -4206,15 +4297,23 @@ export function createInventoryView({
     const sprite = makeDragSprite(win, item, view, g);
     dragItem.sprite = sprite;
     dragLayer.addChild(sprite);
+    if (sprite?.__screenStart) {
+      setDisplayObjectScreenPosition(
+        sprite,
+        sprite.__screenStart.x,
+        sprite.__screenStart.y
+      );
+    }
 
-    dragItem.offsetX = g.x - sprite.x;
-    dragItem.offsetY = g.y - sprite.y;
+    const spriteGlobal = getDisplayObjectScreenPosition(sprite);
+    dragItem.offsetX = g.x - spriteGlobal.x;
+    dragItem.offsetY = g.y - spriteGlobal.y;
 
     updateItemDragGhost(g);
 
-    stage.on("pointermove", onItemDragMove);
-    stage.on("pointerup", onItemDragEnd);
-    stage.on("pointerupoutside", onItemDragEnd);
+    interactionStage.on("pointermove", onItemDragMove);
+    interactionStage.on("pointerup", onItemDragEnd);
+    interactionStage.on("pointerupoutside", onItemDragEnd);
   }
 
   function makeDragSprite(win, item, view, globalStart) {
@@ -4258,21 +4357,21 @@ export function createInventoryView({
     c.addChild(border);
 
     if (hasSourceBounds) {
-      c.x = sourceBounds.x;
-      c.y = sourceBounds.y;
+      c.__screenStart = { x: sourceBounds.x, y: sourceBounds.y };
+      setDisplayObjectScreenPosition(c, sourceBounds.x, sourceBounds.y);
     } else {
       const global = win.body.toGlobal({
         x: item.gridX * cellSize,
         y: item.gridY * cellSize,
       });
-      c.x = global.x;
-      c.y = global.y;
+      c.__screenStart = { x: global.x, y: global.y };
+      setDisplayObjectScreenPosition(c, global.x, global.y);
     }
     c.scale.set(uiScale);
 
     if (Number.isFinite(globalStart?.x) && Number.isFinite(globalStart?.y)) {
-      c.x = Math.round(c.x);
-      c.y = Math.round(c.y);
+      const current = getDisplayObjectScreenPosition(c);
+      setDisplayObjectScreenPosition(c, Math.round(current.x), Math.round(current.y));
     }
 
     if (item.quantity > 1) {
@@ -4345,17 +4444,16 @@ export function createInventoryView({
     }
     const s = dragItem.sprite;
 
-    s.x = g.x - dragItem.offsetX;
-    s.y = g.y - dragItem.offsetY;
+    setDisplayObjectScreenPosition(s, g.x - dragItem.offsetX, g.y - dragItem.offsetY);
 
     updateDropboxDragAffordance(g);
     updateItemDragGhost(g);
   }
 
   function onItemDragEnd(ev) {
-    stage.off("pointermove", onItemDragMove);
-    stage.off("pointerup", onItemDragEnd);
-    stage.off("pointerupoutside", onItemDragEnd);
+    interactionStage.off("pointermove", onItemDragMove);
+    interactionStage.off("pointerup", onItemDragEnd);
+    interactionStage.off("pointerupoutside", onItemDragEnd);
 
     if (!dragItem.active) {
       clearActiveDropboxAffordance();
@@ -4861,15 +4959,15 @@ export function createInventoryView({
     });
     for (const win of ordered) {
       const c = win.container;
-      const displaySize = getWindowDisplaySize(win);
-
       if (!c.visible) continue;
+      const bounds = c.getBounds?.();
+      if (!bounds) continue;
 
       if (
-        globalPos.x >= c.x &&
-        globalPos.x <= c.x + displaySize.width &&
-        globalPos.y >= c.y &&
-        globalPos.y <= c.y + displaySize.height
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
       ) {
         return win;
       }
@@ -5306,15 +5404,14 @@ export function createInventoryView({
     okText.y = okBtn.y + 4;
     dlg.addChild(okText);
 
-    dlg.x = globalPos.x;
-    dlg.y = globalPos.y;
+    setDisplayObjectScreenPosition(dlg, globalPos.x, globalPos.y);
     dlg.ownerId = ownerId;
 
     activeSplit = dlg;
 
     okText.eventMode = "none";
 
-    stage.on("pointerdown", onSplitOutsideClick);
+    interactionStage.on("pointerdown", onSplitOutsideClick);
   }
 
   function confirmSplit(ownerId, item, amount) {
@@ -5376,7 +5473,7 @@ export function createInventoryView({
   function closeSplitDialog() {
     if (activeSplit?.parent) activeSplit.parent.removeChild(activeSplit);
     activeSplit = null;
-    stage.off("pointerdown", onSplitOutsideClick);
+    interactionStage.off("pointerdown", onSplitOutsideClick);
     uiBlocked = false;
   }
 
@@ -5385,7 +5482,7 @@ export function createInventoryView({
   // ---------------------------------------------------------------------------
 
   function init() {
-    stage.on("pointerdown", (ev) => {
+    interactionStage.on("pointerdown", (ev) => {
       if (buildingManagerView?.isOpen?.()) return;
       if (!activeBuildSpec) return;
       if (dragItem.active || dragWindow.active) return;
@@ -5409,7 +5506,7 @@ export function createInventoryView({
       pushBuildPlacementPreview();
     });
 
-    stage.on("pointermove", (ev) => {
+    interactionStage.on("pointermove", (ev) => {
       const p = ev?.data?.global;
       if (!p) return;
       lastPointerPos = { x: p.x, y: p.y };
@@ -5456,13 +5553,14 @@ export function createInventoryView({
         rebuildWindow(ownerId);
         const displaySize = getWindowDisplaySize(win);
         const { width: screenWidth, height: screenHeight } = getScreenSize();
-        win.container.x = Math.max(
-          10,
-          Math.min(screenWidth - displaySize.width - 10, win.container.x)
-        );
-        win.container.y = Math.max(
-          10,
-          Math.min(screenHeight - displaySize.height - 10, win.container.y)
+        const current = getDisplayObjectScreenPosition(win.container);
+        setDisplayObjectScreenPosition(
+          win.container,
+          Math.max(10, Math.min(screenWidth - displaySize.width - 10, current.x)),
+          Math.max(
+            10,
+            Math.min(screenHeight - displaySize.height - 10, current.y)
+          )
         );
       }
       syncWindowOwnerVisibility(win);
@@ -5483,6 +5581,9 @@ export function createInventoryView({
         updateEquipmentPanel(win);
         updateLeaderPanel(win);
       }
+      if (win.hovered && !win.pinned && win.hoverAnchor) {
+        positionWindowFromHoverAnchor(win, win.hoverAnchor);
+      }
     }
 
     const focusIntent =
@@ -5491,6 +5592,17 @@ export function createInventoryView({
       focusIntentCache = focusIntent;
     }
     applyFocusVisibility(focusIntent);
+  }
+
+  function getOccludingScreenRects() {
+    const rects = [];
+    for (const win of windows.values()) {
+      const container = win?.container;
+      if (!container?.visible || typeof container.getBounds !== "function") continue;
+      const bounds = container.getBounds();
+      if (bounds) rects.push(bounds);
+    }
+    return rects;
   }
 
   return {
@@ -5512,6 +5624,7 @@ export function createInventoryView({
     },
 
     windows,
+    getOccludingScreenRects,
   };
 }
 

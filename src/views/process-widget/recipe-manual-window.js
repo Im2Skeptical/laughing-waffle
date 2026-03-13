@@ -652,11 +652,17 @@ export function createRecipeManualWindow({
 
   app?.view?.addEventListener?.("wheel", onWheel, { passive: false });
 
+  function getScreenRect() {
+    if (!root.visible || typeof root.getBounds !== "function") return null;
+    return root.getBounds();
+  }
+
   return {
     open,
     close,
     isOpen,
     update,
     resize,
+    getScreenRect,
   };
 }

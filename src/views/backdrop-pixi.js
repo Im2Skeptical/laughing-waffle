@@ -1,4 +1,9 @@
-import { VIEWPORT_DESIGN_HEIGHT, VIEWPORT_DESIGN_WIDTH } from "./layout-pixi.js";
+import {
+  VIEWPORT_DESIGN_HEIGHT,
+  VIEWPORT_DESIGN_WIDTH,
+  VIEW_LAYOUT,
+} from "./layout-pixi.js";
+import { resolvePanBounds } from "./playfield-camera.js";
 
 const HALO_LAYER_ALPHA = 0.1;
 const BACKDROP_THEME = Object.freeze({
@@ -74,62 +79,66 @@ export function createBackdropView({ app, layer, paintStyleController } = {}) {
   function redraw() {
     const width = getScreenWidth(app);
     const height = getScreenHeight(app);
+    const panBounds = resolvePanBounds(VIEW_LAYOUT.playfieldCamera);
+    const drawWidth = Math.max(width, Math.ceil(panBounds.width));
+    const drawHeight = Math.max(height, Math.ceil(panBounds.height));
+    const drawX = Math.floor(panBounds.centerX - drawWidth * 0.5);
+    const drawY = Math.floor(panBounds.centerY - drawHeight * 0.5);
     lastWidth = width;
     lastHeight = height;
 
     baseFill.clear();
     baseFill.beginFill(BACKDROP_THEME.baseFill, 1);
-    baseFill.drawRect(0, 0, width, height);
+    baseFill.drawRect(drawX, drawY, drawWidth, drawHeight);
     baseFill.endFill();
 
     haloWarm.clear();
     haloWarm.beginFill(BACKDROP_THEME.warmHalo, 1.0);
     haloWarm.drawEllipse(
-      Math.round(width * 0.7),
-      Math.round(height * 0.72),
-      Math.round(width * 0.6),
-      Math.round(height * 0.5)
+      Math.round(drawX + drawWidth * 0.7),
+      Math.round(drawY + drawHeight * 0.72),
+      Math.round(drawWidth * 0.6),
+      Math.round(drawHeight * 0.5)
     );
     haloWarm.drawEllipse(
-      Math.round(width * 0.6),
-      Math.round(-height * .05),
-      Math.round(width * 0.15),
-      Math.round(height * 0.25)
+      Math.round(drawX + drawWidth * 0.6),
+      Math.round(drawY - drawHeight * 0.05),
+      Math.round(drawWidth * 0.15),
+      Math.round(drawHeight * 0.25)
     );
     haloWarm.endFill();
 
     haloCool.clear();
     haloCool.beginFill(BACKDROP_THEME.coolHalo, 1.0);
     haloCool.drawEllipse(
-      Math.round(width * 0.05),
-      Math.round(height * 0.82),
-      Math.round(width * 0.24),
-      Math.round(height * 0.4)
+      Math.round(drawX + drawWidth * 0.05),
+      Math.round(drawY + drawHeight * 0.82),
+      Math.round(drawWidth * 0.24),
+      Math.round(drawHeight * 0.4)
     );
     haloCool.drawEllipse(
-      Math.round(width * 0.98),
-      Math.round(height * 0.8),
-      Math.round(width * 0.22),
-      Math.round(height * 0.8)
+      Math.round(drawX + drawWidth * 0.98),
+      Math.round(drawY + drawHeight * 0.8),
+      Math.round(drawWidth * 0.22),
+      Math.round(drawHeight * 0.8)
     );
     haloCool.endFill();
 
     haloSoft.clear();
     haloSoft.beginFill(BACKDROP_THEME.softHalo, 1.0);
     haloSoft.drawEllipse(
-      Math.round(width * 0.3),
-      Math.round(height * 0.0),
-      Math.round(width * 0.4),
-      Math.round(height * 0.2)
+      Math.round(drawX + drawWidth * 0.3),
+      Math.round(drawY + drawHeight * 0.0),
+      Math.round(drawWidth * 0.4),
+      Math.round(drawHeight * 0.2)
     );
     haloSoft.drawEllipse(
-      Math.round(width * 0.8),
-      Math.round(height * 0.4),
-      Math.round(width * 0.4),
-      Math.round(height * 0.2)
+      Math.round(drawX + drawWidth * 0.8),
+      Math.round(drawY + drawHeight * 0.4),
+      Math.round(drawWidth * 0.4),
+      Math.round(drawHeight * 0.2)
     );
     haloSoft.endFill();
-
   }
 
   function update() {
