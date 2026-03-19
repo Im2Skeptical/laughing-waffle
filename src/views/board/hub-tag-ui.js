@@ -1420,16 +1420,21 @@ export function createHubTagUi(opts) {
   }
 
   function showTooltipForSystem(structure, row, bounds, scale = 1) {
-    if (!tooltipView) return;
+    if (!tooltipView || interaction?.canShowWorldHoverUI?.() === false) return;
     const spec = buildSystemTooltipSpec(structure, row);
     if (!spec || !Array.isArray(spec.lines) || spec.lines.length <= 0) return;
+    const anchor =
+      bounds?.displayObject
+        ? tooltipView.getAnchorRectForDisplayObject?.(bounds.displayObject, "parent") ??
+          null
+        : bounds;
     tooltipView.show(
       {
         title: spec.title || getSystemUi(row?.systemId).label,
         lines: spec.lines,
         scale,
       },
-      bounds
+      anchor
     );
   }
 
@@ -1846,7 +1851,7 @@ export function createHubTagUi(opts) {
       showTooltipForSystem(
         view.structure,
         row,
-        icon.getBounds(),
+        { displayObject: icon },
         getDisplayObjectWorldScale(icon, 1)
       );
     });
@@ -2073,7 +2078,7 @@ export function createHubTagUi(opts) {
             lines,
             scale: getDisplayObjectWorldScale(row, 1),
           },
-          row.getBounds()
+          tooltipView.getAnchorRectForDisplayObject?.(row, "parent") ?? null
         );
       }
     });

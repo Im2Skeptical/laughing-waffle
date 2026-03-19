@@ -245,6 +245,7 @@ function filterGrowthEntriesByCrop(entries, cropId) {
 export function createProcessWidgetView({
   app,
   layer,
+  manualLayer = null,
   getGameState,
   interaction,
   tooltipView = null,
@@ -375,7 +376,7 @@ export function createProcessWidgetView({
   recipeManualWindow = createRecipeManualWindow({
     PIXI,
     app,
-    layer,
+    layer: manualLayer || layer,
     layout: processLayout?.recipeManual,
     resolveViewModel: (payload) => resolveRecipeManualViewModel(payload),
     onToggleRecipe: (payload) => toggleRecipeFromRecipeManual(payload),
@@ -4147,6 +4148,7 @@ export function createProcessWidgetView({
         destroyWindow(windowId);
         continue;
       }
+      win.solidHitArea?.refresh?.();
       const scaleChanged = applyWindowScale(win);
       if (scaleChanged) {
         const localBounds = win.container.getLocalBounds?.() ?? null;
@@ -4545,6 +4547,7 @@ export function createProcessWidgetView({
   function getOccludingScreenRects() {
     const rects = [];
     for (const win of windows.values()) {
+      win.solidHitArea?.refresh?.();
       const container = win?.container;
       if (!container?.visible || typeof container.getBounds !== "function") continue;
       const bounds = container.getBounds();
@@ -4552,6 +4555,8 @@ export function createProcessWidgetView({
     }
     const manualRect = recipeManualWindow?.getScreenRect?.();
     if (manualRect) rects.push(manualRect);
+    const dropdownRect = selectionDropdown?.getScreenRect?.();
+    if (dropdownRect) rects.push(dropdownRect);
     return rects;
   }
 

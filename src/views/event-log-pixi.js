@@ -19,6 +19,7 @@ import {
 import { drawLogRoundedRect } from "./ui-helpers/log-row-pixi.js";
 import { VIEW_LAYOUT } from "./layout-pixi.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 
 const HOLD_SEC = 5;
 const FADE_SEC = 10;
@@ -157,6 +158,15 @@ export function createEventLogView({
   container.y = position.y;
   container.zIndex = 99;
   layer.addChild(container);
+  const solidHitArea = installSolidUiHitArea(container, () => {
+    const bounds = container.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
+  });
 
   const controller = createEventLogController({ getState });
 
@@ -575,6 +585,7 @@ export function createEventLogView({
     drawerHandleArrow.text = drawerProgress >= 0.5 ? "<" : ">";
     drawerHandleArrow.x = 0;
     drawerHandleArrow.y = Math.floor(DRAWER_HANDLE_HEIGHT / 2) - 1;
+    solidHitArea.refresh();
   }
 
   function init() {

@@ -1,3 +1,5 @@
+import { installSolidUiHitArea } from "../ui-helpers/solid-ui-hit-area.js";
+
 export function createWindowManager({
   PIXI,
   layer,
@@ -74,6 +76,15 @@ export function createWindowManager({
     const container = new PIXI.Container();
     container.zIndex = 130;
     layer.addChild(container);
+    const solidHitArea = installSolidUiHitArea(container, () => {
+      const bounds = container.getLocalBounds?.() ?? null;
+      return {
+        x: 0,
+        y: 0,
+        width: bounds?.width ?? coreWidth,
+        height: bounds?.height ?? 140,
+      };
+    });
 
     const content = new PIXI.Container();
     container.addChild(content);
@@ -98,6 +109,7 @@ export function createWindowManager({
       idleFrames: 0,
       uiScale: 1,
       lastBounds: null,
+      solidHitArea,
     };
     applyWindowScale?.(win);
     windows.set(windowId, win);
@@ -107,6 +119,7 @@ export function createWindowManager({
       win.container.x = win.anchorRect.x;
       win.container.y = win.anchorRect.y + win.anchorRect.height + 12;
     }
+    win.solidHitArea?.refresh?.();
     return win;
   }
 
@@ -122,6 +135,7 @@ export function createWindowManager({
     const win = windows.get(windowId);
     if (!win) return;
     onBeforeDestroyWindow?.(windowId, win, windows);
+    win.solidHitArea?.destroy?.();
     win.container?.parent?.removeChild?.(win.container);
     win.container?.destroy?.({ children: true });
     windows.delete(windowId);

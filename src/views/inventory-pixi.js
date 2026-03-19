@@ -59,6 +59,7 @@ import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 import { createBuildingManagerView } from "./building-manager-pixi.js";
 
 
@@ -223,8 +224,10 @@ function formatItemGlyphLabel(def, item) {
 export function createInventoryView({
   layer,
   hoverLayer = null,
+  modalLayer = null,
   dragLayer,
   stage = null,
+  inputElement = null,
   getOwnerLabel,
   getInventoryForOwner,
   canShowHoverUI,
@@ -440,6 +443,17 @@ export function createInventoryView({
       x: Number(globalPos.x) || 0,
       y: Number(globalPos.y) || 0,
     };
+  }
+
+  function toStageCoordsFromClient(clientX, clientY) {
+    const rect = inputElement?.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    const stageWidth = Number(stage?.hitArea?.width) || Number(stage?.width) || rect.width;
+    const stageHeight = Number(stage?.hitArea?.height) || Number(stage?.height) || rect.height;
+    const x = ((Number(clientX) - rect.left) / rect.width) * stageWidth;
+    const y = ((Number(clientY) - rect.top) / rect.height) * stageHeight;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
   }
 
   function resolveHoverAnchor(anchor) {
@@ -841,9 +855,11 @@ export function createInventoryView({
 
   const buildingManagerView = createBuildingManagerView({
     PIXI,
-    layer,
+    layer: modalLayer || layer,
+    stage,
     getState: getStateSafe,
     getScreenSize,
+    layout: inventoryLayout?.buildingManager,
     onSelectBuild: (spec) => {
       const ownerId = spec?.ownerId;
       if (ownerId == null) return;
@@ -1282,17 +1298,18 @@ export function createInventoryView({
       if (!tooltipView || !canShowHoverUI()) return;
       const leader = getLeaderForOwner(ownerId);
       if (!leader) return;
-      tooltipView.show(
-        {
-          title: ui.label,
-          lines: buildLeaderSystemTooltipLines(leader, systemId),
-          scale: getInventoryTooltipScale(uiScale, icon),
-        },
-        {
-          coordinateSpace: "screen",
-          getAnchorRect: () => icon.getBounds(),
-        }
-      );
+        tooltipView.show(
+          {
+            title: ui.label,
+            lines: buildLeaderSystemTooltipLines(leader, systemId),
+            scale: getInventoryTooltipScale(uiScale, icon),
+          },
+          {
+            coordinateSpace: "parent",
+            getAnchorRect: () =>
+              tooltipView.getAnchorRectForDisplayObject?.(icon, "parent") ?? null,
+          }
+        );
     });
     icon.on("pointerout", () => {
       tooltipView?.hide?.();
@@ -1479,6 +1496,10 @@ export function createInventoryView({
     if (!win) return;
     const h = Math.max(HEADER_HEIGHT + INNER_PADDING * 2, Math.floor(height));
     win.panelHeight = h;
+    if (win.solidRect) {
+      win.solidRect.width = win.panelWidth;
+      win.solidRect.height = h;
+    }
 
     if (win.bg) {
       win.bg.clear();
@@ -1503,6 +1524,7 @@ export function createInventoryView({
       win.apOverlay.alpha = win.apOverlayAlpha || 0;
       win.apOverlay.visible = (win.apOverlayAlpha || 0) > 0.01;
     }
+    win.solidHitArea?.refresh?.();
   }
 
   function layoutLeaderSections(win, leader, sectionCaps = null) {
@@ -2296,6 +2318,32 @@ export function createInventoryView({
     return runWhenPaused();
   }
 
+  function tryCommitActiveBuildAtGlobalPos(globalPos, stopEvent = null) {
+    if (buildingManagerView?.isOpen?.()) return false;
+    if (!activeBuildSpec) return false;
+    if (dragItem.active || dragWindow.active) return false;
+    if (!globalPos) return false;
+    if (findWindowAt(globalPos)) return false;
+
+    const state = getStateSafe();
+    const { width: screenWidth } = getScreenSize();
+    const col = resolveHubColFromPos(state, globalPos, screenWidth);
+    if (col == null) return false;
+
+    stopEvent?.stopPropagation?.();
+    stopEvent?.preventDefault?.();
+
+    const ownerId = activeBuildSpec.ownerId;
+    const defId = activeBuildSpec.defId;
+    const res = placeBuildAt(col, ownerId, defId);
+    if (res?.ok) {
+      const win = windows.get(ownerId);
+      if (win) updateLeaderPanel(win);
+    }
+    pushBuildPlacementPreview();
+    return true;
+  }
+
   function updateApOverlayAlpha(win, dt) {
     if (!win?.apOverlay) return;
     const target = Number.isFinite(win.apOverlayTarget)
@@ -2398,6 +2446,15 @@ export function createInventoryView({
     c.visible = false;
     c.zIndex = INVENTORY_WINDOW_Z_BASE;
     layer.addChild(c);
+    const solidRect = { width: w, height: h };
+    const solidHitArea = installSolidUiHitArea(c, () => {
+      return {
+        x: 0,
+        y: 0,
+        width: solidRect.width,
+        height: solidRect.height,
+      };
+    });
 
     // Background
     const bg = new PIXI.Graphics();
@@ -2534,6 +2591,8 @@ export function createInventoryView({
       forceStackFront: false,
       uiScale: 1,
       itemViews: [],
+      solidHitArea,
+      solidRect,
       bin: {
         container: bin,
         bg: binBg,
@@ -3464,8 +3523,9 @@ export function createInventoryView({
             scale: getInventoryTooltipScale(win?.uiScale, c),
           },
           {
-            coordinateSpace: "screen",
-            getAnchorRect: () => c.getBounds(),
+            coordinateSpace: "parent",
+            getAnchorRect: () =>
+              tooltipView.getAnchorRectForDisplayObject?.(c, "parent") ?? null,
           }
         );
       });
@@ -5482,29 +5542,17 @@ export function createInventoryView({
   // ---------------------------------------------------------------------------
 
   function init() {
-    interactionStage.on("pointerdown", (ev) => {
-      if (buildingManagerView?.isOpen?.()) return;
-      if (!activeBuildSpec) return;
-      if (dragItem.active || dragWindow.active) return;
-      const p = ev?.data?.global;
-      if (!p) return;
-      if (findWindowAt(p)) return;
-
-      const state = getStateSafe();
-      const { width: screenWidth } = getScreenSize();
-      const col = resolveHubColFromPos(state, p, screenWidth);
-      if (col == null) return;
-
-      ev?.stopPropagation?.();
-      const ownerId = activeBuildSpec.ownerId;
-      const defId = activeBuildSpec.defId;
-      const res = placeBuildAt(col, ownerId, defId);
-      if (res?.ok) {
-        const win = windows.get(ownerId);
-        if (win) updateLeaderPanel(win);
-      }
-      pushBuildPlacementPreview();
-    });
+    if (inputElement?.addEventListener) {
+      inputElement.addEventListener(
+        "pointerdown",
+        (ev) => {
+          const stagePoint = toStageCoordsFromClient(ev?.clientX, ev?.clientY);
+          if (!stagePoint) return;
+          tryCommitActiveBuildAtGlobalPos(stagePoint, ev);
+        },
+        true
+      );
+    }
 
     interactionStage.on("pointermove", (ev) => {
       const p = ev?.data?.global;
@@ -5597,11 +5645,14 @@ export function createInventoryView({
   function getOccludingScreenRects() {
     const rects = [];
     for (const win of windows.values()) {
+      win.solidHitArea?.refresh?.();
       const container = win?.container;
       if (!container?.visible || typeof container.getBounds !== "function") continue;
       const bounds = container.getBounds();
       if (bounds) rects.push(bounds);
     }
+    const buildingManagerRect = buildingManagerView?.getScreenRect?.();
+    if (buildingManagerRect) rects.push(buildingManagerRect);
     return rects;
   }
 

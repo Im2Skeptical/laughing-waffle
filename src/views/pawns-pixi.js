@@ -62,7 +62,6 @@ export function createPawnsView(opts) {
     getPreviewHubCol,
     getPreviewPlacement,
     canStartHoverZoomIn,
-    canShowGamepieceHoverUi,
     screenToWorld,
     worldToScreen,
   } = opts;
@@ -179,13 +178,10 @@ export function createPawnsView(opts) {
   }
 
   function canShowGamepieceHoverUiNow() {
-    if (!interactionSafe.canShowHoverUI || !interactionSafe.canShowHoverUI()) {
-      return false;
+    if (typeof interactionSafe.canShowWorldHoverUI === "function") {
+      return interactionSafe.canShowWorldHoverUI() !== false;
     }
-    if (typeof canShowGamepieceHoverUi === "function") {
-      return canShowGamepieceHoverUi() !== false;
-    }
-    return true;
+    return !interactionSafe.canShowHoverUI || interactionSafe.canShowHoverUI();
   }
 
   function registerPaintContainer(container) {
@@ -307,10 +303,11 @@ export function createPawnsView(opts) {
   }
 
   function buildPawnHoverAnchor(view) {
-    if (!view?.container) return null;
+    if (!view?.container || !tooltipView) return null;
     return {
-      coordinateSpace: "screen",
-      getAnchorRect: () => view.container?.getBounds?.() ?? null,
+      coordinateSpace: "parent",
+      getAnchorRect: () =>
+        tooltipView.getAnchorRectForDisplayObject?.(view.container, "parent") ?? null,
     };
   }
 

@@ -9,17 +9,28 @@ import {
   validateHubConstructionPlacement,
 } from "../model/build-helpers.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { applyTextResolution } from "./ui-helpers/text-resolution.js";
+import { createCenteredModalFrame } from "./ui-helpers/centered-modal-frame.js";
+
+const BUILDING_MANAGER_UI_SCALE = 2;
+
+function scaleUi(value) {
+  return Math.max(1, Math.floor(Number(value || 0) * BUILDING_MANAGER_UI_SCALE));
+}
 
 const Z_INDEX = 120;
-const PANEL_MIN_WIDTH = 680;
-const PANEL_MIN_HEIGHT = 420;
-const PANEL_PAD = 14;
-const HEADER_HEIGHT = 28;
-const PANE_GAP = 12;
-const ROW_HEIGHT = 34;
-const ROW_GAP = 6;
-const ACTION_BUTTON_WIDTH = 70;
-const ACTION_BUTTON_HEIGHT = 20;
+const PANEL_MIN_WIDTH = 1560;
+const PANEL_MIN_HEIGHT = 900;
+const PANEL_PAD = scaleUi(14);
+const HEADER_HEIGHT = scaleUi(28);
+const PANE_GAP = scaleUi(12);
+const PANE_RADIUS = scaleUi(9);
+const PANE_PAD = scaleUi(10);
+const ROW_HEIGHT = scaleUi(34);
+const ROW_GAP = scaleUi(6);
+const ACTION_BUTTON_WIDTH = scaleUi(70);
+const ACTION_BUTTON_HEIGHT = scaleUi(20);
+const ROW_RADIUS = scaleUi(7);
 
 function normalizePlacementMode(def) {
   const raw = def?.build?.placementMode;
@@ -153,92 +164,72 @@ function buildModelSignature(ownerId, entries, selectedId) {
 export function createBuildingManagerView({
   PIXI,
   layer,
+  stage = null,
   getState,
   getScreenSize,
+  layout = null,
   onSelectBuild,
   onClose,
 } = {}) {
-  const root = new PIXI.Container();
-  root.visible = false;
-  root.eventMode = "none";
-  root.zIndex = Z_INDEX;
-  if (layer) {
-    layer.sortableChildren = true;
-    layer.addChild(root);
-  }
-
-  const backdrop = new PIXI.Graphics();
-  backdrop.eventMode = "static";
-  backdrop.cursor = "pointer";
-  backdrop.on("pointertap", (ev) => {
-    ev?.stopPropagation?.();
-    close("backdrop");
+  const modalFrame = createCenteredModalFrame({
+    PIXI,
+    layer,
+    stage,
+    getScreenSize,
+    layout: {
+      widthPx: PANEL_MIN_WIDTH,
+      heightPx: PANEL_MIN_HEIGHT,
+      marginPx: 28,
+      zIndex: Z_INDEX,
+      ...(layout && typeof layout === "object" ? layout : {}),
+    },
+    title: "Building Manager",
+    titleStyle: {
+      fill: MUCHA_UI_COLORS.ink.primary,
+      fontSize: scaleUi(14),
+      fontWeight: "bold",
+    },
+    headerHeight: HEADER_HEIGHT,
+    panelRadius: scaleUi(12),
+    bodyTopGap: scaleUi(8),
+    bodyPadding: PANEL_PAD,
+    closeButtonWidth: scaleUi(62),
+    closeButtonHeight: scaleUi(18),
+    closeOffsetX: 0,
+    onRequestClose: (reason) => close(reason),
   });
-  root.addChild(backdrop);
-
-  const panel = new PIXI.Container();
-  panel.eventMode = "static";
-  panel.on("pointerdown", (ev) => ev?.stopPropagation?.());
-  panel.on("pointertap", (ev) => ev?.stopPropagation?.());
-  root.addChild(panel);
-
-  const panelBg = new PIXI.Graphics();
-  panel.addChild(panelBg);
-
-  const titleText = new PIXI.Text("Building Manager", {
-    fill: MUCHA_UI_COLORS.ink.primary,
-    fontSize: 14,
-    fontWeight: "bold",
-  });
-  panel.addChild(titleText);
-
-  const closeButton = new PIXI.Container();
-  closeButton.eventMode = "static";
-  closeButton.cursor = "pointer";
-  const closeButtonBg = new PIXI.Graphics();
-  const closeButtonText = new PIXI.Text("Close", {
-    fill: MUCHA_UI_COLORS.ink.primary,
-    fontSize: 10,
-    fontWeight: "bold",
-  });
-  closeButton.addChild(closeButtonBg, closeButtonText);
-  closeButton.on("pointertap", (ev) => {
-    ev?.stopPropagation?.();
-    close("closeButton");
-  });
-  panel.addChild(closeButton);
+  const { root, body, getScreenRect } = modalFrame;
 
   const leftPane = new PIXI.Container();
   const leftPaneBg = new PIXI.Graphics();
   const leftTitle = new PIXI.Text("Unlocked Buildings", {
     fill: MUCHA_UI_COLORS.ink.primary,
-    fontSize: 12,
+    fontSize: scaleUi(12),
     fontWeight: "bold",
   });
   const leftRows = new PIXI.Container();
   const leftEmptyText = new PIXI.Text("No unlocked buildings.", {
     fill: MUCHA_UI_COLORS.ink.secondary,
-    fontSize: 11,
+    fontSize: scaleUi(11),
   });
   leftPane.addChild(leftPaneBg, leftTitle, leftRows, leftEmptyText);
-  panel.addChild(leftPane);
 
   const rightPane = new PIXI.Container();
   const rightPaneBg = new PIXI.Graphics();
   const rightTitle = new PIXI.Text("Build Details", {
     fill: MUCHA_UI_COLORS.ink.primary,
-    fontSize: 12,
+    fontSize: scaleUi(12),
     fontWeight: "bold",
   });
   const rightDetails = new PIXI.Text("", {
     fill: MUCHA_UI_COLORS.ink.secondary,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: scaleUi(11),
+    lineHeight: scaleUi(16),
     wordWrap: true,
     breakWords: true,
   });
   rightPane.addChild(rightPaneBg, rightTitle, rightDetails);
-  panel.addChild(rightPane);
+  body.addChild(leftPane, rightPane);
 
   let context = null;
   let selectedId = null;
@@ -280,84 +271,52 @@ export function createBuildingManagerView({
     if (!force && signature === lastScreenSignature) return;
     lastScreenSignature = signature;
 
-    const margin = 24;
-    panelWidth = Math.max(
-      PANEL_MIN_WIDTH,
-      Math.min(screen.width - margin * 2, 1100)
-    );
-    panelHeight = Math.max(
-      PANEL_MIN_HEIGHT,
-      Math.min(screen.height - margin * 2, 680)
-    );
-    panel.x = Math.floor((screen.width - panelWidth) * 0.5);
-    panel.y = Math.floor((screen.height - panelHeight) * 0.5);
+    const frame = modalFrame.layoutFrame({
+      widthPx: PANEL_MIN_WIDTH,
+      heightPx: PANEL_MIN_HEIGHT,
+      marginPx: scaleUi(16),
+    });
+    panelWidth = frame.panelWidth;
+    panelHeight = frame.panelHeight;
+    leftPaneWidth = Math.max(scaleUi(260), Math.floor((frame.bodyWidth - PANE_GAP) * 0.5));
+    rightPaneWidth = frame.bodyWidth - PANE_GAP - leftPaneWidth;
+    leftPaneHeight = frame.bodyHeight;
+    rightPaneHeight = frame.bodyHeight;
 
-    backdrop.clear();
-    backdrop.beginFill(0x000000, 0.62);
-    backdrop.drawRect(0, 0, screen.width, screen.height);
-    backdrop.endFill();
-
-    panelBg.clear();
-    panelBg
-      .lineStyle(2, MUCHA_UI_COLORS.surfaces.borderSoft, 0.95)
-      .beginFill(MUCHA_UI_COLORS.surfaces.panelDeep, 0.97)
-      .drawRoundedRect(0, 0, panelWidth, panelHeight, 12)
-      .endFill();
-
-    titleText.x = PANEL_PAD;
-    titleText.y = 8;
-
-    const closeWidth = 62;
-    const closeHeight = 18;
-    closeButton.x = panelWidth - PANEL_PAD - closeWidth;
-    closeButton.y = 7;
-    closeButtonBg.clear();
-    closeButtonBg
-      .lineStyle(1, MUCHA_UI_COLORS.surfaces.borderSoft, 1)
-      .beginFill(MUCHA_UI_COLORS.surfaces.panelSoft, 0.98)
-      .drawRoundedRect(0, 0, closeWidth, closeHeight, 6)
-      .endFill();
-    closeButtonText.x = Math.floor((closeWidth - closeButtonText.width) * 0.5);
-    closeButtonText.y = Math.floor((closeHeight - closeButtonText.height) * 0.5);
-
-    const bodyY = HEADER_HEIGHT + 8;
-    const bodyHeight = panelHeight - bodyY - PANEL_PAD;
-    leftPaneWidth = Math.max(260, Math.floor((panelWidth - PANEL_PAD * 2 - PANE_GAP) * 0.5));
-    rightPaneWidth = panelWidth - PANEL_PAD * 2 - PANE_GAP - leftPaneWidth;
-    leftPaneHeight = bodyHeight;
-    rightPaneHeight = bodyHeight;
-
-    leftPane.x = PANEL_PAD;
-    leftPane.y = bodyY;
-    rightPane.x = PANEL_PAD + leftPaneWidth + PANE_GAP;
-    rightPane.y = bodyY;
+    leftPane.x = 0;
+    leftPane.y = 0;
+    rightPane.x = leftPaneWidth + PANE_GAP;
+    rightPane.y = 0;
 
     leftPaneBg.clear();
     leftPaneBg
       .lineStyle(1, MUCHA_UI_COLORS.surfaces.borderSoft, 0.9)
       .beginFill(MUCHA_UI_COLORS.surfaces.panel, 0.95)
-      .drawRoundedRect(0, 0, leftPaneWidth, leftPaneHeight, 9)
+      .drawRoundedRect(0, 0, leftPaneWidth, leftPaneHeight, PANE_RADIUS)
       .endFill();
     rightPaneBg.clear();
     rightPaneBg
       .lineStyle(1, MUCHA_UI_COLORS.surfaces.borderSoft, 0.9)
       .beginFill(MUCHA_UI_COLORS.surfaces.panel, 0.95)
-      .drawRoundedRect(0, 0, rightPaneWidth, rightPaneHeight, 9)
+      .drawRoundedRect(0, 0, rightPaneWidth, rightPaneHeight, PANE_RADIUS)
       .endFill();
 
-    leftTitle.x = 10;
-    leftTitle.y = 8;
-    leftRows.x = 10;
-    leftRows.y = 34;
-    leftEmptyText.x = 10;
-    leftEmptyText.y = 38;
+    leftTitle.x = PANE_PAD;
+    leftTitle.y = PANE_PAD;
+    leftRows.x = PANE_PAD;
+    leftRows.y = scaleUi(48);
+    leftEmptyText.x = PANE_PAD;
+    leftEmptyText.y = scaleUi(54);
 
-    rightTitle.x = 10;
-    rightTitle.y = 8;
-    rightDetails.x = 10;
-    rightDetails.y = 32;
-    rightDetails.style.wordWrapWidth = Math.max(40, rightPaneWidth - 20);
+    rightTitle.x = PANE_PAD;
+    rightTitle.y = PANE_PAD;
+    rightDetails.x = PANE_PAD;
+    rightDetails.y = scaleUi(46);
+    rightDetails.style.wordWrapWidth = Math.max(scaleUi(80), rightPaneWidth - PANE_PAD * 2);
 
+    for (const node of [leftTitle, leftEmptyText, rightTitle, rightDetails]) {
+      applyTextResolution(node, BUILDING_MANAGER_UI_SCALE);
+    }
     lastModelSignature = "";
   }
 
@@ -390,11 +349,12 @@ export function createBuildingManagerView({
     leftEmptyText.visible = entries.length <= 0;
     if (entries.length <= 0) {
       rightDetails.text = "No unlocked buildings are available.";
+      applyTextResolution(rightDetails, BUILDING_MANAGER_UI_SCALE);
       return;
     }
 
-    const rowWidth = Math.max(120, leftPaneWidth - 20);
-    const labelWidth = Math.max(60, rowWidth - ACTION_BUTTON_WIDTH - 42);
+    const rowWidth = Math.max(scaleUi(120), leftPaneWidth - PANE_PAD * 2);
+    const labelWidth = Math.max(scaleUi(60), rowWidth - ACTION_BUTTON_WIDTH - scaleUi(56));
     for (let i = 0; i < entries.length; i += 1) {
       const entry = entries[i];
       const row = new PIXI.Container();
@@ -419,7 +379,7 @@ export function createBuildingManagerView({
           selected ? MUCHA_UI_COLORS.surfaces.panelRaised : MUCHA_UI_COLORS.surfaces.panelDeep,
           entry.canBuild ? 0.97 : 0.6
         )
-        .drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 7)
+        .drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, ROW_RADIUS)
         .endFill();
       row.addChild(rowBg);
 
@@ -427,30 +387,32 @@ export function createBuildingManagerView({
         fill: entry.placementMode === "upgrade"
           ? MUCHA_UI_COLORS.intent.warnPop
           : MUCHA_UI_COLORS.ink.secondary,
-        fontSize: 9,
+        fontSize: scaleUi(9),
         fontWeight: "bold",
       });
-      modeBadge.x = 7;
-      modeBadge.y = 12;
+      modeBadge.x = scaleUi(7);
+      modeBadge.y = Math.floor((ROW_HEIGHT - modeBadge.height) * 0.5);
       row.addChild(modeBadge);
+      applyTextResolution(modeBadge, BUILDING_MANAGER_UI_SCALE);
 
       const label = new PIXI.Text(entry.name, {
         fill: MUCHA_UI_COLORS.ink.primary,
-        fontSize: 11,
+        fontSize: scaleUi(11),
         fontWeight: selected ? "bold" : "normal",
       });
-      label.x = 38;
-      label.y = 9;
+      label.x = scaleUi(48);
+      label.y = Math.floor((ROW_HEIGHT - label.height) * 0.5);
       while (label.width > labelWidth && label.text.length > 4) {
         label.text = `${label.text.slice(0, -2)}...`;
       }
       row.addChild(label);
+      applyTextResolution(label, BUILDING_MANAGER_UI_SCALE);
 
       const actionButton = new PIXI.Container();
       actionButton.eventMode = entry.canBuild ? "static" : "none";
       actionButton.cursor = entry.canBuild ? "pointer" : "default";
       actionButton.alpha = entry.canBuild ? 1 : 0.45;
-      actionButton.x = rowWidth - ACTION_BUTTON_WIDTH - 6;
+      actionButton.x = rowWidth - ACTION_BUTTON_WIDTH - scaleUi(6);
       actionButton.y = Math.floor((ROW_HEIGHT - ACTION_BUTTON_HEIGHT) * 0.5);
       actionButton.on("pointertap", (ev) => {
         ev?.stopPropagation?.();
@@ -473,18 +435,19 @@ export function createBuildingManagerView({
             : MUCHA_UI_COLORS.surfaces.panelDeep,
           0.97
         )
-        .drawRoundedRect(0, 0, ACTION_BUTTON_WIDTH, ACTION_BUTTON_HEIGHT, 6)
+        .drawRoundedRect(0, 0, ACTION_BUTTON_WIDTH, ACTION_BUTTON_HEIGHT, scaleUi(6))
         .endFill();
       actionButton.addChild(actionBg);
 
       const actionText = new PIXI.Text("Build", {
         fill: MUCHA_UI_COLORS.ink.primary,
-        fontSize: 10,
+        fontSize: scaleUi(10),
         fontWeight: "bold",
       });
       actionText.x = Math.floor((ACTION_BUTTON_WIDTH - actionText.width) * 0.5);
       actionText.y = Math.floor((ACTION_BUTTON_HEIGHT - actionText.height) * 0.5);
       actionButton.addChild(actionText);
+      applyTextResolution(actionText, BUILDING_MANAGER_UI_SCALE);
 
       row.addChild(actionButton);
       leftRows.addChild(row);
@@ -495,6 +458,7 @@ export function createBuildingManagerView({
       selectedId = selectedEntry.id;
     }
     rightDetails.text = buildDetailsText(selectedEntry || null);
+    applyTextResolution(rightDetails, BUILDING_MANAGER_UI_SCALE);
   }
 
   function close(reason = "unknown") {
@@ -542,5 +506,6 @@ export function createBuildingManagerView({
     isOpen,
     getOpenOwnerId: () => context?.ownerId ?? null,
     update,
+    getScreenRect,
   };
 }

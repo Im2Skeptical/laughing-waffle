@@ -1,14 +1,19 @@
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
+import { installSolidUiHitArea } from "../ui-helpers/solid-ui-hit-area.js";
 
 export function createSelectionDropdown(layer, app) {
   if (!layer || !app?.stage) return null;
   const container = new PIXI.Container();
   container.visible = false;
   container.zIndex = 180;
-  container.eventMode = "static";
-  container.interactiveChildren = true;
-  container.on("pointerdown", (ev) => {
-    ev?.stopPropagation?.();
+  const solidHitArea = installSolidUiHitArea(container, () => {
+    const bounds = container.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
   });
   layer.addChild(container);
 
@@ -112,6 +117,7 @@ export function createSelectionDropdown(layer, app) {
     bg.endFill();
     container.setChildIndex(bg, 0);
     container.hitArea = new PIXI.Rectangle(0, 0, safeWidth, height);
+    solidHitArea.refresh();
 
     const bounds = anchor || { x: 0, y: 0, width: 0, height: 0 };
     container.x = bounds.x;
@@ -153,5 +159,9 @@ export function createSelectionDropdown(layer, app) {
   return {
     show,
     hide,
+    getScreenRect: () =>
+      !container.visible || typeof container.getBounds !== "function"
+        ? null
+        : container.getBounds(),
   };
 }

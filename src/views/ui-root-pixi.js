@@ -63,7 +63,6 @@ import { createPlayfieldMuchaStyle } from "./playfield-mucha-style.js";
 import { createBackdropView } from "./backdrop-pixi.js";
 import {
   createPlayfieldCamera,
-  isPointInsideRect,
   resolvePanBounds,
 } from "./playfield-camera.js";
 import {
@@ -93,6 +92,7 @@ import { createLiveActionOptimism } from "./ui-root/live-action-optimism.js";
 import { createSystemGraphModel } from "./ui-root/system-graph-model.js";
 import { createRunnerMetricGraph } from "./ui-root/graph-view-builders.js";
 import { createScrollGraphOrchestrator } from "./ui-root/scroll-graph-orchestrator.js";
+import { createUiOcclusionManager } from "./ui-root/ui-occlusion-manager.js";
 import { installGlobalTextStylePolicy } from "./ui-helpers/text-style-policy.js";
 
 const BOOT_VARIANT_FLAGS = normalizeVariantFlags(
@@ -650,6 +650,7 @@ const uiLayers = {
   tooltipLayer: new PIXI.Container(),
   dragLayer: new PIXI.Container(),
   fixedDebugLayer: new PIXI.Container(),
+  fixedModalLayer: new PIXI.Container(),
   skillTreeLayer: new PIXI.Container(),
 };
 
@@ -669,7 +670,8 @@ uiLayers.cameraRoot.addChild(
 uiLayers.fixedHudRoot.addChild(
   uiLayers.fixedControlsLayer,
   uiLayers.fixedDebugLayer,
-  uiLayers.dragLayer
+  uiLayers.dragLayer,
+  uiLayers.fixedModalLayer
 );
 
 app.stage.eventMode = "static";
@@ -680,15 +682,13 @@ app.stage.addChild(
   uiLayers.fixedHudRoot,
   uiLayers.skillTreeLayer
 );
-
-let lastPointerStagePos = null;
 function captureStagePointerPosition(ev) {
   const global = ev?.data?.global;
   if (!global) return;
-  lastPointerStagePos = {
+  interactionController?.setPointerStagePos?.({
     x: Number(global.x) || 0,
     y: Number(global.y) || 0,
-  };
+  });
 }
 app.stage.on("pointermove", captureStagePointerPosition);
 app.stage.on("pointerdown", captureStagePointerPosition);
@@ -1382,6 +1382,10 @@ const interactionController = createInteractionController({
   // Phase is derived from paused by policy.
   getPhase: () => runner.getCursorState().phase,
 });
+const uiOcclusionManager = createUiOcclusionManager();
+interactionController.setWorldUiOcclusionResolver((point) =>
+  uiOcclusionManager.isOccluded(point)
+);
 
 const systemGraphModel = createSystemGraphModel({
   interactionController,
@@ -1405,8 +1409,10 @@ const setApDragWarning = (active) => {
 inventoryView = createInventoryView({
   layer: uiLayers.inventoryLayer,
   hoverLayer: uiLayers.inventoryHoverLayer,
+  modalLayer: uiLayers.fixedModalLayer,
   dragLayer: uiLayers.dragLayer,
   stage: app.stage,
+  inputElement: app.view,
   layout: VIEW_LAYOUT.inventory,
   tooltipView,
   getOwnerLabel(ownerId) {
@@ -1733,52 +1739,12 @@ backdropView = createBackdropView({
 let boardView = null;
 let pawnsView = null;
 
-function collectHoverZoomBlockRects() {
-  const rects = [];
-  const pushRects = (nextRects) => {
-    if (!Array.isArray(nextRects)) return;
-    for (const rect of nextRects) {
-      if (rect) rects.push(rect);
-    }
-  };
-
-  pushRects(inventoryView?.getOccludingScreenRects?.());
-  pushRects(processWidgetView?.getOccludingScreenRects?.());
-  pushRects(scrollGraphOrchestrator?.getOccludingScreenRects?.());
-
-  for (const view of [
-    goldGraphView,
-    grainGraphView,
-    foodGraphView,
-    systemGraphView,
-    apGraphView,
-    popGraphView,
-  ]) {
-    const rect = view?.getScreenRect?.();
-    if (rect) rects.push(rect);
-  }
-  return rects;
-}
-
-function isPointerInsideHoverZoomBlocker() {
-  if (!lastPointerStagePos) return false;
-  const point = lastPointerStagePos;
-  for (const rect of collectHoverZoomBlockRects()) {
-    if (isPointInsideRect(point, rect)) return true;
-  }
-  return false;
-}
-
 function canStartGamepieceHoverZoomIn() {
-  return !(
-    isPointerInsideHoverZoomBlocker() ||
-    boardView?.hasActiveHoverZoomDown?.() ||
-    pawnsView?.hasActiveHoverZoomDown?.()
+  return (
+    interactionController.canShowWorldHoverUI() &&
+    !boardView?.hasActiveHoverZoomDown?.() &&
+    !pawnsView?.hasActiveHoverZoomDown?.()
   );
-}
-
-function canShowGamepieceHoverUi() {
-  return !isPointerInsideHoverZoomBlocker();
 }
 
 boardView = createBoardView({
@@ -1798,6 +1764,7 @@ boardView = createBoardView({
   requestPauseForAction,
   paintStyleController: playfieldShader,
   setApDragWarning,
+  screenToWorld: (point) => playfieldCamera?.screenToWorld?.(point) ?? point,
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
   dispatchAction: (kind, payload, opts) =>
@@ -1822,7 +1789,6 @@ boardView = createBoardView({
   },
   getExternalFocus: () => getExternalUiFocus(),
   canStartHoverZoomIn: () => canStartGamepieceHoverZoomIn(),
-  canShowGamepieceHoverUi: () => canShowGamepieceHoverUi(),
 });
 
 pawnsView = createPawnsView({
@@ -1854,7 +1820,6 @@ pawnsView = createPawnsView({
     getMergedPawnOverridePlacement(pawnId)?.hubCol ?? null,
   getPreviewPlacement: (pawnId) => getMergedPawnOverridePlacement(pawnId),
   canStartHoverZoomIn: () => canStartGamepieceHoverZoomIn(),
-  canShowGamepieceHoverUi: () => canShowGamepieceHoverUi(),
   onPawnDropped({ pawnId, dropPos }) {
     if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();
@@ -1931,6 +1896,7 @@ processWidgetView = createProcessWidgetView({
     uiLayers.cameraControlsLayer,
     uiLayers.fixedControlsLayer
   ),
+  manualLayer: uiLayers.fixedModalLayer,
   layout: VIEW_LAYOUT.processWidget,
   getGameState: () => runner.getState(),
   interaction: interactionController,
@@ -2591,6 +2557,44 @@ skillTreeEditorView = createSkillTreeEditorView({
   layer: uiLayers.skillTreeLayer,
   layout: VIEW_LAYOUT.skillTreeEditor,
 });
+
+function asOccludingRects(view) {
+  if (!view) return [];
+  if (typeof view.getOccludingScreenRects === "function") {
+    return view.getOccludingScreenRects() || [];
+  }
+  if (typeof view.getScreenRect === "function") {
+    const rect = view.getScreenRect();
+    return rect ? [rect] : [];
+  }
+  return [];
+}
+
+for (const getRects of [
+  () => asOccludingRects(boardView),
+  () => asOccludingRects(inventoryView),
+  () => asOccludingRects(processWidgetView),
+  () => asOccludingRects(scrollGraphOrchestrator),
+  () => asOccludingRects(goldGraphView),
+  () => asOccludingRects(grainGraphView),
+  () => asOccludingRects(foodGraphView),
+  () => asOccludingRects(systemGraphView),
+  () => asOccludingRects(apGraphView),
+  () => asOccludingRects(popGraphView),
+  () => asOccludingRects(chromeView),
+  () => asOccludingRects(eventLogView),
+  () => asOccludingRects(debugView),
+  () => asOccludingRects(timeControlsView),
+  () => asOccludingRects(sunMoonDisksView),
+  () => asOccludingRects(envEventDeckView),
+  () => asOccludingRects(actionLogView),
+  () => asOccludingRects(yearEndPerformanceView),
+  () => asOccludingRects(runCompleteView),
+  () => asOccludingRects(skillTreeView),
+  () => asOccludingRects(skillTreeEditorView),
+]) {
+  uiOcclusionManager.registerProvider(getRects);
+}
 
 playfieldCamera = createPlayfieldCamera({
   app,

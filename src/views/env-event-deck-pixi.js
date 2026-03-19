@@ -15,6 +15,7 @@ import {
   EVENT_WIDTH,
   getBoardColumnXForVisibleCols,
 } from "./layout-pixi.js";
+import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 
 const TWO_PI = Math.PI * 2;
 const DEFAULT_CARD_W = 48;
@@ -425,14 +426,15 @@ export function createEnvEventDeckView({
   layout = ENV_EVENT_DECK_LAYOUT,
   sunMoonLayout = null,
 } = {}) {
-  let root = null;
-  let deckContainer = null;
+let root = null;
+let deckContainer = null;
   let deckBody = null;
   let timerRing = null;
   let deckLabel = null;
   let fxLayer = null;
-  let overflowBadge = null;
-  let overflowText = null;
+let overflowBadge = null;
+let overflowText = null;
+let solidHitArea = null;
   let lastEnabled = null;
   let lastDeckThemeKey = null;
   let lastSeenSec = null;
@@ -796,9 +798,17 @@ export function createEnvEventDeckView({
     if (root) return { ok: true };
 
     root = new PIXI.Container();
-    root.eventMode = "none";
     root.sortableChildren = true;
     root.zIndex = Number.isFinite(layout?.zIndex) ? layout.zIndex : 1;
+    solidHitArea = installSolidUiHitArea(root, () => {
+      const bounds = root.getLocalBounds?.() ?? null;
+      return {
+        x: 0,
+        y: 0,
+        width: bounds?.width ?? 0,
+        height: bounds?.height ?? 0,
+      };
+    });
 
     deckContainer = new PIXI.Container();
     deckContainer.eventMode = "none";
@@ -867,6 +877,7 @@ export function createEnvEventDeckView({
       overflowBadge.x = Math.round((layout?.width ?? 72) * 0.42);
       overflowBadge.y = Math.round(-(layout?.height ?? 98) * 0.46);
     }
+    solidHitArea?.refresh?.();
   }
 
   function init() {
@@ -947,6 +958,7 @@ export function createEnvEventDeckView({
     fxLayer = null;
     overflowBadge = null;
     overflowText = null;
+    solidHitArea = null;
   }
 
   return {
@@ -955,5 +967,9 @@ export function createEnvEventDeckView({
     applyLayout,
     destroy,
     getRoot: () => root,
+    getScreenRect: () =>
+      !root || !root.visible || typeof root.getBounds !== "function"
+        ? null
+        : root.getBounds(),
   };
 }

@@ -263,5 +263,9 @@ export function createTimeControlsView({
     init,
     refresh,
     update,
+    getScreenRect: () =>
+      !root.visible || typeof root.getBounds !== "function"
+        ? null
+        : root.getBounds(),
   };
 }

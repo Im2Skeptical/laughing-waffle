@@ -9,6 +9,7 @@ import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
 import { isEnvColRevealed, isHubVisible } from "../../model/state.js";
 import { isTagHidden } from "../../model/tag-state.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
+import { installSolidUiHitArea } from "../ui-helpers/solid-ui-hit-area.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
 
 const PANEL_WIDTH = 440;
@@ -119,9 +120,15 @@ export function createTagOrdersPanel(opts = {}) {
   layer.addChild(root);
 
   const panel = new PIXI.Container();
-  panel.eventMode = "static";
-  panel.on("pointerdown", (ev) => ev?.stopPropagation?.());
-  panel.on("pointertap", (ev) => ev?.stopPropagation?.());
+  const solidPanelHitArea = installSolidUiHitArea(panel, () => {
+    const bounds = panel.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? PANEL_WIDTH,
+      height: bounds?.height ?? HEADER_HEIGHT,
+    };
+  });
   root.addChild(panel);
 
   const panelBg = new PIXI.Graphics();
@@ -235,6 +242,7 @@ export function createTagOrdersPanel(opts = {}) {
     panel.x = x;
     panel.y = y;
     panel.hitArea = new PIXI.Rectangle(0, 0, PANEL_WIDTH, panelHeight);
+    solidPanelHitArea.refresh();
 
     panelBg.clear();
     panelBg
@@ -497,5 +505,10 @@ export function createTagOrdersPanel(opts = {}) {
     close,
     update,
     isOpen,
+    getOccludingScreenRects() {
+      if (!root.visible || typeof panel.getBounds !== "function") return [];
+      const bounds = panel.getBounds();
+      return bounds ? [bounds] : [];
+    },
   };
 }

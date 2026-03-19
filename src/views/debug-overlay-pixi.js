@@ -10,6 +10,7 @@ import {
   VIEW_LAYOUT,
   resolveAnchoredRect,
 } from "./layout-pixi.js";
+import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 
 const PANEL_WIDTH = 280;
 const PANEL_MIN_HEIGHT = 540;
@@ -65,6 +66,8 @@ export function createDebugOverlay({
     };
   }
 
+  let solidHitArea = null;
+
   function applyRootLayout(root) {
     if (!root) return;
     const { width, height } = getScreenSize();
@@ -80,11 +83,21 @@ export function createDebugOverlay({
     });
     root.x = Math.floor(rect.x);
     root.y = Math.floor(rect.y);
+    solidHitArea?.refresh?.();
   }
 
   const root = new PIXI.Container();
   applyRootLayout(root);
   layer.addChild(root);
+  solidHitArea = installSolidUiHitArea(root, () => {
+    const bounds = root.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
+  });
 
   const apText = new PIXI.Text("AP: -- / --", {
     fontFamily: "Arial",

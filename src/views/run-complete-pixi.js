@@ -195,5 +195,14 @@ export function createRunCompleteView({ app, layer, onClose } = {}) {
     getOpenEventId: () => openEventId,
     getOpenEventSec: () => openEventSec,
     getOpenInfo: () => openInfo,
+    getScreenRect: () =>
+      !root.visible
+        ? null
+        : {
+            x: 0,
+            y: 0,
+            width: app.screen.width,
+            height: app.screen.height,
+          },
   };
 }

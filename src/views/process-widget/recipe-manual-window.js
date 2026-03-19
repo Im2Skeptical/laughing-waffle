@@ -1,6 +1,6 @@
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
-import { createWindowHeader } from "../ui-helpers/window-header.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
+import { createCenteredModalFrame } from "../ui-helpers/centered-modal-frame.js";
 
 const MANUAL_UI_SCALE = 2;
 
@@ -102,61 +102,28 @@ export function createRecipeManualWindow({
   resolveViewModel = null,
   onToggleRecipe = null,
 } = {}) {
-  const root = new PIXI.Container();
-  root.visible = false;
-  root.eventMode = "none";
-  root.zIndex = Number.isFinite(layout?.zIndex) ? Math.floor(layout.zIndex) : 80;
-  if (layer) {
-    layer.sortableChildren = true;
-    layer.addChild(root);
-  }
-
-  const backdrop = new PIXI.Graphics();
-  backdrop.eventMode = "static";
-  backdrop.cursor = "pointer";
-  backdrop.on("pointertap", (ev) => {
-    ev?.stopPropagation?.();
-    close("backdrop");
-  });
-  root.addChild(backdrop);
-
-  const panel = new PIXI.Container();
-  panel.eventMode = "static";
-  panel.on("pointerdown", (ev) => ev?.stopPropagation?.());
-  panel.on("pointertap", (ev) => ev?.stopPropagation?.());
-  root.addChild(panel);
-
-  const panelBg = new PIXI.Graphics();
-  panel.addChild(panelBg);
-
-  const headerHost = new PIXI.Container();
-  panel.addChild(headerHost);
-  const header = createWindowHeader({
+  const modalFrame = createCenteredModalFrame({
+    PIXI,
+    layer,
     stage: app?.stage,
-    parent: headerHost,
-    width: 400,
-    height: HEADER_HEIGHT,
-    radius: PANEL_RADIUS,
-    background: MUCHA_UI_COLORS.surfaces.header,
+    getScreenSize,
+    layout,
     title: "Recipies",
     titleStyle: {
       fill: MUCHA_UI_COLORS.ink.primary,
       fontSize: scaleUi(13),
       fontWeight: "bold",
     },
-    paddingX: 10,
-    paddingY: 5,
-    showPin: false,
-    showClose: true,
-    closeOffsetX: 8,
+    headerHeight: HEADER_HEIGHT,
+    panelRadius: PANEL_RADIUS,
+    bodyTopGap: 6,
+    bodyPadding: PANEL_PAD,
     closeButtonWidth: 42,
     closeButtonHeight: 16,
-    onClose: () => close("closeButton"),
+    closeOffsetX: 8,
+    onRequestClose: (reason) => close(reason),
   });
-
-  const body = new PIXI.Container();
-  body.y = HEADER_HEIGHT + 6;
-  panel.addChild(body);
+  const { root, panelBg, header, body, getScreenRect } = modalFrame;
 
   const leftPane = new PIXI.Container();
   body.addChild(leftPane);
@@ -224,8 +191,14 @@ export function createRecipeManualWindow({
 
   function getScreenSize() {
     return {
-      width: ensurePositiveInt(app?.renderer?.width, 2424),
-      height: ensurePositiveInt(app?.renderer?.height, 1080),
+      width: ensurePositiveInt(
+        app?.screen?.width ?? app?.stage?.hitArea?.width,
+        2424
+      ),
+      height: ensurePositiveInt(
+        app?.screen?.height ?? app?.stage?.hitArea?.height,
+        1080
+      ),
     };
   }
 
@@ -352,23 +325,17 @@ export function createRecipeManualWindow({
     panelWidth = Math.max(520, Math.min(widthPx, maxWidth));
     panelHeight = Math.max(360, Math.min(heightPx, maxHeight));
 
-    panel.x = Math.floor((screen.width - panelWidth) * 0.5);
-    panel.y = Math.floor((screen.height - panelHeight) * 0.5);
-
-    backdrop.clear();
-    backdrop.beginFill(0x000000, 0.62);
-    backdrop.drawRect(0, 0, screen.width, screen.height);
-    backdrop.endFill();
-
-    header.setWidth(panelWidth);
+    modalFrame.layoutFrame({
+      widthPx: panelWidth,
+      heightPx: panelHeight,
+      marginPx,
+    });
 
     const innerWidth = Math.max(240, panelWidth - PANEL_PAD * 2);
     const innerHeight = Math.max(
       160,
-      panelHeight - (HEADER_HEIGHT + 6) - PANEL_PAD * 2
+      panelHeight - body.y - PANEL_PAD
     );
-    body.x = PANEL_PAD;
-    body.y = HEADER_HEIGHT + 6 + PANEL_PAD;
 
     const leftWidth = Math.max(220, Math.floor((innerWidth - PANE_GAP) * 0.4));
     const rightWidth = Math.max(220, innerWidth - leftWidth - PANE_GAP);
@@ -651,11 +618,6 @@ export function createRecipeManualWindow({
   }
 
   app?.view?.addEventListener?.("wheel", onWheel, { passive: false });
-
-  function getScreenRect() {
-    if (!root.visible || typeof root.getBounds !== "function") return null;
-    return root.getBounds();
-  }
 
   return {
     open,

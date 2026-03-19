@@ -16,6 +16,7 @@ import {
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
+import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 
 const HISTORY_ZONE_KIND_ORDER = {
   fixedHistory: 0,
@@ -255,6 +256,15 @@ export function createMetricGraphView({
   const root = new PIXI.Container();
   root.visible = false;
   layer.addChild(root);
+  const solidHitArea = installSolidUiHitArea(root, () => {
+    const bounds = root.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
+  });
 
   const WIN_W = 1200;
   const WIN_H = 176;
@@ -401,8 +411,12 @@ export function createMetricGraphView({
     return plot.x + ratio * plot.w;
   }
 
-  function updateScrubFromPointer(globalX) {
-    const localX = globalX - root.x;
+  function updateScrubFromPointer(globalPoint) {
+    const local =
+      globalPoint && typeof root.toLocal === "function"
+        ? root.toLocal(globalPoint)
+        : { x: Number(globalPoint?.x ?? globalPoint) || 0, y: 0 };
+    const localX = Number(local?.x) || 0;
     const ratio = (localX - plot.x) / Math.max(1, plot.w);
     const t = minSec + ratio * (maxSec - minSec);
     scrubSec = clampInt(Math.round(applyActionSnap(t)), minSec, maxSec);
@@ -1220,13 +1234,13 @@ export function createMetricGraphView({
   plotHit.on("pointerdown", (e) => {
     statusNote = "";
     isScrubbing = true;
-    updateScrubFromPointer(e.global.x);
+    updateScrubFromPointer(e.global);
     applyPreviewThrottled(true);
   });
 
   plotHit.on("pointermove", (e) => {
     if (!isScrubbing) return;
-    updateScrubFromPointer(e.global.x);
+    updateScrubFromPointer(e.global);
     applyPreviewThrottled(false);
   });
 
@@ -1261,6 +1275,7 @@ export function createMetricGraphView({
     const defaultY = app.screen.height - WIN_H - 800;
     root.x = openPosition?.x ?? defaultX;
     root.y = openPosition?.y ?? defaultY;
+    solidHitArea.refresh();
     controller?.setActive?.(true);
     controller.handleInvalidate?.("open");
     controller.ensureCache();
@@ -1310,6 +1325,7 @@ export function createMetricGraphView({
       lastPlotBoundsKey = boundsKey;
     }
     drawScrub();
+    solidHitArea.refresh();
   }
 
   drawWindow();

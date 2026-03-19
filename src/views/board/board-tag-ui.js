@@ -1117,17 +1117,27 @@ export function createTagUi(opts) {
   }
 
   function showTooltipForTag(view, entry, tileInst, bounds, scale = 1) {
-    if (!tooltipView || !interaction?.canShowHoverUI?.()) return;
+    if (!tooltipView || interaction?.canShowWorldHoverUI?.() === false) return;
     const label = getTagLabel(entry?.tagId);
     const lines = buildTagHoverLines(view, entry, tileInst);
-    tooltipView.show({ title: label, lines, scale }, bounds);
+    const anchor =
+      bounds?.displayObject
+        ? tooltipView.getAnchorRectForDisplayObject?.(bounds.displayObject, "parent") ??
+          null
+        : bounds;
+    tooltipView.show({ title: label, lines, scale }, anchor);
   }
 
   function showTooltipForSystem(tileInst, systemId, bounds, scale = 1) {
-    if (!tooltipView || !interaction?.canShowHoverUI?.()) return;
+    if (!tooltipView || interaction?.canShowWorldHoverUI?.() === false) return;
     const label = getSystemUi(systemId).label;
     const lines = buildSystemTooltipLines(tileInst, systemId);
-    tooltipView.show({ title: label, lines, scale }, bounds);
+    const anchor =
+      bounds?.displayObject
+        ? tooltipView.getAnchorRectForDisplayObject?.(bounds.displayObject, "parent") ??
+          null
+        : bounds;
+    tooltipView.show({ title: label, lines, scale }, anchor);
   }
 
   function setChildTooltipHoverActive(view, active) {
@@ -1266,7 +1276,7 @@ export function createTagUi(opts) {
       showTooltipForSystem(
         view.tile,
         systemId,
-        icon.getBounds(),
+        { displayObject: icon },
         getDisplayObjectWorldScale(icon, 1)
       );
     });
@@ -1423,7 +1433,7 @@ export function createTagUi(opts) {
         view,
         entry,
         view.tile,
-        row.getBounds(),
+        { displayObject: row },
         getDisplayObjectWorldScale(row, 1)
       );
     });
