@@ -439,6 +439,20 @@ function runLiveActionOptimismChecks() {
   assert.equal(recordResult?.scheduled, true, "optimism should accept scheduled batches");
   assert.ok(optimism.getVersion() > 0, "optimism version should bump after scheduling");
 
+  const versionAfterScheduled = optimism.getVersion();
+  const appliedResult = optimism.recordScheduledBatch({
+    ok: true,
+    applied: true,
+    tSec: 1,
+    actions: scheduledActions,
+  });
+  assert.equal(appliedResult?.applied, true, "optimism should receive applied batches unchanged");
+  assert.equal(
+    optimism.getVersion(),
+    versionAfterScheduled,
+    "current-second applied actions should not create optimistic pending state"
+  );
+
   const inventoryPreview = optimism.getInventoryPreview(itemTarget.ownerId);
   assert.ok(
     inventoryPreview.hiddenItemIds.has(itemTarget.itemId),

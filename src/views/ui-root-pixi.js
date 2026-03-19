@@ -450,6 +450,36 @@ function dispatchPlayerAction(kind, payload, opts) {
   return recordOptimisticSchedule(runner.dispatchAction(kind, payload, opts));
 }
 
+function isFreeLiveActionMode() {
+  const cursor = runner.getCursorState?.();
+  const state = runner.getState?.();
+  return (
+    cursor?.paused !== true &&
+    isAutoPauseOnPlayerActionEnabled?.() !== true &&
+    state?.variantFlags?.actionPointCostsEnabled === false
+  );
+}
+
+function dispatchPlayerEditAction(kind, payload, opts) {
+  if (isFreeLiveActionMode()) {
+    return runner.dispatchActionAtCurrentSecond?.(kind, payload, opts) ?? {
+      ok: false,
+      reason: "noRunner",
+    };
+  }
+  return dispatchPlayerAction(kind, payload, opts);
+}
+
+function dispatchPlayerEditBatch(actions, opts) {
+  if (isFreeLiveActionMode()) {
+    return runner.dispatchActionsAtCurrentSecond?.(actions, opts) ?? {
+      ok: false,
+      reason: "noRunner",
+    };
+  }
+  return schedulePlayerActionsAtNextSecond(actions, opts);
+}
+
 function schedulePlayerActionsAtNextSecond(actions, opts) {
   return recordOptimisticSchedule(
     runner.scheduleActionsAtNextSecond?.(actions, opts) ?? {
@@ -487,7 +517,7 @@ function commitPreviewInventoryTransferForUse(spec) {
     return { ok: true, result: "noPreviewTransfer" };
   }
 
-  const moveRes = dispatchPlayerAction(
+  const moveRes = dispatchPlayerEditAction(
     ActionKinds.INVENTORY_MOVE,
     {
       fromOwnerId: sourceOwnerId,
@@ -1551,7 +1581,7 @@ inventoryView = createInventoryView({
     actionPlanner?.hasItemTransferIntent?.(itemId) ?? false,
   equipItemToSlot: ({ fromOwnerId, toOwnerId, itemId, slotId }) =>
     queueActionWhenPaused(() =>
-      dispatchPlayerAction(
+      dispatchPlayerEditAction(
         ActionKinds.EQUIP_ITEM,
         { fromOwnerId, toOwnerId, itemId, slotId },
         { apCost: 0 }
@@ -1565,7 +1595,7 @@ inventoryView = createInventoryView({
     targetGY,
   }) =>
     queueActionWhenPaused(() =>
-      dispatchPlayerAction(
+      dispatchPlayerEditAction(
         ActionKinds.UNEQUIP_ITEM,
         { fromOwnerId, toOwnerId, slotId, targetGX, targetGY },
         { apCost: 0 }
@@ -1573,7 +1603,7 @@ inventoryView = createInventoryView({
     ),
   moveEquippedItemToSlot: ({ fromOwnerId, toOwnerId, fromSlotId, toSlotId }) =>
     queueActionWhenPaused(() =>
-      dispatchPlayerAction(
+      dispatchPlayerEditAction(
         ActionKinds.MOVE_EQUIPPED_ITEM,
         { fromOwnerId, toOwnerId, fromSlotId, toSlotId },
         { apCost: 0 }
@@ -1581,7 +1611,7 @@ inventoryView = createInventoryView({
     ),
   depositItemToBasket: ({ fromOwnerId, toOwnerId, itemId, slotId }) =>
     queueActionWhenPaused(() =>
-      dispatchPlayerAction(
+      dispatchPlayerEditAction(
         ActionKinds.DEPOSIT_ITEM_TO_BASKET,
         { fromOwnerId, toOwnerId, itemId, slotId },
         { apCost: 0 }
@@ -1606,7 +1636,7 @@ inventoryView = createInventoryView({
           isAnyDropboxOwnerId(payload.toOwnerId)) &&
         payload.fromOwnerId !== payload.toOwnerId
       ) {
-        return dispatchPlayerAction(
+        return dispatchPlayerEditAction(
           ActionKinds.PROCESS_DROPBOX_MOVE,
           {
             ...payload,
@@ -1616,21 +1646,17 @@ inventoryView = createInventoryView({
         );
       }
       if (payload.fromOwnerId === payload.toOwnerId) {
-        return dispatchPlayerAction(
+        return dispatchPlayerEditAction(
           ActionKinds.INVENTORY_MOVE,
           payload,
           { apCost: 0 }
         );
       }
-      if (!isBootVariantFlagEnabled("inventoryTransferPlannerEnabled")) {
-        return dispatchPlayerAction(
-          ActionKinds.INVENTORY_MOVE,
-          payload,
-          { apCost: 0 }
-        );
-      }
-      if (runner.getCursorState?.()?.paused !== true) {
-        return dispatchPlayerAction(
+      if (
+        runner.getCursorState?.()?.paused !== true ||
+        !isBootVariantFlagEnabled("inventoryTransferPlannerEnabled")
+      ) {
+        return dispatchPlayerEditAction(
           ActionKinds.INVENTORY_MOVE,
           payload,
           { apCost: 0 }
@@ -1649,7 +1675,7 @@ inventoryView = createInventoryView({
   },
   discardItemFromOwner: ({ ownerId, itemId }) =>
     queueActionWhenPaused(() =>
-      dispatchPlayerAction(
+      dispatchPlayerEditAction(
         ActionKinds.INVENTORY_DISCARD,
         { ownerId, itemId },
         { apCost: 0 }
@@ -1657,7 +1683,7 @@ inventoryView = createInventoryView({
     ),
   splitStackAndPlace: ({ ownerId, itemId, amount, targetGX, targetGY }) =>
     queueActionWhenPaused(() =>
-      dispatchPlayerAction(
+      dispatchPlayerEditAction(
         ActionKinds.INVENTORY_SPLIT,
         { ownerId, itemId, amount, targetGX, targetGY },
         { apCost: 0 }
@@ -1666,7 +1692,7 @@ inventoryView = createInventoryView({
   queueActionWhenPaused,
   adjustFollowerCount: ({ leaderId, delta }) =>
     queueActionWhenPaused(() => {
-      const res = dispatchPlayerAction(
+      const res = dispatchPlayerEditAction(
         ActionKinds.ADJUST_FOLLOWER_COUNT,
         { leaderId, delta },
         { apCost: 0 }
@@ -1682,7 +1708,7 @@ inventoryView = createInventoryView({
     }),
   adjustWorkerCount: ({ leaderId, delta }) =>
     queueActionWhenPaused(() => {
-      const res = dispatchPlayerAction(
+      const res = dispatchPlayerEditAction(
         ActionKinds.ADJUST_WORKER_COUNT,
         { leaderId, delta },
         { apCost: 0 }
@@ -1693,6 +1719,10 @@ inventoryView = createInventoryView({
       return res;
     }),
   requestPauseForAction,
+  dispatchPlayerEditAction: (kind, payload, opts) =>
+    dispatchPlayerEditAction(kind, payload, opts),
+  dispatchPlayerEditBatch: (actions, opts) =>
+    dispatchPlayerEditBatch(actions, opts),
   scheduleActionsAtNextSecond: (actions, opts) =>
     schedulePlayerActionsAtNextSecond(actions, opts),
   setApDragWarning,
@@ -1710,7 +1740,7 @@ inventoryView = createInventoryView({
     }
 
     const useResult = queueActionWhenPaused(() =>
-      dispatchPlayerAction(
+      dispatchPlayerEditAction(
         ActionKinds.INVENTORY_USE_ITEM,
         {
           ownerId: spec?.ownerId,
@@ -1833,7 +1863,7 @@ boardView = createBoardView({
   flashActionGhost: (spec, status) =>
     actionLogView?.flashGhost?.(spec, status),
   dispatchAction: (kind, payload, opts) =>
-    dispatchPlayerAction(kind, payload, opts),
+    dispatchPlayerEditAction(kind, payload, opts),
   onSystemIconHover: (view, systemId) => {
     const target = view?.structure ?? view?.tile ?? null;
     processWidgetView?.setHoverTarget?.(target, systemId);
@@ -1927,7 +1957,7 @@ pawnsView = createPawnsView({
               toEnvCol: bestIndex,
             }) || { ok: false, reason: "noPlanner" },
           runWhenLive: () =>
-            schedulePlayerActionAtNextSecond(
+            dispatchPlayerEditAction(
               ActionKinds.PLACE_PAWN,
               { pawnId, toEnvCol: bestIndex },
               { apCost: 0, reason: "pawnMoveLive" }
@@ -1944,7 +1974,7 @@ pawnsView = createPawnsView({
             toHubCol: bestIndex,
           }) || { ok: false, reason: "noPlanner" },
         runWhenLive: () =>
-          schedulePlayerActionAtNextSecond(
+          dispatchPlayerEditAction(
             ActionKinds.PLACE_PAWN,
             { pawnId, toHubCol: bestIndex },
             { apCost: 0, reason: "pawnMoveLive" }
@@ -1972,7 +2002,7 @@ processWidgetView = createProcessWidgetView({
   setHoverOwnerFocus: (focus) => setProcessWidgetHoverUiFocus(focus),
   actionPlanner: previewPlanner,
   dispatchAction: (kind, payload, opts) =>
-    dispatchPlayerAction(kind, payload, opts),
+    dispatchPlayerEditAction(kind, payload, opts),
   queueActionWhenPaused,
   requestPauseForAction,
   inventoryView,

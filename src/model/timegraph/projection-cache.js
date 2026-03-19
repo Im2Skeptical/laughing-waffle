@@ -182,9 +182,14 @@ export function createProjectionCache({
     return `sig:${signatureVersion}`;
   }
 
-  function ensureForecastWindow(tl, targetEndSec, dtStep, stepSec) {
+  function shouldAbsorbPersistentKnowledge(opts = {}) {
+    return opts?.absorbPersistentKnowledge !== false;
+  }
+
+  function ensureForecastWindow(tl, targetEndSec, dtStep, stepSec, opts = {}) {
     if (!tl) return { ok: false, reason: "noTimeline" };
     ensureSignature(tl);
+    const absorbKnowledge = shouldAbsorbPersistentKnowledge(opts);
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
@@ -223,7 +228,7 @@ export function createProjectionCache({
     ) {
       const knownSec = Math.min(forecastEndSec, targetBoundaryEnd);
       const knownData = stateDataBySecond.get(knownSec);
-      if (knownData != null) {
+      if (absorbKnowledge && knownData != null) {
         absorbTimelinePersistentKnowledge(tl, knownData);
       }
       return { ok: true };
@@ -262,7 +267,7 @@ export function createProjectionCache({
         forecastDtStep = dtStep;
         const knownSec = Math.min(forecastEndSec, targetBoundaryEnd);
         const knownData = stateDataBySecond.get(knownSec);
-        if (knownData != null) {
+        if (absorbKnowledge && knownData != null) {
           absorbTimelinePersistentKnowledge(tl, knownData);
         }
         return { ok: true };
@@ -301,7 +306,7 @@ export function createProjectionCache({
         forecastDtStep = dtStep;
         const knownSec = Math.min(forecastEndSec, targetBoundaryEnd);
         const knownData = stateDataBySecond.get(knownSec);
-        if (knownData != null) {
+        if (absorbKnowledge && knownData != null) {
           absorbTimelinePersistentKnowledge(tl, knownData);
         }
         return { ok: true };
@@ -324,17 +329,18 @@ export function createProjectionCache({
     forecastStepSec = step;
     forecastDtStep = dtStep;
     const knownData = stateDataBySecond.get(forecastEndSec);
-    if (knownData != null) {
+    if (absorbKnowledge && knownData != null) {
       absorbTimelinePersistentKnowledge(tl, knownData);
     }
 
     return { ok: true };
   }
 
-  function ensureStateAtSecond(tl, sec, dtStep, stepSec) {
+  function ensureStateAtSecond(tl, sec, dtStep, stepSec, opts = {}) {
     if (!tl) return { ok: false, reason: "noTimeline" };
 
     ensureSignature(tl);
+    const absorbKnowledge = shouldAbsorbPersistentKnowledge(opts);
 
     const t = clampSec(sec);
     const historyEnd = clampSec(tl.historyEndSec ?? 0);
@@ -352,19 +358,23 @@ export function createProjectionCache({
 
     const cached = touch(t);
     if (cached != null) {
-      absorbTimelinePersistentKnowledge(tl, cached);
+      if (absorbKnowledge) {
+        absorbTimelinePersistentKnowledge(tl, cached);
+      }
       return { ok: true, stateData: cached };
     }
 
     const step =
       typeof stepSec === "number" && stepSec > 0 ? Math.floor(stepSec) : 1;
 
-    const forecastRes = ensureForecastWindow(tl, t, dtStep, step);
+    const forecastRes = ensureForecastWindow(tl, t, dtStep, step, opts);
     if (!forecastRes.ok) return forecastRes;
 
     const forecastData = touch(t);
     if (forecastData != null) {
-      absorbTimelinePersistentKnowledge(tl, forecastData);
+      if (absorbKnowledge) {
+        absorbTimelinePersistentKnowledge(tl, forecastData);
+      }
       return { ok: true, stateData: forecastData };
     }
 
@@ -388,13 +398,17 @@ export function createProjectionCache({
             const sd = win.stateDataBySecond.get(t);
             if (sd != null) {
               setForecastState(t, historyEnd, sd);
-              absorbTimelinePersistentKnowledge(tl, sd);
+              if (absorbKnowledge) {
+                absorbTimelinePersistentKnowledge(tl, sd);
+              }
               return { ok: true, stateData: sd };
             }
           }
         } else if (delta === 0) {
           setForecastState(t, historyEnd, anchorData);
-          absorbTimelinePersistentKnowledge(tl, anchorData);
+          if (absorbKnowledge) {
+            absorbTimelinePersistentKnowledge(tl, anchorData);
+          }
           return { ok: true, stateData: anchorData };
         }
       }

@@ -186,6 +186,89 @@ export function createSimRunner({
     );
   }
 
+  function validateActionListOnPreviewState(actions) {
+    if (!dragPreviewState) {
+      return { ok: false, reason: "noPreviewState" };
+    }
+    const orderedActions = Array.isArray(actions) ? actions : [];
+    const trialState = deserializeGameState(serializeGameState(dragPreviewState));
+    canonicalizeSnapshot(trialState);
+    for (const action of orderedActions) {
+      if (!action || typeof action !== "object" || !action.kind) {
+        return { ok: false, reason: "badAction" };
+      }
+      const res = applyAction(trialState, action) || {
+        ok: false,
+        reason: "cmdFailed",
+      };
+      if (res?.ok) continue;
+      return res;
+    }
+    return { ok: true };
+  }
+
+  function normalizeBatchActions(actions, tSec = null) {
+    const normalized = [];
+    for (const action of Array.isArray(actions) ? actions : []) {
+      if (!action || typeof action !== "object" || !action.kind) continue;
+      const nextAction = {
+        ...action,
+      };
+      if (tSec != null) {
+        nextAction.tSec = Math.max(0, Math.floor(tSec));
+      }
+      normalized.push(nextAction);
+    }
+    return normalized;
+  }
+
+  function cloneResultActions(actions) {
+    return (Array.isArray(actions) ? actions : []).map((action) => ({
+      ...action,
+      payload:
+        action?.payload && typeof action.payload === "object"
+          ? JSON.parse(JSON.stringify(action.payload))
+          : action?.payload ?? null,
+    }));
+  }
+
+  function prepareDispatchBatch(actions) {
+    simAccumulator = 0;
+    pauseRequested = false;
+    playbackActive = false;
+
+    const normalizedActions = normalizeBatchActions(actions);
+    if (!normalizedActions.length) {
+      return { ok: false, reason: "noActions" };
+    }
+
+    const preview = getPreviewStatus();
+    if (preview.active) {
+      if (!preview.isForecastPreview) {
+        return {
+          ok: false,
+          reason: "previewNotForecast",
+          ...preview,
+        };
+      }
+      const validationRes = validateActionListOnPreviewState(normalizedActions);
+      if (!validationRes?.ok) {
+        return validationRes || { ok: false, reason: "cmdFailed" };
+      }
+      const previewStateData = serializeGameState(dragPreviewState);
+      const commitRes = commitCursorSecondInternal(
+        preview.previewSec,
+        previewStateData
+      );
+      if (!commitRes.ok) {
+        return commitRes;
+      }
+    }
+
+    dragPreviewState = null;
+    return { ok: true, actions: normalizedActions };
+  }
+
   function getPlannerBoundaryStateData(tSec) {
     if (!timeline) return { ok: false, reason: "noTimeline" };
     const sec = Math.max(0, Math.floor(tSec ?? 0));
@@ -636,7 +719,7 @@ export function createSimRunner({
 
   function commitCursorSecondInternal(tSec, stateData) {
     const prevSec = Math.floor(cursorState?.tSec ?? 0);
-    const res = seekCursorSecond(tSec, null, {
+    const res = seekCursorSecond(tSec, stateData, {
       paused: true,
       // Scrub commits can happen frequently; avoid serializing checkpoints/memo
       // here and rely on simulation-path checkpoint maintenance instead.
@@ -854,7 +937,123 @@ export function createSimRunner({
       };
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      state: validationState,
+    };
+  }
+
+  function truncateFutureHistoryAtSecond(tSec) {
+    const sec = Math.max(0, Math.floor(tSec ?? 0));
+    const prevHistoryEnd = Math.floor(timeline?.historyEndSec ?? 0);
+    if (sec < prevHistoryEnd) {
+      truncateTimelineAfterSecond(timeline, sec);
+      return;
+    }
+
+    let normalizedByMutator = false;
+    if (Array.isArray(timeline?.actions) && timeline.actions.length) {
+      const lastAction = timeline.actions[timeline.actions.length - 1];
+      const lastActionSec = Math.floor(lastAction?.tSec ?? -1);
+      if (lastActionSec > sec) {
+        truncateTimelineAfterSecond(timeline, sec);
+        normalizedByMutator = true;
+      }
+    }
+    if (
+      !normalizedByMutator &&
+      Array.isArray(timeline?.checkpoints) &&
+      timeline.checkpoints.length
+    ) {
+      const lastCheckpoint = timeline.checkpoints[timeline.checkpoints.length - 1];
+      const lastCheckpointSec = Math.floor(lastCheckpoint?.checkpointSec ?? -1);
+      if (lastCheckpointSec > sec) {
+        timeline.checkpoints = truncateCheckpointsAfterSecond(
+          timeline.checkpoints,
+          sec
+        );
+      }
+    }
+    timeline.historyEndSec = sec;
+  }
+
+  function applyActionsAtCurrentSecondByResim(actionsAtSec, opts = {}) {
+    if (!timeline || !cursorState) return { ok: false, reason: "noState" };
+
+    const currentSec = Math.max(0, Math.floor(cursorState.tSec ?? 0));
+    const currentStepIndex = Math.max(
+      0,
+      Math.floor(cursorState.simStepIndex ?? currentSec * TICKS_PER_SEC)
+    );
+    const elapsedStepsWithinSecond = currentStepIndex % TICKS_PER_SEC;
+    const gate = getEditWindowStatusForSecond(currentSec);
+    if (!gate.ok) {
+      return {
+        ok: false,
+        reason: gate.reason,
+        ...gate,
+      };
+    }
+
+    const stampedActions = normalizeBatchActions(actionsAtSec, currentSec);
+    if (!stampedActions.length) {
+      return { ok: false, reason: "noActions" };
+    }
+
+    truncateFutureHistoryAtSecond(currentSec);
+
+    const existingAtSec = getActionsAtSecond(timeline, currentSec);
+    const orderedAtSec = existingAtSec.concat(stampedActions);
+    const validation = validateReplayActionsAtSecond(
+      currentSec,
+      orderedAtSec,
+      opts.reason || "currentSecondResim"
+    );
+    if (!validation?.ok) return validation;
+
+    const replaceRes = replaceActionsAtSecond(timeline, currentSec, orderedAtSec, {
+      truncateFuture: false,
+    });
+    if (!replaceRes?.ok) return replaceRes || { ok: false, reason: "replace" };
+
+    const rebuilt = rebuildStateAtSecond(timeline, currentSec);
+    if (!rebuilt?.ok) {
+      return rebuilt || { ok: false, reason: "rebuildFailed", tSec: currentSec };
+    }
+    const rebuiltState = rebuilt.state;
+    for (let step = 0; step < elapsedStepsWithinSecond; step += 1) {
+      updateGame(SIM_DT_STEP, rebuiltState);
+    }
+    applyTimelinePersistentKnowledgeToState(rebuiltState);
+
+    dragPreviewState = null;
+    simAccumulator = 0;
+    pauseRequested = false;
+
+    loadStateObjectIntoGameState(rebuiltState);
+    cursorState = gameState;
+    setPaused(cursorState, false);
+    syncPhaseToPaused(cursorState);
+
+    clearPlannerBoundaryCache();
+    timeline.cursorSec = currentSec;
+    timeline.historyEndSec = currentSec;
+    seekPlaybackIndex(currentSec);
+    playbackActive = currentSec < getPlaybackCeilingSec();
+    maintainCheckpoints(timeline, cursorState, ACTION_PATH_CHECKPOINT_OPTS);
+    syncTimelineMaxReachedHistoryEndSec();
+
+    onRebuildViews?.("actionDispatchedCurrentSec");
+    onInvalidate?.("actionDispatchedCurrentSec");
+
+    return {
+      ok: true,
+      applied: true,
+      tSec: currentSec,
+      count: stampedActions.length,
+      actions: cloneResultActions(stampedActions),
+      resimulatedSteps: elapsedStepsWithinSecond,
+    };
   }
 
   function scheduleActionsAtSecond(actionsAtSec, tSec, opts = {}) {
@@ -1295,38 +1494,17 @@ export function createSimRunner({
         });
         return res;
       };
-      simAccumulator = 0;
-      pauseRequested = false;
-      playbackActive = false;
-
-      const preview = getPreviewStatus();
-      if (preview.active) {
-        if (!preview.isForecastPreview) {
-          return finishDispatch({
-            ok: false,
-            reason: "previewNotForecast",
-            ...preview,
-          });
-        }
-        const validationRes = validateActionOnPreviewState(
+      const prepared = prepareDispatchBatch([
+        {
           kind,
           payload,
-          opts.apCost
-        );
-        if (!validationRes?.ok) {
-          return finishDispatch(validationRes || { ok: false, reason: "cmdFailed" });
-        }
-        const previewStateData = serializeGameState(dragPreviewState);
-        const commitRes = commitCursorSecondInternal(
-          preview.previewSec,
-          previewStateData
-        );
-        if (!commitRes.ok) {
-          return finishDispatch(commitRes);
-        }
+          apCost: opts.apCost,
+        },
+      ]);
+      if (!prepared?.ok) {
+        return finishDispatch(prepared);
       }
 
-      dragPreviewState = null;
       if (!cursorState?.paused && !isImmediateActionKind(kind)) {
         return finishDispatch(
           scheduleActionAtNextSecond(kind, payload, {
@@ -1346,39 +1524,7 @@ export function createSimRunner({
         });
       }
 
-      // Truncate future
-      const prevHistoryEnd = Math.floor(timeline.historyEndSec ?? 0);
-      if (tSec < prevHistoryEnd) {
-        truncateTimelineAfterSecond(timeline, tSec);
-      } else {
-        let normalizedByMutator = false;
-        if (Array.isArray(timeline.actions) && timeline.actions.length) {
-          const lastAction = timeline.actions[timeline.actions.length - 1];
-          const lastActionSec = Math.floor(lastAction?.tSec ?? -1);
-          if (lastActionSec > tSec) {
-            truncateTimelineAfterSecond(timeline, tSec);
-            normalizedByMutator = true;
-          }
-        }
-        if (
-          !normalizedByMutator &&
-          Array.isArray(timeline.checkpoints) &&
-          timeline.checkpoints.length
-        ) {
-          const lastCheckpoint =
-            timeline.checkpoints[timeline.checkpoints.length - 1];
-          const lastCheckpointSec = Math.floor(
-            lastCheckpoint?.checkpointSec ?? -1
-          );
-          if (lastCheckpointSec > tSec) {
-            timeline.checkpoints = truncateCheckpointsAfterSecond(
-              timeline.checkpoints,
-              tSec
-            );
-          }
-        }
-        timeline.historyEndSec = tSec;
-      }
+      truncateFutureHistoryAtSecond(tSec);
 
       // Apply Live
       const exec = applyAction(cursorState, {
@@ -1410,6 +1556,60 @@ export function createSimRunner({
       onInvalidate?.("actionDispatched");
 
       return finishDispatch(exec && typeof exec === "object" ? exec : { ok: true });
+    },
+
+    dispatchActionAtCurrentSecond(kind, payload, opts = {}) {
+      const perfStart = perfEnabled() ? perfNowMs() : 0;
+      const finishDispatch = (res) => {
+        recordActionDispatch({
+          ok: !!res?.ok,
+          ms: perfEnabled() ? perfNowMs() - perfStart : 0,
+        });
+        return res;
+      };
+      const prepared = prepareDispatchBatch([
+        {
+          kind,
+          payload,
+          apCost: opts.apCost,
+        },
+      ]);
+      if (!prepared?.ok) {
+        return finishDispatch(prepared);
+      }
+      return finishDispatch(
+        applyActionsAtCurrentSecondByResim(prepared.actions, {
+          reason: opts.reason || "dispatchLiveCurrentSec",
+        })
+      );
+    },
+
+    dispatchActionsAtCurrentSecond(actions, opts = {}) {
+      const perfStart = perfEnabled() ? perfNowMs() : 0;
+      const finishDispatch = (res) => {
+        recordActionDispatch({
+          ok: !!res?.ok,
+          ms: perfEnabled() ? perfNowMs() - perfStart : 0,
+        });
+        return res;
+      };
+      const prepared = prepareDispatchBatch(
+        normalizeBatchActions(actions).map((action) => ({
+          ...action,
+          apCost:
+            action?.apCost ??
+            action?.payload?.apCost ??
+            0,
+        }))
+      );
+      if (!prepared?.ok) {
+        return finishDispatch(prepared);
+      }
+      return finishDispatch(
+        applyActionsAtCurrentSecondByResim(prepared.actions, {
+          reason: opts.reason || "dispatchBatchLiveCurrentSec",
+        })
+      );
     },
 
     commitCursorSecond(tSec, stateData) {
@@ -1517,7 +1717,8 @@ export function createSimRunner({
     getLastPlannerCommitError: () => lastPlannerCommitError,
     setPreviewState: (s) => {
       dragPreviewState = s || null;
-      absorbTimelinePersistentKnowledge(timeline, dragPreviewState);
+      // Forecast preview browse must remain read-only; only explicit commit
+      // paths should make preview state authoritative.
       applyTimelinePersistentKnowledgeToState(dragPreviewState);
       simAccumulator = 0;
       return dragPreviewState;

@@ -124,6 +124,18 @@ export function createTimeGraphController({
     return projection.getTimelineToken?.(tl) ?? null;
   }
 
+  function ensureProjectionStateAtSecond(tl, sec, dtStep, stepSec) {
+    return projection.ensureStateAtSecond?.(tl, sec, dtStep, stepSec, {
+      absorbPersistentKnowledge: false,
+    }) ?? { ok: false, reason: "projectionUnavailable" };
+  }
+
+  function ensureProjectionForecastWindow(tl, targetEndSec, dtStep, stepSec) {
+    return projection.ensureForecastWindow?.(tl, targetEndSec, dtStep, stepSec, {
+      absorbPersistentKnowledge: false,
+    }) ?? { ok: false, reason: "projectionUnavailable" };
+  }
+
   function getAsyncForecastCoverageEndSec(tl) {
     const historyEndSec = clampSec(tl?.historyEndSec ?? 0);
     const meta = projection.getForecastAsyncMeta?.() ?? null;
@@ -520,12 +532,7 @@ export function createTimeGraphController({
 
     let inserted = false;
     for (const sec of sampleSecs) {
-      const res = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        forecastStepSecCur
-      );
+      const res = ensureProjectionStateAtSecond(tl, sec, undefined, forecastStepSecCur);
       if (!res.ok) return false;
       cacheForecastStateData(
         stateDataByBoundary,
@@ -643,12 +650,7 @@ export function createTimeGraphController({
     if (!streamed) {
       for (let sec = oldMax + 1; sec <= target; sec++) {
         if (!shouldSampleHistory(sec, target, historyStrideSecCur)) continue;
-        const res = projection.ensureStateAtSecond(
-          tl,
-          sec,
-          undefined,
-          forecastStepSecCur
-        );
+        const res = ensureProjectionStateAtSecond(tl, sec, undefined, forecastStepSecCur);
         if (!res.ok) return false;
         cacheForecastStateData(
           graphCache.stateDataByBoundary,
@@ -673,12 +675,7 @@ export function createTimeGraphController({
     let insertedExtra = false;
     for (const sec of actionSecs) {
       if (existingSecs.has(sec)) continue;
-      const res = projection.ensureStateAtSecond(
-        tl,
-        sec,
-        undefined,
-        forecastStepSecCur
-      );
+      const res = ensureProjectionStateAtSecond(tl, sec, undefined, forecastStepSecCur);
       if (!res.ok) return false;
       cacheForecastStateData(
         graphCache.stateDataByBoundary,
@@ -701,12 +698,7 @@ export function createTimeGraphController({
 
     // Ensure the frontier point is sampled even when not stride-aligned.
     if (!existingSecs.has(target)) {
-      const res = projection.ensureStateAtSecond(
-        tl,
-        target,
-        undefined,
-        forecastStepSecCur
-      );
+      const res = ensureProjectionStateAtSecond(tl, target, undefined, forecastStepSecCur);
       if (!res.ok) return false;
       cacheForecastStateData(
         graphCache.stateDataByBoundary,
@@ -751,7 +743,7 @@ export function createTimeGraphController({
     purgePastStateData(graphCache.stateDataByBoundary, baseSec);
 
     if (horizonSecCur > 0) {
-      const forecastRes = projection.ensureForecastWindow(
+      const forecastRes = ensureProjectionForecastWindow(
         tl,
         lastForecastSec,
         undefined,
@@ -790,12 +782,7 @@ export function createTimeGraphController({
     if (!forecast.length) {
       for (let i = 0; i <= steps; i++) {
         const sec = baseSec + i * forecastStepSecCur;
-        const res = projection.ensureStateAtSecond(
-          tl,
-          sec,
-          undefined,
-          forecastStepSecCur
-        );
+        const res = ensureProjectionStateAtSecond(tl, sec, undefined, forecastStepSecCur);
         if (!res.ok) return false;
         cacheForecastStateData(
           graphCache.stateDataByBoundary,
@@ -816,12 +803,7 @@ export function createTimeGraphController({
     } else {
       // Ensure base point exists.
       if (forecast[0].tSec !== baseSec) {
-        const res = projection.ensureStateAtSecond(
-          tl,
-          baseSec,
-          undefined,
-          forecastStepSecCur
-        );
+        const res = ensureProjectionStateAtSecond(tl, baseSec, undefined, forecastStepSecCur);
         if (!res.ok) return false;
         cacheForecastStateData(
           graphCache.stateDataByBoundary,
@@ -848,12 +830,7 @@ export function createTimeGraphController({
         sec <= lastForecastSec;
         sec += forecastStepSecCur
       ) {
-        const res = projection.ensureStateAtSecond(
-          tl,
-          sec,
-          undefined,
-          forecastStepSecCur
-        );
+        const res = ensureProjectionStateAtSecond(tl, sec, undefined, forecastStepSecCur);
         if (!res.ok) return false;
         cacheForecastStateData(
           graphCache.stateDataByBoundary,
@@ -927,6 +904,11 @@ export function createTimeGraphController({
       mutationKind === "replaceActionsAtSec" &&
       mutationSec >= Math.max(0, historyEndSec - 1) &&
       graphCache;
+    const isCurrentSecondReplacePatch =
+      reason === "actionDispatchedCurrentSec" &&
+      mutationKind === "replaceActionsAtSec" &&
+      mutationSec >= Math.max(0, historyEndSec - 1) &&
+      graphCache;
 
     if (
       !signatureChanged &&
@@ -942,7 +924,7 @@ export function createTimeGraphController({
       return { ok: true, reason: "noChange" };
     }
 
-    if (isPlannerReplacePatch) {
+    if (isPlannerReplacePatch || isCurrentSecondReplacePatch) {
       // Defensive path: planner commits replace actions in-place at current sec.
       // Even if signature detection misses a corner case, force targeted cache
       // invalidation so scrub/preview reads cannot stay stale.
@@ -966,7 +948,12 @@ export function createTimeGraphController({
       windowDirty = false;
       seriesDirty = false;
       valuesDirty = false;
-      return { ok: true, reason: "replaceActionPatch" };
+      return {
+        ok: true,
+        reason: isCurrentSecondReplacePatch
+          ? "currentSecondReplaceActionPatch"
+          : "replaceActionPatch",
+      };
     }
 
     if (signatureChanged) {
@@ -975,7 +962,7 @@ export function createTimeGraphController({
         mutationKind === "appendAction" &&
         mutationSec >= Math.max(0, historyEndSec - 1) &&
         graphCache;
-      if (isActionAppendPatch || isPlannerReplacePatch) {
+      if (isActionAppendPatch || isPlannerReplacePatch || isCurrentSecondReplacePatch) {
         // Preserve most cached values; only invalidate from mutation frontier.
         invalidateSubjectValuesFromSec(mutationSec);
         graphCache.historyEndSec = historyEndSec;
@@ -999,7 +986,9 @@ export function createTimeGraphController({
         valuesDirty = false;
         return {
           ok: true,
-          reason: isPlannerReplacePatch
+          reason: isCurrentSecondReplacePatch
+            ? "currentSecondReplaceActionPatch"
+            : isPlannerReplacePatch
             ? "replaceActionPatch"
             : "appendActionPatch",
         };
@@ -1362,12 +1351,7 @@ export function createTimeGraphController({
         if (sec > historyEndSec && allowSyncForecast !== true) {
           continue;
         }
-        const res = projection.ensureStateAtSecond(
-          tl,
-          sec,
-          undefined,
-          forecastStepSecCur
-        );
+        const res = ensureProjectionStateAtSecond(tl, sec, undefined, forecastStepSecCur);
         if (!res?.ok) {
           continue;
         }
@@ -1403,14 +1387,16 @@ export function createTimeGraphController({
         return cachedProjectionData;
       }
       recordTimegraphCacheMiss();
-      return null;
+      const res = ensureProjectionStateAtSecond(
+        tl,
+        sec,
+        undefined,
+        forecastStepSecCur
+      );
+      if (!res.ok) return null;
+      return res.stateData ?? null;
     }
-    const res = projection.ensureStateAtSecond(
-      tl,
-      sec,
-      undefined,
-      forecastStepSecCur
-    );
+    const res = ensureProjectionStateAtSecond(tl, sec, undefined, forecastStepSecCur);
     if (!res.ok) return null;
     return res.stateData ?? null;
   }

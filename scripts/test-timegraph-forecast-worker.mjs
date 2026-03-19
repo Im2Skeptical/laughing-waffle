@@ -200,8 +200,14 @@ function testControllerPartialForecastDoesNotSyncBuildUnloadedSeconds() {
   assert.equal(sampleRes.ok, true, sampleRes.reason);
   const futurePoint = sampleRes.points.find((point) => point.tSec === 5);
   assert.equal(futurePoint?.pending, true);
-  assert.equal(controller.getStateDataAt(5), null);
-  assert.equal(projectionCache.getStateData(5), null);
+  assert.ok(
+    controller.getStateDataAt(5),
+    "controller should synchronously resolve a browsed future second on demand"
+  );
+  assert.ok(
+    projectionCache.getStateData(5),
+    "on-demand future browse should populate projection cache for that second"
+  );
 
   const historyState = controller.getStateAt(0);
   assert.ok(historyState, "history state should still resolve synchronously");

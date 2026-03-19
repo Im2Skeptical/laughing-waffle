@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { createSimRunner } from "../src/controllers/sim-runner.js";
-import { ActionKinds } from "../src/model/actions.js";
+import { ActionKinds, applyAction } from "../src/model/actions.js";
 import { getInventoryOwnerVisibility } from "../src/model/inventory-owner-visibility.js";
 import { rebuildStateAtSecond } from "../src/model/timeline/index.js";
 import { createPausedActionQueue } from "../src/views/ui-root/paused-action-queue.js";
@@ -159,6 +159,284 @@ function getInventoryOwnerWithAtLeastTwoItems(state) {
   return null;
 }
 
+function reconstructCurrentSecondState(runner, tSec, elapsedStepsWithinSecond) {
+  void elapsedStepsWithinSecond;
+  const rebuilt = rebuildStateAtSecond(runner.getTimeline(), tSec);
+  assertOk(rebuilt, "current-second rebuild parity");
+  return rebuilt.state;
+}
+
+function findSameOwnerChainMoveTarget(state) {
+  const inventories =
+    state?.ownerInventories && typeof state.ownerInventories === "object"
+      ? state.ownerInventories
+      : {};
+  for (const [ownerIdRaw, inv] of Object.entries(inventories)) {
+    const ownerIdNum = Number(ownerIdRaw);
+    const ownerId = Number.isFinite(ownerIdNum) ? ownerIdNum : ownerIdRaw;
+    if (getInventoryOwnerVisibility(state, ownerId).visible === false) continue;
+    const items = Array.isArray(inv?.items) ? inv.items.filter(Boolean) : [];
+    const item = items.find(
+      (candidate) =>
+        Math.floor(candidate?.width ?? 1) === 1 && Math.floor(candidate?.height ?? 1) === 1
+    );
+    if (!item) continue;
+
+    const occupied = new Set();
+    for (const existing of items) {
+      if (!existing) continue;
+      occupied.add(`${existing.gridX}:${existing.gridY}`);
+    }
+
+    const emptyCells = [];
+    const cols = Math.max(0, Math.floor(inv?.cols ?? 0));
+    const rows = Math.max(0, Math.floor(inv?.rows ?? 0));
+    for (let gy = 0; gy < rows; gy += 1) {
+      for (let gx = 0; gx < cols; gx += 1) {
+        const key = `${gx}:${gy}`;
+        if (occupied.has(key)) continue;
+        emptyCells.push({ gx, gy });
+      }
+    }
+
+    for (let firstIndex = 0; firstIndex < emptyCells.length; firstIndex += 1) {
+      for (let secondIndex = 0; secondIndex < emptyCells.length; secondIndex += 1) {
+        if (firstIndex === secondIndex) continue;
+        const firstTarget = emptyCells[firstIndex];
+        const secondTarget = emptyCells[secondIndex];
+        const trialState = JSON.parse(JSON.stringify(state));
+        trialState.paused = true;
+        const firstMove = applyAction(trialState, {
+          kind: ActionKinds.INVENTORY_MOVE,
+          payload: {
+            fromOwnerId: ownerId,
+            toOwnerId: ownerId,
+            itemId: item.id,
+            targetGX: firstTarget.gx,
+            targetGY: firstTarget.gy,
+          },
+          apCost: 0,
+        });
+        if (!firstMove?.ok) continue;
+        const secondMove = applyAction(trialState, {
+          kind: ActionKinds.INVENTORY_MOVE,
+          payload: {
+            fromOwnerId: ownerId,
+            toOwnerId: ownerId,
+            itemId: item.id,
+            targetGX: secondTarget.gx,
+            targetGY: secondTarget.gy,
+          },
+          apCost: 0,
+        });
+        if (!secondMove?.ok) continue;
+        return {
+          ownerId,
+          itemId: item.id,
+          firstTarget,
+          secondTarget,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function runFreeLiveCurrentSecondDispatchChecks() {
+  const runner = createSimRunner({ setupId: "devPlaytesting01" });
+  assertOk(runner.init(), "free-live current-second runner init");
+
+  unpauseRunner(runner);
+  advanceFrames(runner, 5 * 60 + 5);
+  const stateBefore = runner.getCursorState();
+  const inventoryTarget = getInventoryOwnerWithAtLeastTwoItems(stateBefore);
+  assert.ok(inventoryTarget, "expected a visible inventory owner with at least two items");
+  const currentSec = Math.max(0, Math.floor(stateBefore?.tSec ?? 0));
+  const elapsedSteps = Math.floor(stateBefore?.simStepIndex ?? 0) % 60;
+  assert.ok(elapsedSteps > 0, "expected to be mid-second before current-second dispatch");
+
+  const discardRes = runner.dispatchActionAtCurrentSecond(
+    ActionKinds.INVENTORY_DISCARD,
+    { ownerId: inventoryTarget.ownerId, itemId: inventoryTarget.itemIds[0] },
+    { apCost: 0, reason: "testCurrentSecondDiscard" }
+  );
+  assertOk(discardRes, "current-second discard");
+  assert.equal(discardRes.applied, true, "current-second discard should apply immediately");
+  assert.equal(
+    discardRes.scheduled,
+    undefined,
+    "current-second discard should not report scheduled"
+  );
+  assert.equal(discardRes.tSec, currentSec, "current-second discard should use live current sec");
+  assert.equal(
+    discardRes.resimulatedSteps,
+    elapsedSteps,
+    "current-second discard should report the replayed microsteps"
+  );
+  assert.equal(
+    Math.floor(runner.getCursorState()?.simStepIndex ?? -1),
+    Math.floor(stateBefore?.simStepIndex ?? -2),
+    "current-second discard should not rewind the live microstep cursor"
+  );
+
+  const liveItems = Array.isArray(
+    runner.getCursorState()?.ownerInventories?.[inventoryTarget.ownerId]?.items
+  )
+    ? runner.getCursorState().ownerInventories[inventoryTarget.ownerId].items
+    : [];
+  const liveItemIds = new Set(liveItems.map((item) => item?.id));
+  assert.equal(
+    liveItemIds.has(inventoryTarget.itemIds[0]),
+    false,
+    "current-second discard should mutate live state immediately"
+  );
+
+  const currentSecondActions = (runner.getTimeline()?.actions ?? []).filter(
+    (action) => Math.floor(action?.tSec ?? -1) === currentSec
+  );
+  assert.ok(
+    currentSecondActions.some(
+      (action) =>
+        action?.kind === ActionKinds.INVENTORY_DISCARD &&
+        action?.payload?.itemId === inventoryTarget.itemIds[0]
+    ),
+    "current-second discard should be recorded on the live current second"
+  );
+
+  const expectedState = reconstructCurrentSecondState(runner, currentSec, elapsedSteps);
+  const expectedItems = Array.isArray(expectedState?.ownerInventories?.[inventoryTarget.ownerId]?.items)
+    ? expectedState.ownerInventories[inventoryTarget.ownerId].items
+    : [];
+  assert.deepEqual(
+    expectedItems.map((item) => item?.id).sort((a, b) => a - b),
+    liveItems.map((item) => item?.id).sort((a, b) => a - b),
+    "current-second discard should match deterministic boundary resimulation"
+  );
+  assert.equal(
+    Math.floor(runner.getCursorState()?.simStepIndex ?? -1),
+    Math.floor(expectedState?.simStepIndex ?? -2),
+    "current-second discard should preserve the live microstep position"
+  );
+}
+
+function runCurrentSecondBatchChecks() {
+  const runner = createSimRunner({ setupId: "devPlaytesting01" });
+  assertOk(runner.init(), "current-second batch runner init");
+
+  unpauseRunner(runner);
+  advanceFrames(runner, 5 * 60 + 7);
+  const stateBefore = runner.getCursorState();
+  const inventoryTarget = getInventoryOwnerWithAtLeastTwoItems(stateBefore);
+  assert.ok(inventoryTarget, "expected a visible inventory owner with at least two items");
+  const currentSec = Math.max(0, Math.floor(stateBefore?.tSec ?? 0));
+  const elapsedSteps = Math.floor(stateBefore?.simStepIndex ?? 0) % 60;
+
+  const batchRes = runner.dispatchActionsAtCurrentSecond(
+    [
+      {
+        kind: ActionKinds.INVENTORY_DISCARD,
+        payload: { ownerId: inventoryTarget.ownerId, itemId: inventoryTarget.itemIds[0] },
+        apCost: 0,
+      },
+      {
+        kind: ActionKinds.INVENTORY_DISCARD,
+        payload: { ownerId: inventoryTarget.ownerId, itemId: inventoryTarget.itemIds[1] },
+        apCost: 0,
+      },
+    ],
+    { reason: "testCurrentSecondBatchDiscard" }
+  );
+  assertOk(batchRes, "current-second batch");
+  assert.equal(batchRes.applied, true, "current-second batch should apply immediately");
+  assert.equal(batchRes.count, 2, "current-second batch should report action count");
+  assert.equal(
+    Math.floor(runner.getCursorState()?.simStepIndex ?? -1),
+    Math.floor(stateBefore?.simStepIndex ?? -2),
+    "current-second batch should not rewind the live microstep cursor"
+  );
+
+  const currentSecondActions = (runner.getTimeline()?.actions ?? []).filter(
+    (action) => Math.floor(action?.tSec ?? -1) === currentSec
+  );
+  const lastTwo = currentSecondActions.slice(-2);
+  assert.deepEqual(
+    lastTwo.map((action) => action?.payload?.itemId ?? null),
+    inventoryTarget.itemIds,
+    "current-second batch should preserve input order"
+  );
+
+  const liveItems = Array.isArray(
+    runner.getCursorState()?.ownerInventories?.[inventoryTarget.ownerId]?.items
+  )
+    ? runner.getCursorState().ownerInventories[inventoryTarget.ownerId].items
+    : [];
+  const liveItemIds = new Set(liveItems.map((item) => item?.id));
+  assert.equal(liveItemIds.has(inventoryTarget.itemIds[0]), false);
+  assert.equal(liveItemIds.has(inventoryTarget.itemIds[1]), false);
+
+  const expectedState = reconstructCurrentSecondState(runner, currentSec, elapsedSteps);
+  assert.equal(
+    Math.floor(expectedState?.ownerInventories?.[inventoryTarget.ownerId]?.items?.length ?? -1),
+    liveItems.length,
+    "current-second batch should match deterministic boundary resimulation"
+  );
+}
+
+function runCurrentSecondChainMoveChecks() {
+  const runner = createSimRunner({ setupId: "devPlaytesting01" });
+  assertOk(runner.init(), "current-second chain move runner init");
+
+  unpauseRunner(runner);
+  advanceFrames(runner, 5 * 60 + 9);
+  const chainTarget = findSameOwnerChainMoveTarget(runner.getCursorState());
+  assert.ok(chainTarget, "expected a same-owner chain move target");
+  const currentSec = Math.max(0, Math.floor(runner.getCursorState()?.tSec ?? 0));
+
+  const firstMove = runner.dispatchActionAtCurrentSecond(
+    ActionKinds.INVENTORY_MOVE,
+    {
+      fromOwnerId: chainTarget.ownerId,
+      toOwnerId: chainTarget.ownerId,
+      itemId: chainTarget.itemId,
+      targetGX: chainTarget.firstTarget.gx,
+      targetGY: chainTarget.firstTarget.gy,
+    },
+    { apCost: 0, reason: "testCurrentSecondChainMove:first" }
+  );
+  assertOk(firstMove, "first chain move");
+  assert.equal(firstMove.tSec, currentSec, "first chain move should stay in the same second");
+
+  const secondMove = runner.dispatchActionAtCurrentSecond(
+    ActionKinds.INVENTORY_MOVE,
+    {
+      fromOwnerId: chainTarget.ownerId,
+      toOwnerId: chainTarget.ownerId,
+      itemId: chainTarget.itemId,
+      targetGX: chainTarget.secondTarget.gx,
+      targetGY: chainTarget.secondTarget.gy,
+    },
+    { apCost: 0, reason: "testCurrentSecondChainMove:second" }
+  );
+  assertOk(secondMove, "second chain move");
+  assert.equal(secondMove.tSec, currentSec, "second chain move should stay in the same second");
+
+  const movedItem =
+    runner
+      .getCursorState()
+      ?.ownerInventories?.[chainTarget.ownerId]
+      ?.items?.find?.((item) => item?.id === chainTarget.itemId) ?? null;
+  assert.equal(
+    movedItem?.gridX ?? null,
+    chainTarget.secondTarget.gx,
+    "chain move should land at the final x target immediately"
+  );
+  assert.equal(
+    movedItem?.gridY ?? null,
+    chainTarget.secondTarget.gy,
+    "chain move should land at the final y target immediately"
+  );
+}
+
 function runDirectDispatchSchedulingChecks() {
   const runner = createSimRunner({ setupId: "devPlaytesting01" });
   assertOk(runner.init(), "direct-dispatch runner init");
@@ -245,6 +523,9 @@ function runDirectDispatchSchedulingChecks() {
 function run() {
   runPauseHelperToggleChecks();
   runPlannerBackedLiveSchedulingChecks();
+  runFreeLiveCurrentSecondDispatchChecks();
+  runCurrentSecondBatchChecks();
+  runCurrentSecondChainMoveChecks();
   runDirectDispatchSchedulingChecks();
   console.log("[test] Live action scheduling checks passed");
 }

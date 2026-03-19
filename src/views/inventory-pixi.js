@@ -264,6 +264,7 @@ export function createInventoryView({
   adjustWorkerCount,
   queueActionWhenPaused,
   requestPauseForAction,
+  dispatchPlayerEditBatch,
   scheduleActionsAtNextSecond,
   setApDragWarning,
   discardItemFromOwner,
@@ -2280,7 +2281,11 @@ export function createInventoryView({
       return buildRes;
     };
     const runWhenLive = () => {
-      if (typeof scheduleActionsAtNextSecond !== "function") {
+      const dispatchBatch =
+        typeof dispatchPlayerEditBatch === "function"
+          ? dispatchPlayerEditBatch
+          : scheduleActionsAtNextSecond;
+      if (typeof dispatchBatch !== "function") {
         return { ok: false, reason: "noScheduleActions" };
       }
       const actions = [];
@@ -2303,7 +2308,7 @@ export function createInventoryView({
         },
         apCost: INTENT_AP_COSTS?.buildDesignate ?? 0,
       });
-      const res = scheduleActionsAtNextSecond(actions, {
+      const res = dispatchBatch(actions, {
         reason: "inventoryBuildLive",
       });
       if (res?.ok) {

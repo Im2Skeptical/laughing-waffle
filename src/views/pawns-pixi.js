@@ -1086,6 +1086,8 @@ export function createPawnsView(opts) {
       shapeRadius,
       staminaRatio: null,
       paintLayer,
+      clearHover: null,
+      cancelLongPress: null,
     };
 
     // -----------------------------------------------------------------------
@@ -1160,6 +1162,10 @@ export function createPawnsView(opts) {
         hideHover();
       },
     });
+    view.clearHover = hideHover;
+    view.cancelLongPress = () => {
+      pawnLongPress.cancel?.();
+    };
 
     // -----------------------------------------------------------------------
     // Dragging logic
@@ -1315,6 +1321,10 @@ export function createPawnsView(opts) {
   function removePawnView(pawnId) {
     const view = viewsById.get(pawnId);
     if (!view) return;
+    if (view.selfHover) {
+      view.clearHover?.();
+    }
+    view.cancelLongPress?.();
     if (view.flashTimeout) {
       clearTimeout(view.flashTimeout);
       view.flashTimeout = null;
@@ -1447,7 +1457,7 @@ export function createPawnsView(opts) {
       }
       if (view.selfHover) {
         if (!canShowGamepieceHoverUiNow()) {
-          hideHover();
+          view.clearHover?.();
           continue;
         }
         const canZoomIn = shouldAllowPawnHoverZoomIn(view);

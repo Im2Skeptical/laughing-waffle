@@ -21,6 +21,7 @@ import {
 } from "../src/model/timegraph/edit-policy.js";
 import { createTimeGraphController } from "../src/model/timegraph-controller.js";
 import { GRAPH_METRICS } from "../src/model/graph-metrics.js";
+import { resolveDefaultGraphScrubSec } from "../src/views/timegraphs-pixi.js";
 import { cropDefs } from "../src/defs/gamepieces/crops-defs.js";
 import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { forageDropTables } from "../src/defs/gamepieces/forage-droptables-defs.js";
@@ -167,15 +168,6 @@ function summarizeState(state) {
 
 function assertControllerParity(controller, timeline, sec, label) {
   const fromController = controller.getStateAt(sec);
-  const historyEndSec = Math.max(0, Math.floor(timeline?.historyEndSec ?? 0));
-  if (sec > historyEndSec) {
-    assert.equal(
-      fromController,
-      null,
-      `${label} controller should stay non-blocking @${sec}`
-    );
-    return;
-  }
   const rebuilt = rebuildStateAtSecond(timeline, sec);
   assertOk(rebuilt, `${label} rebuild @${sec}`);
   assert.ok(fromController, `${label} controller null @${sec}`);
@@ -947,10 +939,17 @@ function runPersistentDropMemoryChecks() {
 
     const forecastSec = 5;
     const forecastBefore = cacheController.getStateAt(forecastSec);
-    assert.equal(
+    assert.ok(
       forecastBefore,
-      null,
-      "unloaded forecast preview should remain non-blocking before async coverage loads"
+      "forecast preview should synchronously resolve future state on demand"
+    );
+    assert.deepEqual(
+      getDroppedItemKindsForPool(cacheTimeline, {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      [],
+      "read-only forecast preview should not mutate timeline knowledge"
     );
 
     rememberDroppedItemKind(cacheState, {
@@ -961,12 +960,23 @@ function runPersistentDropMemoryChecks() {
     cacheState.tSec = 0;
     cacheState.simStepIndex = 0;
     maintainCheckpoints(cacheTimeline, cacheState);
+    const knowledgeBeforeSecondPreview = getDroppedItemKindsForPool(cacheTimeline, {
+      tableKey,
+      tileDefId: "tile_floodplains",
+    });
 
     const forecastAfter = cacheController.getStateAt(forecastSec);
-    assert.equal(
+    assert.ok(
       forecastAfter,
-      null,
-      "unloaded forecast preview should remain non-blocking after knowledge mutation"
+      "forecast preview should remain available after unrelated knowledge mutation"
+    );
+    assert.deepEqual(
+      getDroppedItemKindsForPool(cacheTimeline, {
+        tableKey,
+        tileDefId: "tile_floodplains",
+      }),
+      knowledgeBeforeSecondPreview,
+      "read-only forecast preview should not add extra timeline knowledge while browsing"
     );
 
     const seekRunner = createSimRunner({ setupId: "devGym01" });
@@ -1058,19 +1068,32 @@ function runPersistentDropMemoryChecks() {
           tableKey,
           tileDefId: "tile_wetlands",
         }),
-        ["straw"],
-        "setPreviewState should persist learned drop memory without commit"
+        [],
+        "setPreviewState should not mutate timeline knowledge during read-only preview browse"
       );
 
-      assertOk(previewRunner.saveToSlot(1), "save after preview learning");
-      assertOk(previewRunner.loadFromSlot(1), "load after preview learning");
+      assertOk(
+        previewRunner.commitPreviewToLive(),
+        "explicit preview commit should apply preview state"
+      );
+      assert.deepEqual(
+        getDroppedItemKindsForPool(previewRunner.getTimeline(), {
+          tableKey,
+          tileDefId: "tile_wetlands",
+        }),
+        ["straw"],
+        "explicit preview commit should persist learned drop memory"
+      );
+
+      assertOk(previewRunner.saveToSlot(1), "save after preview commit");
+      assertOk(previewRunner.loadFromSlot(1), "load after preview commit");
       assert.deepEqual(
         getDroppedItemKindsForPool(previewRunner.getState(), {
           tableKey,
           tileDefId: "tile_wetlands",
         }),
         ["straw"],
-        "save/load should retain preview-learned drop memory"
+        "save/load should retain explicitly committed preview-learned drop memory"
       );
     });
   });
@@ -1180,6 +1203,25 @@ function runTimegraphEditPolicyChecks() {
       scrubSec: 200,
     },
     "rollingEditable window mode should preserve prior behavior"
+  );
+
+  assert.equal(
+    resolveDefaultGraphScrubSec({
+      currentSec: 155,
+      forecastPreviewSec: null,
+      latchedForecastScrubSec: 200,
+    }),
+    200,
+    "timegraph should keep a latched forecast scrub target while preview data is still loading"
+  );
+  assert.equal(
+    resolveDefaultGraphScrubSec({
+      currentSec: 155,
+      forecastPreviewSec: 190,
+      latchedForecastScrubSec: 200,
+    }),
+    200,
+    "latest forecast scrub target should take precedence over stale preview state"
   );
 
   const ringDef = itemDefs?.ringOfEternity;

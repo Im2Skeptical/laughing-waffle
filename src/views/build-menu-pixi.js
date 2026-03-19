@@ -70,6 +70,7 @@ export function createBuildMenuView(opts) {
     actionPlanner,
     queueActionWhenPaused,
     requestPauseForAction,
+    dispatchPlayerEditBatch,
     scheduleActionsAtNextSecond,
     flashActionGhost,
   } = opts;
@@ -313,7 +314,11 @@ export function createBuildMenuView(opts) {
       return buildRes;
     };
     const runWhenLive = () => {
-      if (typeof scheduleActionsAtNextSecond !== "function") {
+      const dispatchBatch =
+        typeof dispatchPlayerEditBatch === "function"
+          ? dispatchPlayerEditBatch
+          : scheduleActionsAtNextSecond;
+      if (typeof dispatchBatch !== "function") {
         return { ok: false, reason: "noScheduleActions" };
       }
       const actions = [];
@@ -336,7 +341,7 @@ export function createBuildMenuView(opts) {
         },
         apCost: INTENT_AP_COSTS?.buildDesignate ?? 0,
       });
-      const res = scheduleActionsAtNextSecond(actions, {
+      const res = dispatchBatch(actions, {
         reason: "buildMenuLive",
       });
       if (res?.ok) {
