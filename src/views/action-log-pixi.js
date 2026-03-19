@@ -20,6 +20,7 @@ import {
   drawLogStatusOverlay,
 } from "./ui-helpers/log-row-pixi.js";
 import { VIEW_LAYOUT } from "./layout-pixi.js";
+import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 
 const AP_HOVER_OVERLAY_ALPHA = 0.45;
 const AP_HOVER_FADE_IN = 14;
@@ -46,6 +47,15 @@ export function createActionLogView({
   container.y = position.y;
   container.zIndex = 100;
   layer.addChild(container);
+  const solidHitArea = installSolidUiHitArea(container, () => {
+    const bounds = container.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
+  });
 
   const logController = createActionLogController({
     getPlanner,
@@ -667,6 +677,8 @@ export function createActionLogView({
     onClearActions?.();
   });
 
+  solidHitArea.refresh();
+
   return {
     init,
     update,
@@ -676,5 +688,7 @@ export function createActionLogView({
     setDragGhost,
     resolveDragGhost,
     flashGhost,
+    getScreenRect: () =>
+      typeof container.getBounds !== "function" ? null : container.getBounds(),
   };
 }

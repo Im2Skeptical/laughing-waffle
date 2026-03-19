@@ -8,6 +8,7 @@ import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
+import { installSolidUiHitArea } from "../ui-helpers/solid-ui-hit-area.js";
 
 const SYSTEM_RECIPE_KIND = {
   cook: { kind: "cook", pauseLabel: "Pause cooking" },
@@ -161,6 +162,7 @@ export function createHubPanels(opts) {
     hideRecipeDropdown: () => recipeDropdown?.hide?.(),
     isRecipeDropdownVisible: () => recipeDropdown?.isVisible?.() ?? false,
     recipeDropdownContainsPoint: (pos) => recipeDropdown?.containsPoint?.(pos),
+    recipeDropdown,
   };
 }
 
@@ -205,10 +207,14 @@ function createRecipeDropdown(layer, app) {
   const container = new PIXI.Container();
   container.visible = false;
   container.zIndex = 40;
-  container.eventMode = "static";
-  container.interactiveChildren = true;
-  container.on("pointerdown", (ev) => {
-    ev?.stopPropagation?.();
+  const solidHitArea = installSolidUiHitArea(container, () => {
+    const bounds = container.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
   });
   layer.addChild(container);
 
@@ -318,6 +324,7 @@ function createRecipeDropdown(layer, app) {
     bg.endFill();
     container.setChildIndex(bg, 0);
     container.hitArea = new PIXI.Rectangle(0, 0, width, height);
+    solidHitArea.refresh();
 
     const bounds = anchor || { x: 0, y: 0, width: 0, height: 0 };
     container.x = bounds.x;
@@ -372,5 +379,9 @@ function createRecipeDropdown(layer, app) {
     hide,
     isVisible: () => container.visible,
     containsPoint,
+    getScreenRect: () =>
+      !container.visible || typeof container.getBounds !== "function"
+        ? null
+        : container.getBounds(),
   };
 }

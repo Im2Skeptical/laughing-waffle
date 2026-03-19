@@ -103,6 +103,43 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
 
   function init() {}
 
+  function getAnchorRectForDisplayObject(displayObject, coordinateSpace = "parent") {
+    if (!displayObject || typeof displayObject.getBounds !== "function") return null;
+    const bounds = displayObject.getBounds();
+    if (!bounds) return null;
+    if (coordinateSpace === "screen") {
+      return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        coordinateSpace: "screen",
+      };
+    }
+    const parent = container.parent;
+    if (!parent || typeof parent.toLocal !== "function") {
+      return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        coordinateSpace: "screen",
+      };
+    }
+    const topLeft = parent.toLocal({ x: bounds.x, y: bounds.y });
+    const bottomRight = parent.toLocal({
+      x: bounds.x + bounds.width,
+      y: bounds.y + bounds.height,
+    });
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y,
+      coordinateSpace: "parent",
+    };
+  }
+
   function show(spec, anchor) {
     const { title, lines = [], maxWidth = defaultMaxWidth } = spec;
     const resolvedAnchor = resolveAnchor(anchor);
@@ -201,6 +238,7 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
     hide,
     isVisible,
     getContainer,
+    getAnchorRectForDisplayObject,
     update,
   };
 }

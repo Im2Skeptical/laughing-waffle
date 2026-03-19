@@ -89,15 +89,21 @@ export const VIEW_LAYOUT = {
     mobileBreakpointPx: 900,
     mobileScale: 2,
     recipeManual: {
-      widthPx: 1160,
-      heightPx: 680,
-      marginPx: 28,
+      widthPx: 1560,
+      heightPx: 900,
+      marginPx: 32,
       zIndex: 80,
     },
   },
   inventory: {
     mobileBreakpointPx: 900,
     mobileScale: 2,
+    buildingManager: {
+      widthPx: 1560,
+      heightPx: 900,
+      marginPx: 32,
+      zIndex: 120,
+    },
   },
   performance: {
     mobile: {

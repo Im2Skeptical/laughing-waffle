@@ -261,11 +261,11 @@ export function createSunAndMoonDisksView({
   requestPauseBeforeDrag,
   layout = SUN_AND_MOON_DISKS_LAYOUT,
 } = {}) {
-  let root = null;
-  let moonSprite = null;
-  let seasonSprite = null;
-  let feedbackGraphics = null;
-  let feedbackText = null;
+let root = null;
+let moonSprite = null;
+let seasonSprite = null;
+let feedbackGraphics = null;
+let feedbackText = null;
   let lastEnabled = null;
 
   let dragSession = null;
@@ -623,7 +623,6 @@ export function createSunAndMoonDisksView({
     if (root) return { ok: true };
 
     root = new PIXI.Container();
-    root.eventMode = "passive";
     root.zIndex = layout?.zIndex ?? 0;
 
     {
@@ -789,5 +788,9 @@ export function createSunAndMoonDisksView({
     destroy,
     getRoot: () => root,
     isDragging: () => !!dragSession,
+    getScreenRect: () =>
+      !root || !root.visible || typeof root.getBounds !== "function"
+        ? null
+        : root.getBounds(),
   };
 }

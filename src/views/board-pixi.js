@@ -84,6 +84,7 @@ import {
  *  - requestPauseForAction?: () => void
  *  - paintStyleController?: { registerPaintContainer?: fn, unregisterPaintContainer?: fn }
  *  - setApDragWarning?: (active: boolean) => void
+ *  - screenToWorld?: (point) => { x, y }
  */
 export function createBoardView(opts) {
   const {
@@ -104,6 +105,7 @@ export function createBoardView(opts) {
     requestPauseForAction,
     paintStyleController,
     setApDragWarning,
+    screenToWorld,
     flashActionGhost,
     onSystemIconHover,
     onSystemIconOut,
@@ -112,7 +114,6 @@ export function createBoardView(opts) {
     onGamepieceTapForSystemFocus,
     getExternalFocus,
     canStartHoverZoomIn,
-    canShowGamepieceHoverUi,
   } = opts;
 
   const tileViews = [];
@@ -136,11 +137,10 @@ export function createBoardView(opts) {
   const tileInspectorLayer = inspectorLayer || hoverLayer || tileLayer;
 
   function canShowGamepieceHoverUiNow() {
-    if (interaction?.canShowHoverUI?.() === false) return false;
-    if (typeof canShowGamepieceHoverUi === "function") {
-      return canShowGamepieceHoverUi() !== false;
+    if (typeof interaction?.canShowWorldHoverUI === "function") {
+      return interaction.canShowWorldHoverUI() !== false;
     }
-    return true;
+    return interaction?.canShowHoverUI?.() !== false;
   }
 
   const TAG_DRAG_SCALE = 1.06;
@@ -1612,14 +1612,16 @@ export function createBoardView(opts) {
 
   function resolvePawnDropTargetFromPos(globalPos, envCols, hubCols) {
     if (!globalPos) return null;
+    const worldPos =
+      typeof screenToWorld === "function" ? screenToWorld(globalPos) ?? globalPos : globalPos;
     const envLen = Number.isFinite(envCols) ? Math.max(0, envCols) : BOARD_COLS;
     const hubLen = Number.isFinite(hubCols) ? Math.max(0, hubCols) : HUB_COLS;
     if (envLen <= 0 && hubLen <= 0) return null;
 
     const tileCenterY = TILE_ROW_Y + TILE_HEIGHT * 0.5;
     const hubCenterY = HUB_STRUCTURE_ROW_Y + HUB_STRUCTURE_HEIGHT * 0.5;
-    const distToTile = Math.abs(globalPos.y - tileCenterY);
-    const distToHub = Math.abs(globalPos.y - hubCenterY);
+    const distToTile = Math.abs(worldPos.y - tileCenterY);
+    const distToHub = Math.abs(worldPos.y - hubCenterY);
     const targetRow = distToTile <= distToHub ? "env" : "hub";
     const targetCols = targetRow === "env" ? envLen : hubLen;
     if (targetCols <= 0) return null;
@@ -1630,7 +1632,7 @@ export function createBoardView(opts) {
     let bestDist2 = Infinity;
     for (let col = 0; col < targetCols; col++) {
       const cx = centerXs[col];
-      const dx = globalPos.x - cx;
+      const dx = worldPos.x - cx;
       const d2 = dx * dx;
       if (d2 < bestDist2) {
         bestDist2 = d2;
@@ -6478,6 +6480,19 @@ export function createBoardView(opts) {
     return null;
   }
 
+  function getOccludingScreenRects() {
+    const rects = [];
+    const tagOrdersRects = tagOrdersPanel?.getOccludingScreenRects?.() ?? [];
+    for (const rect of tagOrdersRects) {
+      if (rect) rects.push(rect);
+    }
+    const cropDropdownRect = tilePanels?.cropDropdown?.getScreenRect?.();
+    if (cropDropdownRect) rects.push(cropDropdownRect);
+    const recipeDropdownRect = hubPanels?.recipeDropdown?.getScreenRect?.();
+    if (recipeDropdownRect) rects.push(recipeDropdownRect);
+    return rects;
+  }
+
   return {
     init,
     rebuildAll,
@@ -6487,6 +6502,7 @@ export function createBoardView(opts) {
       return !!activeTagDrag || !!activeHubTagDrag;
     },
     getInventoryOwnerAtGlobalPos,
+    getOccludingScreenRects,
     setDistributorBuildPreview(spec) {
       if (!spec) {
         clearBuildDistributorRangePreview();

@@ -1387,5 +1387,18 @@ export function createSkillTreeView({
     isOpen: () => root.visible,
     update: () => {},
     resize,
+    getScreenRect: () =>
+      !root.visible
+        ? null
+        : {
+            x: 0,
+            y: 0,
+            width: Number.isFinite(app?.screen?.width)
+              ? app.screen.width
+              : VIEWPORT_DESIGN_WIDTH,
+            height: Number.isFinite(app?.screen?.height)
+              ? app.screen.height
+              : VIEWPORT_DESIGN_HEIGHT,
+          },
   };
 }

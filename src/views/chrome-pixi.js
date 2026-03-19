@@ -2,6 +2,7 @@
 // Topbar chrome: year display only.
 
 import { VIEWPORT_DESIGN_HEIGHT, VIEWPORT_DESIGN_WIDTH } from "./layout-pixi.js";
+import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 
 const TOPBAR_HEIGHT_RATIO = 0.048;
 const TOPBAR_HEIGHT_MIN = 42;
@@ -35,8 +36,16 @@ export function createChromeView({
   isVisible = null,
 }) {
   const root = new PIXI.Container();
-  root.eventMode = "none";
   layer?.addChild(root);
+  const solidHitArea = installSolidUiHitArea(root, () => {
+    const bounds = root.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
+  });
 
   const paintLayer = new PIXI.Container();
   const inkLayer = new PIXI.Container();
@@ -158,6 +167,7 @@ export function createChromeView({
       Math.round(screenWidth * 0.5),
       Math.round(plateY + plateHeight * 0.5)
     );
+    solidHitArea.refresh();
   }
 
   function update() {

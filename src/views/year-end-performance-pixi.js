@@ -279,5 +279,14 @@ export function createYearEndPerformanceView({ app, layer, onClose } = {}) {
       Math.floor(entryId) === openEventId,
     getOpenEventId: () => openEventId,
     getOpenEventSec: () => openEventSec,
+    getScreenRect: () =>
+      !root.visible
+        ? null
+        : {
+            x: 0,
+            y: 0,
+            width: app.screen.width,
+            height: app.screen.height,
+          },
   };
 }

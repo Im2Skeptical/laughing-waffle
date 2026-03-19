@@ -19,6 +19,8 @@ export function createInteractionController({ getPhase }) {
     hovered: null, // anchor hover (tile/hub/event)
     hoveredPawn: null,
     lastHovered: null,
+    pointerStagePos: null,
+    worldUiOcclusionResolver: null,
   };
 
   function init() {
@@ -115,6 +117,35 @@ export function createInteractionController({ getPhase }) {
     return !isDragging();
   }
 
+  function setPointerStagePos(point) {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      state.pointerStagePos = null;
+      return;
+    }
+    state.pointerStagePos = {
+      x: Number(point.x),
+      y: Number(point.y),
+    };
+  }
+
+  function getPointerStagePos() {
+    return state.pointerStagePos;
+  }
+
+  function setWorldUiOcclusionResolver(resolver) {
+    state.worldUiOcclusionResolver =
+      typeof resolver === "function" ? resolver : null;
+  }
+
+  function isWorldUiOccludedAt(point = state.pointerStagePos) {
+    if (typeof state.worldUiOcclusionResolver !== "function") return false;
+    return state.worldUiOcclusionResolver(point) === true;
+  }
+
+  function canShowWorldHoverUI(point = state.pointerStagePos) {
+    return canShowHoverUI() && !isWorldUiOccludedAt(point);
+  }
+
   // --- pawn helpers -------------------------------------------------------
 
   let draggingPawn = null;
@@ -179,6 +210,11 @@ export function createInteractionController({ getPhase }) {
     // policies
     canDragPawn,
     canShowHoverUI,
+    setPointerStagePos,
+    getPointerStagePos,
+    setWorldUiOcclusionResolver,
+    isWorldUiOccludedAt,
+    canShowWorldHoverUI,
 
     // pawn helpers
     beginPawnDrag,

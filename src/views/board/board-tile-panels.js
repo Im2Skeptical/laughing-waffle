@@ -6,6 +6,7 @@ import { envTileDefs } from "../../defs/gamepieces/env-tiles-defs.js";
 import { INTENT_AP_COSTS } from "../../defs/gamesettings/action-costs-defs.js";
 import { ActionKinds } from "../../model/actions.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
+import { installSolidUiHitArea } from "../ui-helpers/solid-ui-hit-area.js";
 
 export function createTilePanels(opts) {
   const {
@@ -119,6 +120,7 @@ export function createTilePanels(opts) {
     hideCropDropdown: () => cropDropdown?.hide?.(),
     isCropDropdownVisible: () => cropDropdown?.isVisible?.() ?? false,
     cropDropdownContainsPoint: (pos) => cropDropdown?.containsPoint?.(pos),
+    cropDropdown,
   };
 }
 
@@ -127,10 +129,14 @@ function createCropDropdown(layer, app) {
   const container = new PIXI.Container();
   container.visible = false;
   container.zIndex = 40;
-  container.eventMode = "static";
-  container.interactiveChildren = true;
-  container.on("pointerdown", (ev) => {
-    ev?.stopPropagation?.();
+  const solidHitArea = installSolidUiHitArea(container, () => {
+    const bounds = container.getLocalBounds?.() ?? null;
+    return {
+      x: 0,
+      y: 0,
+      width: bounds?.width ?? 0,
+      height: bounds?.height ?? 0,
+    };
   });
   layer.addChild(container);
 
@@ -242,6 +248,7 @@ function createCropDropdown(layer, app) {
     bg.endFill();
     container.setChildIndex(bg, 0);
     container.hitArea = new PIXI.Rectangle(0, 0, width, height);
+    solidHitArea.refresh();
 
     const bounds = anchor || { x: 0, y: 0, width: 0, height: 0 };
     container.x = bounds.x;
@@ -296,5 +303,9 @@ function createCropDropdown(layer, app) {
     hide,
     isVisible: () => container.visible,
     containsPoint,
+    getScreenRect: () =>
+      !container.visible || typeof container.getBounds !== "function"
+        ? null
+        : container.getBounds(),
   };
 }
