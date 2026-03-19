@@ -30,7 +30,6 @@ import { makeButton } from "./skill-tree/button.js";
 import { clamp, floorInt, formatNodeEffects, sortedStrings } from "./skill-tree/formatters.js";
 import {
   computeEdgeLaneData,
-  getFocusSets,
   makeDirectedEdgeKey,
   makeEdgeKey,
 } from "./skill-tree/edge-routing.js";
@@ -127,6 +126,10 @@ export function createSkillTreeView({
   };
   const EDGE_COLOR_LEARNED = 0x6bd37b;
   const EDGE_COLOR_QUEUED = 0x58c7ff;
+  const EDGE_COLOR_PREVIEW = 0x2ec5ff;
+  const EDGE_COLOR_NEXT_AVAILABLE = 0x7f6e29;
+  const INVALID_NODE_FLASH_MS = 420;
+  const INVALID_NODE_FILL = 0xd84b4b;
   const NODE_TAG_TINT_BY_TAG = Object.freeze({
     Blue: 0x68aefb,
     Green: 0x72cf82,
@@ -257,6 +260,7 @@ export function createSkillTreeView({
   let saveButtonErrorState = false;
   let selectedNodeId = null;
   let hoverNodeId = null;
+  let invalidNodeFlashUntilById = new Map();
   let edgeMode = EDGE_MODE_FOCUS;
   let onExit = null;
   let cameraInitialized = false;
@@ -322,6 +326,38 @@ export function createSkillTreeView({
     if (!saveButtonErrorState) return;
     saveButtonErrorState = false;
     updateSaveButtonVisual();
+  }
+
+  function nowMs() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function pruneInvalidNodeFlashes() {
+    const now = nowMs();
+    for (const [nodeId, untilMs] of invalidNodeFlashUntilById.entries()) {
+      if (!Number.isFinite(untilMs) || untilMs <= now) {
+        invalidNodeFlashUntilById.delete(nodeId);
+      }
+    }
+  }
+
+  function isNodeFlashingInvalid(nodeId) {
+    pruneInvalidNodeFlashes();
+    const untilMs = invalidNodeFlashUntilById.get(nodeId);
+    return Number.isFinite(untilMs) && untilMs > nowMs();
+  }
+
+  function flashInvalidNode(nodeId, message) {
+    if (typeof nodeId === "string" && nodeId.length > 0) {
+      invalidNodeFlashUntilById.set(nodeId, nowMs() + INVALID_NODE_FLASH_MS);
+    }
+    if (typeof message === "string" && message.length > 0) {
+      errorText.text = message;
+    }
+    renderTree();
   }
 
   function getState() {
@@ -427,7 +463,7 @@ export function createSkillTreeView({
         : status === "pending"
           ? 0x4fa3ff
           : status === "unlockable"
-            ? 0xe6c84f
+            ? 0x736427
             : 0x3b4255;
     const tint = getNodeTagTint(nodeDef);
     if (!Number.isFinite(tint)) return baseColor;
@@ -790,6 +826,320 @@ export function createSkillTreeView({
     return { unlocked, points: pointsAfterBuffer };
   }
 
+  function getNodeClickFailureMessage(nodeId, reason) {
+    if (reason === "insufficientSkillPoints") {
+      return `Not enough skill points for "${nodeId}".`;
+    }
+    if (reason === "requirementsNotMet") {
+      return `Requirements not met for "${nodeId}".`;
+    }
+    if (reason === "adjacencyLocked") {
+      return `No valid unlock path to "${nodeId}" from your current tree.`;
+    }
+    if (reason === "alreadyUnlocked") {
+      return `"${nodeId}" is already unlocked.`;
+    }
+    return `Cannot queue "${nodeId}" right now.`;
+  }
+
+  function resolveQueuedCommitOrder(state, leaderPawn, queuedNodeIds, opts = {}) {
+    const allowFallback = opts.allowFallback !== false;
+    const queuedSet = queuedNodeIds instanceof Set ? queuedNodeIds : new Set(queuedNodeIds || []);
+    if (!queuedSet.size) return { order: [], valid: true };
+    const unlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
+    let pointsRemaining = Number.isFinite(leaderPawn?.skillPoints)
+      ? Math.max(0, floorInt(leaderPawn.skillPoints))
+      : 0;
+
+    const grouped = new Map();
+    for (const nodeId of queuedSet.values()) {
+      const node = getSkillNodeDef(activeDefs, nodeId);
+      if (!node?.treeId) continue;
+      if (!grouped.has(node.treeId)) grouped.set(node.treeId, []);
+      grouped.get(node.treeId).push(nodeId);
+    }
+    const ordered = [];
+    let valid = true;
+    const treeIds = sortedStrings(Array.from(grouped.keys()));
+    for (const treeId of treeIds) {
+      const remaining = new Set(grouped.get(treeId) || []);
+      while (remaining.size > 0) {
+        const pendingIds = sortedStrings(Array.from(remaining.values()));
+        const unlockable = [];
+        for (const nodeId of pendingIds) {
+          const evalRes = evaluateSkillNodeUnlock(state, activeLeaderPawnId, nodeId, {
+            unlockedSet: unlocked,
+            skillPoints: pointsRemaining,
+          });
+          if (!evalRes?.ok) continue;
+          unlockable.push({
+            nodeId,
+            cost: Number.isFinite(evalRes.cost) ? Math.max(0, floorInt(evalRes.cost)) : 0,
+          });
+        }
+
+        if (!unlockable.length) {
+          valid = false;
+          if (allowFallback) {
+            const fallback = getDeterministicSkillCommitOrder(
+              treeId,
+              pendingIds,
+              activeDefs
+            );
+            for (const nodeId of fallback) ordered.push(nodeId);
+          }
+          break;
+        }
+
+        const preferred = getDeterministicSkillCommitOrder(
+          treeId,
+          unlockable.map((entry) => entry.nodeId),
+          activeDefs
+        );
+        const pickedId = preferred[0] || unlockable[0].nodeId;
+        const picked =
+          unlockable.find((entry) => entry.nodeId === pickedId) || unlockable[0];
+        ordered.push(picked.nodeId);
+        unlocked.add(picked.nodeId);
+        remaining.delete(picked.nodeId);
+        pointsRemaining = Math.max(0, pointsRemaining - picked.cost);
+      }
+    }
+    return { order: ordered, valid };
+  }
+
+  function normalizeBufferedUnlocks(state, leaderPawn) {
+    const resolved = resolveQueuedCommitOrder(state, leaderPawn, bufferUnlockIds, {
+      allowFallback: false,
+    });
+    const normalizedIds = new Set(resolved.order);
+    if (normalizedIds.size === bufferUnlockIds.size) {
+      let identical = true;
+      for (const nodeId of bufferUnlockIds.values()) {
+        if (!normalizedIds.has(nodeId)) {
+          identical = false;
+          break;
+        }
+      }
+      if (identical) return resolved;
+    }
+    bufferUnlockIds = normalizedIds;
+    return resolved;
+  }
+
+  function buildAdjacencyByNodeId(edges) {
+    const adjacencyByNodeId = new Map();
+    for (const edge of edges || []) {
+      const a = edge?.a;
+      const b = edge?.b;
+      if (typeof a !== "string" || typeof b !== "string") continue;
+      if (!adjacencyByNodeId.has(a)) adjacencyByNodeId.set(a, new Set());
+      if (!adjacencyByNodeId.has(b)) adjacencyByNodeId.set(b, new Set());
+      adjacencyByNodeId.get(a).add(b);
+      adjacencyByNodeId.get(b).add(a);
+    }
+    return adjacencyByNodeId;
+  }
+
+  function getDeterministicAdjacentNodeIds(treeId, adjacencyByNodeId, nodeId) {
+    return getDeterministicSkillCommitOrder(
+      treeId,
+      Array.from(adjacencyByNodeId.get(nodeId) || []),
+      activeDefs
+    );
+  }
+
+  function pickProjectedSourceNodeId(targetNodeId, targetNode, adjacencyByNodeId, unlockedSet) {
+    if (!targetNode?.treeId || !(unlockedSet instanceof Set)) return null;
+    const orderedNeighbors = getDeterministicAdjacentNodeIds(
+      targetNode.treeId,
+      adjacencyByNodeId,
+      targetNodeId
+    );
+    for (const neighborId of orderedNeighbors) {
+      if (unlockedSet.has(neighborId)) return neighborId;
+    }
+    return null;
+  }
+
+  function collectPathEdgeKeys(nodeIds) {
+    const edgeKeys = new Set();
+    if (!Array.isArray(nodeIds) || nodeIds.length < 2) return edgeKeys;
+    for (let i = 1; i < nodeIds.length; i += 1) {
+      const prevNodeId = nodeIds[i - 1];
+      const nextNodeId = nodeIds[i];
+      if (typeof prevNodeId !== "string" || typeof nextNodeId !== "string") continue;
+      edgeKeys.add(makeEdgeKey(prevNodeId, nextNodeId));
+    }
+    return edgeKeys;
+  }
+
+  function collectNextAvailableEdgeKeys(edges, nodeStatusById, unlockedSet) {
+    const edgeKeys = new Set();
+    if (!(nodeStatusById instanceof Map) || !(unlockedSet instanceof Set)) {
+      return edgeKeys;
+    }
+    for (const edge of edges || []) {
+      const edgeKey = makeEdgeKey(edge.a, edge.b);
+      const endAProjectedUnlocked = unlockedSet.has(edge.a);
+      const endBProjectedUnlocked = unlockedSet.has(edge.b);
+      const endAUnlockable = nodeStatusById.get(edge.a) === "unlockable";
+      const endBUnlockable = nodeStatusById.get(edge.b) === "unlockable";
+      if (
+        (endAProjectedUnlocked && endBUnlockable) ||
+        (endBProjectedUnlocked && endAUnlockable)
+      ) {
+        edgeKeys.add(edgeKey);
+      }
+    }
+    return edgeKeys;
+  }
+
+  function findQueuedPathToNode(state, leaderPawn, layout, targetNodeId) {
+    const targetNode = getSkillNodeDef(activeDefs, targetNodeId);
+    if (!targetNode?.treeId) {
+      return { ok: false, reason: "unknownNode" };
+    }
+
+    const adjacencyByNodeId = buildAdjacencyByNodeId(layout?.edges || []);
+    const projected = getProjectedUnlockContext(state, leaderPawn);
+    const directEval = evaluateSkillNodeUnlock(state, activeLeaderPawnId, targetNodeId, {
+      unlockedSet: projected.unlocked,
+      skillPoints: projected.points,
+    });
+    if (directEval?.ok) {
+      const sourceNodeId = pickProjectedSourceNodeId(
+        targetNodeId,
+        targetNode,
+        adjacencyByNodeId,
+        projected.unlocked
+      );
+      return {
+        ok: true,
+        nodeIds: [targetNodeId],
+        pathNodeIds: sourceNodeId ? [sourceNodeId, targetNodeId] : [targetNodeId],
+      };
+    }
+
+    const sourceIds = sortedStrings(
+      Array.from(projected.unlocked.values()).filter((nodeId) => {
+        const node = getSkillNodeDef(activeDefs, nodeId);
+        return node?.treeId === targetNode.treeId;
+      })
+    );
+    if (!sourceIds.length) {
+      return { ok: false, reason: directEval?.reason || "adjacencyLocked" };
+    }
+
+    const bestDistanceByNodeId = new Map();
+    const queue = sourceIds.map((nodeId) => [nodeId]);
+    for (const nodeId of sourceIds) {
+      bestDistanceByNodeId.set(nodeId, 0);
+    }
+    const candidatePaths = [];
+    let shortestPathLen = Number.POSITIVE_INFINITY;
+
+    while (queue.length > 0) {
+      const path = queue.shift();
+      const currentNodeId = path[path.length - 1];
+      const distance = path.length - 1;
+      if (distance > shortestPathLen) continue;
+      if (currentNodeId === targetNodeId) {
+        shortestPathLen = distance;
+        candidatePaths.push(path);
+        continue;
+      }
+
+      const neighbors = getDeterministicAdjacentNodeIds(
+        targetNode.treeId,
+        adjacencyByNodeId,
+        currentNodeId
+      );
+      for (const neighborId of neighbors) {
+        if (projected.unlocked.has(neighborId) && neighborId !== targetNodeId) continue;
+        if (path.includes(neighborId)) continue;
+        const nextDistance = distance + 1;
+        const bestDistance = bestDistanceByNodeId.get(neighborId);
+        if (Number.isFinite(bestDistance) && bestDistance < nextDistance) continue;
+        bestDistanceByNodeId.set(neighborId, nextDistance);
+        queue.push(path.concat(neighborId));
+      }
+    }
+
+    for (const path of candidatePaths) {
+      const queuedPathNodeIds = path.filter((nodeId) => !projected.unlocked.has(nodeId));
+      if (!queuedPathNodeIds.length) continue;
+      const simulatedUnlocked = new Set(projected.unlocked);
+      let simulatedPoints = projected.points;
+      let valid = true;
+      for (const nodeId of queuedPathNodeIds) {
+        const evalRes = evaluateSkillNodeUnlock(state, activeLeaderPawnId, nodeId, {
+          unlockedSet: simulatedUnlocked,
+          skillPoints: simulatedPoints,
+        });
+        if (!evalRes?.ok) {
+          valid = false;
+          break;
+        }
+        simulatedUnlocked.add(nodeId);
+        simulatedPoints = Math.max(
+          0,
+          simulatedPoints -
+            (Number.isFinite(evalRes.cost) ? Math.max(0, floorInt(evalRes.cost)) : 0)
+        );
+      }
+      if (valid) {
+        return { ok: true, nodeIds: queuedPathNodeIds, pathNodeIds: path.slice() };
+      }
+    }
+
+    return { ok: false, reason: directEval?.reason || "adjacencyLocked" };
+  }
+
+  function handleNodeTap(state, leaderPawn, layout, nodeId) {
+    const baseUnlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
+    if (baseUnlocked.has(nodeId)) {
+      errorText.text = "";
+      clearSaveButtonError();
+      return;
+    }
+
+    normalizeBufferedUnlocks(state, leaderPawn);
+
+    if (bufferUnlockIds.has(nodeId)) {
+      bufferUnlockIds.delete(nodeId);
+      normalizeBufferedUnlocks(state, leaderPawn);
+      errorText.text = "";
+      clearSaveButtonError();
+      return;
+    }
+
+    const projected = getProjectedUnlockContext(state, leaderPawn);
+    const directEval = evaluateSkillNodeUnlock(state, activeLeaderPawnId, nodeId, {
+      unlockedSet: projected.unlocked,
+      skillPoints: projected.points,
+    });
+    if (directEval?.ok) {
+      bufferUnlockIds.add(nodeId);
+      errorText.text = "";
+      clearSaveButtonError();
+      return;
+    }
+
+    const queuedPath = findQueuedPathToNode(state, leaderPawn, layout, nodeId);
+    if (queuedPath?.ok) {
+      for (const queuedNodeId of queuedPath.nodeIds || []) {
+        bufferUnlockIds.add(queuedNodeId);
+      }
+      normalizeBufferedUnlocks(state, leaderPawn);
+      errorText.text = "";
+      clearSaveButtonError();
+      return;
+    }
+
+    flashInvalidNode(nodeId, getNodeClickFailureMessage(nodeId, queuedPath?.reason || directEval?.reason));
+  }
+
   function getNodeVisualState(state, leaderPawn, nodeId) {
     const baseUnlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
     if (baseUnlocked.has(nodeId)) return "unlocked";
@@ -833,9 +1183,19 @@ export function createSkillTreeView({
       nodeStatusById.set(nodeId, getNodeVisualState(state, leaderPawn, nodeId));
     }
 
-    const focusNodeId = getInfoNodeId();
-    const { focusEdges } = getFocusSets(layout.edges || [], focusNodeId);
     const unlockedProjected = getBufferedUnlockedSet(state);
+    const hoverPreviewPath =
+      typeof hoverNodeId === "string" && nodeStatusById.has(hoverNodeId)
+        ? findQueuedPathToNode(state, leaderPawn, layout, hoverNodeId)
+        : null;
+    const hoverPreviewEdgeKeys = hoverPreviewPath?.ok
+      ? collectPathEdgeKeys(hoverPreviewPath.pathNodeIds)
+      : new Set();
+    const nextAvailableEdgeKeys = collectNextAvailableEdgeKeys(
+      layout.edges || [],
+      nodeStatusById,
+      unlockedProjected
+    );
     const edgeLaneData = computeEdgeLaneData(layout.edges || [], positions);
 
     const edgeLayer = new PIXI.Container();
@@ -856,11 +1216,14 @@ export function createSkillTreeView({
         unlockedProjected.has(edge.a) || sa === "pending" || sa === "unlockable";
       const endBHot =
         unlockedProjected.has(edge.b) || sb === "pending" || sb === "unlockable";
+      const previewEdge = hoverPreviewEdgeKeys.has(edgeKey);
+      const nextAvailableEdge = nextAvailableEdgeKeys.has(edgeKey);
 
       if (
         edgeMode === EDGE_MODE_ALL &&
         camera.scale < 0.55 &&
-        !focusEdges.has(edgeKey) &&
+        !previewEdge &&
+        !nextAvailableEdge &&
         !(endAHot || endBHot)
       ) {
         continue;
@@ -877,17 +1240,23 @@ export function createSkillTreeView({
       let width = 2;
 
       if (edgeMode === EDGE_MODE_FOCUS) {
-        if (focusEdges.has(edgeKey)) {
-          color = 0xa5d4ff;
+        if (previewEdge) {
+          color = EDGE_COLOR_PREVIEW;
           alpha = 0.98;
-          width = 3;
-        } else if (focusNodeId) {
-          alpha = 0.18;
+          width = 3.6;
+        } else if (nextAvailableEdge) {
+          color = EDGE_COLOR_NEXT_AVAILABLE;
+          alpha = 0.72;
+          width = 2.8;
         } else {
-          alpha = EDGE_ALPHA * 0.44;
+          alpha = hoverPreviewEdgeKeys.size > 0 ? 0.12 : EDGE_ALPHA * 0.24;
         }
       } else if (edgeMode === EDGE_MODE_PROGRESS) {
-        if (endAHot && endBHot) {
+        if (nextAvailableEdge) {
+          color = EDGE_COLOR_NEXT_AVAILABLE;
+          alpha = 0.86;
+          width = 2.8;
+        } else if (endAHot && endBHot) {
           color = 0x84f5a4;
           alpha = 0.85;
           width = 2.6;
@@ -898,40 +1267,40 @@ export function createSkillTreeView({
         } else {
           alpha = 0.16;
         }
-        if (focusEdges.has(edgeKey)) {
-          alpha = Math.max(alpha, 0.85);
-          color = 0xa5d4ff;
-          width = Math.max(width, 2.8);
-        }
-      } else if (focusEdges.has(edgeKey)) {
-        alpha = 0.7;
-        color = 0xa5d4ff;
-        width = 2.6;
+      } else if (nextAvailableEdge) {
+        alpha = 0.82;
+        color = EDGE_COLOR_NEXT_AVAILABLE;
+        width = 2.7;
       }
 
-      if (edgeMode === EDGE_MODE_ALL && camera.scale < 0.55 && !focusEdges.has(edgeKey)) {
+      if (
+        edgeMode === EDGE_MODE_ALL &&
+        camera.scale < 0.55 &&
+        !previewEdge &&
+        !nextAvailableEdge
+      ) {
         alpha *= endAHot || endBHot ? 0.7 : 0.45;
       }
 
       if (edgeLearned) {
         color = EDGE_COLOR_LEARNED;
-        alpha = Math.max(
-          alpha,
-          edgeMode === EDGE_MODE_FOCUS && focusNodeId && !focusEdges.has(edgeKey)
-            ? 0.68
-            : 0.88
-        );
+        alpha = Math.max(alpha, 0.88);
         width = Math.max(width, 2.8);
       }
       if (edgeQueued) {
         color = EDGE_COLOR_QUEUED;
-        alpha = Math.max(
-          alpha,
-          edgeMode === EDGE_MODE_FOCUS && focusNodeId && !focusEdges.has(edgeKey)
-            ? 0.78
-            : 0.97
-        );
+        alpha = Math.max(alpha, 0.97);
         width = Math.max(width, 3.2);
+      }
+      if (nextAvailableEdge && !(edgeLearned || edgeQueued)) {
+        color = EDGE_COLOR_NEXT_AVAILABLE;
+        alpha = Math.max(alpha, 0.82);
+        width = Math.max(width, 2.8);
+      }
+      if (previewEdge) {
+        color = EDGE_COLOR_PREVIEW;
+        alpha = 0.98;
+        width = Math.max(width, 3.6);
       }
 
       edgeGraphics.lineStyle(width, color, alpha);
@@ -973,21 +1342,24 @@ export function createSkillTreeView({
       const nodeRadius = getNodeRadius(nodeDef, treeDef);
       const isHovered = hoverNodeId === nodeId;
       const isSelected = selectedNodeId === nodeId;
+      const isInvalidFlashing = isNodeFlashingInvalid(nodeId);
 
       const node = new PIXI.Container();
       node.x = pos.x;
       node.y = pos.y;
       node.eventMode = "static";
-      node.cursor = status === "unlockable" ? "pointer" : "default";
+      node.cursor = "pointer";
       node.alpha = 1;
 
-      const fillColor = getNodeFillColor(nodeDef, status);
+      const fillColor = isInvalidFlashing
+        ? INVALID_NODE_FILL
+        : getNodeFillColor(nodeDef, status);
 
       const circle = new PIXI.Graphics();
       circle
         .lineStyle(
           isHovered || isSelected ? 3 : 2,
-          isHovered ? 0xffffff : 0xcfe8ff,
+          isInvalidFlashing ? 0xffc9c9 : isHovered ? 0xffffff : 0xcfe8ff,
           1
         )
         .beginFill(fillColor, 1)
@@ -1024,11 +1396,7 @@ export function createSkillTreeView({
       node.on("pointertap", (ev) => {
         ev?.stopPropagation?.();
         selectedNodeId = nodeId;
-        if (status === "unlockable") {
-          bufferUnlockIds.add(nodeId);
-          errorText.text = "";
-          clearSaveButtonError();
-        }
+        handleNodeTap(state, leaderPawn, layout, nodeId);
         updateInfoText(state);
         renderTree();
       });
@@ -1133,63 +1501,7 @@ export function createSkillTreeView({
   app?.view?.addEventListener?.("touchcancel", onTouchEnd, { passive: false });
 
   function resolveCommitOrder(state, leaderPawn) {
-    if (!bufferUnlockIds.size) return [];
-    const unlocked = getUnlockedSkillSet(state, activeLeaderPawnId);
-    let pointsRemaining = Number.isFinite(leaderPawn?.skillPoints)
-      ? Math.max(0, floorInt(leaderPawn.skillPoints))
-      : 0;
-
-    const grouped = new Map();
-    for (const nodeId of bufferUnlockIds.values()) {
-      const node = getSkillNodeDef(activeDefs, nodeId);
-      if (!node?.treeId) continue;
-      if (!grouped.has(node.treeId)) grouped.set(node.treeId, []);
-      grouped.get(node.treeId).push(nodeId);
-    }
-    const ordered = [];
-    const treeIds = sortedStrings(Array.from(grouped.keys()));
-    for (const treeId of treeIds) {
-      const remaining = new Set(grouped.get(treeId) || []);
-      while (remaining.size > 0) {
-        const pendingIds = sortedStrings(Array.from(remaining.values()));
-        const unlockable = [];
-        for (const nodeId of pendingIds) {
-          const evalRes = evaluateSkillNodeUnlock(state, activeLeaderPawnId, nodeId, {
-            unlockedSet: unlocked,
-            skillPoints: pointsRemaining,
-          });
-          if (!evalRes?.ok) continue;
-          unlockable.push({
-            nodeId,
-            cost: Number.isFinite(evalRes.cost) ? Math.max(0, floorInt(evalRes.cost)) : 0,
-          });
-        }
-
-        if (!unlockable.length) {
-          const fallback = getDeterministicSkillCommitOrder(
-            treeId,
-            pendingIds,
-            activeDefs
-          );
-          for (const nodeId of fallback) ordered.push(nodeId);
-          break;
-        }
-
-        const preferred = getDeterministicSkillCommitOrder(
-          treeId,
-          unlockable.map((entry) => entry.nodeId),
-          activeDefs
-        );
-        const pickedId = preferred[0] || unlockable[0].nodeId;
-        const picked =
-          unlockable.find((entry) => entry.nodeId === pickedId) || unlockable[0];
-        ordered.push(picked.nodeId);
-        unlocked.add(picked.nodeId);
-        remaining.delete(picked.nodeId);
-        pointsRemaining = Math.max(0, pointsRemaining - picked.cost);
-      }
-    }
-    return ordered;
+    return resolveQueuedCommitOrder(state, leaderPawn, bufferUnlockIds).order;
   }
 
   function commitQueuedUnlocks() {
@@ -1220,6 +1532,7 @@ export function createSkillTreeView({
       return { ok: false, reason: "noLeaderPawn", unlocked: [] };
     }
 
+    normalizeBufferedUnlocks(state, leaderPawn);
     const order = resolveCommitOrder(state, leaderPawn);
     const unlocked = [];
     for (const nodeId of order) {
@@ -1341,6 +1654,7 @@ export function createSkillTreeView({
     clearSaveButtonFlashTimer();
     saveButtonSavedFlashUntilMs = 0;
     saveButtonErrorState = false;
+    invalidNodeFlashUntilById = new Map();
     selectedNodeId = null;
     hoverNodeId = null;
     cameraInitialized = false;
@@ -1364,6 +1678,7 @@ export function createSkillTreeView({
     clearSaveButtonFlashTimer();
     saveButtonSavedFlashUntilMs = 0;
     saveButtonErrorState = false;
+    invalidNodeFlashUntilById = new Map();
     selectedNodeId = null;
     hoverNodeId = null;
     cameraInitialized = false;

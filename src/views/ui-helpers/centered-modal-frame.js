@@ -4,10 +4,18 @@ import { createWindowHeader } from "./window-header.js";
 
 const DEFAULT_SCREEN_WIDTH = 2424;
 const DEFAULT_SCREEN_HEIGHT = 1080;
+const OPEN_CLOSE_GUARD_MS = 140;
 
 function ensurePositiveInt(value, fallback) {
   const n = Number.isFinite(value) ? Math.floor(value) : fallback;
   return Math.max(1, n);
+}
+
+function nowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
 }
 
 export function createCenteredModalFrame({
@@ -53,22 +61,27 @@ export function createCenteredModalFrame({
   }
 
   const backdrop = new PIXI.Graphics();
+  let dismissGuardUntilMs = 0;
   backdrop.eventMode = "static";
   backdrop.cursor = "pointer";
   backdrop.on("pointertap", (ev) => {
     ev?.stopPropagation?.();
+    if (nowMs() < dismissGuardUntilMs) return;
     onRequestClose?.("backdrop");
   });
   root.addChild(backdrop);
 
   const panel = new PIXI.Container();
+  panel.eventMode = "static";
+  panel.cursor = "default";
+  let panelHitWidth = 1;
+  let panelHitHeight = 1;
   const solidPanelHitArea = installSolidUiHitArea(panel, () => {
-    const bounds = panel.getLocalBounds?.() ?? null;
     return {
       x: 0,
       y: 0,
-      width: bounds?.width ?? 0,
-      height: bounds?.height ?? 0,
+      width: panelHitWidth,
+      height: panelHitHeight,
     };
   });
   root.addChild(panel);
@@ -123,6 +136,7 @@ export function createCenteredModalFrame({
   function setOpenVisible(open) {
     root.visible = !!open;
     root.eventMode = open ? "static" : "none";
+    dismissGuardUntilMs = open ? nowMs() + OPEN_CLOSE_GUARD_MS : 0;
   }
 
   function layoutFrame({
@@ -145,7 +159,8 @@ export function createCenteredModalFrame({
 
     panel.x = Math.floor((screen.width - panelWidth) * 0.5);
     panel.y = Math.floor((screen.height - panelHeight) * 0.5);
-    solidPanelHitArea.refresh();
+    panelHitWidth = panelWidth;
+    panelHitHeight = panelHeight;
 
     backdrop.clear();
     backdrop.beginFill(0x000000, backdropAlpha);
@@ -163,6 +178,7 @@ export function createCenteredModalFrame({
 
     body.x = bodyPadding;
     body.y = headerHeight + bodyTopGap + bodyPadding;
+    solidPanelHitArea.refresh();
 
     return {
       screen,

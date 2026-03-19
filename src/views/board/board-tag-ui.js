@@ -1589,6 +1589,7 @@ export function createTagUi(opts) {
 
   function layoutTagEntries(view) {
     const entries = view.tagEntries || [];
+    const dragState = view.tagDrag || null;
     let totalContentHeight = 0;
     let expandedContentBottomY = 0;
     for (const entry of entries) {
@@ -1620,13 +1621,31 @@ export function createTagUi(opts) {
     }
     if (totalContentHeight > 0) totalContentHeight -= TAG_PILL_GAP;
 
+    const orderedEntries = dragState
+      ? entries.filter((entry) => entry && entry !== dragState.entry)
+      : entries.slice();
+    if (dragState?.entry) {
+      const insertIndex = Math.max(
+        0,
+        Math.min(orderedEntries.length, dragState.targetIndex)
+      );
+      orderedEntries.splice(insertIndex, 0, null);
+    }
+
     let y = 0;
-    for (const entry of entries) {
+    for (const entry of orderedEntries) {
+      if (entry === null) {
+        const dragHeight = dragState?.entry?.height ?? TAG_PILL_HEIGHT;
+        y += dragHeight + TAG_PILL_GAP;
+        continue;
+      }
       if (!entry) continue;
       const entryHeight = entry.height ?? TAG_PILL_HEIGHT;
       entry.container.visible = true;
       entry.container.x = 0;
-      entry.container.y = y;
+      if (dragState?.entry !== entry) {
+        entry.container.y = y;
+      }
       y += entryHeight + TAG_PILL_GAP;
     }
     view.totalContentHeight = Math.max(0, totalContentHeight);
@@ -1952,6 +1971,7 @@ export function createTagUi(opts) {
   }
 
   function syncExpandedTagToActive(view, activeTagId) {
+    if (view?.suppressAutoExpandedTag) return false;
     const nextTagId =
       typeof activeTagId === "string" && activeTagId.length > 0 ? activeTagId : null;
     const previousActiveTagId =
@@ -2035,7 +2055,7 @@ export function createTagUi(opts) {
           statusPreview?.firstEnabledTagId ??
           null
         : null;
-    if (!view.expandedTagId && activeTagId) {
+    if (!view.expandedTagId && activeTagId && !view.suppressAutoExpandedTag) {
       view.expandedTagId = activeTagId;
     }
     view.lastAutoExpandedActiveTagId =

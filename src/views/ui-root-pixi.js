@@ -10,6 +10,7 @@ const BOOT_SETUP_ID = "devPlaytesting01";
 //
 
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
+import { envStructureDefs } from "../defs/gamepieces/env-structures-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import {
   isAnyDropboxOwnerId,
@@ -450,13 +451,17 @@ function dispatchPlayerAction(kind, payload, opts) {
   return recordOptimisticSchedule(runner.dispatchAction(kind, payload, opts));
 }
 
+function isActionPointCostsEnabled(state = runner.getState?.()) {
+  return state?.variantFlags?.actionPointCostsEnabled !== false;
+}
+
 function isFreeLiveActionMode() {
   const cursor = runner.getCursorState?.();
   const state = runner.getState?.();
   return (
     cursor?.paused !== true &&
     isAutoPauseOnPlayerActionEnabled?.() !== true &&
-    state?.variantFlags?.actionPointCostsEnabled === false
+    !isActionPointCostsEnabled(state)
   );
 }
 
@@ -1536,6 +1541,13 @@ inventoryView = createInventoryView({
       const def = hubStructureDefs[structure.defId];
       return def?.name || def?.id || `Hub ${ownerId}`;
     }
+    const envStructure = state?.board?.occ?.envStructure?.find?.(
+      (structure) => structure?.instanceId === ownerId
+    );
+    if (envStructure) {
+      const def = envStructureDefs[envStructure.defId];
+      return def?.name || def?.id || `Structure ${ownerId}`;
+    }
     const pawn = state.pawns.find((candidatePawn) => candidatePawn.id === ownerId);
     if (pawn) return pawn.name || `Pawn ${ownerId}`;
     return `Owner ${ownerId}`;
@@ -1652,9 +1664,11 @@ inventoryView = createInventoryView({
           { apCost: 0 }
         );
       }
+      const state = runner.getState?.();
       if (
         runner.getCursorState?.()?.paused !== true ||
-        !isBootVariantFlagEnabled("inventoryTransferPlannerEnabled")
+        !isBootVariantFlagEnabled("inventoryTransferPlannerEnabled") ||
+        !isActionPointCostsEnabled(state)
       ) {
         return dispatchPlayerEditAction(
           ActionKinds.INVENTORY_MOVE,
@@ -1730,6 +1744,11 @@ inventoryView = createInventoryView({
     actionLogView?.flashGhost?.(spec, status),
   setBuildPlacementPreview: (preview) =>
     boardView?.setDistributorBuildPreview?.(preview),
+  getOwnerAnchor: (ownerId) => resolveInventoryOwnerAnchor(ownerId),
+  setWorldInventoryDragAffordances: (ownerAffordances) => {
+    boardView?.setInventoryDragAffordances?.(ownerAffordances);
+    pawnsView?.setInventoryDragAffordances?.(ownerAffordances);
+  },
   onUseItem: (spec) => {
     const previewTransferRes = commitPreviewInventoryTransferForUse(spec);
     if (previewTransferRes?.ok === false) {

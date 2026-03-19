@@ -174,6 +174,9 @@ export function createBoardView(opts) {
   const EVENT_EXPIRY_TINT_STRENGTH = 0.22;
   const EVENT_EXPIRY_FLOAT_PX = 12;
   const EVENT_EXPIRY_SCALE = 0.07;
+  const INVENTORY_DRAG_VALID_OUTLINE = 0x58c7ff;
+  const INVENTORY_DRAG_FULL_OUTLINE = 0xffa24f;
+  const INVENTORY_DRAG_HOVER_OUTLINE = 0x6bd37b;
   const ACTIVITY_FADE_SPEED = 8;
   const ACTIVITY_BASE_ALPHA = 0.2;
   const ACTIVITY_PULSE_FREQ_HZ = 1.4;
@@ -318,6 +321,7 @@ export function createBoardView(opts) {
   let stagePointerMoveHandler = null;
   let lastProcessedGameEventId = 0;
   let lastSeenEventSec = null;
+  const inventoryDragAffordanceByOwnerId = new Map();
   let eventSlotsLayoutKey = "";
   let envStructureSlotsLayoutKey = "";
   let hubSlotsLayoutKey = "";
@@ -799,10 +803,14 @@ export function createBoardView(opts) {
 
       snapshots.set(id, {
         id,
+        defId: eventInst.defId ?? null,
         col: anchorCol,
         span,
         color,
         expiresSec,
+        expiresOnSeasonChange:
+          eventInst?.expiresOnSeasonChange === true ||
+          envEventDefs?.[eventInst?.defId]?.expiresOnSeasonChange === true,
       });
     }
     return snapshots;
@@ -955,8 +963,13 @@ export function createBoardView(opts) {
       for (const [id, previousSnapshot] of eventSnapshotsById.entries()) {
         if (currentSnapshots.has(id)) continue;
         const expiresSec = previousSnapshot?.expiresSec;
-        if (!Number.isFinite(expiresSec)) continue;
-        if (expiresSec > lastSeenEventSec && expiresSec <= nowSec) {
+        const expiredByTime =
+          Number.isFinite(expiresSec) &&
+          expiresSec > lastSeenEventSec &&
+          expiresSec <= nowSec;
+        const expiredBySeason =
+          state?._seasonChanged === true && previousSnapshot?.expiresOnSeasonChange === true;
+        if (expiredByTime || expiredBySeason) {
           pushEventExpiryFx(previousSnapshot, "forward");
         }
       }
@@ -1475,10 +1488,21 @@ export function createBoardView(opts) {
     return overlay;
   }
 
-  function drawFocusOutline(graphic, width, height, radius = 6) {
+  function getInventoryDragOutlineColor(level) {
+    if (level === "hover") return INVENTORY_DRAG_HOVER_OUTLINE;
+    if (level === "full") return INVENTORY_DRAG_FULL_OUTLINE;
+    if (level === "valid") return INVENTORY_DRAG_VALID_OUTLINE;
+    return 0x7fd0ff;
+  }
+
+  function normalizeInventoryDragOwnerId(ownerId) {
+    return ownerId == null ? null : String(ownerId);
+  }
+
+  function drawFocusOutline(graphic, width, height, radius = 6, color = 0x7fd0ff) {
     if (!graphic) return;
     graphic.clear();
-    graphic.lineStyle(2, 0x7fd0ff, 1);
+    graphic.lineStyle(2, color, 1);
     graphic.drawRoundedRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4), radius);
   }
 
@@ -1897,10 +1921,33 @@ export function createBoardView(opts) {
     },
     onDragStart: (view) => {
       activeTagDrag = view;
+      view.suppressAutoExpandedTag = true;
+      view.tagDragRestoreExpandedTagId = view.expandedTagId ?? null;
+      view.expandedTagId = null;
+      for (const entry of view.tagEntries || []) {
+        entry?.setExpanded?.(false);
+      }
+      tagUi?.layoutTagEntries?.(view);
     },
     onDragEnd: (view, drag, globalPos) => {
       view.ignoreNextTagTap = !!drag?.moved;
       if (activeTagDrag === view) activeTagDrag = null;
+      view.suppressAutoExpandedTag = false;
+      const restoreExpandedTagId =
+        typeof view.tagDragRestoreExpandedTagId === "string"
+          ? view.tagDragRestoreExpandedTagId
+          : null;
+      if (
+        restoreExpandedTagId &&
+        Array.isArray(view.tagEntries) &&
+        view.tagEntries.some((entry) => entry?.tagId === restoreExpandedTagId)
+      ) {
+        view.expandedTagId = restoreExpandedTagId;
+      }
+      for (const entry of view.tagEntries || []) {
+        entry?.setExpanded?.(entry?.tagId === view.expandedTagId);
+      }
+      view.tagDragRestoreExpandedTagId = null;
       tagUi?.layoutTagEntries?.(view);
 
       if (globalPos) {
@@ -1955,10 +2002,33 @@ export function createBoardView(opts) {
     },
     onDragStart: (view) => {
       activeHubTagDrag = view;
+      view.suppressAutoExpandedTag = true;
+      view.tagDragRestoreExpandedTagId = view.expandedTagId ?? null;
+      view.expandedTagId = null;
+      for (const entry of view.tagEntries || []) {
+        entry?.setExpanded?.(false);
+      }
+      hubTagUi?.layoutTagEntries?.(view);
     },
     onDragEnd: (view, drag, globalPos) => {
       view.ignoreNextTagTap = !!drag?.moved;
       if (activeHubTagDrag === view) activeHubTagDrag = null;
+      view.suppressAutoExpandedTag = false;
+      const restoreExpandedTagId =
+        typeof view.tagDragRestoreExpandedTagId === "string"
+          ? view.tagDragRestoreExpandedTagId
+          : null;
+      if (
+        restoreExpandedTagId &&
+        Array.isArray(view.tagEntries) &&
+        view.tagEntries.some((entry) => entry?.tagId === restoreExpandedTagId)
+      ) {
+        view.expandedTagId = restoreExpandedTagId;
+      }
+      for (const entry of view.tagEntries || []) {
+        entry?.setExpanded?.(entry?.tagId === view.expandedTagId);
+      }
+      view.tagDragRestoreExpandedTagId = null;
       hubTagUi?.layoutTagEntries?.(view);
 
       if (globalPos) {
@@ -2791,7 +2861,16 @@ export function createBoardView(opts) {
     const next = !!active;
     if (view.isFocused === next) return;
     view.isFocused = next;
-    view.focusOutline.visible = next;
+    view.focusOutline.visible = next || view.inventoryDragAffordance != null;
+    if (view.focusOutline.visible) {
+      drawFocusOutline(
+        view.focusOutline,
+        Math.max(1, Math.floor(view.cardWidth ?? HUB_STRUCTURE_WIDTH)),
+        Math.max(1, Math.floor(view.cardHeightCurrent ?? view.baseCardHeight ?? HUB_STRUCTURE_HEIGHT)),
+        8,
+        getInventoryDragOutlineColor(view.inventoryDragAffordance)
+      );
+    }
   }
 
   function clearAllHubFocus() {
@@ -2800,6 +2879,45 @@ export function createBoardView(opts) {
       setHubFocus(view, false);
     }
     focusedHubCol = null;
+  }
+
+  function setInventoryDragAffordances(nextAffordances = null) {
+    inventoryDragAffordanceByOwnerId.clear();
+    if (nextAffordances instanceof Map) {
+      for (const [ownerId, level] of nextAffordances.entries()) {
+        if (ownerId == null || level == null) continue;
+        inventoryDragAffordanceByOwnerId.set(normalizeInventoryDragOwnerId(ownerId), level);
+      }
+    }
+
+    for (const view of envStructureViews.values()) {
+      if (!view?.focusOutline) continue;
+      const ownerId = view.structure?.instanceId ?? null;
+      const nextLevel =
+        ownerId != null && view.structureHasInventory?.()
+          ? inventoryDragAffordanceByOwnerId.get(normalizeInventoryDragOwnerId(ownerId)) ?? null
+          : null;
+      if (view.inventoryDragAffordance === nextLevel) continue;
+      view.inventoryDragAffordance = nextLevel;
+      redrawEnvStructureCard(view);
+      view.focusOutline.visible = nextLevel != null;
+    }
+
+    for (const view of hubStructureViews.values()) {
+      if (!view?.focusOutline) continue;
+      const ownerId = view.structure?.instanceId ?? null;
+      const nextLevel =
+        ownerId != null && view.structureHasInventory?.()
+          ? inventoryDragAffordanceByOwnerId.get(normalizeInventoryDragOwnerId(ownerId)) ?? null
+          : null;
+      if (view.inventoryDragAffordance === nextLevel) {
+        view.focusOutline.visible = view.isFocused || nextLevel != null;
+        continue;
+      }
+      view.inventoryDragAffordance = nextLevel;
+      updateHubStructureViewUi(view, view.structure, { force: true });
+      view.focusOutline.visible = view.isFocused || nextLevel != null;
+    }
   }
 
   function findHubViewByCol(hubCol) {
@@ -3829,7 +3947,9 @@ export function createBoardView(opts) {
 
   function startHubTagDrag(view, entry, ev) {
     requestPauseForAction?.();
-    if (!view.isHovered) return;
+    if (!view.isHovered) {
+      applyHubStructureHover(view);
+    }
 
     if (activeHubTagDrag && activeHubTagDrag !== view) {
       endHubTagDrag(activeHubTagDrag, false);
@@ -3843,7 +3963,9 @@ export function createBoardView(opts) {
 
   function startTagDrag(view, entry, ev) {
     requestPauseForAction?.();
-    if (!view.isHovered) return;
+    if (!view.isHovered) {
+      applyTileHover(view);
+    }
 
     if (activeTagDrag && activeTagDrag !== view) {
       endTagDrag(activeTagDrag, false);
@@ -4006,6 +4128,13 @@ export function createBoardView(opts) {
     );
     drawCardOuterBg(view.baseBg, width, height, 8, 0x2f2f2f);
     drawCardInnerFill(view.cardFill, width, height, 8, view.cardFillColor ?? 0x5f6a73);
+    drawFocusOutline(
+      view.focusOutline,
+      width,
+      height,
+      8,
+      getInventoryDragOutlineColor(view.inventoryDragAffordance)
+    );
   }
 
   function refreshEnvStructureHoverPresentation(
@@ -4280,7 +4409,13 @@ export function createBoardView(opts) {
       10,
       view.buildPlacementOverlayState ?? null
     );
-    drawFocusOutline(view.focusOutline, width, height, 8);
+    drawFocusOutline(
+      view.focusOutline,
+      width,
+      height,
+      8,
+      getInventoryDragOutlineColor(view.inventoryDragAffordance)
+    );
     view.cardHeight = height;
   }
 
@@ -5138,6 +5273,16 @@ export function createBoardView(opts) {
     contentInk.addChild(descText);
     hoverTextNodes.push(titleText, descText);
 
+    const focusOutline = new PIXI.Graphics();
+    drawFocusOutline(focusOutline, width, height, 8);
+    focusOutline.visible = false;
+    contentInk.addChild(focusOutline);
+
+    function structureHasInventory() {
+      const s = getGameState?.();
+      return !!s?.ownerInventories?.[structureInst.instanceId];
+    }
+
     const view = {
       container: cont,
       content,
@@ -5166,11 +5311,21 @@ export function createBoardView(opts) {
       childTooltipHoverActive: false,
       pawnCount: 0,
       hoverTextNodes,
+      focusOutline,
+      inventoryDragAffordance: null,
+      structureHasInventory,
       setHoverActive,
       setHoverScale,
       setHoverShadowAlpha,
       contentPaint,
     };
+    view.inventoryDragAffordance = structureHasInventory()
+      ? inventoryDragAffordanceByOwnerId.get(
+          normalizeInventoryDragOwnerId(structureInst.instanceId)
+        ) ?? null
+      : null;
+    focusOutline.visible = view.inventoryDragAffordance != null;
+    redrawEnvStructureCard(view);
 
     cont.on("pointerenter", () => {
       if (!canShowGamepieceHoverUiNow()) return;
@@ -5517,8 +5672,16 @@ export function createBoardView(opts) {
       buildPlacementOverlayState: null,
       focusOutline,
       isFocused: false,
+      inventoryDragAffordance: null,
       cancelButton,
     };
+    view.inventoryDragAffordance = structureHasInventory()
+      ? inventoryDragAffordanceByOwnerId.get(
+          normalizeInventoryDragOwnerId(structureInst.instanceId)
+        ) ?? null
+      : null;
+    focusOutline.visible = view.isFocused || view.inventoryDragAffordance != null;
+    updateHubStructureViewUi(view, structureInst, { force: true });
 
     if (opts?.expandedTagId) {
       view.expandedTagId = opts.expandedTagId;
@@ -6474,7 +6637,32 @@ export function createBoardView(opts) {
         globalPos.y >= bounds.y &&
         globalPos.y <= bounds.y + bounds.height
       ) {
-        return view.structure?.instanceId ?? null;
+        return {
+          ownerId: view.structure?.instanceId ?? null,
+          anchor: {
+            coordinateSpace: "screen",
+            getAnchorRect: () => view.container?.getBounds?.() ?? null,
+          },
+        };
+      }
+    }
+    for (const view of envStructureViews.values()) {
+      if (!view?.container?.visible) continue;
+      if (!view.structureHasInventory?.()) continue;
+      const bounds = view.container.getBounds();
+      if (
+        globalPos.x >= bounds.x &&
+        globalPos.x <= bounds.x + bounds.width &&
+        globalPos.y >= bounds.y &&
+        globalPos.y <= bounds.y + bounds.height
+      ) {
+        return {
+          ownerId: view.structure?.instanceId ?? null,
+          anchor: {
+            coordinateSpace: "screen",
+            getAnchorRect: () => view.container?.getBounds?.() ?? null,
+          },
+        };
       }
     }
     return null;
@@ -6522,6 +6710,7 @@ export function createBoardView(opts) {
     hasActiveDrag() {
       return !!activeTagDrag || !!activeHubTagDrag;
     },
+    setInventoryDragAffordances,
     getInventoryOwnerAtGlobalPos,
     getOccludingScreenRects,
     getInventoryOwnerAnchor,

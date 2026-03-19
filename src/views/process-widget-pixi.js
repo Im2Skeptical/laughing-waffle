@@ -378,6 +378,7 @@ export function createProcessWidgetView({
     app,
     layer: manualLayer || layer,
     layout: processLayout?.recipeManual,
+    getState: () => getStateSafe(),
     resolveViewModel: (payload) => resolveRecipeManualViewModel(payload),
     onToggleRecipe: (payload) => toggleRecipeFromRecipeManual(payload),
   });

@@ -163,6 +163,9 @@ const INVENTORY_SUBPANEL_BG = MUCHA_UI_COLORS.surfaces.panelRaised;
 const INVENTORY_HEADER_BG = MUCHA_UI_COLORS.surfaces.header;
 const INVENTORY_HEADER_TEXT = MUCHA_UI_COLORS.ink.primary;
 const INVENTORY_FOCUS_STROKE = MUCHA_UI_COLORS.accents.glow;
+const INVENTORY_DRAG_VALID_STROKE = 0x58c7ff;
+const INVENTORY_DRAG_FULL_STROKE = 0xffa24f;
+const INVENTORY_DRAG_HOVER_STROKE = 0x6bd37b;
 const INVENTORY_BIN_FILL = MUCHA_UI_COLORS.intent.warnPop;
 const INVENTORY_BIN_STROKE = MUCHA_UI_COLORS.intent.dangerPop;
 const INVENTORY_BIN_ICON = MUCHA_UI_COLORS.ink.primary;
@@ -188,6 +191,27 @@ function getInventoryTooltipScale(uiScale = null, displayObject = null) {
 function getItemTierBorderColor(item, def) {
   const tier = item?.tier ?? def?.defaultTier ?? null;
   return ITEM_TIER_BORDER_COLORS[tier] ?? ITEM_TIER_BORDER_COLORS.default;
+}
+
+function getDragAffordanceStroke(level) {
+  if (level === "hover") return INVENTORY_DRAG_HOVER_STROKE;
+  if (level === "full") return INVENTORY_DRAG_FULL_STROKE;
+  if (level === "valid") return INVENTORY_DRAG_VALID_STROKE;
+  return INVENTORY_FOCUS_STROKE;
+}
+
+function normalizeInventoryOwnerKey(ownerId) {
+  return ownerId == null ? null : String(ownerId);
+}
+
+function normalizeDropTargetSpec(dropTarget) {
+  if (dropTarget == null) return null;
+  if (typeof dropTarget === "object") {
+    const ownerId = dropTarget.ownerId ?? null;
+    if (ownerId == null) return null;
+    return { ownerId, anchor: dropTarget.anchor ?? null };
+  }
+  return { ownerId: dropTarget, anchor: null };
 }
 
 function extractAsciiLetters(text) {
@@ -272,6 +296,8 @@ export function createInventoryView({
   setBuildPlacementPreview,
   onUseItem,
   screenToWorld,
+  setWorldInventoryDragAffordances,
+  getOwnerAnchor,
   layout = null,
 }) {
   const interactionStage = stage || layer.parent;
@@ -289,6 +315,8 @@ export function createInventoryView({
   let buildGhost = null;
   let buildGhostSignature = null;
   let consumePrompt = null;
+  let dragHoverRevealOwnerId = null;
+  const externalItemDragAffordances = new Map();
 
   // Owners currently showing an error flash; used to pause auto-rebuilds.
   const flashingOwners = new Set();
@@ -867,6 +895,13 @@ export function createInventoryView({
       setActiveBuild(ownerId, spec);
       const win = windows.get(ownerId);
       if (win) updateLeaderPanel(win);
+    },
+    onClose: ({ ownerId } = {}) => {
+      if (ownerId == null) return;
+      const win = windows.get(ownerId);
+      if (!win) return;
+      refreshWindowVisibility(win);
+      syncWindowStackOrder(win);
     },
   });
 
@@ -1493,6 +1528,139 @@ export function createInventoryView({
     }
   }
 
+  function redrawWindowFocusOutline(win) {
+    if (!win?.focusOutline) return;
+    const color = getDragAffordanceStroke(win.dragAffordanceLevel);
+    win.focusOutline.clear();
+    win.focusOutline.lineStyle(2, color, 1);
+    win.focusOutline.drawRoundedRect(1, 1, win.panelWidth - 2, win.panelHeight - 2, 10);
+  }
+
+  function syncWindowFocusOutlineAppearance(win) {
+    if (!win?.focusOutline) return;
+    redrawWindowFocusOutline(win);
+    win.focusOutline.visible =
+      win.isExternallyFocused === true || win.dragAffordanceLevel != null;
+  }
+
+  function clearDragHoverRevealOwner() {
+    if (dragHoverRevealOwnerId == null) return;
+    hideOnHoverOut(dragHoverRevealOwnerId);
+    dragHoverRevealOwnerId = null;
+  }
+
+  function applyExternalItemDragAffordances(nextAffordances) {
+    externalItemDragAffordances.clear();
+    if (nextAffordances instanceof Map) {
+      for (const [ownerId, level] of nextAffordances.entries()) {
+        if (ownerId == null || level == null) continue;
+        externalItemDragAffordances.set(normalizeInventoryOwnerKey(ownerId), level);
+      }
+    }
+
+    for (const win of windows.values()) {
+      win.dragAffordanceLevel =
+        externalItemDragAffordances.get(normalizeInventoryOwnerKey(win.ownerId)) ?? null;
+      syncWindowFocusOutlineAppearance(win);
+      syncWindowStackOrder(win);
+    }
+
+    setWorldInventoryDragAffordances?.(new Map(externalItemDragAffordances));
+  }
+
+  function clearExternalItemDragAffordances() {
+    clearDragHoverRevealOwner();
+    applyExternalItemDragAffordances(new Map());
+  }
+
+  function canOwnerFitDraggedItem(ownerId, item) {
+    if (ownerId == null || !item) return false;
+    const inv = getInventoryForOwner(ownerId);
+    if (!inv) return false;
+    const preview =
+      typeof getInventoryPreview === "function"
+        ? getInventoryPreview(ownerId)
+        : null;
+    const placement = findItemPlacement(inv, item, preview, null);
+    if (placement) return true;
+    return canAutostackItemPreview(inv, item, preview, null);
+  }
+
+  function syncExternalItemDragAffordances(globalPos = null) {
+    if (!dragItem.active || !dragItem.item) {
+      clearExternalItemDragAffordances();
+      return;
+    }
+
+    const sourceOwner =
+      dragItem.sourceOwnerOverride != null
+        ? dragItem.sourceOwnerOverride
+        : dragItem.ownerId;
+    const hoveredWindow = globalPos ? findWindowAt(globalPos) : null;
+    const insideSourceWindow =
+      hoveredWindow && String(hoveredWindow.ownerId) === String(sourceOwner);
+    if (insideSourceWindow) {
+      clearExternalItemDragAffordances();
+      return;
+    }
+
+    const dropTargetSpec = resolveExternalDropTargetSpec(globalPos);
+    const hoveredOwnerId = isAnyDropboxOwnerId(dropTargetSpec?.ownerId)
+      ? dropTargetSpec.ownerId
+      : hoveredWindow
+        ? hoveredWindow.ownerId ?? null
+        : dropTargetSpec?.ownerId ?? null;
+    const hoveredOwner =
+      hoveredOwnerId != null && !isAnyDropboxOwnerId(hoveredOwnerId)
+        ? hoveredOwnerId
+        : null;
+
+    const ownerInventories = getState?.()?.ownerInventories || {};
+    const nextAffordances = new Map();
+    for (const ownerId of Object.keys(ownerInventories)) {
+      if (String(ownerId) === String(sourceOwner)) continue;
+      if (isAnyDropboxOwnerId(ownerId)) continue;
+      const level = canOwnerFitDraggedItem(ownerId, dragItem.item)
+        ? hoveredOwner != null && String(ownerId) === String(hoveredOwner)
+          ? "hover"
+          : "valid"
+        : "full";
+      nextAffordances.set(normalizeInventoryOwnerKey(ownerId), level);
+    }
+
+    if (hoveredOwner != null) {
+      if (
+        dragHoverRevealOwnerId != null &&
+        String(dragHoverRevealOwnerId) !== String(hoveredOwner)
+      ) {
+        hideOnHoverOut(dragHoverRevealOwnerId);
+        dragHoverRevealOwnerId = null;
+      }
+      if (dragHoverRevealOwnerId == null) {
+        let hoveredOwnerWindow = null;
+        for (const win of windows.values()) {
+          if (String(win?.ownerId) !== String(hoveredOwner)) continue;
+          hoveredOwnerWindow = win;
+          break;
+        }
+        if (!hoveredOwnerWindow || hoveredOwnerWindow.pinned !== true) {
+          const isClosed = hoveredOwnerWindow?.container?.visible !== true;
+          if (!hoveredOwnerWindow || isClosed) {
+            revealWindow(hoveredOwner, {
+              pinned: false,
+              anchor: dropTargetSpec?.anchor ?? getOwnerAnchor?.(hoveredOwner) ?? null,
+            });
+          }
+          dragHoverRevealOwnerId = hoveredOwner;
+        }
+      }
+    } else {
+      clearDragHoverRevealOwner();
+    }
+
+    applyExternalItemDragAffordances(nextAffordances);
+  }
+
   function resizeWindowFrame(win, height) {
     if (!win) return;
     const h = Math.max(HEADER_HEIGHT + INNER_PADDING * 2, Math.floor(height));
@@ -1510,9 +1678,7 @@ export function createInventoryView({
     }
 
     if (win.focusOutline) {
-      win.focusOutline.clear();
-      win.focusOutline.lineStyle(2, INVENTORY_FOCUS_STROKE, 1);
-      win.focusOutline.drawRoundedRect(1, 1, win.panelWidth - 2, h - 2, 10);
+      redrawWindowFocusOutline(win);
     }
 
     if (win.apOverlay) {
@@ -1803,6 +1969,12 @@ export function createInventoryView({
     if (!buildingManagerView?.isOpen?.()) return;
     if (buildingManagerView.getOpenOwnerId?.() !== ownerId) return;
     buildingManagerView.close(reason);
+  }
+
+  function isBuildingManagerHoldingOwnerVisible(ownerId) {
+    if (ownerId == null) return false;
+    if (!buildingManagerView?.isOpen?.()) return false;
+    return String(buildingManagerView.getOpenOwnerId?.()) === String(ownerId);
   }
 
   function cancelItemDragForOwner(ownerId) {
@@ -2594,6 +2766,8 @@ export function createInventoryView({
         build: false,
       },
       forceStackFront: false,
+      isExternallyFocused: false,
+      dragAffordanceLevel: null,
       uiScale: 1,
       itemViews: [],
       solidHitArea,
@@ -2605,6 +2779,7 @@ export function createInventoryView({
     };
 
     applyWindowScale(win);
+    syncWindowFocusOutlineAppearance(win);
     syncWindowStackOrder(win);
     windows.set(ownerId, win);
 
@@ -3202,7 +3377,7 @@ export function createInventoryView({
 
     win.hovered = false;
     win.hoverAnchor = null;
-    if (!win.pinned) {
+    if (!win.pinned && !isBuildingManagerHoldingOwnerVisible(ownerId)) {
       win.container.visible = false;
       clearActiveBuildForOwner(ownerId);
       closeBuildingManagerForOwner(ownerId);
@@ -3239,7 +3414,7 @@ export function createInventoryView({
     if (visibility.visible === false) {
       return;
     }
-    if (!win.pinned && !win.hovered) {
+    if (!win.pinned && !win.hovered && !isBuildingManagerHoldingOwnerVisible(ownerId)) {
       clearActiveBuildForOwner(ownerId);
       closeBuildingManagerForOwner(ownerId);
     }
@@ -3254,7 +3429,10 @@ export function createInventoryView({
       syncWindowStackOrder(win);
       return;
     }
-    win.container.visible = !!win.pinned || !!win.hovered;
+    win.container.visible =
+      !!win.pinned ||
+      !!win.hovered ||
+      isBuildingManagerHoldingOwnerVisible(win.ownerId);
     syncWindowStackOrder(win);
   }
 
@@ -3272,9 +3450,10 @@ export function createInventoryView({
         const shouldFocus = focusOwners.has(win.ownerId);
         const visibility = syncWindowOwnerVisibility(win);
         const canShow = shouldFocus && visibility.visible !== false;
-        win.focusOutline.visible = canShow;
+        win.isExternallyFocused = canShow;
         win.forceStackFront = canShow;
         win.container.visible = canShow;
+        syncWindowFocusOutlineAppearance(win);
         syncWindowStackOrder(win);
       }
       return;
@@ -3297,18 +3476,20 @@ export function createInventoryView({
         const shouldFocus = externalOwners.has(win.ownerId);
         const visibility = syncWindowOwnerVisibility(win);
         const canShow = shouldFocus && visibility.visible !== false;
-        win.focusOutline.visible = canShow;
+        win.isExternallyFocused = canShow;
         win.forceStackFront = canShow;
         win.container.visible = canShow;
+        syncWindowFocusOutlineAppearance(win);
         syncWindowStackOrder(win);
       }
       return;
     }
 
     for (const win of windows.values()) {
-      win.focusOutline.visible = false;
+      win.isExternallyFocused = false;
       win.forceStackFront = false;
       refreshWindowVisibility(win);
+      syncWindowFocusOutlineAppearance(win);
     }
   }
 
@@ -3785,6 +3966,7 @@ export function createInventoryView({
     }
 
     beginItemDragAtGlobal(win, item, view, global);
+    syncExternalItemDragAffordances(global);
     return { ok: true };
   }
 
@@ -4378,7 +4560,13 @@ export function createInventoryView({
     dragItem.ownerId = win.ownerId;
     dragItem.item = item;
     dragItem.view = view;
-    dragItem.sourceOwnerOverride = view?.sourceOwnerId ?? null;
+    const stagedSourceOwnerId =
+      view?.sourceOwnerId != null &&
+      view?.ownerId != null &&
+      String(view.sourceOwnerId) !== String(view.ownerId)
+        ? view.ownerId
+        : view?.sourceOwnerId ?? null;
+    dragItem.sourceOwnerOverride = stagedSourceOwnerId;
     dragItem.sourceEquipmentSlotId = sourceSlotId;
     clearActiveDropboxAffordance();
 
@@ -4478,12 +4666,7 @@ export function createInventoryView({
   }
 
   function resolveDropTargetOwnerId(globalPos) {
-    if (typeof getDropTargetOwnerAt !== "function") return null;
-    const dropTarget = getDropTargetOwnerAt(globalPos);
-    if (dropTarget && typeof dropTarget === "object") {
-      return dropTarget.ownerId ?? null;
-    }
-    return dropTarget;
+    return resolveExternalDropTargetSpec(globalPos)?.ownerId ?? null;
   }
 
   function updateDropboxDragAffordance(globalPos) {
@@ -4538,6 +4721,7 @@ export function createInventoryView({
 
     updateDropboxDragAffordance(g);
     updateItemDragGhost(g);
+    syncExternalItemDragAffordances(g);
   }
 
   function onItemDragEnd(ev) {
@@ -4547,6 +4731,7 @@ export function createInventoryView({
 
     if (!dragItem.active) {
       clearActiveDropboxAffordance();
+      clearExternalItemDragAffordances();
       return;
     }
     dropItem(ev);
@@ -4582,6 +4767,7 @@ export function createInventoryView({
 
     const finish = (status = null) => {
       clearActiveDropboxAffordance();
+      clearExternalItemDragAffordances();
       restoreItemView(view);
       dragItem.view = null;
       dragItem.sourceOwnerOverride = null;
@@ -5077,6 +5263,17 @@ export function createInventoryView({
       }
     }
     return null;
+  }
+
+  function resolveExternalDropTargetSpec(globalPos) {
+    if (!globalPos) return null;
+    if (typeof getDropTargetOwnerAt !== "function") return null;
+    const dropTarget = normalizeDropTargetSpec(getDropTargetOwnerAt(globalPos));
+    const ownerId = dropTarget?.ownerId ?? null;
+    if (ownerId == null) return null;
+    if (isAnyDropboxOwnerId(ownerId)) return dropTarget;
+    if (findWindowAt(globalPos)) return null;
+    return dropTarget;
   }
 
   function findBinAt(globalPos) {

@@ -10,6 +10,15 @@ import { computeAvailableRecipesAndBuildings } from "../../model/skills.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
 import { installSolidUiHitArea } from "../ui-helpers/solid-ui-hit-area.js";
 
+const OPEN_CLOSE_GUARD_MS = 140;
+
+function nowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
 const SYSTEM_RECIPE_KIND = {
   cook: { kind: "cook", pauseLabel: "Pause cooking" },
   craft: { kind: "craft", pauseLabel: "Pause crafting" },
@@ -221,6 +230,7 @@ function createRecipeDropdown(layer, app) {
   let outsideHandler = null;
   let onPick = null;
   let hoverHideTimeout = null;
+  let outsideGuardUntilMs = 0;
 
   function clearHoverHide() {
     if (hoverHideTimeout == null) return;
@@ -331,11 +341,13 @@ function createRecipeDropdown(layer, app) {
     container.y = bounds.y + bounds.height + 6;
     container.visible = true;
     clearHoverHide();
+    outsideGuardUntilMs = nowMs() + OPEN_CLOSE_GUARD_MS;
 
     if (outsideHandler) {
       app.stage.off("pointerdown", outsideHandler);
     }
     outsideHandler = (ev) => {
+      if (nowMs() < outsideGuardUntilMs) return;
       const p = ev?.data?.global;
       if (!p) return;
       const b = container.getBounds();
@@ -360,6 +372,7 @@ function createRecipeDropdown(layer, app) {
       app.stage.off("pointerdown", outsideHandler);
       outsideHandler = null;
     }
+    outsideGuardUntilMs = 0;
     onPick = null;
   }
 

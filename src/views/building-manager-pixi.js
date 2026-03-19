@@ -31,6 +31,10 @@ const ROW_GAP = scaleUi(6);
 const ACTION_BUTTON_WIDTH = scaleUi(70);
 const ACTION_BUTTON_HEIGHT = scaleUi(20);
 const ROW_RADIUS = scaleUi(7);
+const SECTION_HEADER_HEIGHT = scaleUi(18);
+const SECTION_HEADER_GAP = scaleUi(4);
+const SECTION_BLOCK_GAP = scaleUi(8);
+const OPEN_CLOSE_REASON_GUARD_MS = 280;
 
 function normalizePlacementMode(def) {
   const raw = def?.build?.placementMode;
@@ -69,6 +73,64 @@ function formatBuildRequirements(def) {
     out.push(`- ${formatRequirementLabel(req)} x${amount}`);
   }
   return out;
+}
+
+function fitTextToWidth(textNode, fullText, maxWidth, suffix = "...") {
+  if (!textNode) return "";
+  const safeText = String(fullText ?? "");
+  const limit = Number.isFinite(maxWidth) ? Math.max(0, Math.floor(maxWidth)) : 0;
+  if (limit <= 0) {
+    textNode.text = "";
+    return "";
+  }
+
+  textNode.text = safeText;
+  if (textNode.width <= limit) return safeText;
+
+  textNode.text = suffix;
+  if (textNode.width > limit) {
+    textNode.text = "";
+    return "";
+  }
+
+  let lo = 0;
+  let hi = safeText.length;
+  let best = suffix;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const candidate = `${safeText.slice(0, mid)}${suffix}`;
+    textNode.text = candidate;
+    if (textNode.width <= limit) {
+      best = candidate;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  textNode.text = best;
+  return best;
+}
+
+function nowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function createSectionHeader(label, width) {
+  const header = new PIXI.Container();
+  const text = new PIXI.Text(String(label || ""), {
+    fill: MUCHA_UI_COLORS.ink.secondary,
+    fontSize: scaleUi(10),
+    fontWeight: "bold",
+  });
+  text.x = scaleUi(2);
+  text.y = 0;
+  fitTextToWidth(text, String(label || ""), Math.max(scaleUi(24), width - scaleUi(4)));
+  header.addChild(text);
+  applyTextResolution(text, BUILDING_MANAGER_UI_SCALE);
+  return header;
 }
 
 function hasEligibleUpgradeSourceBuilt(state, sourceDefIds) {
@@ -241,6 +303,7 @@ export function createBuildingManagerView({
   let leftPaneHeight = 0;
   let rightPaneWidth = 0;
   let rightPaneHeight = 0;
+  let openAtMs = 0;
 
   function getStateSafe() {
     return typeof getState === "function" ? getState() : null;
@@ -355,10 +418,25 @@ export function createBuildingManagerView({
 
     const rowWidth = Math.max(scaleUi(120), leftPaneWidth - PANE_PAD * 2);
     const labelWidth = Math.max(scaleUi(60), rowWidth - ACTION_BUTTON_WIDTH - scaleUi(56));
-    for (let i = 0; i < entries.length; i += 1) {
-      const entry = entries[i];
+    const availableEntries = entries.filter((entry) => entry?.canBuild);
+    const unavailableEntries = entries.filter((entry) => !entry?.canBuild);
+    const orderedEntries = availableEntries.concat(unavailableEntries);
+    let y = 0;
+
+    for (let i = 0; i < orderedEntries.length; i += 1) {
+      const entry = orderedEntries[i];
+      if (unavailableEntries.length > 0 && i === availableEntries.length) {
+        if (availableEntries.length > 0) {
+          y += SECTION_BLOCK_GAP;
+        }
+        const header = createSectionHeader("Unavailable", rowWidth);
+        header.y = y;
+        leftRows.addChild(header);
+        y += SECTION_HEADER_HEIGHT + SECTION_HEADER_GAP;
+      }
+
       const row = new PIXI.Container();
-      row.y = i * (ROW_HEIGHT + ROW_GAP);
+      row.y = y;
       row.eventMode = "static";
       row.cursor = "pointer";
       row.hitArea = new PIXI.Rectangle(0, 0, rowWidth, ROW_HEIGHT);
@@ -451,6 +529,7 @@ export function createBuildingManagerView({
 
       row.addChild(actionButton);
       leftRows.addChild(row);
+      y += ROW_HEIGHT + ROW_GAP;
     }
 
     const selectedEntry = entries.find((entry) => entry.id === selectedId) || entries[0];
@@ -462,6 +541,17 @@ export function createBuildingManagerView({
   }
 
   function close(reason = "unknown") {
+    const isCloseGuardActive =
+      openAtMs > 0 && nowMs() - openAtMs < OPEN_CLOSE_REASON_GUARD_MS;
+    if (
+      isCloseGuardActive &&
+      reason !== "closeButton" &&
+      reason !== "backdrop" &&
+      reason !== "selectBuild"
+    ) {
+      return reason;
+    }
+    const closedOwnerId = context?.ownerId ?? null;
     context = null;
     selectedId = null;
     lastModelSignature = "";
@@ -469,7 +559,7 @@ export function createBuildingManagerView({
     leftRows.removeChildren();
     rightDetails.text = "";
     leftEmptyText.visible = false;
-    onClose?.(reason);
+    onClose?.({ reason, ownerId: closedOwnerId });
     return reason;
   }
 
@@ -478,8 +568,15 @@ export function createBuildingManagerView({
     context = { ownerId };
     selectedId = null;
     lastModelSignature = "";
+    openAtMs = nowMs();
     setOpenVisible(true);
     ensureLayout(true);
+    const state = getStateSafe();
+    if (!state) return;
+    const entries = buildEntries(state);
+    const signature = buildModelSignature(context?.ownerId ?? null, entries, selectedId);
+    lastModelSignature = signature;
+    redrawRows(entries);
   }
 
   function update() {

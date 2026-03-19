@@ -73,6 +73,10 @@ export function createPawnsView(opts) {
   const RADIUS = 20;
   const PAWN_HOVER_ZINDEX = 30;
   const LEADER_DIAMOND_SCALE = 1.15;
+  const INVENTORY_DRAG_VALID_OUTLINE = 0x58c7ff;
+  const INVENTORY_DRAG_FULL_OUTLINE = 0xffa24f;
+  const INVENTORY_DRAG_HOVER_OUTLINE = 0x6bd37b;
+  const INVENTORY_DRAG_GLOW_ALPHA = 0.24;
   let focusGhost = null;
   let focusedPawnId = null;
   let followerOrdinalByPawnIdCache = new Map();
@@ -82,6 +86,7 @@ export function createPawnsView(opts) {
     targetKey: "",
     lastUpdatedMs: -1,
   };
+  const inventoryDragAffordanceByOwnerId = new Map();
 
   function clamp01(value) {
     if (!Number.isFinite(value)) return 0;
@@ -106,6 +111,42 @@ export function createPawnsView(opts) {
     const nextG = Math.max(0, Math.min(255, Math.round(g * factor)));
     const nextB = Math.max(0, Math.min(255, Math.round(b * factor)));
     return (nextR << 16) | (nextG << 8) | nextB;
+  }
+
+  function getInventoryDragOutlineColor(level) {
+    if (level === "hover") return INVENTORY_DRAG_HOVER_OUTLINE;
+    if (level === "full") return INVENTORY_DRAG_FULL_OUTLINE;
+    if (level === "valid") return INVENTORY_DRAG_VALID_OUTLINE;
+    return null;
+  }
+
+  function redrawPawnFocusOutline(view, color) {
+    if (!view?.focusOutline || !Number.isFinite(view?.shapeRadius)) return;
+    view.focusOutline.clear();
+    if (color == null) return;
+    view.focusOutline.lineStyle(2, color, 1);
+    drawPawnShape(view.focusOutline, {
+      isLeader: view.isLeader === true,
+      radius: view.shapeRadius + 5,
+    });
+  }
+
+  function applyPawnAffordanceVisual(view, isFocused) {
+    if (!view) return;
+    const dragColor = getInventoryDragOutlineColor(view.inventoryDragAffordance);
+    redrawPawnFocusOutline(view, dragColor);
+    if (view.focusOutline) {
+      view.focusOutline.visible = dragColor != null;
+    }
+    view.outline.tint = dragColor == null && isFocused ? 0xffff66 : 0x000000;
+    if (view.dragGlow) {
+      view.dragGlow.visible = dragColor != null;
+      view.dragGlow.tint = dragColor ?? 0xffffff;
+    }
+  }
+
+  function normalizeInventoryDragOwnerId(ownerId) {
+    return ownerId == null ? null : String(ownerId);
   }
 
   function getStaminaRatio(pawn) {
@@ -1009,6 +1050,15 @@ export function createPawnsView(opts) {
     redGlow.visible = false;
     paintLayer.addChild(redGlow);
 
+    const dragGlow = new PIXI.Graphics().beginFill(
+      INVENTORY_DRAG_VALID_OUTLINE,
+      INVENTORY_DRAG_GLOW_ALPHA
+    );
+    drawPawnShape(dragGlow, { isLeader, radius: shapeRadius + 4 });
+    dragGlow.endFill();
+    dragGlow.visible = false;
+    paintLayer.addChild(dragGlow);
+
     const dimBg = new PIXI.Graphics().beginFill(dimColor(fillColor), 1);
     drawPawnShape(dimBg, { isLeader, radius: shapeRadius });
     dimBg.endFill();
@@ -1022,6 +1072,10 @@ export function createPawnsView(opts) {
     const staminaMask = new PIXI.Graphics();
     paintLayer.addChild(staminaMask);
     staminaFill.mask = staminaMask;
+
+    const focusOutline = new PIXI.Graphics();
+    focusOutline.visible = false;
+    inkLayer.addChild(focusOutline);
 
     const outline = new PIXI.Graphics().lineStyle(2, 0x000000, 1);
     drawPawnShape(outline, { isLeader, radius: shapeRadius + 1 });
@@ -1065,9 +1119,12 @@ export function createPawnsView(opts) {
     const view = {
       container,
       pawn,
+      isLeader,
+      focusOutline,
       outline,
       shadow,
       redGlow,
+      dragGlow,
       flashRing,
       workerBadge,
       workerBadgeBg,
@@ -1088,6 +1145,8 @@ export function createPawnsView(opts) {
       paintLayer,
       clearHover: null,
       cancelLongPress: null,
+      inventoryDragAffordance:
+        inventoryDragAffordanceByOwnerId.get(normalizeInventoryDragOwnerId(pawn.id)) ?? null,
     };
 
     // -----------------------------------------------------------------------
@@ -1408,7 +1467,7 @@ export function createPawnsView(opts) {
 
     for (const [id, view] of viewsById.entries()) {
       const isFocused = focusedPawnId != null && id === focusedPawnId;
-      view.outline.tint = isFocused ? 0xffff66 : 0x000000;
+      applyPawnAffordanceVisual(view, isFocused);
     }
 
     if (intent && intent.kind === "pawnMove") {
@@ -1503,6 +1562,21 @@ export function createPawnsView(opts) {
     updateFocus();
   }
 
+  function setInventoryDragAffordances(nextAffordances = null) {
+    inventoryDragAffordanceByOwnerId.clear();
+    if (nextAffordances instanceof Map) {
+      for (const [ownerId, level] of nextAffordances.entries()) {
+        if (ownerId == null || level == null) continue;
+        inventoryDragAffordanceByOwnerId.set(normalizeInventoryDragOwnerId(ownerId), level);
+      }
+    }
+    for (const [ownerId, view] of viewsById.entries()) {
+      view.inventoryDragAffordance =
+        inventoryDragAffordanceByOwnerId.get(normalizeInventoryDragOwnerId(ownerId)) ?? null;
+    }
+    updateFocus();
+  }
+
   function getInventoryOwnerAtGlobalPos(globalPos) {
     if (!globalPos) return null;
     const state = getStateSafe();
@@ -1521,7 +1595,13 @@ export function createPawnsView(opts) {
         globalPos.y >= bounds.y &&
         globalPos.y <= bounds.y + bounds.height
       ) {
-        return ownerId;
+        return {
+          ownerId,
+          anchor: {
+            coordinateSpace: "screen",
+            getAnchorRect: () => view.container?.getBounds?.() ?? null,
+          },
+        };
       }
     }
 
@@ -1535,6 +1615,7 @@ export function createPawnsView(opts) {
     updatePositionsFromModel,
     hasActiveHoverZoomDown,
     getViewForId: (id) => viewsById.get(id) || null,
+    setInventoryDragAffordances,
     getInventoryOwnerAtGlobalPos,
   };
 }

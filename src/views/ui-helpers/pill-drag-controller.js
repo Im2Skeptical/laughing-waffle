@@ -1,6 +1,8 @@
 // pill-drag-controller.js
 // Shared drag-to-reorder helper for pill lists (tags, routing endpoints, etc).
 
+import { getDisplayObjectWorldScale } from "./display-object-scale.js";
+
 export function createPillDragController(opts = {}) {
   const {
     app,
@@ -21,6 +23,35 @@ export function createPillDragController(opts = {}) {
   } = opts;
 
   let activeView = null;
+
+  function eventIndicatesReleased(ev) {
+    if (!ev || typeof ev !== "object") return false;
+    if (ev.type === "touchend" || ev.type === "touchcancel") return true;
+    if (Number.isFinite(ev.buttons)) return ev.buttons === 0;
+    if (Number.isFinite(ev.which)) return ev.which === 0;
+    return false;
+  }
+
+  function removeGlobalEndListeners(drag) {
+    if (!drag || typeof window === "undefined") return;
+    if (typeof drag.windowPointerUp === "function") {
+      window.removeEventListener("pointerup", drag.windowPointerUp, true);
+      window.removeEventListener("mouseup", drag.windowPointerUp, true);
+      window.removeEventListener("touchend", drag.windowPointerUp, true);
+      window.removeEventListener("touchcancel", drag.windowPointerUp, true);
+      drag.windowPointerUp = null;
+    }
+    if (typeof drag.windowPointerMove === "function") {
+      window.removeEventListener("pointermove", drag.windowPointerMove, true);
+      window.removeEventListener("mousemove", drag.windowPointerMove, true);
+      window.removeEventListener("touchmove", drag.windowPointerMove, true);
+      drag.windowPointerMove = null;
+    }
+    if (typeof drag.windowBlur === "function") {
+      window.removeEventListener("blur", drag.windowBlur, true);
+      drag.windowBlur = null;
+    }
+  }
 
   function endDrag(view, commit, globalPos = null) {
     if (!view) return;
@@ -44,7 +75,9 @@ export function createPillDragController(opts = {}) {
       app.stage.off("pointermove", drag.stageMove);
       app.stage.off("pointerup", drag.stageUp);
       app.stage.off("pointerupoutside", drag.stageUp);
+      app.stage.off("pointercancel", drag.stageUp);
     }
+    removeGlobalEndListeners(drag);
 
     view[dragStateKey] = null;
     if (activeView === view) activeView = null;
@@ -85,9 +118,19 @@ export function createPillDragController(opts = {}) {
       targetIndex: startIndex,
       offsetY,
       startY: entry.container.y,
+      startGlobalY: Number(ev?.data?.global?.y) || 0,
+      currentGlobalPos: ev?.data?.global
+        ? {
+            x: Number(ev.data.global.x) || 0,
+            y: Number(ev.data.global.y) || 0,
+          }
+        : null,
       moved: false,
       stageMove: null,
       stageUp: null,
+      windowPointerUp: null,
+      windowPointerMove: null,
+      windowBlur: null,
     };
 
     view[dragStateKey] = dragState;
@@ -118,9 +161,24 @@ export function createPillDragController(opts = {}) {
     const onMove = (moveEv) => {
       const drag = view[dragStateKey];
       if (!drag) return;
-      const localPos = container.toLocal(moveEv.data.global);
+      const nativeMoveEv = moveEv?.data?.originalEvent ?? moveEv?.data?.nativeEvent ?? null;
+      if (eventIndicatesReleased(nativeMoveEv)) {
+        endDrag(view, true, drag.currentGlobalPos ?? null);
+        return;
+      }
+      const globalY = Number(moveEv?.data?.global?.y) || drag.startGlobalY;
+      drag.currentGlobalPos = moveEv?.data?.global
+        ? {
+            x: Number(moveEv.data.global.x) || 0,
+            y: Number(moveEv.data.global.y) || 0,
+          }
+        : drag.currentGlobalPos;
+      const worldScale = Math.max(0.001, getDisplayObjectWorldScale(container, 1));
       const maxY = Math.max(0, (entries.length - 1) * rowStep);
-      const nextY = Math.max(0, Math.min(maxY, localPos.y - drag.offsetY));
+      const nextY = Math.max(
+        0,
+        Math.min(maxY, drag.startY + (globalY - drag.startGlobalY) / worldScale)
+      );
       drag.entry.container.y = nextY;
       if (Math.abs(nextY - drag.startY) > 2) {
         drag.moved = true;
@@ -151,6 +209,35 @@ export function createPillDragController(opts = {}) {
     app.stage.on("pointermove", onMove);
     app.stage.on("pointerup", onUp);
     app.stage.on("pointerupoutside", onUp);
+    app.stage.on("pointercancel", onUp);
+
+    if (typeof window !== "undefined") {
+      const onWindowPointerUp = () => {
+        const activeDrag = view[dragStateKey];
+        endDrag(view, true, activeDrag?.currentGlobalPos ?? null);
+      };
+      const onWindowPointerMove = (windowEv) => {
+        const activeDrag = view[dragStateKey];
+        if (!activeDrag) return;
+        if (!eventIndicatesReleased(windowEv)) return;
+        endDrag(view, true, activeDrag.currentGlobalPos ?? null);
+      };
+      const onWindowBlur = () => {
+        const activeDrag = view[dragStateKey];
+        endDrag(view, false, activeDrag?.currentGlobalPos ?? null);
+      };
+      dragState.windowPointerUp = onWindowPointerUp;
+      dragState.windowPointerMove = onWindowPointerMove;
+      dragState.windowBlur = onWindowBlur;
+      window.addEventListener("pointerup", onWindowPointerUp, true);
+      window.addEventListener("mouseup", onWindowPointerUp, true);
+      window.addEventListener("touchend", onWindowPointerUp, true);
+      window.addEventListener("touchcancel", onWindowPointerUp, true);
+      window.addEventListener("pointermove", onWindowPointerMove, true);
+      window.addEventListener("mousemove", onWindowPointerMove, true);
+      window.addEventListener("touchmove", onWindowPointerMove, true);
+      window.addEventListener("blur", onWindowBlur, true);
+    }
 
     if (typeof layoutEntries === "function") {
       layoutEntries(view);

@@ -20,6 +20,10 @@ const LIST_TITLE_HEIGHT = scaleUi(18);
 const ACTION_BUTTON_WIDTH = scaleUi(64);
 const ACTION_BUTTON_HEIGHT = scaleUi(18);
 const SCROLLBAR_WIDTH = scaleUi(8);
+const SECTION_HEADER_HEIGHT = scaleUi(18);
+const SECTION_HEADER_GAP = scaleUi(4);
+const SECTION_BLOCK_GAP = scaleUi(8);
+const OPEN_CLOSE_REASON_GUARD_MS = 280;
 
 function clampInt(value, minValue, maxValue) {
   const n = Number.isFinite(value) ? Math.floor(value) : minValue;
@@ -29,6 +33,13 @@ function clampInt(value, minValue, maxValue) {
 function ensurePositiveInt(value, fallback) {
   const n = Number.isFinite(value) ? Math.floor(value) : fallback;
   return Math.max(1, n);
+}
+
+function nowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
 }
 
 function buildScreenSignature(width, height) {
@@ -94,11 +105,27 @@ function applyTextResolutionToTree(root, PIXIRef, uiScale = 1) {
   return updated;
 }
 
+function createSectionHeader(label, width) {
+  const header = new PIXI.Container();
+  const text = new PIXI.Text(String(label || ""), {
+    fill: MUCHA_UI_COLORS.ink.secondary,
+    fontSize: scaleUi(10),
+    fontWeight: "bold",
+  });
+  text.x = 2;
+  text.y = 0;
+  fitTextToWidth(text, String(label || ""), Math.max(24, width - 4));
+  header.addChild(text);
+  applyTextResolution(text, MANUAL_UI_SCALE);
+  return header;
+}
+
 export function createRecipeManualWindow({
   PIXI,
   app,
   layer,
   layout = null,
+  getState = null,
   resolveViewModel = null,
   onToggleRecipe = null,
 } = {}) {
@@ -118,9 +145,9 @@ export function createRecipeManualWindow({
     panelRadius: PANEL_RADIUS,
     bodyTopGap: 6,
     bodyPadding: PANEL_PAD,
-    closeButtonWidth: 42,
-    closeButtonHeight: 16,
-    closeOffsetX: 8,
+    closeButtonWidth: scaleUi(62),
+    closeButtonHeight: scaleUi(18),
+    closeOffsetX: 0,
     onRequestClose: (reason) => close(reason),
   });
   const { root, panelBg, header, body, getScreenRect } = modalFrame;
@@ -188,6 +215,7 @@ export function createRecipeManualWindow({
   let leftViewportHeight = 0;
   let leftViewportX = 0;
   let leftViewportY = 0;
+  let openAtMs = 0;
 
   function getScreenSize() {
     return {
@@ -421,13 +449,36 @@ export function createRecipeManualWindow({
     }
 
     const rowWidth = Math.max(80, leftViewportWidth);
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = rows[i];
+    const activeRows = rows.filter((row) => row?.inList);
+    const inactiveRows = rows.filter((row) => !row?.inList);
+    const orderedRows = activeRows.concat(inactiveRows);
+    let y = 0;
+
+    if (activeRows.length > 0) {
+      const activeHeader = createSectionHeader("Active", rowWidth);
+      activeHeader.y = y;
+      leftRows.addChild(activeHeader);
+      y += SECTION_HEADER_HEIGHT + SECTION_HEADER_GAP;
+    }
+
+    if (inactiveRows.length > 0 && activeRows.length > 0) {
+      y += SECTION_BLOCK_GAP;
+    }
+
+    for (let i = 0; i < orderedRows.length; i += 1) {
+      const row = orderedRows[i];
       const rowId = row?.id;
       if (!rowId) continue;
 
+      if (inactiveRows.length > 0 && i === activeRows.length) {
+        const inactiveHeader = createSectionHeader("Inactive", rowWidth);
+        inactiveHeader.y = y;
+        leftRows.addChild(inactiveHeader);
+        y += SECTION_HEADER_HEIGHT + SECTION_HEADER_GAP;
+      }
+
       const rowRoot = new PIXI.Container();
-      rowRoot.y = i * (ROW_HEIGHT + ROW_GAP);
+      rowRoot.y = y;
       rowRoot.eventMode = "static";
       rowRoot.cursor = "pointer";
       rowRoot.hitArea = new PIXI.Rectangle(0, 0, rowWidth, ROW_HEIGHT);
@@ -505,12 +556,10 @@ export function createRecipeManualWindow({
 
       rowRoot.addChild(actionButton);
       leftRows.addChild(rowRoot);
+      y += ROW_HEIGHT + ROW_GAP;
     }
 
-    const contentHeight = Math.max(
-      0,
-      rows.length * (ROW_HEIGHT + ROW_GAP) - ROW_GAP
-    );
+    const contentHeight = Math.max(0, y > 0 ? y - ROW_GAP : 0);
     leftListMaxScroll = Math.max(0, contentHeight - leftViewportHeight);
     clampScroll();
     drawScrollbar();
@@ -537,6 +586,15 @@ export function createRecipeManualWindow({
   }
 
   function close(reason = "unknown") {
+    const isCloseGuardActive =
+      openAtMs > 0 && nowMs() - openAtMs < OPEN_CLOSE_REASON_GUARD_MS;
+    if (
+      isCloseGuardActive &&
+      reason !== "closeButton" &&
+      reason !== "backdrop"
+    ) {
+      return reason;
+    }
     openContext = null;
     selectedRecipeId = null;
     scrollOffset = 0;
@@ -561,8 +619,22 @@ export function createRecipeManualWindow({
     scrollOffset = 0;
     leftListMaxScroll = 0;
     currentModelSignature = "";
+    openAtMs = nowMs();
     setOpenVisible(true);
     ensureLayout(true);
+    const state = typeof getState === "function" ? getState() : null;
+    if (!state || typeof resolveViewModel !== "function") return;
+    const model = resolveViewModel({
+      state,
+      targetRef: openContext.targetRef,
+      systemId: openContext.systemId,
+      selectedRecipeId,
+    });
+    if (!model || typeof model !== "object") return;
+    selectedRecipeId = computeDefaultSelection(model);
+    header.setTitle(String(model?.title || "Recipies"));
+    currentModelSignature = buildModelSignature(model, selectedRecipeId);
+    redrawRows(model);
   }
 
   function update(state) {
