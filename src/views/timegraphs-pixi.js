@@ -10,6 +10,7 @@ import {
 } from "../model/timeline/index.js";
 import { computeHistoryZoneSegments } from "../model/timegraph/edit-policy.js";
 import {
+  GAMEPIECE_HOVER_SCALE,
   TIME_STATE_COLORS,
   TIME_STATE_GRAPH_BG_ALPHA,
 } from "./layout-pixi.js";
@@ -17,6 +18,7 @@ import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
+import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 
 const HISTORY_ZONE_KIND_ORDER = {
   fixedHistory: 0,
@@ -778,7 +780,13 @@ export function createMetricGraphView({
           setLegendHoverSeries(seriesId);
           if (!tooltipView) return;
           if (interaction && interaction?.canShowHoverUI?.() === false) return;
-          const spec = buildLegendTooltipSpec(s);
+          const spec = {
+            ...buildLegendTooltipSpec(s),
+            scale: Math.max(
+              Number.isFinite(GAMEPIECE_HOVER_SCALE) ? GAMEPIECE_HOVER_SCALE : 1,
+              getDisplayObjectWorldScale(entryContainer, 1)
+            ),
+          };
           tooltipView.show(spec, entryContainer.getBounds());
         });
         entryContainer.on("pointerout", () => {

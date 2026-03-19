@@ -87,7 +87,7 @@ export const VIEW_LAYOUT = {
   processWidget: {
     position: { x: 1180, y: 640 },
     mobileBreakpointPx: 900,
-    mobileScale: 2,
+    mobileScale: 1,
     recipeManual: {
       widthPx: 1560,
       heightPx: 900,
@@ -97,7 +97,7 @@ export const VIEW_LAYOUT = {
   },
   inventory: {
     mobileBreakpointPx: 900,
-    mobileScale: 2,
+    mobileScale: 1,
     buildingManager: {
       widthPx: 1560,
       heightPx: 900,

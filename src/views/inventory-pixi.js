@@ -37,7 +37,7 @@ import {
 } from "../model/item-use-policy.js";
 import { getScrollTimegraphStateFromItem } from "../model/timegraph/edit-policy.js";
 import { isAnyDropboxOwnerId } from "../model/owner-id-protocol.js";
-import { canStackItems } from "../model/inventory-model.js";
+import { canStackItems, getItemMaxStack } from "../model/inventory-model.js";
 import {
   getLeaderWorkerCount,
   getTotalAttachedWorkers,
@@ -518,7 +518,7 @@ export function createInventoryView({
       : 900;
     const mobileScale = Number.isFinite(inventoryLayout?.mobileScale)
       ? Math.max(1, Number(inventoryLayout.mobileScale))
-      : 2;
+      : 1;
     return getViewportWidthPx() <= breakpoint ? mobileScale : 1;
   }
 
@@ -3474,6 +3474,11 @@ export function createInventoryView({
     updateEquipmentPanel(win);
     updateLeaderPanel(win);
 
+    if (win.autoRevealAnchor) {
+      positionWindowFromHoverAnchor(win, win.autoRevealAnchor);
+      win.autoRevealAnchor = null;
+    }
+
     lastVersionByOwner.set(ownerId, inv.version ?? 0);
   }
 
@@ -3712,7 +3717,19 @@ export function createInventoryView({
       win.pinned = true;
       win.pinText.text = "[*]";
     }
+    const scaleChanged = applyWindowScale(win);
     win.hovered = true;
+    if (opts.anchor) {
+      win.hoverAnchor = opts.anchor;
+      win.autoRevealAnchor = opts.anchor;
+      if (!scaleChanged) {
+        positionWindowFromHoverAnchor(win, opts.anchor);
+        win.autoRevealAnchor = null;
+      }
+    }
+    if (scaleChanged) {
+      rebuildWindow(ownerId);
+    }
     refreshWindowVisibility(win);
     syncWindowStackOrder(win);
     return { ok: true };
@@ -4098,20 +4115,28 @@ export function createInventoryView({
     if (!resolvedBounds) return;
     const text = consumePrompt.text;
     const bg = consumePrompt.bg;
-    const width = Math.max(64, Math.ceil(text.width) + 16);
-    const height = 20;
+    const width = Math.max(1, Math.ceil(resolvedBounds.width));
+    const height = Math.max(1, Math.ceil(resolvedBounds.height));
+    text.scale.set(1);
+    const fitScale = Math.min(
+      1,
+      Math.max(0.01, (width - 8) / Math.max(1, text.width)),
+      Math.max(0.01, (height - 6) / Math.max(1, text.height))
+    );
+    text.scale.set(fitScale);
     bg.clear();
     bg.lineStyle(1, INVENTORY_PROMPT_STROKE, 0.98);
     bg.beginFill(INVENTORY_PROMPT_BG, 0.96);
     bg.drawRoundedRect(0, 0, width, height, 6);
     bg.endFill();
+    consumePrompt.container.hitArea = new PIXI.Rectangle(0, 0, width, height);
     text.x = Math.floor((width - text.width) / 2);
-    text.y = Math.floor((height - text.height) / 2) - 1;
+    text.y = Math.floor((height - text.height) / 2);
 
     setDisplayObjectScreenPosition(
       consumePrompt.container,
-      Math.round(resolvedBounds.x + (resolvedBounds.width - width) * 0.5),
-      Math.round(resolvedBounds.y + (resolvedBounds.height - height) * 0.5)
+      Math.round(resolvedBounds.x),
+      Math.round(resolvedBounds.y)
     );
   }
 
@@ -4747,7 +4772,10 @@ export function createInventoryView({
       const placement = isProcessDropbox
         ? { gx: 0, gy: 0 }
         : findItemPlacement(targetInv, item, preview, null);
-      if (!placement) {
+      const stackOnlyTransferOk =
+        !isProcessDropbox &&
+        canAutostackItemPreview(targetInv, item, preview, null);
+      if (!placement && !stackOnlyTransferOk) {
         if (isProcessDropbox) {
           flashDropTargetError?.(targetOwner);
         } else {
@@ -4783,15 +4811,15 @@ export function createInventoryView({
               fromOwnerId: sourceOwner,
               toOwnerId: targetOwner,
               slotId: sourceEquipmentSlotId,
-              targetGX: placement.gx,
-              targetGY: placement.gy,
+              targetGX: placement?.gx ?? 0,
+              targetGY: placement?.gy ?? 0,
             })
           : handler({
               fromOwnerId: sourceOwner,
               toOwnerId: targetOwner,
               itemId: item.id,
-              targetGX: placement.gx,
-              targetGY: placement.gy,
+              targetGX: placement?.gx ?? 0,
+              targetGY: placement?.gy ?? 0,
               viaProcessDropbox: isProcessDropbox,
             })
         : {
@@ -4975,7 +5003,18 @@ export function createInventoryView({
     }
 
     if (isCrossOwner) {
-      if (!canPlaceItemPreview(targetInv, item, gx, gy, preview, item?.id)) {
+      const canPlaceCrossOwner = canPlaceItemPreview(
+        targetInv,
+        item,
+        gx,
+        gy,
+        preview,
+        item?.id
+      );
+      if (
+        !canPlaceCrossOwner &&
+        !canAutostackItemPreview(targetInv, item, preview, item?.id)
+      ) {
         flashItemError(view, sourceOwner);
         finish("fail");
         return;
@@ -5236,6 +5275,32 @@ export function createInventoryView({
       }
     }
     return true;
+  }
+
+  function canAutostackItemPreview(inv, item, preview, ignoreItemId) {
+    if (!inv || !item) return false;
+    const hidden =
+      preview?.hiddenItemIds instanceof Set
+        ? preview.hiddenItemIds
+        : new Set(preview?.hiddenItemIds || []);
+
+    const candidates = [];
+    for (const candidate of inv.items || []) {
+      if (!candidate || candidate.id === ignoreItemId || hidden.has(candidate.id)) continue;
+      candidates.push(candidate);
+    }
+    for (const candidate of preview?.overlayItems || []) {
+      if (!candidate || candidate.id === ignoreItemId) continue;
+      candidates.push(candidate);
+    }
+
+    for (const candidate of candidates) {
+      if (!canStackItems(candidate, item)) continue;
+      const maxStack = Math.max(1, Math.floor(getItemMaxStack(candidate) || 1));
+      const quantity = Math.max(0, Math.floor(candidate.quantity ?? 0));
+      if (quantity < maxStack) return true;
+    }
+    return false;
   }
 
   function findSplitPlacement(inv, item, preview) {

@@ -6493,6 +6493,27 @@ export function createBoardView(opts) {
     return rects;
   }
 
+  function getInventoryOwnerAnchor(ownerId) {
+    if (ownerId == null) return null;
+    for (const view of hubStructureViews.values()) {
+      if (!view?.container?.visible) continue;
+      if ((view.structure?.instanceId ?? null) !== ownerId) continue;
+      return {
+        coordinateSpace: "screen",
+        getAnchorRect: () => view.container?.getBounds?.() ?? null,
+      };
+    }
+    for (const view of envStructureViews.values()) {
+      if (!view?.container?.visible) continue;
+      if ((view.structure?.instanceId ?? null) !== ownerId) continue;
+      return {
+        coordinateSpace: "screen",
+        getAnchorRect: () => view.container?.getBounds?.() ?? null,
+      };
+    }
+    return null;
+  }
+
   return {
     init,
     rebuildAll,
@@ -6503,6 +6524,7 @@ export function createBoardView(opts) {
     },
     getInventoryOwnerAtGlobalPos,
     getOccludingScreenRects,
+    getInventoryOwnerAnchor,
     setDistributorBuildPreview(spec) {
       if (!spec) {
         clearBuildDistributorRangePreview();

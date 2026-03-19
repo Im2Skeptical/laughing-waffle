@@ -1008,6 +1008,23 @@ function openSkillTreeEditorForTree({ treeId, defsInput = null } = {}) {
   return { ok: true };
 }
 
+function commitActivePreviewForSkillTree() {
+  const preview = runner.getPreviewStatus?.();
+  if (!preview?.active) return { ok: true, committed: false };
+  if (preview.isForecastPreview) {
+    const res = runner.commitPreviewToLive?.();
+    return res?.ok === false ? res : { ok: true, committed: true };
+  }
+  const previewSec = Number.isFinite(preview.previewSec)
+    ? Math.floor(preview.previewSec)
+    : null;
+  if (previewSec == null) {
+    return { ok: false, reason: "badPreviewSec" };
+  }
+  const res = runner.commitCursorSecond?.(previewSec);
+  return res?.ok === false ? res : { ok: true, committed: true };
+}
+
 function openSkillTreeForLeaderPawn(leaderPawnId) {
   if (!skillTreeView) return { ok: false, reason: "noSkillTreeView" };
   if (skillTreeView.isOpen?.()) return { ok: false, reason: "alreadyOpen" };
@@ -1016,6 +1033,8 @@ function openSkillTreeForLeaderPawn(leaderPawnId) {
     return { ok: false, reason: "badLeaderPawnId" };
   }
   const resolvedLeaderPawnId = Math.floor(leaderPawnId);
+  const previewCommitRes = commitActivePreviewForSkillTree();
+  if (previewCommitRes?.ok === false) return previewCommitRes;
   const state = runner.getCursorState?.();
   if (!state?.paused) {
     pendingSkillTreeOpenLeaderPawnId = resolvedLeaderPawnId;
@@ -1155,8 +1174,7 @@ function applyScenarioDevUiBootstrap() {
   for (const selector of inventorySelectors) {
     const ownerId = resolveOwnerIdFromScenarioSelector(state, selector);
     if (ownerId == null) continue;
-    inventoryView?.revealWindow?.(ownerId, { pinned: true });
-    inventoryView?.rebuildWindow?.(ownerId);
+    queueInventoryWindowRevealNearOwner(ownerId);
   }
 
   const shouldOpenSkillTreeEditor =
@@ -1201,6 +1219,44 @@ function findHubStructureOwnerIdByDefId(state, defId) {
   return null;
 }
 
+function resolveInventoryOwnerAnchor(ownerId) {
+  if (ownerId == null) return null;
+  const pawnView = pawnsView?.getViewForId?.(ownerId) ?? null;
+  if (pawnView?.container) {
+    return {
+      coordinateSpace: "screen",
+      getAnchorRect: () => pawnView.container?.getBounds?.() ?? null,
+    };
+  }
+  return boardView?.getInventoryOwnerAnchor?.(ownerId) ?? null;
+}
+
+const pendingInventoryAutoRevealOwnerIds = new Set();
+
+function queueInventoryWindowRevealNearOwner(ownerId) {
+  if (ownerId == null) return;
+  pendingInventoryAutoRevealOwnerIds.add(ownerId);
+}
+
+function revealInventoryWindowNearOwner(ownerId, opts = {}) {
+  if (ownerId == null) return { ok: false, reason: "badOwner" };
+  const res = inventoryView?.revealWindow?.(ownerId, {
+    pinned: opts.pinned !== false,
+    anchor: resolveInventoryOwnerAnchor(ownerId),
+  });
+  inventoryView?.rebuildWindow?.(ownerId);
+  return res ?? { ok: false, reason: "noInventoryView" };
+}
+
+function flushPendingInventoryWindowReveals() {
+  if (pendingInventoryAutoRevealOwnerIds.size <= 0) return;
+  const ownerIds = Array.from(pendingInventoryAutoRevealOwnerIds);
+  pendingInventoryAutoRevealOwnerIds.clear();
+  for (const ownerId of ownerIds) {
+    revealInventoryWindowNearOwner(ownerId, { pinned: true });
+  }
+}
+
 let lastMobileDelveHubVisible = null;
 function syncMobileDelveInventoryAutoOpen() {
   const state = runner.getCursorState?.();
@@ -1213,8 +1269,7 @@ function syncMobileDelveInventoryAutoOpen() {
   const templeOwnerId = findHubStructureOwnerIdByDefId(state, "templeRuins");
   for (const ownerId of [pawnOwnerId, templeOwnerId]) {
     if (ownerId == null) continue;
-    inventoryView?.revealWindow?.(ownerId, { pinned: true });
-    inventoryView?.rebuildWindow?.(ownerId);
+    queueInventoryWindowRevealNearOwner(ownerId);
   }
 }
 
@@ -1617,9 +1672,8 @@ inventoryView = createInventoryView({
         { apCost: 0 }
       );
       if (res?.result === "followerDespawnBlocked" && res.followerId != null) {
-        inventoryView.revealWindow?.(res.followerId, { pinned: true });
+        revealInventoryWindowNearOwner(res.followerId, { pinned: true });
         inventoryView.flashWindowError?.(res.followerId);
-        inventoryView.rebuildWindow?.(res.followerId);
       }
       if (leaderId != null) {
         inventoryView.rebuildWindow?.(leaderId);
@@ -2711,6 +2765,7 @@ app.ticker.add((delta) => {
   runTimed("envEventDeck.update", () => envEventDeckView.update(frameDt));
   runTimed("board.update", () => boardView.update(frameDt));
   runTimed("pawns.update", () => pawnsView.update(frameDt));
+  runTimed("inventoryAutoReveal.flush", () => flushPendingInventoryWindowReveals());
   runTimed("tooltip.update", () => tooltipView.update(frameDt));
   runTimed("inventory.update", () => inventoryView.update(frameDt));
   runTimed("processWidget.update", () => processWidgetView.update(frameDt));

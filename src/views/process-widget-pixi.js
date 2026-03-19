@@ -679,7 +679,7 @@ export function createProcessWidgetView({
       : 900;
     const mobileScale = Number.isFinite(processLayout?.mobileScale)
       ? Math.max(1, Number(processLayout.mobileScale))
-      : 2;
+      : 1;
     return getViewportWidthPx() <= breakpoint ? mobileScale : 1;
   }
 

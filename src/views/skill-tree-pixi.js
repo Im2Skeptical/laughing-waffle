@@ -328,6 +328,23 @@ export function createSkillTreeView({
     return runner?.getCursorState?.() ?? runner?.getState?.() ?? null;
   }
 
+  function commitActivePreviewIfNeeded() {
+    const preview = runner?.getPreviewStatus?.();
+    if (!preview?.active) return { ok: true, committed: false };
+    if (preview.isForecastPreview) {
+      const res = runner?.commitPreviewToLive?.();
+      return res?.ok === false ? res : { ok: true, committed: true };
+    }
+    const previewSec = Number.isFinite(preview.previewSec)
+      ? Math.floor(preview.previewSec)
+      : null;
+    if (previewSec == null) {
+      return { ok: false, reason: "badPreviewSec" };
+    }
+    const res = runner?.commitCursorSecond?.(previewSec);
+    return res?.ok === false ? res : { ok: true, committed: true };
+  }
+
   function getLeaderPawn(state) {
     const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
     return (
@@ -1176,6 +1193,18 @@ export function createSkillTreeView({
   }
 
   function commitQueuedUnlocks() {
+    const previewCommitRes = commitActivePreviewIfNeeded();
+    if (previewCommitRes?.ok === false) {
+      errorText.text = `Failed to commit preview: ${previewCommitRes.reason || "unknown"}`;
+      saveButtonErrorState = true;
+      updateSaveButtonVisual();
+      return {
+        ok: false,
+        reason: previewCommitRes.reason || "previewCommitFailed",
+        unlocked: [],
+      };
+    }
+
     const state = getState();
     if (!state?.paused) {
       errorText.text = "Skill changes can only be saved while paused.";
