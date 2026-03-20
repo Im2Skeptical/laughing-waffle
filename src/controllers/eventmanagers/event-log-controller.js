@@ -5,6 +5,7 @@ import {
   LEADER_FAITH_HUNGER_DECAY_THRESHOLD,
   PAWN_AI_HUNGER_WARNING,
 } from "../../defs/gamesettings/gamerules-defs.js";
+import { getUnlockableSkillNodes } from "../../model/skills.js";
 
 const HOLD_SEC_DEFAULT = 5;
 const FADE_SEC_DEFAULT = 10;
@@ -67,6 +68,17 @@ function getPawnHungerCur(pawn) {
   return Math.floor(value);
 }
 
+function getPawnSkillPoints(pawn) {
+  const value = pawn?.skillPoints;
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.floor(value));
+}
+
+function formatSkillPointsText(skillPoints) {
+  const points = Math.max(0, Math.floor(skillPoints ?? 0));
+  return `${points} skill ${points === 1 ? "point" : "points"} to spend`;
+}
+
 function buildPinnedRows(state, nowSec) {
   const pawns = Array.isArray(state?.pawns) ? state.pawns.slice() : [];
   if (!pawns.length) return [];
@@ -77,12 +89,11 @@ function buildPinnedRows(state, nowSec) {
 
   const hungryRows = [];
   const faithRows = [];
+  const skillRows = [];
   for (let i = 0; i < pawns.length; i++) {
     const pawn = pawns[i];
     if (!pawn || typeof pawn !== "object") continue;
     const hungerCur = getPawnHungerCur(pawn);
-    if (hungerCur == null) continue;
-
     const pawnIdToken = getPawnIdToken(pawn, i);
     const pawnIdValue = Number.isFinite(pawn?.id)
       ? Math.floor(pawn.id)
@@ -90,7 +101,7 @@ function buildPinnedRows(state, nowSec) {
     const ownerIds = pawnIdValue != null ? [pawnIdValue] : [];
     const pawnLabel = getPawnLabel(pawn, pawnIdToken);
 
-    if (hungerCur <= hungryThreshold) {
+    if (hungerCur != null && hungerCur <= hungryThreshold) {
       hungryRows.push({
         id: `pin:hungry:${pawnIdToken}`,
         tSec: nowSec,
@@ -110,7 +121,7 @@ function buildPinnedRows(state, nowSec) {
       });
     }
 
-    if (pawn?.role === "leader" && hungerCur <= faithThreshold) {
+    if (pawn?.role === "leader" && hungerCur != null && hungerCur <= faithThreshold) {
       faithRows.push({
         id: `pin:faithRisk:${pawnIdToken}`,
         tSec: nowSec,
@@ -129,9 +140,34 @@ function buildPinnedRows(state, nowSec) {
         pinKind: "faithRisk",
       });
     }
+
+    const skillPoints = getPawnSkillPoints(pawn);
+    if (pawn?.role !== "leader" || skillPoints <= 0 || pawnIdValue == null) continue;
+
+    const unlockableNodeIds = getUnlockableSkillNodes(state, pawnIdValue);
+    if (!unlockableNodeIds.length) continue;
+
+    skillRows.push({
+      id: `pin:skillPoints:${pawnIdToken}`,
+      tSec: nowSec,
+      ageSec: 0,
+      alpha: 1,
+      text: `${pawnLabel} has ${formatSkillPointsText(skillPoints)}`,
+      type: "skillPointsAvailable",
+      data: {
+        focusKind: "pawn",
+        pawnId: pawnIdValue,
+        leaderPawnId: pawnIdValue,
+        ownerIds,
+        skillPoints,
+        openSkillTree: true,
+      },
+      pinned: true,
+      pinKind: "skillPoints",
+    });
   }
 
-  return hungryRows.concat(faithRows);
+  return hungryRows.concat(faithRows, skillRows);
 }
 
 export function createEventLogController({ getState } = {}) {

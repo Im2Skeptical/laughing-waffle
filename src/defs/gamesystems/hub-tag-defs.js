@@ -13,6 +13,7 @@ export const hubTagDefs = {
     ui: {
       name: "Distribute",
       description: "Provides routing endpoints within its distribution range.",
+      playerRole: "passive",
     },
     systems: ["distribution"],
     passives: [],
@@ -24,6 +25,7 @@ export const hubTagDefs = {
     ui: {
       name: "Build",
       description: "Construct this building.",
+      playerRole: "passive",
       titleFeedback: {
         mode: "progress",
         holderSystemId: "build",
@@ -51,7 +53,11 @@ export const hubTagDefs = {
   canRest: {
     id: "canRest",
     kind: "hubTag",
-    ui: { name: "Rest", description: "Rest here to regain stamina." },
+    ui: {
+      name: "Rest",
+      description: "Rest here to regain stamina.",
+      playerRole: "active",
+    },
     systems: [],
     affordances: ["restSpot"],
     passives: [],
@@ -87,6 +93,7 @@ export const hubTagDefs = {
     ui: {
       name: "Cook",
       description: "Cook food here.",
+      playerRole: "active",
       titleFeedback: {
         mode: "progress",
         holderSystemId: "cook",
@@ -167,6 +174,7 @@ export const hubTagDefs = {
     ui: {
       name: "Craft",
       description: "Craft items here.",
+      playerRole: "active",
       titleFeedback: {
         mode: "progress",
         holderSystemId: "craft",
@@ -248,7 +256,11 @@ export const hubTagDefs = {
   depositable: {
     id: "depositable",
     kind: "hubTag",
-    ui: { name: "Deposit", description: "Deposit items into a storage pool." },
+    ui: {
+      name: "Deposit",
+      description: "Deposit items into a storage pool.",
+      playerRole: "active",
+    },
     systems: ["deposit", "storage"],
     passives: [
       {
@@ -289,6 +301,7 @@ export const hubTagDefs = {
     ui: {
       name: "Communal",
       description: "Deposits here award prestige.",
+      playerRole: "passive",
     },
     systems: [],
     passives: [],
@@ -301,6 +314,7 @@ export const hubTagDefs = {
     ui: {
       name: "Preserve",
       description: "Improves perishability for stored items.",
+      playerRole: "passive",
     },
     systems: [],
     passives: [
@@ -325,7 +339,7 @@ export const hubTagDefs = {
     ui: {
       name: "Housing",
       description: "Provides housing for residents.",
-
+      playerRole: "passive",
     },
     systems: ["residents", "faith"],
     passives: [],

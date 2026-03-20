@@ -1316,10 +1316,15 @@ function normalizeEventLogFocus(entry) {
   if (focusKind === "pawn") {
     const pawnId = Number.isFinite(data.pawnId) ? Math.floor(data.pawnId) : null;
     if (pawnId == null) return null;
+    const leaderPawnId = Number.isFinite(data.leaderPawnId)
+      ? Math.floor(data.leaderPawnId)
+      : pawnId;
     return {
       kind: "pawn",
       pawnId,
       ownerIds: [pawnId],
+      leaderPawnId,
+      openSkillTree: data.openSkillTree === true,
     };
   }
 
@@ -1355,6 +1360,9 @@ function handleEventLogSelection(entry) {
   }
   const focus = normalizeEventLogFocus(entry);
   setExternalUiFocus(focus);
+  if (focus?.openSkillTree === true) {
+    openSkillTreeForLeaderPawn(focus.leaderPawnId ?? focus.pawnId ?? null);
+  }
 }
 
 function hasYearEndPerformanceData(entry) {

@@ -6,6 +6,10 @@ import { hubStructureDefs } from "../../defs/gamepieces/hub-structure-defs.js";
 import { envTagDefs } from "../../defs/gamesystems/env-tags-defs.js";
 import { hubTagDefs } from "../../defs/gamesystems/hub-tag-defs.js";
 import { isDiscoveryAlwaysVisibleEnvTag } from "../../model/discovery.js";
+import {
+  getHubTagPlayerRole,
+  normalizeVisibleHubTagOrder,
+} from "../../model/hub-tags.js";
 import { isEnvColRevealed, isHubVisible } from "../../model/state.js";
 import { isTagHidden } from "../../model/tag-state.js";
 import { MUCHA_UI_COLORS } from "../ui-helpers/mucha-ui-palette.js";
@@ -24,7 +28,6 @@ const EDGE_MARGIN = 16;
 const POPUP_GAP = 12;
 const AUTO_CLOSE_OUTSIDE_PAD = 8;
 const AUTO_CLOSE_OUTSIDE_MS = 140;
-
 function clamp(value, minValue, maxValue) {
   if (!Number.isFinite(value)) return minValue;
   if (value < minValue) return minValue;
@@ -39,7 +42,10 @@ function toSafeInt(value, fallback = 0) {
 function buildSignature(model) {
   if (!model) return "none";
   const rowSig = model.rows
-    .map((row) => `${row.tagId}:${row.disabled ? 1 : 0}`)
+    .map(
+      (row) =>
+        `${row.tagId}:${row.disabled ? 1 : 0}:${row.playerRole || "none"}`
+    )
     .join("|");
   return `${model.kind}:${model.col}:${model.title}:${rowSig}`;
 }
@@ -209,7 +215,24 @@ export function createTagOrdersPanel(opts = {}) {
         Object.prototype.hasOwnProperty.call(preview.tagDisabledById, tagId)
           ? preview.tagDisabledById[tagId] === true
           : target?.tagStates?.[tagId]?.disabled === true;
-      rowsModel.push({ tagId, tagName, disabled });
+      rowsModel.push({
+        tagId,
+        tagName,
+        disabled,
+        playerRole: kind === "hub" ? getHubTagPlayerRole(tagId) : null,
+      });
+    }
+
+    if (kind === "hub" && rowsModel.length > 1) {
+      const rowByTagId = new Map(rowsModel.map((row) => [row.tagId, row]));
+      const orderedTagIds = normalizeVisibleHubTagOrder(
+        rowsModel.map((row) => row.tagId)
+      );
+      rowsModel.length = 0;
+      for (const tagId of orderedTagIds) {
+        const row = rowByTagId.get(tagId);
+        if (row) rowsModel.push(row);
+      }
     }
 
     return {
@@ -281,6 +304,21 @@ export function createTagOrdersPanel(opts = {}) {
     textNode.y = Math.floor((TOGGLE_HEIGHT - textNode.height) * 0.5);
   }
 
+  function getHubRoleVisual(playerRole) {
+    if (playerRole === "active") {
+      return {
+        rowFill: MUCHA_UI_COLORS.surfaces.panelSoft,
+        rowStroke: MUCHA_UI_COLORS.accents.gold,
+        accent: MUCHA_UI_COLORS.accents.gold,
+      };
+    }
+    return {
+      rowFill: MUCHA_UI_COLORS.surfaces.panel,
+      rowStroke: MUCHA_UI_COLORS.surfaces.border,
+      accent: MUCHA_UI_COLORS.surfaces.border,
+    };
+  }
+
   function requestToggle(model, row) {
     if (!model || !row) return;
     requestPauseForAction?.();
@@ -324,21 +362,44 @@ export function createTagOrdersPanel(opts = {}) {
 
       const rowWidth = PANEL_WIDTH - PANEL_PAD * 2;
       const rowBg = new PIXI.Graphics();
+      const roleVisual =
+        model?.kind === "hub" ? getHubRoleVisual(row.playerRole) : null;
       rowBg
-        .lineStyle(1, MUCHA_UI_COLORS.surfaces.borderSoft, 0.9)
-        .beginFill(MUCHA_UI_COLORS.surfaces.panel, 0.95)
+        .lineStyle(
+          1,
+          roleVisual?.rowStroke ?? MUCHA_UI_COLORS.surfaces.borderSoft,
+          0.9
+        )
+        .beginFill(roleVisual?.rowFill ?? MUCHA_UI_COLORS.surfaces.panel, 0.95)
         .drawRoundedRect(0, 0, rowWidth, ROW_HEIGHT, 6)
         .endFill();
       rowRoot.addChild(rowBg);
+
+      if (roleVisual) {
+        const accent = new PIXI.Graphics();
+        accent
+          .beginFill(roleVisual.accent, 0.98)
+          .drawRoundedRect(2, 3, 5, ROW_HEIGHT - 6, 2)
+          .endFill();
+        rowRoot.addChild(accent);
+      }
 
       const tagText = new PIXI.Text(row.tagName, {
         fill: MUCHA_UI_COLORS.ink.primary,
         fontSize: 18,
       });
       applyTextResolution(tagText, 2);
-      tagText.x = 8;
+      tagText.x = roleVisual ? 14 : 8;
       tagText.y = Math.floor((ROW_HEIGHT - tagText.height) * 0.5);
       rowRoot.addChild(tagText);
+      const maxTextWidth = Math.max(80, rowWidth - TOGGLE_WIDTH - tagText.x - 18);
+      if (tagText.width > maxTextWidth) {
+        tagText.style.wordWrap = true;
+        tagText.style.wordWrapWidth = maxTextWidth;
+        tagText.style.breakWords = true;
+        tagText.dirty = true;
+        tagText.y = Math.floor((ROW_HEIGHT - tagText.height) * 0.5);
+      }
 
       const toggle = new PIXI.Container();
       toggle.eventMode = "static";
