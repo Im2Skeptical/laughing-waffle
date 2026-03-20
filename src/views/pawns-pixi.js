@@ -34,10 +34,10 @@ import {
 } from "./layout-pixi.js";
 import { bindTouchLongPress } from "./ui-helpers/touch-long-press.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
-import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { getVisibleEnvColCount, isEnvColRevealed, isHubVisible } from "../model/state.js";
+import { makePawnTooltipSpec } from "./pawn-tooltip-spec.js";
 
 export function createPawnsView(opts) {
   const {
@@ -731,64 +731,6 @@ export function createPawnsView(opts) {
     return { x: centerX, y: topY - CHARACTER_ROW_OFFSET_Y };
   }
 
-  // ---------------------------------------------------------------------------
-  // Tooltip spec
-  // ---------------------------------------------------------------------------
-  function formatSystemValue(value) {
-    if (!Number.isFinite(value)) return "?";
-    if (Math.abs(value - Math.round(value)) < 0.0001) return String(Math.round(value));
-    return String(Math.round(value * 10) / 10);
-  }
-
-  function getPawnSystemLines(pawn) {
-    const lines = [];
-    const systemState = pawn?.systemState ?? {};
-    const systemTiers = pawn?.systemTiers ?? {};
-    const systemIds = Object.keys(pawnSystemDefs);
-
-    for (const systemId of systemIds) {
-      const def = pawnSystemDefs[systemId];
-      if (!def || typeof def !== "object") continue;
-      if (def.ui?.hideInTooltip) continue;
-      const label = def.ui?.name || systemId;
-      const tier =
-        typeof systemTiers[systemId] === "string" ? systemTiers[systemId] : null;
-      const state = systemState[systemId] || def.stateDefaults || {};
-      const cur = formatSystemValue(state.cur);
-      const max = formatSystemValue(state.max);
-      const tierLabel = tier ? ` (${tier})` : "";
-      lines.push(`${label}${tierLabel}: ${cur}/${max}`);
-    }
-
-    if (pawn?.role === "leader") {
-      const faithTierRaw = pawn?.leaderFaith?.tier;
-      const faithTier =
-        typeof faithTierRaw === "string" && faithTierRaw.length > 0
-          ? faithTierRaw
-          : "gold";
-      lines.push(`Faith (${faithTier})`);
-      const workers = Number.isFinite(pawn?.workerCount)
-        ? Math.max(0, Math.floor(pawn.workerCount))
-        : 0;
-      lines.push(`Workers: ${workers}`);
-    }
-
-    return lines;
-  }
-
-  function makePawnTooltipSpec(pawn) {
-    const systemLines = getPawnSystemLines(pawn);
-    return {
-      title: pawn.name || `Pawn ${pawn.id ?? ""}`,
-      lines: [
-        "Moves between hub and env tiles.",
-        "Activates the hub structure it sits on in the hub.",
-        "Has its own inventory.",
-        ...(systemLines.length ? ["Systems:", ...systemLines] : []),
-      ],
-    };
-  }
-
   function hashIdentityValue(value) {
     if (Number.isFinite(value)) {
       return (Math.floor(value) >>> 0) || 1;
@@ -1164,7 +1106,7 @@ export function createPawnsView(opts) {
       const tt = getTooltipSafe();
       const scale = getEffectiveScale(view);
       const anchor = buildPawnHoverAnchor(view);
-      tt?.show?.({ ...makePawnTooltipSpec(pawnData), scale }, anchor);
+      tt?.show?.({ ...makePawnTooltipSpec(pawnData, getStateSafe()), scale }, anchor);
 
       const inv = getInvSafe();
       inv?.showOnHover?.(pawnData.id, anchor);
@@ -1527,7 +1469,10 @@ export function createPawnsView(opts) {
         const scale = getEffectiveScale(view);
         const anchor = buildPawnHoverAnchor(view);
         const pawnData = view.pawn;
-        getTooltipSafe()?.show?.({ ...makePawnTooltipSpec(pawnData), scale }, anchor);
+        getTooltipSafe()?.show?.({
+          ...makePawnTooltipSpec(pawnData, getStateSafe()),
+          scale,
+        }, anchor);
         getInvSafe()?.showOnHover?.(pawnData?.id, anchor);
         const placement = getHoverPlacementForPawn(pawnData);
         interactionSafe.setHoveredPawn?.({

@@ -98,6 +98,38 @@ export function cmdAdjustWorkerCount(state, payload = {}) {
   return adjustWorkerCount(state, leaderId, delta);
 }
 
+function normalizePawnPlacement(placement) {
+  const hubCol = Number.isFinite(placement?.hubCol) ? Math.floor(placement.hubCol) : null;
+  const envCol = Number.isFinite(placement?.envCol) ? Math.floor(placement.envCol) : null;
+  if (hubCol != null) return { hubCol, envCol: null };
+  if (envCol != null) return { hubCol: null, envCol };
+  return { hubCol: null, envCol: null };
+}
+
+function clonePawnPlacement(placement) {
+  const normalized = normalizePawnPlacement(placement);
+  return { hubCol: normalized.hubCol, envCol: normalized.envCol };
+}
+
+function applyPawnPlacementState(
+  pawn,
+  placement,
+  { updateAssignedPlacement = true, clearReturnState = true } = {}
+) {
+  if (!pawn || typeof pawn !== "object") return clonePawnPlacement(null);
+  ensurePawnAI(pawn);
+  const normalized = normalizePawnPlacement(placement);
+  pawn.hubCol = normalized.hubCol;
+  pawn.envCol = normalized.envCol;
+  if (updateAssignedPlacement) {
+    pawn.ai.assignedPlacement = clonePawnPlacement(normalized);
+  }
+  if (clearReturnState) {
+    pawn.ai.returnState = "none";
+  }
+  return normalized;
+}
+
 export function cmdPlacePawn(state, payload = {}) {
   const { pawnId, hubCol } = payload;
   const resolvedPawnId = Number.isFinite(pawnId) ? Math.floor(pawnId) : null;
@@ -172,8 +204,15 @@ export function cmdPlacePawn(state, payload = {}) {
     nextHubCol = hubTargetCol;
   }
 
-  pawn.hubCol = nextHubCol;
-  pawn.envCol = nextEnvCol;
+  const updateAssignedPlacement = payload.skipAssignedPlacementUpdate !== true;
+  applyPawnPlacementState(
+    pawn,
+    { hubCol: nextHubCol, envCol: nextEnvCol },
+    {
+      updateAssignedPlacement,
+      clearReturnState: updateAssignedPlacement,
+    }
+  );
   ensurePawnAI(pawn);
   if (payload.skipAutoSuppress !== true) {
     const nowSec = Number.isFinite(state?.tSec) ? Math.floor(state.tSec) : 0;
@@ -181,7 +220,7 @@ export function cmdPlacePawn(state, payload = {}) {
     pawn.ai.suppressAutoUntilSec = nowSec + PAWN_AI_SUPPRESS_AFTER_PLAYER_MOVE_SEC;
   }
 
-  maybeAutoFollowLeader(state, pawn);
+  maybeAutoFollowLeader(state, pawn, { updateAssignedPlacement });
 
   return {
     ok: true,
@@ -211,7 +250,7 @@ function getFollowersForLeaderSorted(state, leaderId) {
   return followers;
 }
 
-function maybeAutoFollowLeader(state, leader) {
+function maybeAutoFollowLeader(state, leader, { updateAssignedPlacement = true } = {}) {
   if (!leader || leader.role !== "leader") return;
   if (!shouldFollowersAutoFollow(leader)) return;
 
@@ -223,12 +262,11 @@ function maybeAutoFollowLeader(state, leader) {
 
   for (const follower of followers) {
     if (!follower) continue;
-    if (hubCol != null) {
-      follower.hubCol = hubCol;
-      follower.envCol = null;
-    } else if (envCol != null) {
-      follower.envCol = envCol;
-      follower.hubCol = null;
-    }
+    const nextPlacement =
+      hubCol != null ? { hubCol, envCol: null } : { hubCol: null, envCol };
+    applyPawnPlacementState(follower, nextPlacement, {
+      updateAssignedPlacement,
+      clearReturnState: updateAssignedPlacement,
+    });
   }
 }

@@ -148,6 +148,41 @@ function placementToLocation(placement) {
   return { hubCol: null, envCol: null };
 }
 
+function locationToPlacement(location) {
+  const normalized = normalizeLocation(location);
+  return {
+    hubCol: normalized.hubCol,
+    envCol: normalized.envCol,
+  };
+}
+
+function getAssignedPlacement(pawn) {
+  ensurePawnAI(pawn);
+  return normalizeLocation(pawn?.ai?.assignedPlacement);
+}
+
+function getPawnReturnState(pawn) {
+  const value = pawn?.ai?.returnState;
+  if (
+    value === "waitingForEat" ||
+    value === "waitingForRest" ||
+    value === "ready"
+  ) {
+    return value;
+  }
+  return "none";
+}
+
+function setPawnReturnState(pawn, returnState) {
+  ensurePawnAI(pawn);
+  pawn.ai.returnState =
+    returnState === "waitingForEat" ||
+    returnState === "waitingForRest" ||
+    returnState === "ready"
+      ? returnState
+      : "none";
+}
+
 function scorePlacement(currentLocation, placement) {
   const targetLocation = placementToLocation(placement);
   const dist = Math.abs(
@@ -728,6 +763,36 @@ function isEnvColOccupiable(state, envCol) {
   return true;
 }
 
+function isAssignedPlacementStructurallyValid(state, placement) {
+  const normalized = normalizeLocation(placement);
+  if (normalized.hubCol != null) {
+    const hubCols = Array.isArray(state?.hub?.slots) ? state.hub.slots.length : 0;
+    return normalized.hubCol >= 0 && normalized.hubCol < hubCols;
+  }
+  if (normalized.envCol != null) {
+    return isEnvColOccupiable(state, normalized.envCol);
+  }
+  return false;
+}
+
+function reseedAssignedPlacementToCurrentLocation(pawn) {
+  ensurePawnAI(pawn);
+  pawn.ai.assignedPlacement = locationToPlacement(getPawnLocation(pawn));
+  pawn.ai.returnState = "none";
+}
+
+function ensureAssignedPlacementState(state, pawn) {
+  const assignedPlacement = getAssignedPlacement(pawn);
+  if (!isAssignedPlacementStructurallyValid(state, assignedPlacement)) {
+    reseedAssignedPlacementToCurrentLocation(pawn);
+    return getAssignedPlacement(pawn);
+  }
+  if (locationsMatch(getPawnLocation(pawn), assignedPlacement)) {
+    setPawnReturnState(pawn, "none");
+  }
+  return assignedPlacement;
+}
+
 function listSeekPlacements(state) {
   const out = [];
   const envCols = Number.isFinite(state?.board?.cols) ? Math.floor(state.board.cols) : 0;
@@ -831,8 +896,33 @@ function tryMovePawnViaCommand(state, pawn, placement, placePawn) {
     pawnId: pawn.id,
     toPlacement,
     skipAutoSuppress: true,
+    skipAssignedPlacementUpdate: true,
   });
   return res?.ok === true;
+}
+
+function tryReturnPawnToAssignedPlacement(state, pawn, placePawn) {
+  if (typeof placePawn !== "function") return false;
+  const assignedPlacement = ensureAssignedPlacementState(state, pawn);
+  if (!isAssignedPlacementStructurallyValid(state, assignedPlacement)) {
+    reseedAssignedPlacementToCurrentLocation(pawn);
+    return false;
+  }
+  if (locationsMatch(getPawnLocation(pawn), assignedPlacement)) {
+    setPawnReturnState(pawn, "none");
+    return false;
+  }
+  const res = placePawn(state, {
+    pawnId: pawn.id,
+    toPlacement: locationToPlacement(assignedPlacement),
+    skipAutoSuppress: true,
+    skipAssignedPlacementUpdate: true,
+  });
+  if (res?.ok === true) {
+    setPawnReturnState(pawn, "none");
+    return true;
+  }
+  return false;
 }
 
 function getPlacementLabel(state, placement) {
@@ -896,6 +986,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
     if (!pawn) continue;
     ensurePawnSystems(pawn);
     ensurePawnAI(pawn);
+    ensureAssignedPlacementState(state, pawn);
 
     const defId =
       typeof pawn.pawnDefId === "string" ? pawn.pawnDefId : "default";
@@ -915,11 +1006,18 @@ export function stepPawnSecond(state, tSec, options = {}) {
     let aiMode = updatePawnAiMode(pawn);
     const suppressed = isPawnAiSuppressed(pawn, tSec);
     const eatIntent = findIntentById(intents, "eat");
+    const assignedPlacement = getAssignedPlacement(pawn);
     const hungerWarning = clampInt(
       PAWN_AI_HUNGER_WARNING,
       0,
       getSystemMax(pawn, "hunger", 100),
       0
+    );
+    const hungerFull = clampInt(
+      PAWN_AI_HUNGER_FULL,
+      clampInt(PAWN_AI_HUNGER_START_EAT, 0, getSystemMax(pawn, "hunger", 100), 0),
+      getSystemMax(pawn, "hunger", 100),
+      getSystemMax(pawn, "hunger", 100)
     );
     const staminaWarning = clampInt(
       PAWN_AI_STAMINA_WARNING,
@@ -927,8 +1025,15 @@ export function stepPawnSecond(state, tSec, options = {}) {
       getSystemMax(pawn, "stamina", 100),
       0
     );
+    const staminaFull = clampInt(
+      PAWN_AI_STAMINA_FULL,
+      clampInt(PAWN_AI_STAMINA_START_REST, 0, getSystemMax(pawn, "stamina", 100), 0),
+      getSystemMax(pawn, "stamina", 100),
+      getSystemMax(pawn, "stamina", 100)
+    );
     const hungerNow = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
     const staminaNow = Math.floor(pawn?.systemState?.stamina?.cur ?? 0);
+    let returnState = getPawnReturnState(pawn);
     let hungryWarningLogged = false;
     let movedThisSecond = false;
 
@@ -978,6 +1083,10 @@ export function stepPawnSecond(state, tSec, options = {}) {
         const candidates = findEatMoveCandidates(state, pawn, tSec, eatIntent);
         for (const placement of candidates) {
           if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
+          if (!locationsMatch(assignedPlacement, placementToLocation(placement))) {
+            setPawnReturnState(pawn, "waitingForEat");
+            returnState = "waitingForEat";
+          }
           context = buildPawnContext(state, pawn, tSec);
           movedThisSecond = true;
           pushPawnSeekMoveEvent(state, pawn, tSec, "eat", placement);
@@ -997,6 +1106,10 @@ export function stepPawnSecond(state, tSec, options = {}) {
           if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
           pawn.ai.mode = "rest";
           aiMode = "rest";
+          if (!locationsMatch(assignedPlacement, placementToLocation(placement))) {
+            setPawnReturnState(pawn, "waitingForRest");
+            returnState = "waitingForRest";
+          }
           context = buildPawnContext(state, pawn, tSec);
           movedThisSecond = true;
           pushPawnSeekMoveEvent(state, pawn, tSec, "rest", placement);
@@ -1009,6 +1122,10 @@ export function stepPawnSecond(state, tSec, options = {}) {
         const candidates = findRestMoveCandidates(state, pawn);
         for (const placement of candidates) {
           if (!tryMovePawnViaCommand(state, pawn, placement, placePawn)) continue;
+          if (!locationsMatch(assignedPlacement, placementToLocation(placement))) {
+            setPawnReturnState(pawn, "waitingForRest");
+            returnState = "waitingForRest";
+          }
           context = buildPawnContext(state, pawn, tSec);
           movedThisSecond = true;
           pushPawnSeekMoveEvent(state, pawn, tSec, "rest", placement);
@@ -1043,6 +1160,7 @@ export function stepPawnSecond(state, tSec, options = {}) {
     }
 
     const hungerAfter = Math.floor(pawn?.systemState?.hunger?.cur ?? 0);
+    const staminaAfter = Math.floor(pawn?.systemState?.stamina?.cur ?? 0);
     if (
       !hungryWarningLogged &&
       hungerBefore > hungerWarning &&
@@ -1166,6 +1284,20 @@ export function stepPawnSecond(state, tSec, options = {}) {
       } else {
         resetLeaderFaithDecayTimer(pawn);
       }
+    }
+
+    aiMode = updatePawnAiMode(pawn);
+    returnState = getPawnReturnState(pawn);
+    if (returnState === "waitingForEat" && executedIntentId === "eat") {
+      setPawnReturnState(pawn, "ready");
+      returnState = "ready";
+    }
+    if (returnState === "waitingForRest" && staminaAfter >= staminaFull) {
+      setPawnReturnState(pawn, "ready");
+      returnState = "ready";
+    }
+    if (returnState === "ready") {
+      tryReturnPawnToAssignedPlacement(state, pawn, placePawn);
     }
 
     if (executed) continue;

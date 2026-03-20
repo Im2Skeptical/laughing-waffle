@@ -293,6 +293,11 @@ export function createInitialState(scenario = "devGym01", seed = null) {
       leaderId: null,
       ai: {
         mode: null,
+        assignedPlacement:
+          envCol != null
+            ? { hubCol: null, envCol }
+            : { hubCol, envCol: null },
+        returnState: "none",
         suppressAutoUntilSec: 0,
       },
     };

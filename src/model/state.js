@@ -319,12 +319,59 @@ export function ensurePawnAI(pawn) {
   const raw = pawn.ai;
   const ai = raw && typeof raw === "object" ? raw : {};
   const mode = ai.mode === "eat" || ai.mode === "rest" ? ai.mode : null;
+  const currentPlacement = normalizePawnAiPlacement(pawn, null);
+  const assignedPlacement = normalizePawnAiPlacement(
+    ai.assignedPlacement,
+    currentPlacement
+  );
   const suppressAutoUntilSec = Number.isFinite(ai.suppressAutoUntilSec)
     ? Math.max(0, Math.floor(ai.suppressAutoUntilSec))
     : 0;
+  let returnState =
+    ai.returnState === "waitingForEat" ||
+    ai.returnState === "waitingForRest" ||
+    ai.returnState === "ready"
+      ? ai.returnState
+      : "none";
+  if (pawnPlacementEquals(currentPlacement, assignedPlacement)) {
+    returnState = "none";
+  }
   ai.mode = mode;
+  ai.assignedPlacement = assignedPlacement;
+  ai.returnState = returnState;
   ai.suppressAutoUntilSec = suppressAutoUntilSec;
   pawn.ai = ai;
+}
+
+function normalizePawnAiPlacement(value, fallback = null) {
+  const fallbackPlacement =
+    fallback && typeof fallback === "object"
+      ? {
+          hubCol: Number.isFinite(fallback.hubCol)
+            ? Math.floor(fallback.hubCol)
+            : null,
+          envCol: Number.isFinite(fallback.envCol)
+            ? Math.floor(fallback.envCol)
+            : null,
+        }
+      : { hubCol: null, envCol: null };
+  const hubCol = Number.isFinite(value?.hubCol) ? Math.floor(value.hubCol) : null;
+  const envCol = Number.isFinite(value?.envCol) ? Math.floor(value.envCol) : null;
+  if (hubCol != null) return { hubCol, envCol: null };
+  if (envCol != null) return { hubCol: null, envCol };
+  return fallbackPlacement;
+}
+
+function pawnPlacementEquals(a, b) {
+  const left = normalizePawnAiPlacement(a, null);
+  const right = normalizePawnAiPlacement(b, null);
+  if (left.hubCol != null || right.hubCol != null) {
+    return left.hubCol != null && right.hubCol != null && left.hubCol === right.hubCol;
+  }
+  if (left.envCol != null || right.envCol != null) {
+    return left.envCol != null && right.envCol != null && left.envCol === right.envCol;
+  }
+  return true;
 }
 
 function normalizeSkillNodeIdList(value) {
