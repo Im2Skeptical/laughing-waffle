@@ -51,11 +51,15 @@ export function cmdDebugQueueEnvEvent(state, { defId } = {}) {
   }
 
   const seasonKey = getCurrentSeasonKey(state);
+  const seasonIndex = Number.isFinite(state?.currentSeasonIndex)
+    ? Math.floor(state.currentSeasonIndex)
+    : 0;
+  const year = Number.isFinite(state?.year) ? Math.floor(state.year) : 1;
   if (!state.currentSeasonDeck || state.currentSeasonDeck.seasonKey !== seasonKey) {
     buildSeasonDeckForCurrentSeason(state);
   }
   if (!state.currentSeasonDeck || !Array.isArray(state.currentSeasonDeck.deck)) {
-    state.currentSeasonDeck = { seasonKey, deck: [] };
+    state.currentSeasonDeck = { seasonKey, seasonIndex, year, deck: [] };
   }
 
   state.currentSeasonDeck.deck.unshift({ defId });

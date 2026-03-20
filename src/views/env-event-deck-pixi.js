@@ -216,6 +216,7 @@ function normalizeDrawEventPayload(rawData) {
   const rawOutcome = rawData.outcome;
   const outcome =
     rawOutcome === "placed" ||
+    rawOutcome === "aggregated" ||
     rawOutcome === "returned" ||
     rawOutcome === "consumedNoPlacement"
       ? rawOutcome
@@ -237,6 +238,25 @@ function normalizeDrawEventPayload(rawData) {
     consumePolicy:
       typeof rawData.consumePolicy === "string" ? rawData.consumePolicy : null,
     outcome,
+    aggregation:
+      rawData.aggregation && typeof rawData.aggregation === "object"
+        ? {
+            aggregateKey:
+              typeof rawData.aggregation.aggregateKey === "string"
+                ? rawData.aggregation.aggregateKey
+                : null,
+            cardsDrawn: Number.isFinite(rawData.aggregation.cardsDrawn)
+              ? Math.max(1, Math.floor(rawData.aggregation.cardsDrawn))
+              : 1,
+            magnitudeId:
+              typeof rawData.aggregation.magnitudeId === "string"
+                ? rawData.aggregation.magnitudeId
+                : null,
+            expiresSec: Number.isFinite(rawData.aggregation.expiresSec)
+              ? Math.max(0, Math.floor(rawData.aggregation.expiresSec))
+              : null,
+          }
+        : null,
     placements,
   };
 }
