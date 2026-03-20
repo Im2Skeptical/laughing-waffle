@@ -5,6 +5,7 @@ import {
   PERISHABLE_ROT_CHANCE_PER_SEC,
   PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
 } from "../gamesettings/gamerules-defs.js";
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
 
 export const hubTagDefs = {
   distributor: {
@@ -346,3 +347,7 @@ export const hubTagDefs = {
     intents: [],
   },
 };
+
+ensureTooltipCardUi(hubTagDefs, {
+  getTitle: (def) => def?.ui?.name || def?.name || def?.id,
+});

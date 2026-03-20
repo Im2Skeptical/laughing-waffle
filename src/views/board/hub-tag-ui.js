@@ -32,6 +32,7 @@ import {
   stepAnimatedRatio,
 } from "../ui-helpers/progress-animation.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
+import { makeDefTooltipSpec } from "../def-tooltip-spec.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -1461,12 +1462,35 @@ export function createHubTagUi(opts) {
           null
         : bounds;
     tooltipView.show(
-      {
+      makeDefTooltipSpec({
+        def: hubSystemDefs[row?.systemId],
         title: spec.title || getSystemUi(row?.systemId).label,
         lines: spec.lines,
+        accentColor: getSystemUi(row?.systemId).color,
+        sourceKind: "hubSystem",
+        sourceId: row?.systemId ?? null,
         scale,
-      },
+      }),
       anchor
+    );
+  }
+
+  function showTooltipForTag(view, entry, structure, row, scale = 1) {
+    if (!tooltipView || interaction?.canShowWorldHoverUI?.() === false) return;
+    const tagId = entry?.tagId;
+    const lines = buildTagHoverLines(view, entry, structure);
+    if (!Array.isArray(lines) || lines.length <= 0) return;
+    tooltipView.show(
+      makeDefTooltipSpec({
+        def: hubTagDefs[tagId],
+        title: getTagLabel(tagId),
+        lines,
+        accentColor: MUCHA_UI_COLORS.accents.gold,
+        sourceKind: "hubTag",
+        sourceId: tagId ?? null,
+        scale,
+      }),
+      tooltipView.getAnchorRectForDisplayObject?.(row, "parent") ?? null
     );
   }
 
@@ -1905,7 +1929,8 @@ export function createHubTagUi(opts) {
         view.structure,
         row,
         { displayObject: icon },
-        getDisplayObjectWorldScale(icon, 1)
+        tooltipView?.getRelativeDisplayScale?.(icon, 1) ??
+          getDisplayObjectWorldScale(icon, 1)
       );
     });
     icon.on("pointerout", () => {
@@ -2130,17 +2155,14 @@ export function createHubTagUi(opts) {
 
     row.on("pointerover", () => {
       setChildTooltipHoverActive(view, true);
-      const lines = buildTagHoverLines(view, entry, structure);
-      if (lines.length && tooltipView) {
-        tooltipView.show(
-          {
-            title: getTagLabel(tagId),
-            lines,
-            scale: getDisplayObjectWorldScale(row, 1),
-          },
-          tooltipView.getAnchorRectForDisplayObject?.(row, "parent") ?? null
-        );
-      }
+      showTooltipForTag(
+        view,
+        entry,
+        structure,
+        row,
+        tooltipView?.getRelativeDisplayScale?.(row, 1) ??
+          getDisplayObjectWorldScale(row, 1)
+      );
     });
     row.on("pointerout", () => {
       setChildTooltipHoverActive(view, false);

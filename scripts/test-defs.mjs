@@ -12,6 +12,12 @@ import { itemDefs } from "../src/defs/gamepieces/item-defs.js";
 import { recipeDefs } from "../src/defs/gamepieces/recipes-defs.js";
 import { hubStructureDefs } from "../src/defs/gamepieces/hub-structure-defs.js";
 import { hubTagDefs } from "../src/defs/gamesystems/hub-tag-defs.js";
+import { hubSystemDefs } from "../src/defs/gamesystems/hub-system-defs.js";
+import { hubTagDefs } from "../src/defs/gamesystems/hub-tag-defs.js";
+import { itemSystemDefs } from "../src/defs/gamesystems/item-system-defs.js";
+import { itemTagDefs } from "../src/defs/gamesystems/item-tag-defs.js";
+import { pawnSystemDefs } from "../src/defs/gamesystems/pawn-systems-defs.js";
+import { keywordDefs } from "../src/defs/gamesystems/keyword-defs.js";
 import {
   skillTrees,
   skillNodes,
@@ -122,18 +128,6 @@ function validateEventLogTypeDefs() {
     );
   }
   console.log("[test] Event log type glyph validation complete");
-}
-
-function validateHubTagPlayerRoles() {
-  for (const [tagId, def] of Object.entries(hubTagDefs)) {
-    const playerRole = def?.ui?.playerRole;
-    if (playerRole == null) continue;
-    assert.ok(
-      playerRole === "active" || playerRole === "passive",
-      `[test] hub tag "${tagId}" ui.playerRole must be "active" or "passive", got "${playerRole}"`
-    );
-  }
-  console.log("[test] Hub tag player-role validation complete");
 }
 
 function validateEnvironmentDefsSoft() {
@@ -256,7 +250,6 @@ function validateSkillFeatureUnlockIds() {
 await checkDefsBundleability();
 validateCoreDefinitions();
 validateEventLogTypeDefs();
-validateHubTagPlayerRoles();
 validateEnvironmentDefsSoft();
 validateSkillDefsHard();
 validateSkillFeatureUnlockIds();

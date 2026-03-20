@@ -92,7 +92,9 @@ export function createEndpointHoverUi({
       {
         title: String(fullLabel),
         lines: [],
-        scale: getDisplayObjectWorldScale?.(displayObject, 1) ?? 1,
+        scale: tooltipView?.getRelativeDisplayScale?.(displayObject, 1) ??
+          getDisplayObjectWorldScale?.(displayObject, 1) ??
+          1,
       },
       displayObject.getBounds()
     );

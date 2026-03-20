@@ -11,6 +11,17 @@ import {
 } from "../defs/gamesettings/gamerules-defs.js";
 import { pawnSystemDefs } from "../defs/gamesystems/pawn-systems-defs.js";
 import { isEnvColRevealed } from "../model/state.js";
+import {
+  makeMeterSection,
+  makeParagraphSection,
+  makeTableSection,
+} from "./tooltip-spec.js";
+
+const DEFAULT_SYSTEM_BUBBLE_COLORS = Object.freeze({
+  hunger: 0xd0a04d,
+  stamina: 0x7f5b37,
+  leaderFaith: 0xb64d4d,
+});
 
 function normalizePlacement(placement) {
   const hubCol = Number.isFinite(placement?.hubCol) ? Math.floor(placement.hubCol) : null;
@@ -105,12 +116,8 @@ function getActiveThresholdStates(pawn) {
   const staminaCur = Number.isFinite(pawn?.systemState?.stamina?.cur)
     ? Math.floor(pawn.systemState.stamina.cur)
     : null;
-  if (hungerCur != null && hungerCur <= PAWN_AI_HUNGER_WARNING) {
-    states.push("Hungry");
-  }
-  if (staminaCur != null && staminaCur <= PAWN_AI_STAMINA_WARNING) {
-    states.push("Tired");
-  }
+  if (hungerCur != null && hungerCur <= PAWN_AI_HUNGER_WARNING) states.push("Hungry");
+  if (staminaCur != null && staminaCur <= PAWN_AI_STAMINA_WARNING) states.push("Tired");
   if (
     pawn?.role === "leader" &&
     hungerCur != null &&
@@ -124,7 +131,7 @@ function getActiveThresholdStates(pawn) {
   return states.length ? states : ["None"];
 }
 
-export function makePawnTooltipSpec(pawn, state) {
+function buildLegacyDebugLines(pawn, state) {
   const assignedPlacement = normalizePlacement(pawn?.ai?.assignedPlacement);
   const currentPlacement = normalizePlacement(pawn);
   const hungerCur = formatSystemValue(pawn?.systemState?.hunger?.cur);
@@ -157,8 +164,253 @@ export function makePawnTooltipSpec(pawn, state) {
   if (systemLines.length) {
     lines.push("Systems:", ...systemLines);
   }
+  return lines;
+}
+
+function getSystemColor(systemId) {
+  const def = pawnSystemDefs?.[systemId];
+  return (
+    def?.ui?.bubbleColor ??
+    DEFAULT_SYSTEM_BUBBLE_COLORS[systemId] ??
+    0x8f7c60
+  );
+}
+
+function getSystemShortLabel(systemId) {
+  const def = pawnSystemDefs?.[systemId];
+  return def?.ui?.shortLabel ?? def?.ui?.name?.[0]?.toUpperCase?.() ?? "?";
+}
+
+function getPawnSupportedBubbleIds(pawn) {
+  const ids = ["hunger", "stamina"];
+  if (pawn?.role === "leader") ids.unshift("leaderFaith");
+  return ids;
+}
+
+export function getVisiblePawnBubbleIds(pawn, hoverActive = false) {
+  const supported = getPawnSupportedBubbleIds(pawn);
+  if (hoverActive) return supported;
+  const visible = [];
+  const hungerCur = Number.isFinite(pawn?.systemState?.hunger?.cur)
+    ? Math.floor(pawn.systemState.hunger.cur)
+    : null;
+  const staminaCur = Number.isFinite(pawn?.systemState?.stamina?.cur)
+    ? Math.floor(pawn.systemState.stamina.cur)
+    : null;
+  if (
+    pawn?.ai?.mode === "eat" ||
+    (hungerCur != null && hungerCur <= PAWN_AI_HUNGER_START_EAT) ||
+    pawn?.leaderFaith?.failedEatWarnActive === true
+  ) {
+    visible.push("hunger");
+  }
+  if (
+    pawn?.ai?.mode === "rest" ||
+    (staminaCur != null && staminaCur <= PAWN_AI_STAMINA_START_REST)
+  ) {
+    visible.push("stamina");
+  }
+  if (
+    pawn?.role === "leader" &&
+    ((hungerCur != null && hungerCur <= LEADER_FAITH_HUNGER_DECAY_THRESHOLD) ||
+      pawn?.leaderFaith?.failedEatWarnActive === true)
+  ) {
+    visible.push("leaderFaith");
+  }
+  return supported.filter((systemId) => visible.includes(systemId));
+}
+
+function makeSystemBubbleTooltipSpec(pawn, systemId) {
+  if (systemId === "leaderFaith") {
+    const tier = typeof pawn?.leaderFaith?.tier === "string" ? pawn.leaderFaith.tier : "gold";
+    const hungerCur = Number.isFinite(pawn?.systemState?.hunger?.cur)
+      ? Math.floor(pawn.systemState.hunger.cur)
+      : 0;
+    return {
+      title: "Faith",
+      subtitle: "Leader",
+      accentColor: getSystemColor(systemId),
+      sections: [
+        makeParagraphSection([
+          { kind: "keyword", keywordId: "faith", text: "Faith" },
+          " falls when a leader stays hungry for too long.",
+        ]),
+        makeTableSection("Thresholds", [
+          { label: "Decay threshold", value: String(LEADER_FAITH_HUNGER_DECAY_THRESHOLD) },
+          { label: "Current hunger", value: String(hungerCur) },
+          { label: "Tier", value: tier },
+        ]),
+      ],
+    };
+  }
+  const systemDef = pawnSystemDefs?.[systemId];
+  const systemState = pawn?.systemState?.[systemId] ?? systemDef?.stateDefaults ?? {};
+  const cur = Number.isFinite(systemState?.cur) ? Math.max(0, systemState.cur) : 0;
+  const max = Number.isFinite(systemState?.max) ? Math.max(0, systemState.max) : 0;
+  if (systemId === "hunger") {
+    return {
+      title: systemDef?.ui?.name ?? "Hunger",
+      subtitle: pawn?.role === "leader" ? "Leader system" : "Follower system",
+      accentColor: getSystemColor(systemId),
+      sections: [
+        makeMeterSection({
+          label: "Hunger",
+          value: cur,
+          max,
+          accentColor: getSystemColor(systemId),
+          text: `${Math.round(cur)}/${Math.round(max)}`,
+        }),
+        makeParagraphSection([
+          { kind: "keyword", keywordId: "hunger", text: "Hunger" },
+          " decays over time. Low hunger makes pawns ",
+          { kind: "keyword", keywordId: "seek", text: "seek" },
+          " food.",
+        ]),
+        makeTableSection("Thresholds", [
+          { label: "Warning", value: String(PAWN_AI_HUNGER_WARNING) },
+          { label: "Start eat", value: String(PAWN_AI_HUNGER_START_EAT) },
+          { label: "Full", value: String(PAWN_AI_HUNGER_FULL) },
+        ]),
+      ],
+    };
+  }
+  return {
+    title: systemDef?.ui?.name ?? "Stamina",
+    subtitle: pawn?.role === "leader" ? "Leader system" : "Follower system",
+    accentColor: getSystemColor(systemId),
+    sections: [
+      makeMeterSection({
+        label: "Stamina",
+        value: cur,
+        max,
+        accentColor: getSystemColor(systemId),
+        text: `${Math.round(cur)}/${Math.round(max)}`,
+      }),
+      makeParagraphSection([
+        { kind: "keyword", keywordId: "stamina", text: "Stamina" },
+        " is spent on work and restored by ",
+        { kind: "keyword", keywordId: "rest", text: "rest" },
+        ".",
+      ]),
+      makeTableSection("Thresholds", [
+        { label: "Warning", value: String(PAWN_AI_STAMINA_WARNING) },
+        { label: "Start rest", value: String(PAWN_AI_STAMINA_START_REST) },
+        { label: "Full", value: String(PAWN_AI_STAMINA_FULL) },
+      ]),
+    ],
+  };
+}
+
+export function getPawnBubbleSpecs(pawn, state, { hoverActive = false } = {}) {
+  const visibleIds = getVisiblePawnBubbleIds(pawn, hoverActive);
+  return visibleIds.map((systemId) => ({
+    systemId,
+    shortLabel: systemId === "leaderFaith" ? "Fa" : getSystemShortLabel(systemId),
+    label: systemId === "leaderFaith" ? "Faith" : pawnSystemDefs?.[systemId]?.ui?.name ?? systemId,
+    color: getSystemColor(systemId),
+    tooltipSpec: makeSystemBubbleTooltipSpec(pawn, systemId, state),
+  }));
+}
+
+export function makePawnDebugInspectorSpec(pawn, state) {
+  const lines = buildLegacyDebugLines(pawn, state);
   return {
     title: pawn?.name || `Pawn ${pawn?.id ?? ""}`,
-    lines,
+    subtitle: "Raw inspector",
+    accentColor: typeof pawn?.color === "number" ? pawn.color : 0x8f7c60,
+    debugSections: lines.map((line) => makeParagraphSection([line])),
   };
+}
+
+export function makePawnInfocardSpec(pawn, state) {
+  const currentPlacement = normalizePlacement(pawn);
+  const assignedPlacement = normalizePlacement(pawn?.ai?.assignedPlacement);
+  const hungerCur = Number.isFinite(pawn?.systemState?.hunger?.cur)
+    ? pawn.systemState.hunger.cur
+    : 0;
+  const hungerMax = Number.isFinite(pawn?.systemState?.hunger?.max)
+    ? pawn.systemState.hunger.max
+    : 100;
+  const staminaCur = Number.isFinite(pawn?.systemState?.stamina?.cur)
+    ? pawn.systemState.stamina.cur
+    : 0;
+  const staminaMax = Number.isFinite(pawn?.systemState?.stamina?.max)
+    ? pawn.systemState.stamina.max
+    : 100;
+  const thresholdStates = getActiveThresholdStates(pawn);
+  const roleLabel = pawn?.role === "leader" ? "Leader" : "Follower";
+  const sections = [
+    makeParagraphSection([
+      pawn?.role === "leader"
+        ? "Leads the group and spends "
+        : "A ",
+      pawn?.role === "leader"
+        ? { kind: "keyword", keywordId: "prestige", text: "Prestige" }
+        : { kind: "keyword", keywordId: "follower", text: "Follower" },
+      pawn?.role === "leader"
+        ? " to support followers."
+        : " who spends ",
+      ...(pawn?.role === "leader"
+        ? []
+        : [
+            { kind: "keyword", keywordId: "stamina", text: "Stamina" },
+            " on local tasks.",
+          ]),
+    ]),
+    makeParagraphSection(`Assigned: ${getPlacementLabel(state, assignedPlacement)}`),
+    makeParagraphSection(`Current: ${getPlacementLabel(state, currentPlacement)}`),
+    makeParagraphSection(
+      `Automata: ${getAutomataLabel(pawn, currentPlacement, assignedPlacement)}`
+    ),
+    makeMeterSection({
+      label: "Hunger",
+      value: hungerCur,
+      max: hungerMax,
+      accentColor: getSystemColor("hunger"),
+      text: `${Math.round(hungerCur)}/${Math.round(hungerMax)}`,
+    }),
+    makeMeterSection({
+      label: "Stamina",
+      value: staminaCur,
+      max: staminaMax,
+      accentColor: getSystemColor("stamina"),
+      text: `${Math.round(staminaCur)}/${Math.round(staminaMax)}`,
+    }),
+    makeTableSection("State", [
+      { label: "Mode", value: String(pawn?.ai?.mode ?? "idle") },
+      { label: "Return", value: String(pawn?.ai?.returnState ?? "none") },
+      { label: "Flags", value: thresholdStates.join(", ") },
+    ]),
+  ];
+  if (pawn?.role === "leader") {
+    sections.push(
+      makeTableSection("Faith", [
+        {
+          label: "Tier",
+          value: String(pawn?.leaderFaith?.tier ?? "gold"),
+        },
+        {
+          label: "Decay threshold",
+          value: String(LEADER_FAITH_HUNGER_DECAY_THRESHOLD),
+        },
+        {
+          label: "Workers",
+          value: String(Math.max(0, Math.floor(pawn?.workerCount ?? 0))),
+        },
+      ])
+    );
+  }
+  return {
+    title: pawn?.name || `Pawn ${pawn?.id ?? ""}`,
+    subtitle: roleLabel,
+    accentColor: typeof pawn?.color === "number" ? pawn.color : 0x8f7c60,
+    sourceKind: "pawn",
+    sourceId: pawn?.id ?? null,
+    sections,
+    debugSections: makePawnDebugInspectorSpec(pawn, state).debugSections,
+  };
+}
+
+export function makePawnTooltipSpec(pawn, state) {
+  return makePawnInfocardSpec(pawn, state);
 }

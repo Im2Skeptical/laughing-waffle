@@ -51,6 +51,9 @@ export function createDebugOverlay({
   onClearTimeline,
   getPerfSnapshot,
   getProjectionParity,
+  onToggleRawInspector,
+  getRawInspectorEnabled,
+  getHoverDiagnostics,
 }) {
   const rootLayout =
     layout && typeof layout === "object" ? layout : VIEW_LAYOUT.debugOverlay;
@@ -478,12 +481,21 @@ export function createDebugOverlay({
   });
   cursorY += 32;
 
+  const rawInspectorBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    label: "Raw Inspector: OFF",
+  });
+  cursorY += 32;
+
   autoPauseBtn.container.on("pointerdown", () =>
     onToggleAutoPauseOnPlayerAction?.()
   );
   graphBtn.container.on("pointerdown", () => onOpenSystemGraph?.());
   apGraphBtn.container.on("pointerdown", () => onToggleApGraph?.());
   clearTimelineBtn.container.on("pointerdown", () => onClearTimeline?.());
+  rawInspectorBtn.container.on("pointerdown", () => onToggleRawInspector?.());
 
   addSectionTitle("Performance");
   const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {
@@ -533,6 +545,53 @@ export function createDebugOverlay({
   commitErrorRow.y = cursorY;
   panel.addChild(commitErrorRow);
   cursorY += 24;
+
+  addSectionTitle("Hover Diagnostics");
+  const hoverRows = [];
+  for (let i = 0; i < 8; i++) {
+    const row = new PIXI.Text("--", {
+      fontSize: 9,
+      fill: 0xc7d2ee,
+      wordWrap: true,
+      wordWrapWidth: CONTENT_W,
+    });
+    row.x = CONTENT_X;
+    row.y = cursorY + i * 13;
+    panel.addChild(row);
+    hoverRows.push(row);
+  }
+  cursorY += hoverRows.length * 13 + SECTION_GAP;
+
+  function formatAnchor(anchor) {
+    if (!anchor) return "none";
+    const x = Math.round(Number(anchor.x) || 0);
+    const y = Math.round(Number(anchor.y) || 0);
+    const space = anchor.coordinateSpace === "screen" ? "screen" : "parent";
+    return `${space}@${x},${y}`;
+  }
+
+  function updateHoverRows() {
+    const diagnostics =
+      typeof getHoverDiagnostics === "function" ? getHoverDiagnostics() : null;
+    const tooltip = diagnostics?.tooltip ?? null;
+    const inventory = diagnostics?.inventory ?? null;
+    const pawns = diagnostics?.pawns ?? null;
+    const firstWindow = inventory?.visibleWindows?.[0] ?? null;
+    const firstPawn = pawns?.hoveredPawns?.[0] ?? null;
+    const rows = [
+      `tooltip vis=${tooltip?.visible === true ? "1" : "0"} scale=${Number.isFinite(tooltip?.scale) ? tooltip.scale.toFixed(2) : "--"} layer=${Number.isFinite(tooltip?.layerScale) ? tooltip.layerScale.toFixed(2) : "--"}`,
+      `tooltip pos=${Math.round(Number(tooltip?.x) || 0)},${Math.round(Number(tooltip?.y) || 0)} size=${Math.round(Number(tooltip?.width) || 0)}x${Math.round(Number(tooltip?.height) || 0)}`,
+      `tooltip anchor=${formatAnchor(tooltip?.anchor)} title=${tooltip?.title || "--"}`,
+      `inv win=${firstWindow ? String(firstWindow.ownerId) : "--"} hover=${firstWindow?.hovered === true ? "1" : "0"} pin=${firstWindow?.pinned === true ? "1" : "0"}`,
+      `inv pos=${Math.round(Number(firstWindow?.x) || 0)},${Math.round(Number(firstWindow?.y) || 0)} uiScale=${Number.isFinite(firstWindow?.uiScale) ? firstWindow.uiScale.toFixed(2) : "--"}`,
+      `inv anchor=${formatAnchor(firstWindow?.hoverAnchor)}`,
+      `pawn=${firstPawn ? String(firstPawn.pawnId) : "--"} pos=${Math.round(Number(firstPawn?.x) || 0)},${Math.round(Number(firstPawn?.y) || 0)} attached=${Number.isFinite(firstPawn?.attachedScale) ? firstPawn.attachedScale.toFixed(2) : "--"} self=${Number.isFinite(firstPawn?.selfHoverScaleApplied) ? firstPawn.selfHoverScaleApplied.toFixed(2) : "--"}`,
+      `pawn tip=${formatAnchor(firstPawn?.tooltipAnchor)} inv=${formatAnchor(firstPawn?.inventoryAnchor)}`,
+    ];
+    for (let i = 0; i < hoverRows.length; i++) {
+      hoverRows[i].text = rows[i] ?? "";
+    }
+  }
 
   function refreshScenarioUi() {
     if (!scenarioIds.length) {
@@ -763,6 +822,7 @@ export function createDebugOverlay({
 
       updatePerfRows();
       updateParityRow();
+      updateHoverRows();
 
       const autoPauseEnabled =
         typeof getAutoPauseOnPlayerActionEnabled === "function"
@@ -773,6 +833,18 @@ export function createDebugOverlay({
       }`;
       autoPauseBtn.text.x = Math.round((autoPauseBtn.width - autoPauseBtn.text.width) * 0.5);
       autoPauseBtn.bg.tint = autoPauseEnabled ? 0x2f9b4c : 0xffffff;
+
+      const rawInspectorEnabled =
+        typeof getRawInspectorEnabled === "function"
+          ? getRawInspectorEnabled() === true
+          : false;
+      rawInspectorBtn.text.text = `Raw Inspector: ${
+        rawInspectorEnabled ? "ON" : "OFF"
+      }`;
+      rawInspectorBtn.text.x = Math.round(
+        (rawInspectorBtn.width - rawInspectorBtn.text.width) * 0.5
+      );
+      rawInspectorBtn.bg.tint = rawInspectorEnabled ? 0x2f9b4c : 0xffffff;
     },
     getScreenRect: () => {
       if (!root.visible) return null;

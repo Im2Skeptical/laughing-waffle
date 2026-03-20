@@ -37,7 +37,15 @@ import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { envTileDefs } from "../defs/gamepieces/env-tiles-defs.js";
 import { hubStructureDefs } from "../defs/gamepieces/hub-structure-defs.js";
 import { getVisibleEnvColCount, isEnvColRevealed, isHubVisible } from "../model/state.js";
-import { makePawnTooltipSpec } from "./pawn-tooltip-spec.js";
+import {
+  getPawnBubbleSpecs,
+  makePawnInfocardSpec,
+} from "./pawn-tooltip-spec.js";
+import {
+  LEADER_EQUIPMENT_SLOT_LABELS,
+  LEADER_EQUIPMENT_SLOT_ORDER,
+} from "../defs/gamesystems/equipment-slot-defs.js";
+import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 
 export function createPawnsView(opts) {
   const {
@@ -64,6 +72,7 @@ export function createPawnsView(opts) {
     canStartHoverZoomIn,
     screenToWorld,
     worldToScreen,
+    openSkillTree,
   } = opts;
 
   const viewsById = new Map();
@@ -71,12 +80,28 @@ export function createPawnsView(opts) {
   const DRAG_GHOST_REFRESH_MS = 50;
   const FAN_SPACING = 40;
   const RADIUS = 20;
-  const PAWN_HOVER_ZINDEX = 30;
+  const PAWN_HOVER_ZINDEX = 40;
   const LEADER_DIAMOND_SCALE = 1.15;
   const INVENTORY_DRAG_VALID_OUTLINE = 0x58c7ff;
   const INVENTORY_DRAG_FULL_OUTLINE = 0xffa24f;
   const INVENTORY_DRAG_HOVER_OUTLINE = 0x6bd37b;
   const INVENTORY_DRAG_GLOW_ALPHA = 0.24;
+  const PAWN_UI_LAYOUT = Object.freeze({
+    dropdownWidth: 216,
+    dropdownOffsetX: -108,
+    dropdownOffsetY: 10,
+    tooltipGap: 18,
+    inventoryGap: 18,
+    bubbleRadius: 20,
+    bubbleTopY: -30,
+    bubbleSideX: 50,
+    bubbleSideY: 0,
+    dropdownHideDelayMs: 260,
+    inventoryAnchorInternalOffset: 10,
+    tooltipAnchorInternalOffset: 14,
+  });
+  const DROPDOWN_HIDE_DELAY_MS = PAWN_UI_LAYOUT.dropdownHideDelayMs;
+  const BUBBLE_RADIUS = PAWN_UI_LAYOUT.bubbleRadius;
   let focusGhost = null;
   let focusedPawnId = null;
   let followerOrdinalByPawnIdCache = new Map();
@@ -344,12 +369,125 @@ export function createPawnsView(opts) {
   }
 
   function buildPawnHoverAnchor(view) {
-    if (!view?.container || !tooltipView) return null;
+    if (!view || !tooltipView) return null;
     return {
       coordinateSpace: "parent",
-      getAnchorRect: () =>
-        tooltipView.getAnchorRectForDisplayObject?.(view.container, "parent") ?? null,
+      getAnchorRect: () => getPawnAnchorRect(view, "parent"),
     };
+  }
+
+  function buildPawnScreenAnchor(view) {
+    if (!view || !tooltipView) return null;
+    return {
+      coordinateSpace: "screen",
+      getAnchorRect: () => getPawnAnchorRect(view, "screen"),
+    };
+  }
+
+  function getPawnAnchorRect(view, coordinateSpace = "screen") {
+    const container = view?.container;
+    if (!container) return null;
+    if (coordinateSpace === "screen") {
+      const global =
+        typeof container.getGlobalPosition === "function"
+          ? container.getGlobalPosition(new PIXI.Point())
+          : typeof container.parent?.toGlobal === "function"
+            ? container.parent.toGlobal(container.position)
+            : null;
+      if (!global) return null;
+      return {
+        x: global.x,
+        y: global.y,
+        width: 0,
+        height: 0,
+        coordinateSpace: "screen",
+      };
+    }
+    return {
+      x: Number(container.x) || 0,
+      y: Number(container.y) || 0,
+      width: 0,
+      height: 0,
+      coordinateSpace: "parent",
+    };
+  }
+
+  function buildPawnInventoryAnchor(view) {
+    const baseAnchor = buildPawnHoverAnchor(view);
+    if (!baseAnchor || typeof baseAnchor.getAnchorRect !== "function") return null;
+    return {
+      coordinateSpace: "parent",
+      getAnchorRect: () => {
+        const rect = baseAnchor.getAnchorRect?.();
+        if (!rect) return null;
+        const centerX = rect.x + rect.width / 2;
+        const centerY = rect.y + rect.height / 2;
+        const menuLeft = centerX + PAWN_UI_LAYOUT.dropdownOffsetX;
+        const menuTop = centerY + PAWN_UI_LAYOUT.dropdownOffsetY;
+        const desiredInventoryX =
+          menuLeft + PAWN_UI_LAYOUT.dropdownWidth + PAWN_UI_LAYOUT.inventoryGap;
+        return {
+          x: desiredInventoryX - PAWN_UI_LAYOUT.inventoryAnchorInternalOffset,
+          y: menuTop,
+          width: 0,
+          height: 0,
+          coordinateSpace: "parent",
+        };
+      },
+    };
+  }
+
+  function buildPawnTooltipAnchor(view) {
+    const baseAnchor = buildPawnHoverAnchor(view);
+    if (!baseAnchor || typeof baseAnchor.getAnchorRect !== "function") return null;
+    return {
+      coordinateSpace: "parent",
+      side: "left",
+      alignY: "top",
+      getAnchorRect: () => {
+        const rect = baseAnchor.getAnchorRect?.();
+        if (!rect) return null;
+        const centerX = rect.x + rect.width / 2;
+        const centerY = rect.y + rect.height / 2;
+        const menuLeft = centerX + PAWN_UI_LAYOUT.dropdownOffsetX;
+        const menuTop = centerY + PAWN_UI_LAYOUT.dropdownOffsetY;
+        return {
+          x: menuLeft - PAWN_UI_LAYOUT.tooltipGap + PAWN_UI_LAYOUT.tooltipAnchorInternalOffset,
+          y: menuTop,
+          width: 0,
+          height: 0,
+          coordinateSpace: "parent",
+          side: "left",
+          alignY: "top",
+        };
+      },
+    };
+  }
+
+  function summarizeAnchor(anchor) {
+    if (!anchor || typeof anchor.getAnchorRect !== "function") return null;
+    const rect = anchor.getAnchorRect?.();
+    if (!rect) return null;
+    return {
+      x: Number(rect.x) || 0,
+      y: Number(rect.y) || 0,
+      width: Number(rect.width) || 0,
+      height: Number(rect.height) || 0,
+      coordinateSpace:
+        rect.coordinateSpace === "screen" ? "screen" : "parent",
+      side: rect.side === "right" ? "right" : "left",
+      alignY: rect.alignY === "top" ? "top" : "center",
+    };
+  }
+
+  function isPointInsideBounds(bounds, point, pad = 0) {
+    if (!bounds || !point) return false;
+    return (
+      point.x >= bounds.x - pad &&
+      point.x <= bounds.x + bounds.width + pad &&
+      point.y >= bounds.y - pad &&
+      point.y <= bounds.y + bounds.height + pad
+    );
   }
 
   function setPawnHoverShadowAlpha(view, alpha) {
@@ -387,6 +525,10 @@ export function createPawnsView(opts) {
   }
 
   function shouldAllowPawnHoverZoomIn(view) {
+    const attachedScale = Number.isFinite(view?.attachedScale)
+      ? view.attachedScale
+      : 1;
+    if (attachedScale > 1.001) return false;
     if (isPawnHoverZoomExpanded(view)) return true;
     return canStartHoverZoomIn?.() !== false;
   }
@@ -409,7 +551,10 @@ export function createPawnsView(opts) {
 
   function applyPawnScale(view) {
     const scale = getEffectiveScale(view);
-    view.container.scale.set(scale);
+    view.interactionLayer?.scale?.set?.(scale);
+    view.shadowLayer?.scale?.set?.(scale);
+    view.paintLayer?.scale?.set?.(scale);
+    view.inkLayer?.scale?.set?.(scale);
     applyTextResolution(view.label, scale);
     view.container.zIndex =
       scale > 1 ||
@@ -432,6 +577,10 @@ export function createPawnsView(opts) {
     if (view.flashTimeout) {
       clearTimeout(view.flashTimeout);
       view.flashTimeout = null;
+    }
+    if (view.hoverHideTimeout) {
+      clearTimeout(view.hoverHideTimeout);
+      view.hoverHideTimeout = null;
     }
     view.flashRing.clear();
     view.flashRing
@@ -507,6 +656,17 @@ export function createPawnsView(opts) {
     return { envCol, hubCol };
   }
 
+  function getLiveHoverInfoForPawn(pawn) {
+    const placement = getHoverPlacementForPawn(pawn);
+    if (Number.isFinite(placement?.envCol)) {
+      return getHoverInfoForSlot("env", placement.envCol);
+    }
+    if (Number.isFinite(placement?.hubCol)) {
+      return getHoverInfoForSlot("hub", placement.hubCol);
+    }
+    return null;
+  }
+
   function resolveColumnStartX(screenWidth, totalWidth, anchorX, offsetX = 0) {
     const width = Math.max(1, Math.floor(screenWidth));
     const safeTotal = Math.max(0, Math.floor(totalWidth));
@@ -567,6 +727,14 @@ export function createPawnsView(opts) {
       return def?.name || def?.id || `Hub ${col}`;
     }
     return `Hub ${col}`;
+  }
+
+  function formatPlacementLabel(placement, state) {
+    const envCol = Number.isFinite(placement?.envCol) ? Math.floor(placement.envCol) : null;
+    const hubCol = Number.isFinite(placement?.hubCol) ? Math.floor(placement.hubCol) : null;
+    if (envCol != null) return formatTileName(envCol, state);
+    if (hubCol != null) return formatHubName(hubCol, state);
+    return "Unassigned";
   }
 
   function getDropTargetCenterXs(envCols, hubCols) {
@@ -925,7 +1093,11 @@ export function createPawnsView(opts) {
           x: base.x + startOffset + i * FAN_SPACING,
           y: base.y,
         };
-        const scaledPos = applyHoverTransform(rawPos, hoverInfo);
+        view.uiAnchorLocalX = rawPos.x;
+        view.uiAnchorLocalY = rawPos.y;
+        const lockedHoverInfo = view.selfHover ? view.lockedHoverInfo : null;
+        const effectiveHoverInfo = lockedHoverInfo || hoverInfo;
+        const scaledPos = applyHoverTransform(rawPos, effectiveHoverInfo);
         view.container.x = scaledPos.x;
         view.container.y = scaledPos.y;
         view.attachedScale = scaledPos.scale;
@@ -937,8 +1109,77 @@ export function createPawnsView(opts) {
   // ---------------------------------------------------------------------------
   // Create a single pawn view
   // ---------------------------------------------------------------------------
+  function countFollowersForLeader(leaderId) {
+    const pawns = getPawnsSafe();
+    let count = 0;
+    for (const pawn of pawns) {
+      if (pawn?.role === "follower" && String(pawn?.leaderId) === String(leaderId)) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  function stopPointerBubble(ev) {
+    ev?.stopPropagation?.();
+  }
+
+  function drawBubbleGraphic(graphics, color) {
+    graphics.clear();
+    graphics.lineStyle(2, 0x2d1a12, 1);
+    graphics.beginFill(color, 0.98);
+    graphics.drawCircle(0, 0, BUBBLE_RADIUS);
+    graphics.endFill();
+  }
+
+  function buildDropdownEquipmentLayout() {
+    return {
+      head: { x: 86, y: 14, w: 36, h: 30 },
+      chest: { x: 80, y: 52, w: 48, h: 40 },
+      mainHand: { x: 26, y: 56, w: 44, h: 36 },
+      offHand: { x: 138, y: 56, w: 44, h: 36 },
+      ring1: { x: 46, y: 102, w: 24, h: 20 },
+      ring2: { x: 138, y: 102, w: 24, h: 20 },
+      amulet: { x: 100, y: 100, w: 20, h: 20 },
+    };
+  }
+
+  function createDropdownButton(label, onTap) {
+    const button = new PIXI.Container();
+    button.eventMode = "static";
+    button.cursor = "pointer";
+    button.on("pointerdown", stopPointerBubble);
+    button.on("pointertap", (ev) => {
+      stopPointerBubble(ev);
+      onTap?.();
+    });
+    const bg = new PIXI.Graphics();
+    button.addChild(bg);
+    const text = new PIXI.Text(label, {
+      fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+      fontSize: 10,
+      fontWeight: "bold",
+    });
+    applyTextResolution(text, 1);
+    text.x = 8;
+    text.y = 4;
+    button.addChild(text);
+    button.redraw = (nextLabel = label) => {
+      text.text = nextLabel;
+      bg.clear();
+      bg.beginFill(MUCHA_UI_COLORS?.surfaces?.header ?? 0x6a5a48, 0.98);
+      bg.lineStyle(1, MUCHA_UI_COLORS?.surfaces?.borderSoft ?? 0xb59f78, 1);
+      bg.drawRoundedRect(0, 0, Math.max(112, text.width + 16), 22, 6);
+      bg.endFill();
+    };
+    button.redraw(label);
+    return button;
+  }
+
   function createPawnView(pawn, followerOrdinalByPawnId = null) {
     const container = new PIXI.Container();
+    container.sortableChildren = true;
+    const interactionLayer = new PIXI.Container();
     const shadowLayer = new PIXI.Container();
     const paintLayer = new PIXI.Container();
     const inkLayer = new PIXI.Container();
@@ -951,12 +1192,20 @@ export function createPawnsView(opts) {
 
     container.eventMode = "static";
     container.cursor = "pointer";
-    container.addChild(shadowLayer, paintLayer, inkLayer);
+    container.addChild(interactionLayer, shadowLayer, paintLayer, inkLayer);
 
     const fillColor = typeof pawn.color === "number" ? pawn.color : 0xaa66ff;
     const isLeader = pawn?.role === "leader";
     const leaderRadius = Math.round(RADIUS * LEADER_DIAMOND_SCALE);
     const shapeRadius = isLeader ? leaderRadius : RADIUS;
+    const hoverPad = 12;
+    const anchorTarget = new PIXI.Graphics();
+    anchorTarget.eventMode = "static";
+    anchorTarget.cursor = "pointer";
+    anchorTarget.beginFill(0xffffff, 0.001);
+    drawPawnShape(anchorTarget, { isLeader, radius: shapeRadius + hoverPad });
+    anchorTarget.endFill();
+    interactionLayer.addChild(anchorTarget);
 
     const shadow = new PIXI.Graphics().beginFill(
       GAMEPIECE_SHADOW_COLOR,
@@ -1054,6 +1303,42 @@ export function createPawnsView(opts) {
     workerBadgeText.anchor.set(0.5);
     workerBadge.addChild(workerBadgeText);
 
+    const bubbleLayer = new PIXI.Container();
+    bubbleLayer.eventMode = "passive";
+    bubbleLayer.y = -shapeRadius - 10;
+    bubbleLayer.zIndex = 30;
+    container.addChild(bubbleLayer);
+
+    const dropdown = new PIXI.Container();
+    dropdown.visible = false;
+    dropdown.eventMode = "static";
+    dropdown.cursor = "default";
+    dropdown.x = PAWN_UI_LAYOUT.dropdownOffsetX;
+    dropdown.y = PAWN_UI_LAYOUT.dropdownOffsetY;
+    dropdown.zIndex = -20;
+    dropdown.on("pointerdown", stopPointerBubble);
+    dropdown.on("pointerenter", () => {
+      if (view?.hoverHideTimeout) {
+        clearTimeout(view.hoverHideTimeout);
+        view.hoverHideTimeout = null;
+      }
+    });
+    dropdown.on("pointerleave", () => {
+      scheduleHoverHide();
+    });
+    container.addChild(dropdown);
+
+    interactionLayer.zIndex = 5;
+    shadowLayer.zIndex = 10;
+    paintLayer.zIndex = 15;
+    inkLayer.zIndex = 20;
+
+    const dropdownBg = new PIXI.Graphics();
+    dropdown.addChild(dropdownBg);
+
+    const dropdownContent = new PIXI.Container();
+    dropdown.addChild(dropdownContent);
+
     layer.addChild(container);
     registerPaintContainer(paintLayer);
 
@@ -1078,18 +1363,510 @@ export function createPawnsView(opts) {
       hoverShadowAlphaApplied: 0,
       hoverShadowAlphaTarget: 0,
       attachedScale: 1,
+      uiAnchorLocalX: pos.x,
+      uiAnchorLocalY: pos.y,
       hoverParent: null,
       hoverIndex: null,
+      lockedHoverInfo: null,
       label,
       staminaMask,
       shapeRadius,
       staminaRatio: null,
       paintLayer,
+      interactionLayer,
+      shadowLayer,
+      inkLayer,
+      anchorTarget,
+      bubbleLayer,
+      bubbleViews: new Map(),
+      visibleBubbleIds: [],
+      hoveredBubbleId: null,
+      dropdown,
+      dropdownBg,
+      dropdownContent,
+      dropdownSignature: "",
+      bubbleSignature: "",
+      hoverTooltipSignature: "",
+      dropdownSectionState: isLeader
+        ? { systems: false, equipment: false, skills: false, prestige: false, build: false }
+        : { systems: false, assignment: false },
+      equipmentSlotTargets: [],
+      hoverHideTimeout: null,
       clearHover: null,
       cancelLongPress: null,
+      renderDropdown: null,
+      updateBubbleViews: null,
+      refreshHoverUi: null,
       inventoryDragAffordance:
         inventoryDragAffordanceByOwnerId.get(normalizeInventoryDragOwnerId(pawn.id)) ?? null,
     };
+
+    function drawDropdownBackground(width, height) {
+      view.dropdownBg.clear();
+      view.dropdownBg.beginFill(MUCHA_UI_COLORS?.surfaces?.panelDeep ?? 0x3b352d, 0.97);
+      view.dropdownBg.lineStyle(2, MUCHA_UI_COLORS?.surfaces?.border ?? 0xb59f78, 1);
+      view.dropdownBg.drawRoundedRect(0, 0, width, height, 10);
+      view.dropdownBg.endFill();
+    }
+
+    function renderDropdownSectionHeader(parent, key, label, x, y, width) {
+      const row = new PIXI.Container();
+      row.x = x;
+      row.y = y;
+      row.eventMode = "static";
+      row.cursor = "pointer";
+      row.on("pointerdown", stopPointerBubble);
+      row.on("pointertap", (ev) => {
+        stopPointerBubble(ev);
+        view.dropdownSectionState[key] = view.dropdownSectionState[key] !== true;
+        renderDropdown();
+      });
+      const bg = new PIXI.Graphics();
+      bg.beginFill(MUCHA_UI_COLORS?.surfaces?.header ?? 0x6a5a48, 0.96);
+      bg.lineStyle(1, MUCHA_UI_COLORS?.surfaces?.borderSoft ?? 0xb59f78, 1);
+      bg.drawRoundedRect(0, 0, width, 22, 6);
+      bg.endFill();
+      row.addChild(bg);
+      const arrow = new PIXI.Text(view.dropdownSectionState[key] === true ? "v" : ">", {
+        fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+        fontSize: 10,
+        fontWeight: "bold",
+      });
+      applyTextResolution(arrow, 1);
+      arrow.x = 8;
+      arrow.y = 4;
+      row.addChild(arrow);
+      const text = new PIXI.Text(label, {
+        fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+        fontSize: 10,
+        fontWeight: "bold",
+      });
+      applyTextResolution(text, 1);
+      text.x = 22;
+      text.y = 4;
+      row.addChild(text);
+      parent.addChild(row);
+      return row;
+    }
+
+    function renderDropdown() {
+      const pawnData = view.pawn || pawn;
+      const state = getStateSafe();
+      const dropdownSignature = JSON.stringify({
+        hover: view.selfHover === true,
+        pawnId: pawnData?.id ?? null,
+        name: pawnData?.name ?? "",
+        role: pawnData?.role ?? "",
+        mode: pawnData?.ai?.mode ?? "",
+        returnState: pawnData?.ai?.returnState ?? "",
+        assignedPlacement: pawnData?.ai?.assignedPlacement ?? null,
+        systems: getPawnBubbleSpecs(pawnData, state, { hoverActive: true }).map((bubble) => ({
+          id: bubble.systemId,
+          shortLabel: bubble.shortLabel,
+          label: bubble.label,
+          value:
+            bubble.systemId === "leaderFaith"
+              ? pawnData?.leaderFaith?.tier ?? "gold"
+              : `${Math.round(pawnData?.systemState?.[bubble.systemId]?.cur ?? 0)}/${Math.round(
+                  pawnData?.systemState?.[bubble.systemId]?.max ?? 0
+                )}`,
+        })),
+        equipment: LEADER_EQUIPMENT_SLOT_ORDER.map((slotId) => ({
+          slotId,
+          itemId: pawnData?.equipment?.[slotId]?.id ?? null,
+          itemKind: pawnData?.equipment?.[slotId]?.kind ?? null,
+        })),
+        skillPoints: pawnData?.skillPoints ?? 0,
+        unlockedSkillNodeIds: Array.isArray(pawnData?.unlockedSkillNodeIds)
+          ? pawnData.unlockedSkillNodeIds.slice(0, 5)
+          : [],
+        workerCount: pawnData?.workerCount ?? 0,
+        faithTier: pawnData?.leaderFaith?.tier ?? "gold",
+        sectionState: view.dropdownSectionState,
+        followerCount: pawnData?.role === "leader" ? countFollowersForLeader(pawnData.id) : 0,
+      });
+      if (view.dropdownSignature === dropdownSignature) {
+        view.dropdown.visible = view.selfHover === true;
+        return;
+      }
+      view.dropdownSignature = dropdownSignature;
+      view.dropdownContent.removeChildren();
+      view.equipmentSlotTargets = [];
+      let cursorY = 10;
+      const width = PAWN_UI_LAYOUT.dropdownWidth;
+      const innerWidth = width - 16;
+      view.dropdown.x = PAWN_UI_LAYOUT.dropdownOffsetX;
+      view.dropdown.y = PAWN_UI_LAYOUT.dropdownOffsetY;
+
+      const title = new PIXI.Text(pawnData?.name || `Pawn ${pawnData?.id ?? ""}`, {
+        fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+        fontSize: 15,
+        fontWeight: "bold",
+      });
+      applyTextResolution(title, 1);
+      title.x = 8;
+      title.y = cursorY;
+      view.dropdownContent.addChild(title);
+      cursorY += title.height + 8;
+
+      const systemsHeader = renderDropdownSectionHeader(
+        view.dropdownContent,
+        "systems",
+        "Systems",
+        8,
+        cursorY,
+        innerWidth
+      );
+      cursorY += 26;
+      if (view.dropdownSectionState.systems === true) {
+        for (const bubble of getPawnBubbleSpecs(pawnData, state, { hoverActive: true })) {
+          const line = new PIXI.Text(
+            `${bubble.label}: ${
+              bubble.systemId === "leaderFaith"
+                ? pawnData?.leaderFaith?.tier ?? "gold"
+                : `${Math.round(pawnData?.systemState?.[bubble.systemId]?.cur ?? 0)}/${Math.round(
+                    pawnData?.systemState?.[bubble.systemId]?.max ?? 0
+                  )}`
+            }`,
+            {
+              fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+              fontSize: 10,
+            }
+          );
+          applyTextResolution(line, 1);
+          line.x = 14;
+          line.y = cursorY;
+          view.dropdownContent.addChild(line);
+          cursorY += line.height + 3;
+        }
+        cursorY += 4;
+      }
+
+      if (pawnData?.role === "leader") {
+        renderDropdownSectionHeader(view.dropdownContent, "equipment", "Equipment", 8, cursorY, innerWidth);
+        cursorY += 26;
+        if (view.dropdownSectionState.equipment === true) {
+          const equipContainer = new PIXI.Container();
+          equipContainer.x = 12;
+          equipContainer.y = cursorY;
+          view.dropdownContent.addChild(equipContainer);
+          const equipment = pawnData?.equipment && typeof pawnData.equipment === "object" ? pawnData.equipment : {};
+          const layout = buildDropdownEquipmentLayout();
+          for (const slotId of LEADER_EQUIPMENT_SLOT_ORDER) {
+            const slotLayout = layout[slotId];
+            if (!slotLayout) continue;
+            const slot = new PIXI.Container();
+            slot.x = slotLayout.x;
+            slot.y = slotLayout.y;
+            slot.eventMode = "static";
+            slot.cursor = "default";
+            slot.on("pointerdown", stopPointerBubble);
+            equipContainer.addChild(slot);
+            const slotBg = new PIXI.Graphics();
+            slotBg.lineStyle(1, MUCHA_UI_COLORS?.surfaces?.borderSoft ?? 0xb59f78, 1);
+            slotBg.beginFill(MUCHA_UI_COLORS?.surfaces?.panel ?? 0x53493f, 0.92);
+            slotBg.drawRoundedRect(0, 0, slotLayout.w, slotLayout.h, 6);
+            slotBg.endFill();
+            slot.addChild(slotBg);
+            const slotLabel = new PIXI.Text(LEADER_EQUIPMENT_SLOT_LABELS[slotId] || slotId, {
+              fill: MUCHA_UI_COLORS?.ink?.muted ?? 0xc9bba5,
+              fontSize: 8,
+            });
+            applyTextResolution(slotLabel, 1);
+            slotLabel.x = 2;
+            slotLabel.y = slotLayout.h + 1;
+            slot.addChild(slotLabel);
+            const item = equipment?.[slotId] ?? null;
+            if (item) {
+              const itemView = new PIXI.Container();
+              itemView.ownerId = pawnData.id;
+              itemView.sourceEquipmentSlotId = slotId;
+              itemView.itemData = item;
+              itemView.eventMode = "static";
+              itemView.cursor = "pointer";
+              itemView.on("pointerdown", (ev) => {
+                stopPointerBubble(ev);
+                const g = ev?.data?.global;
+                if (!g) return;
+                getInvSafe()?.beginDragExternalEquippedItem?.({
+                  ownerId: pawnData.id,
+                  item,
+                  sourceEquipmentSlotId: slotId,
+                  view: itemView,
+                  globalPos: g,
+                  pointerType: ev?.data?.pointerType ?? null,
+                });
+              });
+              itemView.on("pointerover", () => {
+                const spec = getInvSafe()?.getItemTooltipSpec?.(item, pawnData.id) ?? null;
+                if (!spec) return;
+                getTooltipSafe()?.show?.(
+                  spec,
+                  {
+                    coordinateSpace: "parent",
+                    getAnchorRect: () =>
+                      tooltipView.getAnchorRectForDisplayObject?.(itemView, "parent") ?? null,
+                  }
+                );
+              });
+              itemView.on("pointerout", () => {
+                if (!view.hoveredBubbleId) {
+                  getTooltipSafe()?.show?.(makePawnInfocardSpec(pawnData, state), buildPawnTooltipAnchor(view));
+                }
+              });
+              const itemBg = new PIXI.Graphics();
+              itemBg.beginFill(item?.color ?? 0x8f7c60, 0.98);
+              itemBg.drawRoundedRect(2, 2, slotLayout.w - 4, slotLayout.h - 4, 5);
+              itemBg.endFill();
+              itemView.addChild(itemBg);
+              const glyph = new PIXI.Text(String(item?.kind ?? "?").slice(0, 2), {
+                fill: 0xffffff,
+                fontSize: 12,
+                fontWeight: "bold",
+              });
+              applyTextResolution(glyph, 1);
+              glyph.anchor.set(0.5);
+              glyph.x = Math.floor(slotLayout.w / 2);
+              glyph.y = Math.floor(slotLayout.h / 2) - 1;
+              itemView.addChild(glyph);
+              slot.addChild(itemView);
+            }
+            view.equipmentSlotTargets.push({
+              ownerId: pawnData.id,
+              slotId,
+              displayObject: slot,
+            });
+          }
+          cursorY += 134;
+        }
+
+        renderDropdownSectionHeader(view.dropdownContent, "skills", "Skills", 8, cursorY, innerWidth);
+        cursorY += 26;
+        if (view.dropdownSectionState.skills === true) {
+          const skillPoints = Number.isFinite(pawnData?.skillPoints)
+            ? Math.max(0, Math.floor(pawnData.skillPoints))
+            : 0;
+          const text = new PIXI.Text(`Skill Points: ${skillPoints}`, {
+            fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+            fontSize: 10,
+          });
+          applyTextResolution(text, 1);
+          text.x = 14;
+          text.y = cursorY;
+          view.dropdownContent.addChild(text);
+          cursorY += text.height + 4;
+          const unlocked = Array.isArray(pawnData?.unlockedSkillNodeIds)
+            ? pawnData.unlockedSkillNodeIds.slice(0, 5)
+            : [];
+          const unlockedText = new PIXI.Text(
+            unlocked.length ? unlocked.map((id) => `- ${id}`).join("\n") : "(none)",
+            {
+              fill: MUCHA_UI_COLORS?.ink?.muted ?? 0xc9bba5,
+              fontSize: 9,
+            }
+          );
+          applyTextResolution(unlockedText, 1);
+          unlockedText.x = 14;
+          unlockedText.y = cursorY;
+          view.dropdownContent.addChild(unlockedText);
+          cursorY += unlockedText.height + 6;
+          const button = createDropdownButton("Open Skill Tree", () =>
+            openSkillTree?.({ leaderPawnId: pawnData.id, pawnId: pawnData.id })
+          );
+          button.x = 14;
+          button.y = cursorY;
+          view.dropdownContent.addChild(button);
+          cursorY += 30;
+        }
+
+        renderDropdownSectionHeader(view.dropdownContent, "prestige", "Prestige / Workers", 8, cursorY, innerWidth);
+        cursorY += 26;
+        if (view.dropdownSectionState.prestige === true) {
+          const lines = [
+            `Followers: ${countFollowersForLeader(pawnData.id)}`,
+            `Workers: ${Math.max(0, Math.floor(pawnData?.workerCount ?? 0))}`,
+            `Faith: ${pawnData?.leaderFaith?.tier ?? "gold"}`,
+          ];
+          for (const value of lines) {
+            const line = new PIXI.Text(value, {
+              fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+              fontSize: 10,
+            });
+            applyTextResolution(line, 1);
+            line.x = 14;
+            line.y = cursorY;
+            view.dropdownContent.addChild(line);
+            cursorY += line.height + 3;
+          }
+          cursorY += 4;
+        }
+
+        renderDropdownSectionHeader(view.dropdownContent, "build", "Build", 8, cursorY, innerWidth);
+        cursorY += 26;
+        if (view.dropdownSectionState.build === true) {
+          const button = createDropdownButton("Open Building Manager", () =>
+            getInvSafe()?.openBuildingManagerForOwner?.(pawnData.id)
+          );
+          button.x = 14;
+          button.y = cursorY;
+          view.dropdownContent.addChild(button);
+          cursorY += 30;
+        }
+      } else {
+        renderDropdownSectionHeader(view.dropdownContent, "assignment", "Assignment / Automata", 8, cursorY, innerWidth);
+        cursorY += 26;
+        if (view.dropdownSectionState.assignment === true) {
+          const assigned = pawnData?.ai?.assignedPlacement ?? null;
+          const lines = [
+            `Assigned: ${formatPlacementLabel(assigned, getStateSafe())}`,
+            `Mode: ${pawnData?.ai?.mode ?? "none"}`,
+            `Return: ${pawnData?.ai?.returnState ?? "none"}`,
+          ];
+          for (const value of lines) {
+            const line = new PIXI.Text(value, {
+              fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+              fontSize: 10,
+            });
+            applyTextResolution(line, 1);
+            line.x = 14;
+            line.y = cursorY;
+            view.dropdownContent.addChild(line);
+            cursorY += line.height + 3;
+          }
+        }
+      }
+
+      drawDropdownBackground(width, cursorY + 8);
+      view.dropdown.visible = view.selfHover === true;
+    }
+
+    function ensureBubbleView(bubbleSpec) {
+      if (view.bubbleViews.has(bubbleSpec.systemId)) return view.bubbleViews.get(bubbleSpec.systemId);
+      const bubble = new PIXI.Container();
+      bubble.eventMode = "static";
+      bubble.cursor = "pointer";
+      bubble.on("pointerdown", stopPointerBubble);
+      bubble.on("pointerover", () => {
+        view.hoveredBubbleId = bubbleSpec.systemId;
+        getTooltipSafe()?.show?.(
+          bubbleSpec.tooltipSpec,
+          {
+            coordinateSpace: "parent",
+            getAnchorRect: () =>
+              tooltipView.getAnchorRectForDisplayObject?.(bubble, "parent") ?? null,
+          }
+        );
+      });
+      bubble.on("pointerout", () => {
+        view.hoveredBubbleId = null;
+        if (view.selfHover) {
+          getTooltipSafe()?.show?.(makePawnInfocardSpec(view.pawn, getStateSafe()), buildPawnTooltipAnchor(view));
+        } else {
+          getTooltipSafe()?.hide?.();
+        }
+      });
+      const graphics = new PIXI.Graphics();
+      bubble.addChild(graphics);
+      const text = new PIXI.Text(bubbleSpec.shortLabel, {
+        fill: 0xffffff,
+        fontSize: 18,
+        fontWeight: "bold",
+      });
+      applyTextResolution(text, 1);
+      text.anchor.set(0.5);
+      bubble.addChild(text);
+      bubble.graphics = graphics;
+      bubble.labelText = text;
+      bubbleLayer.addChild(bubble);
+      view.bubbleViews.set(bubbleSpec.systemId, bubble);
+      return bubble;
+    }
+
+    function updateBubbleViews() {
+      const pawnData = view.pawn || pawn;
+      const bubbleSpecs = getPawnBubbleSpecs(pawnData, getStateSafe(), {
+        hoverActive: view.selfHover === true,
+      });
+      const bubbleSignature = JSON.stringify(
+        bubbleSpecs.map((bubble) => ({
+          id: bubble.systemId,
+          label: bubble.shortLabel,
+          color: bubble.color,
+        }))
+      );
+      if (view.bubbleSignature === bubbleSignature) return;
+      view.bubbleSignature = bubbleSignature;
+      const positions = {
+        leaderFaith: { x: 0, y: PAWN_UI_LAYOUT.bubbleTopY },
+        hunger: { x: -PAWN_UI_LAYOUT.bubbleSideX, y: PAWN_UI_LAYOUT.bubbleSideY },
+        stamina: { x: PAWN_UI_LAYOUT.bubbleSideX, y: PAWN_UI_LAYOUT.bubbleSideY },
+      };
+      view.visibleBubbleIds = bubbleSpecs.map((entry) => entry.systemId);
+      for (const bubbleSpec of bubbleSpecs) {
+        const bubble = ensureBubbleView(bubbleSpec);
+        const pos = positions[bubbleSpec.systemId] ?? { x: 0, y: 0 };
+        bubble.visible = true;
+        bubble.x = pos.x;
+        bubble.y = pos.y;
+        drawBubbleGraphic(bubble.graphics, bubbleSpec.color);
+        bubble.labelText.text = bubbleSpec.shortLabel;
+        bubble.labelText.x = 0;
+        bubble.labelText.y = 0;
+      }
+      for (const [systemId, bubble] of view.bubbleViews.entries()) {
+        if (!view.visibleBubbleIds.includes(systemId)) {
+          bubble.visible = false;
+        }
+      }
+    }
+
+    function scheduleHoverHide() {
+      if (view.hoverHideTimeout) clearTimeout(view.hoverHideTimeout);
+      view.hoverHideTimeout = setTimeout(() => {
+        const pointerPos = interactionSafe.getPointerStagePos?.() ?? null;
+        const anchorBounds = view.anchorTarget?.getBounds?.() ?? null;
+        const dropdownBounds = view.dropdown?.visible ? view.dropdown.getBounds?.() ?? null : null;
+        if (
+          isPointInsideBounds(anchorBounds, pointerPos, 10) ||
+          isPointInsideBounds(dropdownBounds, pointerPos, 12)
+        ) {
+          view.hoverHideTimeout = null;
+          return;
+        }
+        hideHover();
+      }, DROPDOWN_HIDE_DELAY_MS);
+    }
+
+    function refreshHoverUi() {
+      const pawnData = view.pawn || pawn;
+      const anchor = buildPawnTooltipAnchor(view);
+      const hoverTooltipSignature = JSON.stringify({
+        pawnId: pawnData?.id ?? null,
+        name: pawnData?.name ?? "",
+        role: pawnData?.role ?? "",
+        mode: pawnData?.ai?.mode ?? "",
+        returnState: pawnData?.ai?.returnState ?? "",
+        assignedPlacement: pawnData?.ai?.assignedPlacement ?? null,
+        envCol: pawnData?.envCol ?? null,
+        hubCol: pawnData?.hubCol ?? null,
+        hunger: pawnData?.systemState?.hunger ?? null,
+        stamina: pawnData?.systemState?.stamina ?? null,
+        failedEatWarnActive: pawnData?.leaderFaith?.failedEatWarnActive === true,
+        leaderFaithTier: pawnData?.leaderFaith?.tier ?? null,
+        workerCount: pawnData?.workerCount ?? 0,
+        hoveredBubbleId: view.hoveredBubbleId ?? null,
+      });
+      if (!view.hoveredBubbleId && view.hoverTooltipSignature !== hoverTooltipSignature) {
+        view.hoverTooltipSignature = hoverTooltipSignature;
+        getTooltipSafe()?.show?.(makePawnInfocardSpec(pawnData, getStateSafe()), anchor);
+      }
+      renderDropdown();
+      updateBubbleViews();
+    }
+
+    view.renderDropdown = renderDropdown;
+    view.updateBubbleViews = updateBubbleViews;
+    view.refreshHoverUi = refreshHoverUi;
 
     // -----------------------------------------------------------------------
     // Hover UI
@@ -1098,19 +1875,17 @@ export function createPawnsView(opts) {
       const pawnData = view.pawn || pawn;
       if (!canShowGamepieceHoverUiNow()) return;
       view.selfHover = true;
+      view.lockedHoverInfo = getLiveHoverInfoForPawn(pawnData);
       const canZoomIn = shouldAllowPawnHoverZoomIn(view);
       view.selfHoverScaleTarget = canZoomIn ? GAMEPIECE_HOVER_SCALE : 1;
       view.hoverShadowAlphaTarget = canZoomIn ? 1 : 0;
       applyPawnScale(view);
-
-      const tt = getTooltipSafe();
-      const scale = getEffectiveScale(view);
-      const anchor = buildPawnHoverAnchor(view);
-      tt?.show?.({ ...makePawnTooltipSpec(pawnData, getStateSafe()), scale }, anchor);
-
-      const inv = getInvSafe();
-      inv?.showOnHover?.(pawnData.id, anchor);
-
+      if (view.hoverHideTimeout) {
+        clearTimeout(view.hoverHideTimeout);
+        view.hoverHideTimeout = null;
+      }
+      getInvSafe()?.showOnHover?.(pawnData.id, buildPawnInventoryAnchor(view));
+      refreshHoverUi();
       const placement = getHoverPlacementForPawn(pawnData);
       interactionSafe.setHoveredPawn?.({
         kind: "pawn",
@@ -1124,30 +1899,34 @@ export function createPawnsView(opts) {
     }
 
     function hideHover() {
+      const pawnData = view.pawn || pawn;
       view.selfHover = false;
+      view.lockedHoverInfo = null;
       view.selfHoverScaleTarget = 1;
       view.hoverShadowAlphaTarget = 0;
-      const inv = getInvSafe();
-      inv?.hideOnHoverOut?.(pawn.id);
-
+      view.hoveredBubbleId = null;
+      view.dropdown.visible = false;
+      view.hoverTooltipSignature = "";
+      updateBubbleViews();
+      getInvSafe()?.hideOnHoverOut?.(pawnData?.id);
       const tt = getTooltipSafe();
       tt?.hide?.();
       interactionSafe.clearHoveredPawn?.();
     }
 
-    container.on("pointerover", () => {
+    anchorTarget.on("pointerenter", () => {
       if (interactionSafe.isDragging && interactionSafe.isDragging()) return;
       showHover();
     });
 
-    container.on("pointerout", () => {
+    anchorTarget.on("pointerleave", () => {
       if (interactionSafe.isDragging && interactionSafe.isDragging()) return;
-      hideHover();
+      scheduleHoverHide();
     });
 
     const pawnLongPress = bindTouchLongPress({
       app,
-      target: container,
+      target: anchorTarget,
       shouldStart: () => {
         if (interactionSafe.isDragging && interactionSafe.isDragging()) {
           return false;
@@ -1202,6 +1981,7 @@ export function createPawnsView(opts) {
       interactionSafe.startDrag?.({ type: "pawn", id: pawnData.id });
       requestPauseForAction?.();
       view.selfHover = false;
+      view.lockedHoverInfo = null;
       view.selfHoverScaleTarget = 1;
       view.selfHoverScaleApplied = 1;
       view.hoverShadowAlphaTarget = 0;
@@ -1313,6 +2093,8 @@ export function createPawnsView(opts) {
 
     applyPawnScale(view);
     updateStaminaVisual(view, pawn);
+    renderDropdown();
+    updateBubbleViews();
     viewsById.set(pawn.id, view);
   }
 
@@ -1457,23 +2239,19 @@ export function createPawnsView(opts) {
         applyPawnScale(view);
       }
       if (view.selfHover) {
-        if (!canShowGamepieceHoverUiNow()) {
-          view.clearHover?.();
-          continue;
-        }
         const canZoomIn = shouldAllowPawnHoverZoomIn(view);
         view.selfHoverScaleTarget = canZoomIn ? GAMEPIECE_HOVER_SCALE : 1;
         view.hoverShadowAlphaTarget = canZoomIn ? 1 : 0;
       }
       if (view.selfHover) {
         const scale = getEffectiveScale(view);
-        const anchor = buildPawnHoverAnchor(view);
         const pawnData = view.pawn;
-        getTooltipSafe()?.show?.({
-          ...makePawnTooltipSpec(pawnData, getStateSafe()),
-          scale,
-        }, anchor);
-        getInvSafe()?.showOnHover?.(pawnData?.id, anchor);
+        if (!view.hoveredBubbleId) {
+          view.refreshHoverUi?.();
+        } else {
+          view.renderDropdown?.();
+          view.updateBubbleViews?.();
+        }
         const placement = getHoverPlacementForPawn(pawnData);
         interactionSafe.setHoveredPawn?.({
           kind: "pawn",
@@ -1484,6 +2262,9 @@ export function createPawnsView(opts) {
           centerY: view.container.y,
           scale,
         });
+      } else {
+        view.dropdown.visible = false;
+        view.updateBubbleViews?.();
       }
       if (view.workerBadge && view.workerBadgeBg && view.workerBadgeText) {
         const workerCount = Number.isFinite(view?.pawn?.workerCount)
@@ -1533,7 +2314,7 @@ export function createPawnsView(opts) {
       const ownerId = view?.pawn?.id ?? null;
       if (ownerId == null) continue;
       if (!inventories[ownerId]) continue;
-      const bounds = view.container.getBounds();
+      const bounds = view.anchorTarget?.getBounds?.() ?? view.container.getBounds();
       if (
         globalPos.x >= bounds.x &&
         globalPos.x <= bounds.x + bounds.width &&
@@ -1542,15 +2323,58 @@ export function createPawnsView(opts) {
       ) {
         return {
           ownerId,
-          anchor: {
-            coordinateSpace: "screen",
-            getAnchorRect: () => view.container?.getBounds?.() ?? null,
-          },
+          anchor: buildPawnInventoryAnchor(view),
         };
       }
     }
 
     return null;
+  }
+
+  function getInventoryOwnerAnchor(ownerId) {
+    const view = viewsById.get(ownerId) || null;
+    if (!view) return null;
+    return buildPawnInventoryAnchor(view);
+  }
+
+  function getEquipmentSlotAtGlobalPos(globalPos) {
+    if (!globalPos) return null;
+    for (const view of viewsById.values()) {
+      if (!view?.dropdown?.visible) continue;
+      for (const target of view.equipmentSlotTargets || []) {
+        const bounds = target?.displayObject?.getBounds?.();
+        if (!bounds) continue;
+        if (
+          globalPos.x >= bounds.x &&
+          globalPos.x <= bounds.x + bounds.width &&
+          globalPos.y >= bounds.y &&
+          globalPos.y <= bounds.y + bounds.height
+        ) {
+          return {
+            ownerId: target.ownerId,
+            slotId: target.slotId,
+            displayObject: target.displayObject,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  function getOccludingScreenRects() {
+    const rects = [];
+    for (const view of viewsById.values()) {
+      if (view?.dropdown?.visible) {
+        const bounds = view.dropdown.getBounds?.();
+        if (bounds) rects.push(bounds);
+      }
+      for (const bubble of view?.bubbleViews?.values?.() || []) {
+        if (!bubble?.visible) continue;
+        const bounds = bubble.getBounds?.();
+        if (bounds) rects.push(bounds);
+      }
+    }
+    return rects;
   }
 
   return {
@@ -1562,6 +2386,44 @@ export function createPawnsView(opts) {
     getViewForId: (id) => viewsById.get(id) || null,
     setInventoryDragAffordances,
     getInventoryOwnerAtGlobalPos,
+    getInventoryOwnerAnchor,
+    getEquipmentSlotAtGlobalPos,
+    getDebugState: () => {
+      const hoveredPawns = [];
+      for (const view of viewsById.values()) {
+        if (!view?.selfHover && !view?.dropdown?.visible) continue;
+        hoveredPawns.push({
+          pawnId: view?.pawn?.id ?? null,
+          name: view?.pawn?.name ?? "",
+          x: Number(view?.container?.x) || 0,
+          y: Number(view?.container?.y) || 0,
+          attachedScale: Number.isFinite(view?.attachedScale) ? view.attachedScale : 1,
+          selfHoverScaleApplied: Number.isFinite(view?.selfHoverScaleApplied)
+            ? view.selfHoverScaleApplied
+            : 1,
+          selfHoverScaleTarget: Number.isFinite(view?.selfHoverScaleTarget)
+            ? view.selfHoverScaleTarget
+            : 1,
+          uiAnchorLocalX: Number(view?.uiAnchorLocalX) || 0,
+          uiAnchorLocalY: Number(view?.uiAnchorLocalY) || 0,
+          lockedHoverInfo:
+            view?.lockedHoverInfo && typeof view.lockedHoverInfo === "object"
+              ? {
+                  centerX: Number(view.lockedHoverInfo.centerX) || 0,
+                  centerY: Number(view.lockedHoverInfo.centerY) || 0,
+                  offsetY: Number(view.lockedHoverInfo.offsetY) || 0,
+                  scale: Number(view.lockedHoverInfo.scale) || 1,
+                }
+              : null,
+          tooltipAnchor: summarizeAnchor(buildPawnTooltipAnchor(view)),
+          inventoryAnchor: summarizeAnchor(buildPawnInventoryAnchor(view)),
+          bodyAnchor: summarizeAnchor(buildPawnHoverAnchor(view)),
+        });
+      }
+      hoveredPawns.sort((a, b) => String(a.pawnId).localeCompare(String(b.pawnId)));
+      return { hoveredPawns };
+    },
+    getOccludingScreenRects,
   };
 }
 

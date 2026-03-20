@@ -1,6 +1,8 @@
 // hub-system-defs.js
 // Hub system registry (data only).
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const hubSystemDefs = {
   residents: {
     id: "residents",
@@ -108,3 +110,7 @@ export const hubSystemDefs = {
     },
   },
 };
+
+ensureTooltipCardUi(hubSystemDefs, {
+  getTitle: (def) => def?.ui?.name || def?.name || def?.id,
+});

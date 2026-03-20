@@ -6,6 +6,8 @@ import {
   PERISHABILITY_ROT_MULTIPLIER_BY_TIER,
 } from "../gamesettings/gamerules-defs.js";
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const itemTagDefs = {
   perishable: {
     id: "perishable",
@@ -109,3 +111,7 @@ export const itemTagDefs = {
     intents: [],
   },
 };
+
+ensureTooltipCardUi(itemTagDefs, {
+  getTitle: (def) => def?.ui?.name || def?.name || def?.id,
+});

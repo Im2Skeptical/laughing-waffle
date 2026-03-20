@@ -1,6 +1,8 @@
 // item-system-defs.js
 // Item system registry (data only).
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const itemSystemDefs = {
   perishability: {
     id: "perishability",
@@ -62,3 +64,7 @@ export const itemSystemDefs = {
     stateDefaults: {},
   },
 };
+
+ensureTooltipCardUi(itemSystemDefs, {
+  getTitle: (def) => def?.ui?.name || def?.name || def?.id,
+});

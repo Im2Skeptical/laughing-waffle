@@ -1,6 +1,8 @@
 // env-systems-defs.js
 // Env system registry (data only).
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const envSystemDefs = {
   build: {
     id: "build",
@@ -75,3 +77,7 @@ export const envSystemDefs = {
     tierMap: { bronze: 1, silver: 2, gold: 3, diamond: 4 },
   },
 };
+
+ensureTooltipCardUi(envSystemDefs, {
+  getTitle: (def) => def?.ui?.name || def?.name || def?.id,
+});

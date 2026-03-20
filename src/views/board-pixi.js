@@ -2404,6 +2404,12 @@ export function createBoardView(opts) {
     return true;
   }
 
+  function shouldKeepActiveHoverForHoveredOccupant() {
+    if (!activeHover?.view || !activeHover?.kind) return false;
+    if (activeHover.view.holdHoverForOccupant === true) return true;
+    return isPawnHoveringForView(activeHover.view, activeHover.kind);
+  }
+
   function resolveViewBaseY(view) {
     if (Number.isFinite(view?.baseY)) return Math.floor(view.baseY);
     if (Number.isFinite(view?.container?.y)) return Math.floor(view.container.y);
@@ -6560,7 +6566,11 @@ export function createBoardView(opts) {
       return;
     }
 
-    if (activeHover?.view && !canShowGamepieceHoverUiNow()) {
+    if (
+      activeHover?.view &&
+      !canShowGamepieceHoverUiNow() &&
+      !shouldKeepActiveHoverForHoveredOccupant()
+    ) {
       clearActiveHover(activeHover.view);
     }
 
