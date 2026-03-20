@@ -52,6 +52,12 @@ export const eventLogTypeDefs = {
     color: 0xff8f6f,
     glyph: "FR",
   },
+  skillPointsAvailable: {
+    id: "skillPointsAvailable",
+    label: "Skills",
+    color: 0x7ac7ff,
+    glyph: "SK",
+  },
   leaderFaithCollapsed: {
     id: "leaderFaithCollapsed",
     label: "Leader Lost",

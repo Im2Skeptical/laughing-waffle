@@ -9,6 +9,11 @@ import { itemDefs } from "../../defs/gamepieces/item-defs.js";
 import { itemTagDefs } from "../../defs/gamesystems/item-tag-defs.js";
 import { FAITH_GROWTH_STREAK_FOR_UPGRADE } from "../../defs/gamesettings/gamerules-defs.js";
 import { TIER_ASC } from "../../model/effects/core/tiers.js";
+import {
+  getHubTagPlayerRole,
+  isHubTagPlayerActive,
+  normalizeVisibleHubTagOrder,
+} from "../../model/hub-tags.js";
 import { hasHubTagUnlock } from "../../model/skills.js";
 import {
   buildRecipePriorityFromSelectedRecipe,
@@ -30,6 +35,7 @@ import { applyTextResolution } from "../ui-helpers/text-resolution.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
+const TAG_PASSIVE_RADIUS = 4;
 const TAG_PILL_PAD_X = 8;
 const TAG_PILL_GAP = 6;
 const TAG_PILL_MAX_WIDTH = 90;
@@ -50,6 +56,14 @@ const TAG_PILL_BORDER_SKIPPED = MUCHA_UI_COLORS.accents.gold;
 const TAG_PILL_TEXT = MUCHA_UI_COLORS.ink.primary;
 const TAG_PILL_TEXT_LOW = MUCHA_UI_COLORS.ink.secondary;
 const TAG_PILL_TEXT_BYPASSED = MUCHA_UI_COLORS.ink.alert;
+const TAG_PASSIVE_ACCENT_COLOR = MUCHA_UI_COLORS.surfaces.border;
+const TAG_PASSIVE_ACCENT_X = 2;
+const TAG_PASSIVE_ACCENT_Y = 2;
+const TAG_PASSIVE_ACCENT_WIDTH = 4;
+const TAG_PASSIVE_LABEL_X = TAG_LABEL_X + 2;
+const TAG_ROLE_DIVIDER_COLOR = MUCHA_UI_COLORS.surfaces.borderSoft;
+const TAG_ROLE_DIVIDER_INSET_X = 10;
+const TAG_ROLE_DIVIDER_GAP = 12;
 
 const SYSTEM_ROW_HEIGHT = 18;
 const SYSTEM_ROW_GAP = 4;
@@ -172,6 +186,23 @@ export function createHubTagUi(opts) {
   function getTagLabel(tagId) {
     const def = hubTagDefs[tagId];
     return def?.ui?.name || tagId;
+  }
+
+  function getTagRoleVisualSpec(playerRole) {
+    if (playerRole === "active") {
+      return {
+        shapeRadius: TAG_PILL_RADIUS,
+        labelX: TAG_LABEL_X,
+        accentColor: null,
+        cursor: "grab",
+      };
+    }
+    return {
+      shapeRadius: TAG_PASSIVE_RADIUS,
+      labelX: TAG_PASSIVE_LABEL_X,
+      accentColor: TAG_PASSIVE_ACCENT_COLOR,
+      cursor: "pointer",
+    };
   }
 
   function getTagTitleFeedbackConfig(tagId) {
@@ -1185,12 +1216,13 @@ export function createHubTagUi(opts) {
       : Array.isArray(structure?.tags)
       ? structure.tags
       : [];
-    return tags.filter(
+    const visibleTags = tags.filter(
       (tagId) =>
         isTagUnlocked(tagId) &&
         !isTagHidden(structure, tagId) &&
         !isTagPlayerDisabled(structure, tagId)
     );
+    return normalizeVisibleHubTagOrder(visibleTags);
   }
 
   function isTierBucket(pool) {
@@ -1503,28 +1535,49 @@ export function createHubTagUi(opts) {
 
   function setTagPillStyle(entry, style) {
     if (!entry || !style) return;
+    const roleSpec = getTagRoleVisualSpec(entry.playerRole);
     const bgColor = style.bgColor ?? TAG_PILL_BG_LOW;
     const borderColor = style.borderColor ?? TAG_PILL_BORDER_LOW;
     const textColor = style.textColor ?? TAG_PILL_TEXT;
     const alpha = style.alpha ?? 1;
     const rowScale = style.rowScale ?? 1;
+    const bgRenderKey = [
+      bgColor,
+      borderColor,
+      roleSpec.shapeRadius,
+      roleSpec.accentColor ?? "none",
+    ].join("|");
 
-    if (entry.bgColor !== bgColor || entry.borderColor !== borderColor) {
+    if (entry.bgRenderKey !== bgRenderKey) {
       entry.bg.clear();
       entry.bg
         .lineStyle(1, borderColor, 0.9)
         .beginFill(bgColor, 0.95)
-        .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, TAG_PILL_RADIUS)
+        .drawRoundedRect(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT, roleSpec.shapeRadius)
         .endFill();
-      entry.bgColor = bgColor;
-      entry.borderColor = borderColor;
+      entry.passiveAccent.clear();
+      if (roleSpec.accentColor != null) {
+        entry.passiveAccent
+          .beginFill(roleSpec.accentColor, 0.98)
+          .drawRoundedRect(
+            TAG_PASSIVE_ACCENT_X,
+            TAG_PASSIVE_ACCENT_Y,
+            TAG_PASSIVE_ACCENT_WIDTH,
+            Math.max(1, TAG_PILL_HEIGHT - TAG_PASSIVE_ACCENT_Y * 2),
+            2
+          )
+          .endFill();
+      }
+      entry.bgRenderKey = bgRenderKey;
     }
 
     if (entry.labelText?.style?.fill !== textColor) {
       entry.labelText.style.fill = textColor;
       entry.labelText.dirty = true;
     }
+    entry.labelText.x = roleSpec.labelX;
     entry.container.alpha = alpha;
+    entry.row.cursor = roleSpec.cursor;
 
     if (entry.rowScale !== rowScale) {
       entry.rowScale = rowScale;
@@ -1875,6 +1928,8 @@ export function createHubTagUi(opts) {
   function buildTagEntry(view, tagId, structure) {
     const tagDef = hubTagDefs[tagId];
     const systems = Array.isArray(tagDef?.systems) ? tagDef.systems : [];
+    const playerRole = getHubTagPlayerRole(tagId);
+    const dragEnabled = isHubTagPlayerActive(tagId);
     const processWidgetSystemId = resolveProcessWidgetSystemIdForTagSystems(
       systems,
       tagId
@@ -1886,7 +1941,7 @@ export function createHubTagUi(opts) {
     const container = new PIXI.Container();
     const row = new PIXI.Container();
     row.eventMode = "static";
-    row.cursor = "grab";
+    row.cursor = dragEnabled ? "grab" : "pointer";
     row.hitArea = new PIXI.Rectangle(0, 0, TAG_PILL_WIDTH, TAG_PILL_HEIGHT);
     container.addChild(row);
 
@@ -1905,6 +1960,9 @@ export function createHubTagUi(opts) {
 
     const titleFlash = new PIXI.Graphics();
     row.addChild(titleFlash);
+
+    const passiveAccent = new PIXI.Graphics();
+    row.addChild(passiveAccent);
 
     const label = getTagLabel(tagId);
     const labelText = new PIXI.Text(label, {
@@ -2028,14 +2086,16 @@ export function createHubTagUi(opts) {
       titleFill,
       titleFillSecondary,
       titleFlash,
-      bgColor: TAG_PILL_BG_LOW,
-      borderColor: TAG_PILL_BORDER_LOW,
+      passiveAccent,
+      bgRenderKey: "",
       labelText,
       actionControl,
       actionBg,
       actionIcon,
       actionMode,
       lastActionVisualKey: null,
+      playerRole,
+      dragEnabled,
       processWidgetSystemId,
       rowScale: 1,
       systemContainer,
@@ -2088,6 +2148,8 @@ export function createHubTagUi(opts) {
     });
     row.on("pointerdown", (ev) => {
       if (view.ignoreNextTagTap) view.ignoreNextTagTap = false;
+      ev?.stopPropagation?.();
+      if (!entry.dragEnabled) return;
       startTagDrag?.(view, entry, ev);
     });
     row.on("pointertap", (ev) => {
@@ -2108,8 +2170,15 @@ export function createHubTagUi(opts) {
   function layoutTagEntries(view) {
     const entries = view.tagEntries || [];
     const dragState = view.tagDrag || null;
+    const activeEntryCount = entries.filter(
+      (entry) => entry?.playerRole === "active"
+    ).length;
+    const passiveEntryCount = entries.length - activeEntryCount;
+    const showRoleDivider = activeEntryCount > 0 && passiveEntryCount > 0;
+    const roleDivider = view.roleDivider || null;
     let totalContentHeight = 0;
     let expandedContentBottomY = 0;
+    let entryIndex = 0;
     for (const entry of entries) {
       if (!entry) continue;
       const rowScale = entry.rowScale ?? 1;
@@ -2132,39 +2201,75 @@ export function createHubTagUi(opts) {
         }
       }
       entry.height = entryHeight;
-      totalContentHeight += entryHeight + TAG_PILL_GAP;
+      totalContentHeight += entryHeight;
+      entryIndex += 1;
+      if (entryIndex < entries.length) {
+        totalContentHeight +=
+          showRoleDivider && entryIndex === activeEntryCount
+            ? TAG_ROLE_DIVIDER_GAP
+            : TAG_PILL_GAP;
+      }
       if (entry.expanded) {
         expandedContentBottomY = Math.max(expandedContentBottomY, totalContentHeight);
       }
     }
-    if (totalContentHeight > 0) totalContentHeight -= TAG_PILL_GAP;
 
     const orderedEntries = dragState
       ? entries.filter((entry) => entry && entry !== dragState.entry)
       : entries.slice();
     if (dragState?.entry) {
+      const maxInsertIndex =
+        dragState.entry?.playerRole === "active"
+          ? Math.max(0, activeEntryCount - 1)
+          : orderedEntries.length;
       const insertIndex = Math.max(
         0,
-        Math.min(orderedEntries.length, dragState.targetIndex)
+        Math.min(orderedEntries.length, Math.min(maxInsertIndex, dragState.targetIndex))
       );
       orderedEntries.splice(insertIndex, 0, null);
     }
 
     let y = 0;
+    let orderedIndex = 0;
+    let dividerY = null;
     for (const entry of orderedEntries) {
+      const slotHeight =
+        entry === null
+          ? dragState?.entry?.height ?? TAG_PILL_HEIGHT
+          : entry?.height ?? TAG_PILL_HEIGHT;
       if (entry === null) {
-        const dragHeight = dragState?.entry?.height ?? TAG_PILL_HEIGHT;
-        y += dragHeight + TAG_PILL_GAP;
-        continue;
+        y += slotHeight;
+      } else if (entry) {
+        entry.container.visible = true;
+        entry.container.x = 0;
+        if (dragState?.entry !== entry) {
+          entry.container.y = y;
+        }
+        y += slotHeight;
       }
-      if (!entry) continue;
-      const entryHeight = entry.height ?? TAG_PILL_HEIGHT;
-      entry.container.visible = true;
-      entry.container.x = 0;
-      if (dragState?.entry !== entry) {
-        entry.container.y = y;
+      orderedIndex += 1;
+      if (orderedIndex < orderedEntries.length) {
+        const gapAfterEntry =
+          showRoleDivider && orderedIndex === activeEntryCount
+            ? TAG_ROLE_DIVIDER_GAP
+            : TAG_PILL_GAP;
+        if (showRoleDivider && orderedIndex === activeEntryCount) {
+          dividerY = y + gapAfterEntry * 0.5;
+        }
+        y += gapAfterEntry;
       }
-      y += entryHeight + TAG_PILL_GAP;
+    }
+
+    if (roleDivider) {
+      roleDivider.clear();
+      roleDivider.visible = false;
+      if (showRoleDivider && Number.isFinite(dividerY)) {
+        roleDivider
+          .lineStyle(1, TAG_ROLE_DIVIDER_COLOR, 0.95)
+          .moveTo(TAG_ROLE_DIVIDER_INSET_X, dividerY)
+          .lineTo(TAG_PILL_WIDTH - TAG_ROLE_DIVIDER_INSET_X, dividerY);
+        roleDivider.visible = true;
+      }
     }
     view.totalContentHeight = Math.max(0, totalContentHeight);
     view.expandedContentBottomY = Math.max(0, expandedContentBottomY);
@@ -2219,7 +2324,9 @@ export function createHubTagUi(opts) {
     const maxWidth = Math.max(0, TAG_PILL_WIDTH - TAG_TITLE_FILL_INSET * 2);
     const width = Math.max(0, Math.floor(maxWidth * ratio));
     const height = Math.max(0, TAG_PILL_HEIGHT - TAG_TITLE_FILL_INSET * 2);
-    const radius = Math.max(1, TAG_PILL_RADIUS - TAG_TITLE_FILL_INSET);
+    const baseRadius =
+      entry?.playerRole === "active" ? TAG_PILL_RADIUS : TAG_PASSIVE_RADIUS;
+    const radius = Math.max(1, baseRadius - TAG_TITLE_FILL_INSET);
 
     entry.titleFill.clear();
     if (fillAlpha > 0 && width > 0 && height > 0) {
@@ -2553,6 +2660,8 @@ export function createHubTagUi(opts) {
     view.tagContainer.removeChildren();
     view.tagEntries = [];
     view.tagContainer.sortableChildren = false;
+    view.roleDivider = new PIXI.Graphics();
+    view.roleDivider.eventMode = "none";
 
     if (view.expandedTagId && !tags.includes(view.expandedTagId)) {
       view.expandedTagId = null;
@@ -2582,6 +2691,7 @@ export function createHubTagUi(opts) {
       view.tagContainer.addChild(entry.container);
       view.tagEntries.push(entry);
     }
+    view.tagContainer.addChild(view.roleDivider);
 
     if (Array.isArray(view.hoverTextNodes)) {
       view.hoverTextNodes.length = 0;

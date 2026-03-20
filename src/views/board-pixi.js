@@ -12,6 +12,7 @@ import { hubSystemDefs } from "../defs/gamesystems/hub-system-defs.js";
 import { ActionKinds } from "../model/actions.js";
 import { validateHubConstructionPlacement } from "../model/build-helpers.js";
 import { isDiscoveryAlwaysVisibleEnvTag } from "../model/discovery.js";
+import { normalizeVisibleHubTagOrder } from "../model/hub-tags.js";
 import {
   getVisibleEnvColCount,
   isEnvColExposed,
@@ -534,9 +535,9 @@ export function createBoardView(opts) {
 
   function getVisibleHubTagSignature(structureInst) {
     const tags = getEffectiveHubTags(structureInst);
-    return tags
-      .filter((tagId) => isVisibleEnabledHubTag(structureInst, tagId))
-      .join("|");
+    return normalizeVisibleHubTagOrder(
+      tags.filter((tagId) => isVisibleEnabledHubTag(structureInst, tagId))
+    ).join("|");
   }
 
   function clamp01(value) {
@@ -1983,8 +1984,8 @@ export function createBoardView(opts) {
       const fullTags = Array.isArray(view.structure?.tags)
         ? view.structure.tags.slice()
         : [];
-      const visibleTags = fullTags.filter((tagId) =>
-        isVisibleEnabledHubTag(view.structure, tagId)
+      const visibleTags = normalizeVisibleHubTagOrder(
+        fullTags.filter((tagId) => isVisibleEnabledHubTag(view.structure, tagId))
       );
       if (visibleTags.length !== view.tagEntries.length) return;
       if (fromIndex < 0 || fromIndex >= visibleTags.length) return;
@@ -1992,9 +1993,10 @@ export function createBoardView(opts) {
       const reorderedVisible = visibleTags.slice();
       const [moved] = reorderedVisible.splice(fromIndex, 1);
       reorderedVisible.splice(toIndex, 0, moved);
+      const normalizedVisible = normalizeVisibleHubTagOrder(reorderedVisible);
       const nextFull = buildTagOrderFromVisible(
         fullTags,
-        reorderedVisible,
+        normalizedVisible,
         (tagId) => isVisibleEnabledHubTag(view.structure, tagId)
       );
       if (!nextFull) return;
@@ -3946,6 +3948,7 @@ export function createBoardView(opts) {
   }
 
   function startHubTagDrag(view, entry, ev) {
+    if (entry?.dragEnabled !== true) return;
     requestPauseForAction?.();
     if (!view.isHovered) {
       applyHubStructureHover(view);
