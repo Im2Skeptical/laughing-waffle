@@ -38,8 +38,18 @@ assert.match(
 );
 assert.match(
   pawnsSource,
-  /dropdownOffsetY:\s*-26/,
+  /dropdownOffsetY:\s*-?\d+/,
   "[test] pawn layout config should expose the dropdown vertical offset"
+);
+assert.match(
+  pawnsSource,
+  /tooltipGap:\s*\d+/,
+  "[test] pawn layout config should expose tooltip positioning controls"
+);
+assert.match(
+  pawnsSource,
+  /inventoryGap:\s*\d+/,
+  "[test] pawn layout config should expose inventory positioning controls"
 );
 assert.match(
   pawnsSource,

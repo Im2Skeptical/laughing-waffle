@@ -57,7 +57,6 @@ import {
 } from "./layout-pixi.js";
 import { createWindowHeader } from "./ui-helpers/window-header.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
-import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 import { createBuildingManagerView } from "./building-manager-pixi.js";
@@ -183,10 +182,11 @@ const INVENTORY_TOOLTIP_MIN_SCALE = Number.isFinite(GAMEPIECE_HOVER_SCALE)
   ? Math.max(1, GAMEPIECE_HOVER_SCALE)
   : 2;
 
-function getInventoryTooltipScale(uiScale = null, displayObject = null) {
+function getInventoryTooltipScale(tooltipView, uiScale = null, displayObject = null) {
   const windowScale = Number.isFinite(uiScale) ? Math.max(1, uiScale) : 1;
-  const worldScale = getDisplayObjectWorldScale(displayObject, 1);
-  return Math.max(INVENTORY_TOOLTIP_MIN_SCALE, windowScale, worldScale);
+  const relativeScale =
+    tooltipView?.getRelativeDisplayScale?.(displayObject, 1) ?? 1;
+  return Math.max(INVENTORY_TOOLTIP_MIN_SCALE, windowScale, relativeScale);
 }
 
 function getItemTierBorderColor(item, def) {
@@ -506,6 +506,18 @@ export function createInventoryView({
       height: Number(source.height) || 0,
       coordinateSpace:
         source.coordinateSpace === "screen" ? "screen" : "parent",
+    };
+  }
+
+  function summarizeResolvedAnchor(anchor) {
+    const resolved = resolveHoverAnchor(anchor);
+    if (!resolved) return null;
+    return {
+      x: resolved.x,
+      y: resolved.y,
+      width: resolved.width,
+      height: resolved.height,
+      coordinateSpace: resolved.coordinateSpace,
     };
   }
 
@@ -1340,7 +1352,7 @@ export function createInventoryView({
           {
             title: ui.label,
             lines: buildLeaderSystemTooltipLines(leader, systemId),
-            scale: getInventoryTooltipScale(uiScale, icon),
+            scale: getInventoryTooltipScale(tooltipView, uiScale, icon),
           },
           {
             coordinateSpace: "parent",
@@ -3706,7 +3718,7 @@ export function createInventoryView({
         tooltipView.show(
           {
             ...makeItemTooltipSpec(item, ownerId),
-            scale: getInventoryTooltipScale(win?.uiScale, c),
+            scale: getInventoryTooltipScale(tooltipView, win?.uiScale, c),
           },
           {
             coordinateSpace: "parent",
@@ -5971,6 +5983,29 @@ export function createInventoryView({
     },
     flashWindowError,
     getItemTooltipSpec: (item, ownerId) => makeItemTooltipSpec(item, ownerId),
+    getDebugState: () => {
+      const visibleWindows = [];
+      for (const win of windows.values()) {
+        if (!win?.container?.visible) continue;
+        visibleWindows.push({
+          ownerId: win.ownerId ?? null,
+          hovered: win.hovered === true,
+          pinned: win.pinned === true,
+          x: Number(win.container.x) || 0,
+          y: Number(win.container.y) || 0,
+          uiScale: Number.isFinite(win.uiScale) ? win.uiScale : 1,
+          width: Number(win.panelWidth) || 0,
+          height: Number(win.panelHeight) || 0,
+          hoverAnchor: summarizeResolvedAnchor(win.hoverAnchor),
+        });
+      }
+      visibleWindows.sort((a, b) => {
+        if (a.hovered !== b.hovered) return a.hovered ? -1 : 1;
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return String(a.ownerId).localeCompare(String(b.ownerId));
+      });
+      return { visibleWindows };
+    },
     openBuildingManagerForOwner: (ownerId) => {
       if (ownerId == null) return { ok: false, reason: "noOwner" };
       const revealRes = revealWindow(ownerId, { pinned: true });

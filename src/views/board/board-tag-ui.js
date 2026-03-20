@@ -1301,7 +1301,8 @@ export function createTagUi(opts) {
         view.tile,
         systemId,
         { displayObject: icon },
-        getDisplayObjectWorldScale(icon, 1)
+        tooltipView?.getRelativeDisplayScale?.(icon, 1) ??
+          getDisplayObjectWorldScale(icon, 1)
       );
     });
     icon.on("pointerout", () => {
@@ -1458,7 +1459,8 @@ export function createTagUi(opts) {
         entry,
         view.tile,
         { displayObject: row },
-        getDisplayObjectWorldScale(row, 1)
+        tooltipView?.getRelativeDisplayScale?.(row, 1) ??
+          getDisplayObjectWorldScale(row, 1)
       );
     });
     row.on("pointerout", () => {

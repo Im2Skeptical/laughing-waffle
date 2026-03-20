@@ -413,10 +413,10 @@ export function createPawnsView(opts) {
   }
 
   function buildPawnInventoryAnchor(view) {
-    const baseAnchor = buildPawnScreenAnchor(view);
+    const baseAnchor = buildPawnHoverAnchor(view);
     if (!baseAnchor || typeof baseAnchor.getAnchorRect !== "function") return null;
     return {
-      coordinateSpace: "screen",
+      coordinateSpace: "parent",
       getAnchorRect: () => {
         const rect = baseAnchor.getAnchorRect?.();
         if (!rect) return null;
@@ -431,17 +431,17 @@ export function createPawnsView(opts) {
           y: menuTop,
           width: 0,
           height: 0,
-          coordinateSpace: "screen",
+          coordinateSpace: "parent",
         };
       },
     };
   }
 
   function buildPawnTooltipAnchor(view) {
-    const baseAnchor = buildPawnScreenAnchor(view);
+    const baseAnchor = buildPawnHoverAnchor(view);
     if (!baseAnchor || typeof baseAnchor.getAnchorRect !== "function") return null;
     return {
-      coordinateSpace: "screen",
+      coordinateSpace: "parent",
       side: "left",
       alignY: "top",
       getAnchorRect: () => {
@@ -456,11 +456,27 @@ export function createPawnsView(opts) {
           y: menuTop,
           width: 0,
           height: 0,
-          coordinateSpace: "screen",
+          coordinateSpace: "parent",
           side: "left",
           alignY: "top",
         };
       },
+    };
+  }
+
+  function summarizeAnchor(anchor) {
+    if (!anchor || typeof anchor.getAnchorRect !== "function") return null;
+    const rect = anchor.getAnchorRect?.();
+    if (!rect) return null;
+    return {
+      x: Number(rect.x) || 0,
+      y: Number(rect.y) || 0,
+      width: Number(rect.width) || 0,
+      height: Number(rect.height) || 0,
+      coordinateSpace:
+        rect.coordinateSpace === "screen" ? "screen" : "parent",
+      side: rect.side === "right" ? "right" : "left",
+      alignY: rect.alignY === "top" ? "top" : "center",
     };
   }
 
@@ -638,6 +654,17 @@ export function createPawnsView(opts) {
       : null;
 
     return { envCol, hubCol };
+  }
+
+  function getLiveHoverInfoForPawn(pawn) {
+    const placement = getHoverPlacementForPawn(pawn);
+    if (Number.isFinite(placement?.envCol)) {
+      return getHoverInfoForSlot("env", placement.envCol);
+    }
+    if (Number.isFinite(placement?.hubCol)) {
+      return getHoverInfoForSlot("hub", placement.hubCol);
+    }
+    return null;
   }
 
   function resolveColumnStartX(screenWidth, totalWidth, anchorX, offsetX = 0) {
@@ -1066,7 +1093,11 @@ export function createPawnsView(opts) {
           x: base.x + startOffset + i * FAN_SPACING,
           y: base.y,
         };
-        const scaledPos = applyHoverTransform(rawPos, hoverInfo);
+        view.uiAnchorLocalX = rawPos.x;
+        view.uiAnchorLocalY = rawPos.y;
+        const lockedHoverInfo = view.selfHover ? view.lockedHoverInfo : null;
+        const effectiveHoverInfo = lockedHoverInfo || hoverInfo;
+        const scaledPos = applyHoverTransform(rawPos, effectiveHoverInfo);
         view.container.x = scaledPos.x;
         view.container.y = scaledPos.y;
         view.attachedScale = scaledPos.scale;
@@ -1147,6 +1178,7 @@ export function createPawnsView(opts) {
 
   function createPawnView(pawn, followerOrdinalByPawnId = null) {
     const container = new PIXI.Container();
+    container.sortableChildren = true;
     const interactionLayer = new PIXI.Container();
     const shadowLayer = new PIXI.Container();
     const paintLayer = new PIXI.Container();
@@ -1274,6 +1306,7 @@ export function createPawnsView(opts) {
     const bubbleLayer = new PIXI.Container();
     bubbleLayer.eventMode = "passive";
     bubbleLayer.y = -shapeRadius - 10;
+    bubbleLayer.zIndex = 30;
     container.addChild(bubbleLayer);
 
     const dropdown = new PIXI.Container();
@@ -1282,6 +1315,7 @@ export function createPawnsView(opts) {
     dropdown.cursor = "default";
     dropdown.x = PAWN_UI_LAYOUT.dropdownOffsetX;
     dropdown.y = PAWN_UI_LAYOUT.dropdownOffsetY;
+    dropdown.zIndex = -20;
     dropdown.on("pointerdown", stopPointerBubble);
     dropdown.on("pointerenter", () => {
       if (view?.hoverHideTimeout) {
@@ -1294,6 +1328,11 @@ export function createPawnsView(opts) {
     });
     container.addChild(dropdown);
 
+    interactionLayer.zIndex = 5;
+    shadowLayer.zIndex = 10;
+    paintLayer.zIndex = 15;
+    inkLayer.zIndex = 20;
+
     const dropdownBg = new PIXI.Graphics();
     dropdown.addChild(dropdownBg);
 
@@ -1301,7 +1340,6 @@ export function createPawnsView(opts) {
     dropdown.addChild(dropdownContent);
 
     layer.addChild(container);
-    container.setChildIndex(dropdown, 1);
     registerPaintContainer(paintLayer);
 
     // -----------------------------------------------------------------------
@@ -1325,8 +1363,11 @@ export function createPawnsView(opts) {
       hoverShadowAlphaApplied: 0,
       hoverShadowAlphaTarget: 0,
       attachedScale: 1,
+      uiAnchorLocalX: pos.x,
+      uiAnchorLocalY: pos.y,
       hoverParent: null,
       hoverIndex: null,
+      lockedHoverInfo: null,
       label,
       staminaMask,
       shapeRadius,
@@ -1834,6 +1875,7 @@ export function createPawnsView(opts) {
       const pawnData = view.pawn || pawn;
       if (!canShowGamepieceHoverUiNow()) return;
       view.selfHover = true;
+      view.lockedHoverInfo = getLiveHoverInfoForPawn(pawnData);
       const canZoomIn = shouldAllowPawnHoverZoomIn(view);
       view.selfHoverScaleTarget = canZoomIn ? GAMEPIECE_HOVER_SCALE : 1;
       view.hoverShadowAlphaTarget = canZoomIn ? 1 : 0;
@@ -1859,6 +1901,7 @@ export function createPawnsView(opts) {
     function hideHover() {
       const pawnData = view.pawn || pawn;
       view.selfHover = false;
+      view.lockedHoverInfo = null;
       view.selfHoverScaleTarget = 1;
       view.hoverShadowAlphaTarget = 0;
       view.hoveredBubbleId = null;
@@ -1938,6 +1981,7 @@ export function createPawnsView(opts) {
       interactionSafe.startDrag?.({ type: "pawn", id: pawnData.id });
       requestPauseForAction?.();
       view.selfHover = false;
+      view.lockedHoverInfo = null;
       view.selfHoverScaleTarget = 1;
       view.selfHoverScaleApplied = 1;
       view.hoverShadowAlphaTarget = 0;
@@ -2279,7 +2323,7 @@ export function createPawnsView(opts) {
       ) {
         return {
           ownerId,
-          anchor: buildPawnScreenAnchor(view),
+          anchor: buildPawnInventoryAnchor(view),
         };
       }
     }
@@ -2344,6 +2388,41 @@ export function createPawnsView(opts) {
     getInventoryOwnerAtGlobalPos,
     getInventoryOwnerAnchor,
     getEquipmentSlotAtGlobalPos,
+    getDebugState: () => {
+      const hoveredPawns = [];
+      for (const view of viewsById.values()) {
+        if (!view?.selfHover && !view?.dropdown?.visible) continue;
+        hoveredPawns.push({
+          pawnId: view?.pawn?.id ?? null,
+          name: view?.pawn?.name ?? "",
+          x: Number(view?.container?.x) || 0,
+          y: Number(view?.container?.y) || 0,
+          attachedScale: Number.isFinite(view?.attachedScale) ? view.attachedScale : 1,
+          selfHoverScaleApplied: Number.isFinite(view?.selfHoverScaleApplied)
+            ? view.selfHoverScaleApplied
+            : 1,
+          selfHoverScaleTarget: Number.isFinite(view?.selfHoverScaleTarget)
+            ? view.selfHoverScaleTarget
+            : 1,
+          uiAnchorLocalX: Number(view?.uiAnchorLocalX) || 0,
+          uiAnchorLocalY: Number(view?.uiAnchorLocalY) || 0,
+          lockedHoverInfo:
+            view?.lockedHoverInfo && typeof view.lockedHoverInfo === "object"
+              ? {
+                  centerX: Number(view.lockedHoverInfo.centerX) || 0,
+                  centerY: Number(view.lockedHoverInfo.centerY) || 0,
+                  offsetY: Number(view.lockedHoverInfo.offsetY) || 0,
+                  scale: Number(view.lockedHoverInfo.scale) || 1,
+                }
+              : null,
+          tooltipAnchor: summarizeAnchor(buildPawnTooltipAnchor(view)),
+          inventoryAnchor: summarizeAnchor(buildPawnInventoryAnchor(view)),
+          bodyAnchor: summarizeAnchor(buildPawnHoverAnchor(view)),
+        });
+      }
+      hoveredPawns.sort((a, b) => String(a.pawnId).localeCompare(String(b.pawnId)));
+      return { hoveredPawns };
+    },
     getOccludingScreenRects,
   };
 }

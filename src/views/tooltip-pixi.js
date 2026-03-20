@@ -5,6 +5,7 @@ import {
 } from "./layout-pixi.js";
 import { applyTextResolution } from "./ui-helpers/text-resolution.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
+import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js";
 import { keywordDefs } from "../defs/gamesystems/keyword-defs.js";
 import { normalizeTooltipSpec } from "./tooltip-spec.js";
 
@@ -50,6 +51,7 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
   let activeWidth = 0;
   let activeHeight = 0;
   let activeSpec = null;
+  let activeResolvedAnchor = null;
   let hideTimeoutId = null;
 
   function getScreenSize() {
@@ -434,6 +436,38 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
     };
   }
 
+  function getTooltipLayerWorldScale() {
+    return getDisplayObjectWorldScale(container.parent, 1);
+  }
+
+  function getRelativeDisplayScale(displayObject, fallback = 1) {
+    const objectScale = getDisplayObjectWorldScale(displayObject, fallback);
+    const layerScale = getTooltipLayerWorldScale();
+    const relativeScale =
+      Number.isFinite(layerScale) && layerScale > 0
+        ? objectScale / layerScale
+        : objectScale;
+    if (!Number.isFinite(relativeScale) || relativeScale <= 0) {
+      return fallback;
+    }
+    return relativeScale;
+  }
+
+  function summarizeAnchor(anchor) {
+    if (!anchor) return null;
+    return {
+      x: Number(anchor.x) || 0,
+      y: Number(anchor.y) || 0,
+      width: Number(anchor.width) || 0,
+      height: Number(anchor.height) || 0,
+      side: anchor.side === "right" ? "right" : "left",
+      alignY: anchor.alignY === "top" ? "top" : "center",
+      coordinateSpace:
+        anchor.coordinateSpace === "parent" ? "parent" : "screen",
+      scale: Number.isFinite(anchor.scale) ? anchor.scale : null,
+    };
+  }
+
   function show(spec, anchor) {
     const resolvedAnchor = resolveAnchor(anchor);
     if (!resolvedAnchor) return;
@@ -462,6 +496,7 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
     activeWidth = contentSize.width;
     activeHeight = contentSize.height;
     activeSpec = normalizedSpec;
+    activeResolvedAnchor = summarizeAnchor(resolvedAnchor);
     positionTooltip(resolvedAnchor, activeScale, activeWidth, activeHeight);
     container.scale.set(activeScale);
     container.visible = true;
@@ -472,6 +507,7 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
     hideTimeoutId = setTimeout(() => {
       activeAnchor = null;
       activeSpec = null;
+      activeResolvedAnchor = null;
       container.visible = false;
       hideTimeoutId = null;
     }, 0);
@@ -481,6 +517,7 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
     if (!container.visible || !activeAnchor) return;
     const resolvedAnchor = resolveAnchor(activeAnchor);
     if (!resolvedAnchor) return;
+    activeResolvedAnchor = summarizeAnchor(resolvedAnchor);
     positionTooltip(resolvedAnchor, activeScale, activeWidth, activeHeight);
   }
 
@@ -493,7 +530,21 @@ export function createTooltipView({ layer, interaction, app, layout = null }) {
     isVisible: () => container.visible,
     getContainer: () => container,
     getAnchorRectForDisplayObject,
+    getRelativeDisplayScale,
     getActiveSpec: () => activeSpec,
+    getDebugState: () => ({
+      visible: container.visible === true,
+      x: Number(container.x) || 0,
+      y: Number(container.y) || 0,
+      scale: Number.isFinite(activeScale) ? activeScale : 1,
+      width: Number(activeWidth) || 0,
+      height: Number(activeHeight) || 0,
+      layerScale: getTooltipLayerWorldScale(),
+      sourceKind: activeSpec?.sourceKind ?? null,
+      sourceId: activeSpec?.sourceId ?? null,
+      title: activeSpec?.title ?? "",
+      anchor: activeResolvedAnchor,
+    }),
     update,
   };
 }

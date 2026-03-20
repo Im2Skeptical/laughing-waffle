@@ -1876,7 +1876,8 @@ export function createHubTagUi(opts) {
         view.structure,
         row,
         { displayObject: icon },
-        getDisplayObjectWorldScale(icon, 1)
+        tooltipView?.getRelativeDisplayScale?.(icon, 1) ??
+          getDisplayObjectWorldScale(icon, 1)
       );
     });
     icon.on("pointerout", () => {
@@ -2094,7 +2095,14 @@ export function createHubTagUi(opts) {
 
     row.on("pointerover", () => {
       setChildTooltipHoverActive(view, true);
-      showTooltipForTag(view, entry, structure, row, getDisplayObjectWorldScale(row, 1));
+      showTooltipForTag(
+        view,
+        entry,
+        structure,
+        row,
+        tooltipView?.getRelativeDisplayScale?.(row, 1) ??
+          getDisplayObjectWorldScale(row, 1)
+      );
     });
     row.on("pointerout", () => {
       setChildTooltipHoverActive(view, false);

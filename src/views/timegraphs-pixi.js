@@ -824,7 +824,8 @@ export function createMetricGraphView({
             ...buildLegendTooltipSpec(s),
             scale: Math.max(
               Number.isFinite(GAMEPIECE_HOVER_SCALE) ? GAMEPIECE_HOVER_SCALE : 1,
-              getDisplayObjectWorldScale(entryContainer, 1)
+              tooltipView?.getRelativeDisplayScale?.(entryContainer, 1) ??
+                getDisplayObjectWorldScale(entryContainer, 1)
             ),
           };
           tooltipView.show(spec, entryContainer.getBounds());

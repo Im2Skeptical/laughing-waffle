@@ -2007,6 +2007,14 @@ pawnsView = createPawnsView({
   },
 });
 
+if (typeof globalThis !== "undefined") {
+  globalThis.__UI_HOVER_DEBUG__ = {
+    getTooltipState: () => tooltipView?.getDebugState?.() ?? null,
+    getInventoryState: () => inventoryView?.getDebugState?.() ?? null,
+    getPawnState: () => pawnsView?.getDebugState?.() ?? null,
+  };
+}
+
 processWidgetView = createProcessWidgetView({
   app,
   layer: pickHudLayer(
@@ -2598,6 +2606,11 @@ const debugView = createDebugOverlay({
   onToggleRawInspector: () =>
     debugInspectorView?.setEnabled?.(!(debugInspectorView?.isEnabled?.() === true)),
   getRawInspectorEnabled: () => debugInspectorView?.isEnabled?.() === true,
+  getHoverDiagnostics: () => ({
+    tooltip: tooltipView?.getDebugState?.() ?? null,
+    inventory: inventoryView?.getDebugState?.() ?? null,
+    pawns: pawnsView?.getDebugState?.() ?? null,
+  }),
 });
 
 if (isBootVariantFlagEnabled("actionLogEnabled")) {
