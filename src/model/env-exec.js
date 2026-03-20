@@ -89,6 +89,245 @@ function collectSpawnedEventPlacements(state, defId, tSec) {
   return placements;
 }
 
+function getEventDrawResolution(def) {
+  const drawResolution = def?.drawResolution;
+  if (!drawResolution || typeof drawResolution !== "object") return null;
+  if (drawResolution.mode !== "aggregateActiveRun") return null;
+  if (
+    typeof drawResolution.aggregateKey !== "string" ||
+    drawResolution.aggregateKey.length <= 0
+  ) {
+    return null;
+  }
+  return drawResolution;
+}
+
+function resolveAggregateMagnitudeBand(drawResolution, cardsDrawn) {
+  const count = Number.isFinite(cardsDrawn) ? Math.max(1, Math.floor(cardsDrawn)) : 1;
+  const magnitudeBands = Array.isArray(drawResolution?.magnitudeBands)
+    ? drawResolution.magnitudeBands
+    : [];
+  for (const band of magnitudeBands) {
+    if (!band || typeof band !== "object") continue;
+    const minCards = Number.isFinite(band.minCards) ? Math.floor(band.minCards) : 1;
+    const maxCards = Number.isFinite(band.maxCards) ? Math.floor(band.maxCards) : null;
+    if (count < minCards) continue;
+    if (maxCards != null && count > maxCards) continue;
+    return band;
+  }
+  return null;
+}
+
+function computeAggregateRunExpirySec(drawResolution, firstDrawSec, cardsDrawn) {
+  const baseSec = Number.isFinite(drawResolution?.durationBaseSec)
+    ? Math.max(0, Math.floor(drawResolution.durationBaseSec))
+    : 0;
+  const perExtraSec = Number.isFinite(drawResolution?.durationPerExtraCardSec)
+    ? Math.max(0, Math.floor(drawResolution.durationPerExtraCardSec))
+    : 0;
+  const extraCards = Number.isFinite(cardsDrawn)
+    ? Math.max(0, Math.floor(cardsDrawn) - 1)
+    : 0;
+  const startSec = Number.isFinite(firstDrawSec) ? Math.max(0, Math.floor(firstDrawSec)) : 0;
+  return startSec + baseSec + perExtraSec * extraCards;
+}
+
+function buildAggregateRunState(state, defId, drawResolution, tSec, cardsDrawn) {
+  const aggregateKey = drawResolution.aggregateKey;
+  const firstDrawSec = Number.isFinite(tSec) ? Math.max(0, Math.floor(tSec)) : 0;
+  const safeCardsDrawn = Number.isFinite(cardsDrawn) ? Math.max(1, Math.floor(cardsDrawn)) : 1;
+  const magnitudeBand = resolveAggregateMagnitudeBand(drawResolution, safeCardsDrawn);
+  return {
+    defId,
+    aggregateKey,
+    sourceYear: Number.isFinite(state?.year) ? Math.floor(state.year) : 1,
+    sourceSeasonIndex: Number.isFinite(state?.currentSeasonIndex)
+      ? Math.floor(state.currentSeasonIndex)
+      : 0,
+    firstDrawSec,
+    cardsDrawn: safeCardsDrawn,
+    magnitudeId: magnitudeBand?.id ?? null,
+    expiresSec: computeAggregateRunExpirySec(drawResolution, firstDrawSec, safeCardsDrawn),
+  };
+}
+
+function buildAggregateRunPayload(runState) {
+  if (!runState || typeof runState !== "object") return null;
+  return {
+    aggregateKey: runState.aggregateKey,
+    cardsDrawn: Number.isFinite(runState.cardsDrawn)
+      ? Math.floor(runState.cardsDrawn)
+      : 1,
+    magnitudeId: typeof runState.magnitudeId === "string" ? runState.magnitudeId : null,
+    expiresSec: Number.isFinite(runState.expiresSec)
+      ? Math.floor(runState.expiresSec)
+      : null,
+  };
+}
+
+function getActiveAggregateRun(state, aggregateKey, defId) {
+  const runs =
+    state?.activeEnvEventRuns && typeof state.activeEnvEventRuns === "object"
+      ? state.activeEnvEventRuns
+      : null;
+  if (!runs) return null;
+  const run = runs[aggregateKey];
+  if (!run || typeof run !== "object") return null;
+  if (defId && run.defId !== defId) return null;
+  return run;
+}
+
+function findActiveAggregateAnchors(state, defId, aggregateKey) {
+  const anchors = Array.isArray(state?.board?.layers?.event?.anchors)
+    ? state.board.layers.event.anchors
+    : [];
+  const matches = [];
+  for (const anchor of anchors) {
+    if (!anchor || anchor.defId !== defId) continue;
+    const key = anchor?.props?.aggregateKey;
+    if (aggregateKey && key !== aggregateKey) continue;
+    matches.push(anchor);
+  }
+  matches.sort((a, b) => {
+    const ai = Number.isFinite(a?.instanceId) ? Math.floor(a.instanceId) : 0;
+    const bi = Number.isFinite(b?.instanceId) ? Math.floor(b.instanceId) : 0;
+    return ai - bi;
+  });
+  return matches;
+}
+
+function syncAggregateAnchorState(anchor, runState) {
+  if (!anchor || !runState) return false;
+  if (!anchor.props || typeof anchor.props !== "object" || Array.isArray(anchor.props)) {
+    anchor.props = {};
+  }
+  anchor.props.aggregateKey = runState.aggregateKey;
+  anchor.props.cardsDrawn = runState.cardsDrawn;
+  anchor.props.magnitudeId = runState.magnitudeId;
+  anchor.expiresSec = runState.expiresSec;
+  return true;
+}
+
+function syncAggregateAnchors(anchors, runState) {
+  let changed = false;
+  for (const anchor of anchors) {
+    changed = syncAggregateAnchorState(anchor, runState) || changed;
+  }
+  return changed;
+}
+
+function runAggregateBandUpdateEffects(state, anchors, magnitudeBand, tSec) {
+  if (!magnitudeBand?.onRunUpdate) return false;
+  let changed = false;
+  for (const anchor of anchors) {
+    if (!anchor) continue;
+    changed =
+      runEffect(state, magnitudeBand.onRunUpdate, {
+        kind: "game",
+        state,
+        source: anchor,
+        tSec,
+      }) || changed;
+  }
+  return changed;
+}
+
+function currentDeckMatchesAggregateRun(state, runState) {
+  const deck = state?.currentSeasonDeck;
+  if (!deck || typeof deck !== "object") return false;
+  const deckYear = Number.isFinite(deck.year) ? Math.floor(deck.year) : null;
+  const deckSeasonIndex = Number.isFinite(deck.seasonIndex)
+    ? Math.floor(deck.seasonIndex)
+    : null;
+  return (
+    deckYear === Math.floor(runState?.sourceYear ?? NaN) &&
+    deckSeasonIndex === Math.floor(runState?.sourceSeasonIndex ?? NaN)
+  );
+}
+
+function purgeAggregateRunCardsFromCurrentDeck(state, runState) {
+  if (!currentDeckMatchesAggregateRun(state, runState)) return false;
+  const deck = state?.currentSeasonDeck?.deck;
+  if (!Array.isArray(deck) || deck.length <= 0) return false;
+  const defId = runState?.defId;
+  if (typeof defId !== "string" || defId.length <= 0) return false;
+  const nextDeck = deck.filter((entry) => entry?.defId !== defId);
+  if (nextDeck.length === deck.length) return false;
+  deck.length = 0;
+  deck.push(...nextDeck);
+  return true;
+}
+
+function finalizeExpiredAggregateRun(state, aggregateKey, defId) {
+  const run = getActiveAggregateRun(state, aggregateKey, defId);
+  if (!run) return false;
+  const def = envEventDefs[run.defId];
+  const drawResolution = getEventDrawResolution(def);
+  if (drawResolution?.purgeRemainingCardsOnExpire === true) {
+    purgeAggregateRunCardsFromCurrentDeck(state, run);
+  }
+  delete state.activeEnvEventRuns[aggregateKey];
+  return true;
+}
+
+function resolveAggregateDraw(state, defId, def, drawResolution, tSec) {
+  const aggregateKey = drawResolution.aggregateKey;
+  const activeRun = getActiveAggregateRun(state, aggregateKey, defId);
+  const activeAnchors = activeRun
+    ? findActiveAggregateAnchors(state, defId, aggregateKey)
+    : [];
+  if (activeRun && activeAnchors.length <= 0) {
+    delete state.activeEnvEventRuns[aggregateKey];
+  }
+
+  const liveRun =
+    activeAnchors.length > 0 ? getActiveAggregateRun(state, aggregateKey, defId) : null;
+  if (!liveRun) {
+    const spawnResult = spawnEnvEventFromDef(state, defId, def, tSec);
+    if (!spawnResult?.placedAny) {
+      return {
+        result: spawnResult,
+        outcome: "consumedNoPlacement",
+        aggregation: null,
+      };
+    }
+    const spawnedAnchors = findActiveAggregateAnchors(state, defId, null).filter(
+      (anchor) => Math.floor(anchor?.createdSec ?? -1) === Math.floor(tSec)
+    );
+    const runState = buildAggregateRunState(state, defId, drawResolution, tSec, 1);
+    state.activeEnvEventRuns[aggregateKey] = runState;
+    syncAggregateAnchors(spawnedAnchors, runState);
+    const magnitudeBand = resolveAggregateMagnitudeBand(drawResolution, runState.cardsDrawn);
+    runAggregateBandUpdateEffects(state, spawnedAnchors, magnitudeBand, tSec);
+    return {
+      result: spawnResult,
+      outcome: "placed",
+      aggregation: buildAggregateRunPayload(runState),
+    };
+  }
+
+  const nextCardsDrawn = Math.max(1, Math.floor(liveRun.cardsDrawn ?? 1) + 1);
+  const nextRunState = {
+    ...liveRun,
+    cardsDrawn: nextCardsDrawn,
+  };
+  const magnitudeBand = resolveAggregateMagnitudeBand(drawResolution, nextCardsDrawn);
+  nextRunState.magnitudeId = magnitudeBand?.id ?? null;
+  nextRunState.expiresSec = computeAggregateRunExpirySec(
+    drawResolution,
+    nextRunState.firstDrawSec,
+    nextCardsDrawn
+  );
+  state.activeEnvEventRuns[aggregateKey] = nextRunState;
+  syncAggregateAnchors(activeAnchors, nextRunState);
+  runAggregateBandUpdateEffects(state, activeAnchors, magnitudeBand, tSec);
+  return {
+    result: { placedAny: false, needsRebuild: false },
+    outcome: "aggregated",
+    aggregation: buildAggregateRunPayload(nextRunState),
+  };
+}
+
 function requirementsPass(requires, seasonKey, tile, hasPawn, isTagUnlocked = null) {
   if (!requires || typeof requires !== "object") return true;
 
@@ -950,6 +1189,7 @@ export function stepEnvSecond(state, tSec) {
   let needsRebuild = state._boardDirty === true;
 
   const eventAnchors = board.layers?.event?.anchors;
+  const expiredAggregateRuns = new Map();
   if (Array.isArray(eventAnchors) && eventAnchors.length > 0) {
     for (let i = eventAnchors.length - 1; i >= 0; i--) {
       const anchor = eventAnchors[i];
@@ -974,6 +1214,13 @@ export function stepEnvSecond(state, tSec) {
         (anchor.expiresOnSeasonChange || def.expiresOnSeasonChange);
 
       if (expiredByTime || expiredBySeason) {
+        const aggregateKey =
+          typeof anchor?.props?.aggregateKey === "string"
+            ? anchor.props.aggregateKey
+            : null;
+        if (expiredByTime && aggregateKey) {
+          expiredAggregateRuns.set(aggregateKey, anchor.defId);
+        }
         if (def.onExit) runEffect(state, def.onExit, context);
         eventAnchors.splice(i, 1);
         needsRebuild = true;
@@ -991,6 +1238,10 @@ export function stepEnvSecond(state, tSec) {
     }
   }
 
+  for (const [aggregateKey, defId] of expiredAggregateRuns.entries()) {
+    finalizeExpiredAggregateRun(state, aggregateKey, defId);
+  }
+
   if (
     Number.isFinite(tSec) &&
     tSec > 0 &&
@@ -1000,8 +1251,25 @@ export function stepEnvSecond(state, tSec) {
     if (entry) {
       const def = envEventDefs[entry.defId];
       let result = null;
+      let outcome = "consumedNoPlacement";
+      let aggregation = null;
       if (def) {
-        result = spawnEnvEventFromDef(state, entry.defId, def, tSec);
+        const drawResolution = getEventDrawResolution(def);
+        if (drawResolution) {
+          const aggregateResult = resolveAggregateDraw(
+            state,
+            entry.defId,
+            def,
+            drawResolution,
+            tSec
+          );
+          result = aggregateResult?.result ?? null;
+          outcome = aggregateResult?.outcome ?? outcome;
+          aggregation = aggregateResult?.aggregation ?? null;
+        } else {
+          result = spawnEnvEventFromDef(state, entry.defId, def, tSec);
+          outcome = result?.placedAny ? "placed" : outcome;
+        }
         if (result?.needsRebuild) needsRebuild = true;
         if (result?.placedAny) {
           const spawned = findSpawnedEventAnchor(state, entry.defId, tSec);
@@ -1024,17 +1292,19 @@ export function stepEnvSecond(state, tSec) {
 
       const consumePolicy = def?.spawn?.consumePolicy;
       const shouldReturnToDeck =
-        consumePolicy === "onlyIfAnyPlaced" && !result?.placedAny;
+        consumePolicy === "onlyIfAnyPlaced" &&
+        !result?.placedAny &&
+        outcome !== "aggregated";
       if (shouldReturnToDeck) {
         const deck = state.currentSeasonDeck?.deck;
         if (Array.isArray(deck)) deck.unshift(entry);
       }
 
-      const outcome = result?.placedAny
+      outcome = result?.placedAny
         ? "placed"
         : shouldReturnToDeck
           ? "returned"
-          : "consumedNoPlacement";
+          : outcome;
       const placements = result?.placedAny
         ? collectSpawnedEventPlacements(state, entry.defId, tSec)
         : [];
@@ -1048,6 +1318,7 @@ export function stepEnvSecond(state, tSec) {
           seasonKey,
           outcome,
           placements,
+          aggregation,
           consumePolicy: typeof consumePolicy === "string" ? consumePolicy : null,
         },
       });

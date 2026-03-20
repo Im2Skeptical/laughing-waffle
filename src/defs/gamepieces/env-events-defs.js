@@ -207,8 +207,81 @@ export const envEventDefs = {
     },
     class: "effect",
     defaultSpan: 1,
-    durationSec: 40,
-    expiresOnSeasonChange: true,
+    drawResolution: {
+      mode: "aggregateActiveRun",
+      aggregateKey: "flood",
+      durationBaseSec: 25,
+      durationPerExtraCardSec: 5,
+      purgeRemainingCardsOnExpire: true,
+      magnitudeBands: [
+        {
+          id: "low",
+          minCards: 1,
+          maxCards: 1,
+          onRunUpdate: [
+            {
+              op: "SetSystemState",
+              target: { ref: "self", layer: "tile" },
+              system: "hydration",
+              merge: true,
+              value: { cur: 70 },
+            },
+            {
+              op: "ClampSystemState",
+              target: { ref: "self", layer: "tile" },
+              system: "hydration",
+              key: "cur",
+              min: 0,
+              maxKey: "max",
+            },
+          ],
+        },
+        {
+          id: "normal",
+          minCards: 2,
+          maxCards: 3,
+          onRunUpdate: [
+            {
+              op: "SetSystemState",
+              target: { ref: "self", layer: "tile" },
+              system: "hydration",
+              merge: true,
+              value: { cur: 90 },
+            },
+            {
+              op: "ClampSystemState",
+              target: { ref: "self", layer: "tile" },
+              system: "hydration",
+              key: "cur",
+              min: 0,
+              maxKey: "max",
+            },
+          ],
+        },
+        {
+          id: "heavy",
+          minCards: 4,
+          maxCards: null,
+          onRunUpdate: [
+            {
+              op: "SetSystemState",
+              target: { ref: "self", layer: "tile" },
+              system: "hydration",
+              merge: true,
+              value: { cur: 100 },
+            },
+            {
+              op: "ClampSystemState",
+              target: { ref: "self", layer: "tile" },
+              system: "hydration",
+              key: "cur",
+              min: 0,
+              maxKey: "max",
+            },
+          ],
+        },
+      ],
+    },
     spawn: {
       mode: "allColsWhere",
       where: { tileId: "tile_floodplains" },
@@ -246,7 +319,8 @@ export const envEventDefs = {
         op: "SetSystemState",
         target: { ref: "self", layer: "tile" },
         system: "hydration",
-        value: { cur: 100, max: 100, decayPerSec: 2, sumRatio: 0 },
+        merge: true,
+        value: { max: 100, decayPerSec: 2, sumRatio: 0 },
       },
       {
         op: "SetSystemState",

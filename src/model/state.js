@@ -581,6 +581,7 @@ export function createEmptyState(seed = 123456789) {
     nextEnvStructureInstanceId: 1,
 
     currentSeasonDeck: null,
+    activeEnvEventRuns: {},
     nextEnvInstanceId: 1,
 
     ownerInventories: {},
@@ -666,6 +667,7 @@ export function makeEnvEventInstance(defId, state, col, span, tSec) {
     col,
     span: safeSpan,
     createdSec: tSec,
+    props: {},
   };
   if (def?.durationSec != null) {
     inst.expiresSec = tSec + def.durationSec;
@@ -1010,6 +1012,10 @@ function deriveSeasonDeckSeed(state) {
 export function buildSeasonDeckForCurrentSeason(state) {
   if (!state) return null;
   const seasonKey = getCurrentSeasonKey(state);
+  const seasonIndex = Number.isFinite(state?.currentSeasonIndex)
+    ? Math.floor(state.currentSeasonIndex)
+    : 0;
+  const year = Number.isFinite(state?.year) ? Math.floor(state.year) : 1;
   const deck = [];
   const rng = createRng(deriveSeasonDeckSeed(state));
 
@@ -1027,7 +1033,7 @@ export function buildSeasonDeckForCurrentSeason(state) {
 
   // Shuffle so draw order is not tied to tile columns.
   shuffleDeckInPlace(rng, deck);
-  state.currentSeasonDeck = { seasonKey, deck };
+  state.currentSeasonDeck = { seasonKey, seasonIndex, year, deck };
   return state.currentSeasonDeck;
 }
 
@@ -1039,7 +1045,14 @@ export function getCurrentSeasonData(state) {
   const seasonKey = getCurrentSeasonKey(state);
   const deck = state.currentSeasonDeck;
   if (deck && deck.seasonKey === seasonKey) return deck;
-  return { seasonKey, deck: [] };
+  return {
+    seasonKey,
+    seasonIndex: Number.isFinite(state?.currentSeasonIndex)
+      ? Math.floor(state.currentSeasonIndex)
+      : 0,
+    year: Number.isFinite(state?.year) ? Math.floor(state.year) : 1,
+    deck: [],
+  };
 }
 
 export function drawSeasonDeckEntry(state) {
@@ -1201,6 +1214,59 @@ export function deserializeGameState(data) {
     if (typeof state.currentSeasonDeck.seasonKey !== "string") {
       state.currentSeasonDeck.seasonKey = getCurrentSeasonKey(state);
     }
+    if (!Number.isFinite(state.currentSeasonDeck.seasonIndex)) {
+      state.currentSeasonDeck.seasonIndex = Number.isFinite(state?.currentSeasonIndex)
+        ? Math.floor(state.currentSeasonIndex)
+        : 0;
+    }
+    if (!Number.isFinite(state.currentSeasonDeck.year)) {
+      state.currentSeasonDeck.year = Number.isFinite(state?.year)
+        ? Math.floor(state.year)
+        : 1;
+    }
+  }
+  if (
+    !state.activeEnvEventRuns ||
+    typeof state.activeEnvEventRuns !== "object" ||
+    Array.isArray(state.activeEnvEventRuns)
+  ) {
+    state.activeEnvEventRuns = {};
+  } else {
+    const normalizedRuns = {};
+    for (const [aggregateKey, rawRun] of Object.entries(state.activeEnvEventRuns)) {
+      if (!rawRun || typeof rawRun !== "object" || Array.isArray(rawRun)) continue;
+      const defId = typeof rawRun.defId === "string" ? rawRun.defId : null;
+      if (!defId) continue;
+      normalizedRuns[String(aggregateKey)] = {
+        defId,
+        aggregateKey:
+          typeof rawRun.aggregateKey === "string" && rawRun.aggregateKey.length > 0
+            ? rawRun.aggregateKey
+            : String(aggregateKey),
+        sourceYear: Number.isFinite(rawRun.sourceYear)
+          ? Math.floor(rawRun.sourceYear)
+          : Number.isFinite(state?.year)
+            ? Math.floor(state.year)
+            : 1,
+        sourceSeasonIndex: Number.isFinite(rawRun.sourceSeasonIndex)
+          ? Math.floor(rawRun.sourceSeasonIndex)
+          : Number.isFinite(state?.currentSeasonIndex)
+            ? Math.floor(state.currentSeasonIndex)
+            : 0,
+        firstDrawSec: Number.isFinite(rawRun.firstDrawSec)
+          ? Math.max(0, Math.floor(rawRun.firstDrawSec))
+          : 0,
+        cardsDrawn: Number.isFinite(rawRun.cardsDrawn)
+          ? Math.max(1, Math.floor(rawRun.cardsDrawn))
+          : 1,
+        magnitudeId:
+          typeof rawRun.magnitudeId === "string" ? rawRun.magnitudeId : null,
+        expiresSec: Number.isFinite(rawRun.expiresSec)
+          ? Math.max(0, Math.floor(rawRun.expiresSec))
+          : 0,
+      };
+    }
+    state.activeEnvEventRuns = normalizedRuns;
   }
   ensureBoardState(state);
   ensureDiscoveryState(state);
@@ -1315,6 +1381,16 @@ export function deserializeGameState(data) {
   // Rebuild derived inventory indices after JSON clone / replay.
   for (const inv of Object.values(state.ownerInventories)) {
     rebuildInventoryDerived(inv);
+  }
+
+  const eventAnchors = Array.isArray(state?.board?.layers?.event?.anchors)
+    ? state.board.layers.event.anchors
+    : [];
+  for (const anchor of eventAnchors) {
+    if (!anchor || typeof anchor !== "object") continue;
+    if (!anchor.props || typeof anchor.props !== "object" || Array.isArray(anchor.props)) {
+      anchor.props = {};
+    }
   }
 
   rebuildBoardOccupancy(state);
