@@ -1,6 +1,8 @@
 // hub-structure-defs.js
 // Definitions for hub structures.
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const hubStructureDefs = {
   hearth: {
     id: "hearth",
@@ -195,3 +197,5 @@ export const hubStructureDefs = {
     },
   },
 };
+
+ensureTooltipCardUi(hubStructureDefs);

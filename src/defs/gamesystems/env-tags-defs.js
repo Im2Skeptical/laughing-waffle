@@ -1,6 +1,8 @@
 // env-tags-defs.js
 // Env tag registry (data only).
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const envTagDefs = {
   explore: {
     id: "explore",
@@ -403,3 +405,7 @@ export const envTagDefs = {
     intents: [],
   },
 };
+
+ensureTooltipCardUi(envTagDefs, {
+  getTitle: (def) => def?.ui?.name || def?.name || def?.id,
+});

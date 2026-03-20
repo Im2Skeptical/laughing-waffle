@@ -57,6 +57,7 @@ import {
   getHubColumnCenterXForVisibleCols,
 } from "./layout-pixi.js";
 import { createDebugOverlay } from "./debug-overlay-pixi.js";
+import { createDebugInspectorView } from "./debug-inspector-pixi.js";
 import { createActionLogView } from "./action-log-pixi.js";
 import { createEventLogView } from "./event-log-pixi.js";
 import { createYearEndPerformanceView } from "./year-end-performance-pixi.js";
@@ -308,6 +309,7 @@ let processWidgetHoverFocusOwners = [];
 let processWidgetHoverUiFocus = null;
 let skillTreeView = null;
 let skillTreeEditorView = null;
+let debugInspectorView = null;
 let mainUiHiddenBySkillTree = false;
 let pendingSkillTreeOpenLeaderPawnId = null;
 let playfieldShader = null;
@@ -1256,13 +1258,8 @@ function findHubStructureOwnerIdByDefId(state, defId) {
 
 function resolveInventoryOwnerAnchor(ownerId) {
   if (ownerId == null) return null;
-  const pawnView = pawnsView?.getViewForId?.(ownerId) ?? null;
-  if (pawnView?.container) {
-    return {
-      coordinateSpace: "screen",
-      getAnchorRect: () => pawnView.container?.getBounds?.() ?? null,
-    };
-  }
+  const pawnAnchor = pawnsView?.getInventoryOwnerAnchor?.(ownerId) ?? null;
+  if (pawnAnchor) return pawnAnchor;
   return boardView?.getInventoryOwnerAnchor?.(ownerId) ?? null;
 }
 
@@ -1500,6 +1497,9 @@ const tooltipView = createTooltipView({
   layer: uiLayers.tooltipLayer,
   interaction: interactionController,
   layout: VIEW_LAYOUT.tooltip,
+});
+debugInspectorView = createDebugInspectorView({
+  layer: uiLayers.fixedDebugLayer,
 });
 
 let inventoryView = null;
@@ -1745,6 +1745,8 @@ inventoryView = createInventoryView({
   setBuildPlacementPreview: (preview) =>
     boardView?.setDistributorBuildPreview?.(preview),
   getOwnerAnchor: (ownerId) => resolveInventoryOwnerAnchor(ownerId),
+  getExternalEquipmentSlotAt: (pos) =>
+    pawnsView?.getEquipmentSlotAtGlobalPos?.(pos) ?? null,
   setWorldInventoryDragAffordances: (ownerAffordances) => {
     boardView?.setInventoryDragAffordances?.(ownerAffordances);
     pawnsView?.setInventoryDragAffordances?.(ownerAffordances);
@@ -1934,6 +1936,8 @@ pawnsView = createPawnsView({
     getMergedPawnOverridePlacement(pawnId)?.hubCol ?? null,
   getPreviewPlacement: (pawnId) => getMergedPawnOverridePlacement(pawnId),
   canStartHoverZoomIn: () => canStartGamepieceHoverZoomIn(),
+  openSkillTree: ({ leaderPawnId, pawnId }) =>
+    openSkillTreeForLeaderPawn(leaderPawnId ?? pawnId ?? null),
   onPawnDropped({ pawnId, dropPos }) {
     if (pawnId == null) return { ok: false, reason: "noPawnId" };
     const state = runner.getState();
@@ -2591,6 +2595,9 @@ const debugView = createDebugOverlay({
         systemGraphController,
       ],
     }),
+  onToggleRawInspector: () =>
+    debugInspectorView?.setEnabled?.(!(debugInspectorView?.isEnabled?.() === true)),
+  getRawInspectorEnabled: () => debugInspectorView?.isEnabled?.() === true,
 });
 
 if (isBootVariantFlagEnabled("actionLogEnabled")) {
@@ -2687,6 +2694,7 @@ function asOccludingRects(view) {
 
 for (const getRects of [
   () => asOccludingRects(boardView),
+  () => asOccludingRects(pawnsView),
   () => asOccludingRects(inventoryView),
   () => asOccludingRects(processWidgetView),
   () => asOccludingRects(scrollGraphOrchestrator),
@@ -2699,6 +2707,7 @@ for (const getRects of [
   () => asOccludingRects(chromeView),
   () => asOccludingRects(eventLogView),
   () => asOccludingRects(debugView),
+  () => asOccludingRects(debugInspectorView),
   () => asOccludingRects(timeControlsView),
   () => asOccludingRects(sunMoonDisksView),
   () => asOccludingRects(envEventDeckView),
@@ -2743,6 +2752,7 @@ flashActionLogAp = () => actionLogView.flashInsufficientAp?.();
 runner.init();
 interactionController.init();
 tooltipView.init();
+debugInspectorView.setEnabled(false);
 inventoryView.init();
 backdropView.init();
 boardView.init();
@@ -2816,6 +2826,9 @@ app.ticker.add((delta) => {
   runTimed("pawns.update", () => pawnsView.update(frameDt));
   runTimed("inventoryAutoReveal.flush", () => flushPendingInventoryWindowReveals());
   runTimed("tooltip.update", () => tooltipView.update(frameDt));
+  runTimed("debugInspector.sync", () =>
+    debugInspectorView?.updateFromTooltipSpec?.(tooltipView.getActiveSpec?.() ?? null)
+  );
   runTimed("inventory.update", () => inventoryView.update(frameDt));
   runTimed("processWidget.update", () => processWidgetView.update(frameDt));
   runTimed("chrome.update", () => chromeView.update(frameDt));
@@ -2831,6 +2844,7 @@ app.ticker.add((delta) => {
   runTimed("skillTreeEditor.update", () => skillTreeEditorView?.update?.(frameDt));
   runTimed("scrollGraph.update", () => scrollGraphOrchestrator?.update?.());
   runTimed("debug.update", () => debugView.update());
+  runTimed("debugInspector.update", () => debugInspectorView?.update?.());
 
   const anyMetricGraphOpen =
     goldGraphView.isOpen() ||

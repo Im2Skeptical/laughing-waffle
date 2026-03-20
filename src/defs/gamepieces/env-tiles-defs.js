@@ -1,6 +1,8 @@
 // env-tiles-defs.js
 // Env tile registry (data only).
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const envTileDefs = {
   tile_floodplains: {
     id: "tile_floodplains",
@@ -367,3 +369,5 @@ export const envTileDefs = {
     },
   },
 };
+
+ensureTooltipCardUi(envTileDefs);

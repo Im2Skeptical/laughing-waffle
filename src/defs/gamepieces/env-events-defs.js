@@ -1,6 +1,8 @@
 // env-events-defs.js
 // Env event registry (data only).
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const envEventDefs = {
   event_common_spring: {
     id: "event_common_spring",
@@ -403,3 +405,5 @@ export const envEventDefs = {
     onEnter: { op: "AddResource", resource: "gold", amount: 1 },
   },
 };
+
+ensureTooltipCardUi(envEventDefs);

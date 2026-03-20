@@ -23,6 +23,7 @@ import {
   stepAnimatedRatio,
 } from "../ui-helpers/progress-animation.js";
 import { applyTextResolution } from "../ui-helpers/text-resolution.js";
+import { makeDefTooltipSpec } from "../def-tooltip-spec.js";
 
 const TAG_PILL_HEIGHT = 20;
 const TAG_PILL_RADIUS = 10;
@@ -1118,14 +1119,26 @@ export function createTagUi(opts) {
 
   function showTooltipForTag(view, entry, tileInst, bounds, scale = 1) {
     if (!tooltipView || interaction?.canShowWorldHoverUI?.() === false) return;
-    const label = getTagLabel(entry?.tagId);
+    const tagId = entry?.tagId;
+    const label = getTagLabel(tagId);
     const lines = buildTagHoverLines(view, entry, tileInst);
     const anchor =
       bounds?.displayObject
         ? tooltipView.getAnchorRectForDisplayObject?.(bounds.displayObject, "parent") ??
           null
         : bounds;
-    tooltipView.show({ title: label, lines, scale }, anchor);
+    tooltipView.show(
+      makeDefTooltipSpec({
+        def: envTagDefs[tagId],
+        title: label,
+        lines,
+        accentColor: MUCHA_UI_COLORS.accents.sage,
+        sourceKind: "envTag",
+        sourceId: tagId ?? null,
+        scale,
+      }),
+      anchor
+    );
   }
 
   function showTooltipForSystem(tileInst, systemId, bounds, scale = 1) {
@@ -1137,7 +1150,18 @@ export function createTagUi(opts) {
         ? tooltipView.getAnchorRectForDisplayObject?.(bounds.displayObject, "parent") ??
           null
         : bounds;
-    tooltipView.show({ title: label, lines, scale }, anchor);
+    tooltipView.show(
+      makeDefTooltipSpec({
+        def: envSystemDefs[systemId],
+        title: label,
+        lines,
+        accentColor: getSystemUi(systemId).color,
+        sourceKind: "envSystem",
+        sourceId: systemId ?? null,
+        scale,
+      }),
+      anchor
+    );
   }
 
   function setChildTooltipHoverActive(view, active) {

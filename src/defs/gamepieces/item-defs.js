@@ -11,6 +11,7 @@ import {
   buildScrollTimegraphState,
   makeScrollItemKind,
 } from "./scroll-timegraph-defs.js";
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
 
 export const SCROLL_TIMEGRAPH_DEFAULT_HORIZON_SEC =
   SCROLL_GRAPH_DEFAULT_HORIZON_SEC;
@@ -899,3 +900,5 @@ export const itemDefs = {
   },
   ...scrollItemDefs,
 };
+
+ensureTooltipCardUi(itemDefs);

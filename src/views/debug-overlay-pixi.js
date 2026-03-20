@@ -51,6 +51,8 @@ export function createDebugOverlay({
   onClearTimeline,
   getPerfSnapshot,
   getProjectionParity,
+  onToggleRawInspector,
+  getRawInspectorEnabled,
 }) {
   const rootLayout =
     layout && typeof layout === "object" ? layout : VIEW_LAYOUT.debugOverlay;
@@ -478,12 +480,21 @@ export function createDebugOverlay({
   });
   cursorY += 32;
 
+  const rawInspectorBtn = createButton({
+    x: CONTENT_X,
+    y: cursorY,
+    width: CONTENT_W,
+    label: "Raw Inspector: OFF",
+  });
+  cursorY += 32;
+
   autoPauseBtn.container.on("pointerdown", () =>
     onToggleAutoPauseOnPlayerAction?.()
   );
   graphBtn.container.on("pointerdown", () => onOpenSystemGraph?.());
   apGraphBtn.container.on("pointerdown", () => onToggleApGraph?.());
   clearTimelineBtn.container.on("pointerdown", () => onClearTimeline?.());
+  rawInspectorBtn.container.on("pointerdown", () => onToggleRawInspector?.());
 
   addSectionTitle("Performance");
   const perfMeta = new PIXI.Text("act --/--  plan --/--  scrub --", {
@@ -773,6 +784,18 @@ export function createDebugOverlay({
       }`;
       autoPauseBtn.text.x = Math.round((autoPauseBtn.width - autoPauseBtn.text.width) * 0.5);
       autoPauseBtn.bg.tint = autoPauseEnabled ? 0x2f9b4c : 0xffffff;
+
+      const rawInspectorEnabled =
+        typeof getRawInspectorEnabled === "function"
+          ? getRawInspectorEnabled() === true
+          : false;
+      rawInspectorBtn.text.text = `Raw Inspector: ${
+        rawInspectorEnabled ? "ON" : "OFF"
+      }`;
+      rawInspectorBtn.text.x = Math.round(
+        (rawInspectorBtn.width - rawInspectorBtn.text.width) * 0.5
+      );
+      rawInspectorBtn.bg.tint = rawInspectorEnabled ? 0x2f9b4c : 0xffffff;
     },
     getScreenRect: () => {
       if (!root.visible) return null;

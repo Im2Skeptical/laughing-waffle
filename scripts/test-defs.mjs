@@ -11,6 +11,12 @@ import { envTagDefs } from "../src/defs/gamesystems/env-tags-defs.js";
 import { itemDefs } from "../src/defs/gamepieces/item-defs.js";
 import { recipeDefs } from "../src/defs/gamepieces/recipes-defs.js";
 import { hubStructureDefs } from "../src/defs/gamepieces/hub-structure-defs.js";
+import { hubSystemDefs } from "../src/defs/gamesystems/hub-system-defs.js";
+import { hubTagDefs } from "../src/defs/gamesystems/hub-tag-defs.js";
+import { itemSystemDefs } from "../src/defs/gamesystems/item-system-defs.js";
+import { itemTagDefs } from "../src/defs/gamesystems/item-tag-defs.js";
+import { pawnSystemDefs } from "../src/defs/gamesystems/pawn-systems-defs.js";
+import { keywordDefs } from "../src/defs/gamesystems/keyword-defs.js";
 import {
   skillTrees,
   skillNodes,
@@ -121,6 +127,63 @@ function validateEventLogTypeDefs() {
     );
   }
   console.log("[test] Event log type glyph validation complete");
+}
+
+function validateKeywordDefs() {
+  assert.ok(Object.keys(keywordDefs).length > 0, "[test] keywordDefs is empty");
+  for (const [keywordId, def] of Object.entries(keywordDefs)) {
+    assert.ok(def && typeof def === "object", `[test] keyword "${keywordId}" missing def`);
+    assert.equal(def.id, keywordId, `[test] keyword "${keywordId}" should preserve its id`);
+    assert.equal(typeof def.label, "string", `[test] keyword "${keywordId}" missing label`);
+    assert.ok(def.label.length > 0, `[test] keyword "${keywordId}" has empty label`);
+    assert.equal(
+      typeof def.description,
+      "string",
+      `[test] keyword "${keywordId}" missing description`
+    );
+    assert.ok(
+      Number.isFinite(def.accentColor),
+      `[test] keyword "${keywordId}" missing accent color`
+    );
+  }
+  console.log("[test] Keyword registry validation complete");
+}
+
+function validateTooltipUiRegistry(name, registry) {
+  for (const [defId, def] of Object.entries(registry)) {
+    assert.ok(def && typeof def === "object", `[test] ${name} "${defId}" missing def`);
+    assert.ok(def.ui && typeof def.ui === "object", `[test] ${name} "${defId}" missing ui`);
+    assert.ok(
+      def.ui.tooltipCard && typeof def.ui.tooltipCard === "object",
+      `[test] ${name} "${defId}" missing ui.tooltipCard`
+    );
+    assert.ok(
+      Array.isArray(def.ui.keywords),
+      `[test] ${name} "${defId}" missing ui.keywords array`
+    );
+    for (const keywordId of def.ui.keywords) {
+      assert.ok(
+        keywordDefs[keywordId],
+        `[test] ${name} "${defId}" references unknown keyword "${keywordId}"`
+      );
+    }
+  }
+}
+
+function validateTooltipUiCoverage() {
+  validateTooltipUiRegistry("envEvent", envEventDefs);
+  validateTooltipUiRegistry("envTile", envTileDefs);
+  validateTooltipUiRegistry("envStructure", envStructureDefs);
+  validateTooltipUiRegistry("envSystem", envSystemDefs);
+  validateTooltipUiRegistry("envTag", envTagDefs);
+  validateTooltipUiRegistry("hubStructure", hubStructureDefs);
+  validateTooltipUiRegistry("hubSystem", hubSystemDefs);
+  validateTooltipUiRegistry("hubTag", hubTagDefs);
+  validateTooltipUiRegistry("item", itemDefs);
+  validateTooltipUiRegistry("itemSystem", itemSystemDefs);
+  validateTooltipUiRegistry("itemTag", itemTagDefs);
+  validateTooltipUiRegistry("pawnSystem", pawnSystemDefs);
+  console.log("[test] Tooltip UI coverage validation complete");
 }
 
 function validateEnvironmentDefsSoft() {
@@ -243,6 +306,8 @@ function validateSkillFeatureUnlockIds() {
 await checkDefsBundleability();
 validateCoreDefinitions();
 validateEventLogTypeDefs();
+validateKeywordDefs();
+validateTooltipUiCoverage();
 validateEnvironmentDefsSoft();
 validateSkillDefsHard();
 validateSkillFeatureUnlockIds();

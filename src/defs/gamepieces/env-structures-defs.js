@@ -1,6 +1,8 @@
 // env-structures-defs.js
 // Definitions for environment structures (board-level, separate from hub structures).
 
+import { ensureTooltipCardUi } from "../tooltip-ui-utils.js";
+
 export const envStructureDefs = {
   hubPortal: {
     id: "hubPortal",
@@ -35,3 +37,5 @@ export const envStructureDefs = {
     systems: {},
   },
 };
+
+ensureTooltipCardUi(envStructureDefs);

@@ -61,6 +61,7 @@ import { getDisplayObjectWorldScale } from "./ui-helpers/display-object-scale.js
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 import { installSolidUiHitArea } from "./ui-helpers/solid-ui-hit-area.js";
 import { createBuildingManagerView } from "./building-manager-pixi.js";
+import { makeDefTooltipSpec } from "./def-tooltip-spec.js";
 
 
 
@@ -298,6 +299,7 @@ export function createInventoryView({
   screenToWorld,
   setWorldInventoryDragAffordances,
   getOwnerAnchor,
+  getExternalEquipmentSlotAt = null,
   layout = null,
 }) {
   const interactionStage = stage || layer.parent;
@@ -2588,7 +2590,7 @@ export function createInventoryView({
     const cols = inv?.cols ?? DEFAULT_COLS;
     const rows = inv?.rows ?? DEFAULT_ROWS;
     const cellSize = DEFAULT_CELL_SIZE;
-    const leader = getLeaderForOwner(ownerId);
+    const leader = null;
     const ownerPawn = getPawnForOwner(ownerId);
 
     const gridWidth = cols * cellSize;
@@ -3603,27 +3605,20 @@ export function createInventoryView({
       timegraphWindowPast,
     };
 
-    const titleRaw =
-      typeof ui.title === "function"
-        ? ui.title(item, ctx)
-        : ui.title || def.name;
-    const title = interpolateTemplate(titleRaw, values);
+    const tooltipCard =
+      ui?.tooltipCard && typeof ui.tooltipCard === "object" ? ui.tooltipCard : null;
+    const systemLines = buildItemSystemLines(item);
 
-    const lines = (ui.lines || [])
-      .map((line) =>
-        typeof line === "function"
-          ? line(item, ctx)
-          : interpolateTemplate(line, values)
-      )
-      .filter(Boolean);
-
-    lines.push(...buildItemSystemLines(item));
-
-    return {
-      title,
-      lines,
-      color: def.color ?? 0x666666,
-    };
+    return makeDefTooltipSpec({
+      def,
+      lines: systemLines,
+      accentColor: def.color ?? 0x666666,
+      sourceKind: "item",
+      sourceId: item?.id ?? null,
+      values: { ...values, item },
+      subject: item,
+      context: ctx,
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -5294,6 +5289,16 @@ export function createInventoryView({
   }
 
   function findEquipmentSlotAt(globalPos) {
+    if (typeof getExternalEquipmentSlotAt === "function") {
+      const externalMatch = getExternalEquipmentSlotAt(globalPos);
+      if (externalMatch?.ownerId != null && externalMatch?.slotId) {
+        return {
+          win: externalMatch.win ?? null,
+          ownerId: externalMatch.ownerId,
+          slotId: externalMatch.slotId,
+        };
+      }
+    }
     for (const win of windows.values()) {
       if (!win?.container?.visible) continue;
       const equip = win.equipmentPanel;
@@ -5933,7 +5938,46 @@ export function createInventoryView({
     togglePinned,
     revealWindow,
     beginDragItemFromOwner,
+    beginDragExternalEquippedItem: ({
+      ownerId,
+      item,
+      sourceEquipmentSlotId,
+      view,
+      globalPos,
+      pointerType = null,
+    }) => {
+      if (ownerId == null || !item || !sourceEquipmentSlotId || !globalPos) {
+        return { ok: false, reason: "badArgs" };
+      }
+      if (uiBlocked || dragItem.active || dragWindow.active || activeSplit) {
+        return { ok: false, reason: "busy" };
+      }
+      const win = ensureWindow(ownerId);
+      if (!win) return { ok: false, reason: "noWindow" };
+      beginItemDragAtGlobal(
+        win,
+        item,
+        {
+          ...view,
+          ownerId,
+          sourceEquipmentSlotId,
+          sourceOwnerId: null,
+        },
+        globalPos,
+        { pointerType }
+      );
+      syncExternalItemDragAffordances(globalPos);
+      return { ok: true };
+    },
     flashWindowError,
+    getItemTooltipSpec: (item, ownerId) => makeItemTooltipSpec(item, ownerId),
+    openBuildingManagerForOwner: (ownerId) => {
+      if (ownerId == null) return { ok: false, reason: "noOwner" };
+      const revealRes = revealWindow(ownerId, { pinned: true });
+      if (revealRes?.ok === false) return revealRes;
+      buildingManagerView.open({ ownerId });
+      return { ok: true };
+    },
 
     rebuildWindow,
     ensureWindow,
