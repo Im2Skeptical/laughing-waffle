@@ -25,6 +25,10 @@ function formatOutcomeLabel(outcome) {
   return "Population unchanged";
 }
 
+function hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
 function normalizeReport(entry) {
   const eventData = entry?.data;
   const report =
@@ -33,6 +37,25 @@ function normalizeReport(entry) {
       ? eventData.yearEndPerformance
       : null;
   if (!report) return null;
+
+  const hasPopulationSplit =
+    hasOwn(report, "populationSkillPointsPerLeader") ||
+    hasOwn(eventData, "populationSkillPointsPerLeader");
+  const hasFaithSplit =
+    hasOwn(report, "faithSkillPointsPerLeader") ||
+    hasOwn(eventData, "faithSkillPointsPerLeader");
+  const populationSkillPointsPerLeader = hasPopulationSplit
+    ? toSafeInt(
+        report.populationSkillPointsPerLeader,
+        eventData?.populationSkillPointsPerLeader ?? 0
+      )
+    : null;
+  const faithSkillPointsPerLeader = hasFaithSplit
+    ? toSafeInt(
+        report.faithSkillPointsPerLeader,
+        eventData?.faithSkillPointsPerLeader ?? 0
+      )
+    : null;
 
   return {
     year: toSafeInt(report.year, eventData?.year ?? 1),
@@ -60,6 +83,8 @@ function normalizeReport(entry) {
       report.totalSkillPointsAwarded,
       eventData?.totalSkillPointsAwarded ?? 0
     ),
+    populationSkillPointsPerLeader,
+    faithSkillPointsPerLeader,
   };
 }
 
@@ -195,7 +220,20 @@ export function createYearEndPerformanceView({ app, layer, onClose } = {}) {
     outcomeText.text = formatOutcomeLabel(report.populationOutcome);
     grainText.text = `Total Grain: ${report.grainTotal}`;
     edibleText.text = `Total Edibles: ${report.edibleTotal}`;
-    skillText.text = `Skill Points Gained: ${report.totalSkillPointsAwarded} (${report.skillPointsPerLeader} x ${report.leaderCount} leaders)`;
+    const hasBreakdown =
+      report.populationSkillPointsPerLeader != null ||
+      report.faithSkillPointsPerLeader != null;
+    const populationPart =
+      report.populationSkillPointsPerLeader != null
+        ? report.populationSkillPointsPerLeader
+        : report.skillPointsPerLeader;
+    const faithPart =
+      report.faithSkillPointsPerLeader != null
+        ? report.faithSkillPointsPerLeader
+        : 0;
+    skillText.text = hasBreakdown
+      ? `Skill Points Gained: ${report.totalSkillPointsAwarded} (${report.skillPointsPerLeader} x ${report.leaderCount} leaders; ${populationPart} pop + ${faithPart} faith)`
+      : `Skill Points Gained: ${report.totalSkillPointsAwarded} (${report.skillPointsPerLeader} x ${report.leaderCount} leaders)`;
   }
 
   function openForEntry(entry, opts = {}) {

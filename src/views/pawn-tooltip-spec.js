@@ -16,11 +16,13 @@ import {
   makeParagraphSection,
   makeTableSection,
 } from "./tooltip-spec.js";
+import { getUnlockableSkillNodes } from "../model/skills.js";
 
 const DEFAULT_SYSTEM_BUBBLE_COLORS = Object.freeze({
   hunger: 0xd0a04d,
   stamina: 0x7f5b37,
   leaderFaith: 0xb64d4d,
+  skillPoints: 0xf0c95b,
 });
 
 function normalizePlacement(placement) {
@@ -181,14 +183,24 @@ function getSystemShortLabel(systemId) {
   return def?.ui?.shortLabel ?? def?.ui?.name?.[0]?.toUpperCase?.() ?? "?";
 }
 
-function getPawnSupportedBubbleIds(pawn) {
+function getSpendableSkillNodeIds(pawn, state) {
+  if (pawn?.role !== "leader" || pawn?.id == null) return [];
+  return getUnlockableSkillNodes(state, pawn.id);
+}
+
+function hasSpendableSkillPoints(pawn, state) {
+  return getSpendableSkillNodeIds(pawn, state).length > 0;
+}
+
+function getPawnSupportedBubbleIds(pawn, state) {
   const ids = ["hunger", "stamina"];
   if (pawn?.role === "leader") ids.unshift("leaderFaith");
+  if (hasSpendableSkillPoints(pawn, state)) ids.unshift("skillPoints");
   return ids;
 }
 
-export function getVisiblePawnBubbleIds(pawn, hoverActive = false) {
-  const supported = getPawnSupportedBubbleIds(pawn);
+export function getVisiblePawnBubbleIds(pawn, hoverActive = false, state = null) {
+  const supported = getPawnSupportedBubbleIds(pawn, state);
   if (hoverActive) return supported;
   const visible = [];
   const hungerCur = Number.isFinite(pawn?.systemState?.hunger?.cur)
@@ -217,10 +229,35 @@ export function getVisiblePawnBubbleIds(pawn, hoverActive = false) {
   ) {
     visible.push("leaderFaith");
   }
+  if (hasSpendableSkillPoints(pawn, state)) {
+    visible.push("skillPoints");
+  }
   return supported.filter((systemId) => visible.includes(systemId));
 }
 
-function makeSystemBubbleTooltipSpec(pawn, systemId) {
+function makeSystemBubbleTooltipSpec(pawn, systemId, state) {
+  if (systemId === "skillPoints") {
+    const skillPoints = Number.isFinite(pawn?.skillPoints)
+      ? Math.max(0, Math.floor(pawn.skillPoints))
+      : 0;
+    const unlockableNodeIds = getSpendableSkillNodeIds(pawn, state);
+    return {
+      title: "Skill Points Ready",
+      subtitle: "Leader",
+      accentColor: getSystemColor(systemId),
+      sections: [
+        makeParagraphSection([
+          "This leader has spendable ",
+          { kind: "keyword", keywordId: "skillPoints", text: "skill points" },
+          ".",
+        ]),
+        makeTableSection("Spendable", [
+          { label: "Skill points", value: String(skillPoints) },
+          { label: "Unlockable nodes", value: String(unlockableNodeIds.length) },
+        ]),
+      ],
+    };
+  }
   if (systemId === "leaderFaith") {
     const tier = typeof pawn?.leaderFaith?.tier === "string" ? pawn.leaderFaith.tier : "gold";
     const hungerCur = Number.isFinite(pawn?.systemState?.hunger?.cur)
@@ -302,11 +339,21 @@ function makeSystemBubbleTooltipSpec(pawn, systemId) {
 }
 
 export function getPawnBubbleSpecs(pawn, state, { hoverActive = false } = {}) {
-  const visibleIds = getVisiblePawnBubbleIds(pawn, hoverActive);
+  const visibleIds = getVisiblePawnBubbleIds(pawn, hoverActive, state);
   return visibleIds.map((systemId) => ({
     systemId,
-    shortLabel: systemId === "leaderFaith" ? "Fa" : getSystemShortLabel(systemId),
-    label: systemId === "leaderFaith" ? "Faith" : pawnSystemDefs?.[systemId]?.ui?.name ?? systemId,
+    shortLabel:
+      systemId === "leaderFaith"
+        ? "Fa"
+        : systemId === "skillPoints"
+          ? "!"
+          : getSystemShortLabel(systemId),
+    label:
+      systemId === "leaderFaith"
+        ? "Faith"
+        : systemId === "skillPoints"
+          ? "Skill Points"
+          : pawnSystemDefs?.[systemId]?.ui?.name ?? systemId,
     color: getSystemColor(systemId),
     tooltipSpec: makeSystemBubbleTooltipSpec(pawn, systemId, state),
   }));

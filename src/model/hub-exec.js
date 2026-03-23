@@ -994,6 +994,14 @@ function getYearEndSkillPointsAward(outcomeKind) {
   return noChange;
 }
 
+function getFaithTierSkillPointsBonus(tier) {
+  const normalizedTier = normalizeTierId(tier, null);
+  if (normalizedTier === "diamond") return 3;
+  if (normalizedTier === "gold") return 2;
+  if (normalizedTier === "silver") return 1;
+  return 0;
+}
+
 function getPoolTierQuantity(bucket, tier) {
   if (!bucket || typeof bucket !== "object") return 0;
   return Math.max(0, Math.floor(bucket[tier] ?? 0));
@@ -1283,9 +1291,14 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
   }
   tracker.faithGrowthStreak = faithGrowthStreak;
 
-  const skillPointsPerLeader = populationSystemsActive
+  const populationSkillPointsPerLeader = populationSystemsActive
     ? getYearEndSkillPointsAward(outcomeKind)
     : 0;
+  const faithSkillPointsPerLeader = hasFaithHousing
+    ? getFaithTierSkillPointsBonus(nextFaithTier)
+    : 0;
+  const skillPointsPerLeader =
+    populationSkillPointsPerLeader + faithSkillPointsPerLeader;
   const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   let leaderCount = 0;
   for (const pawn of pawns) {
@@ -1311,7 +1324,7 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
   const yearlyEntry = pushGameEvent(state, {
     type: "populationYearlyUpdate",
     tSec,
-    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})${attractionSummaryText}${faithSummaryText}, +${skillPointsPerLeader} skill points to each leader`,
+    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})${attractionSummaryText}${faithSummaryText}, +${skillPointsPerLeader} skill points to each leader (${populationSkillPointsPerLeader} population + ${faithSkillPointsPerLeader} faith)`,
     data: {
       year: priorYear,
       previousPopulation,
@@ -1324,6 +1337,8 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
       housingCapacity: housingAfterAttraction.housingCapacity,
       housingVacancy: housingAfterAttraction.housingVacancy,
       attractionProgress: tracker.attractionProgress,
+      populationSkillPointsPerLeader,
+      faithSkillPointsPerLeader,
       skillPointsPerLeader,
       leaderCount,
       totalSkillPointsAwarded,
@@ -1354,6 +1369,8 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
         mealMisses: misses,
         grainTotal: foodTotals.grainTotal,
         edibleTotal: foodTotals.edibleTotal,
+        populationSkillPointsPerLeader,
+        faithSkillPointsPerLeader,
         skillPointsPerLeader,
         leaderCount,
         totalSkillPointsAwarded,

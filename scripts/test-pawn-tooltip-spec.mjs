@@ -137,8 +137,8 @@ function runBubbleVisibilityRulesTest() {
       suppressAutoUntilSec: 0,
     },
   });
-  assert.deepEqual(getVisiblePawnBubbleIds(healthyFollower, false), []);
-  assert.deepEqual(getVisiblePawnBubbleIds(healthyFollower, true), ["hunger", "stamina"]);
+  assert.deepEqual(getVisiblePawnBubbleIds(healthyFollower, false, state), []);
+  assert.deepEqual(getVisiblePawnBubbleIds(healthyFollower, true, state), ["hunger", "stamina"]);
 
   const hungryFollower = createPawn({
     role: "follower",
@@ -155,7 +155,7 @@ function runBubbleVisibilityRulesTest() {
       suppressAutoUntilSec: 0,
     },
   });
-  assert.deepEqual(getVisiblePawnBubbleIds(hungryFollower, false), ["hunger"]);
+  assert.deepEqual(getVisiblePawnBubbleIds(hungryFollower, false, state), ["hunger"]);
 
   const tiredFollower = createPawn({
     role: "follower",
@@ -172,9 +172,10 @@ function runBubbleVisibilityRulesTest() {
       suppressAutoUntilSec: 0,
     },
   });
-  assert.deepEqual(getVisiblePawnBubbleIds(tiredFollower, false), ["stamina"]);
+  assert.deepEqual(getVisiblePawnBubbleIds(tiredFollower, false, state), ["stamina"]);
 
   const starvingLeader = createPawn({
+    skillPoints: 2,
     systemState: {
       stamina: { cur: 80, max: 100 },
       hunger: { cur: 10, max: 100, belowThresholdSec: 0, debtCadenceSec: 0 },
@@ -193,14 +194,72 @@ function runBubbleVisibilityRulesTest() {
       suppressAutoUntilSec: 0,
     },
   });
+  state.pawns = [starvingLeader];
   assert.deepEqual(
-    getVisiblePawnBubbleIds(starvingLeader, false),
-    ["leaderFaith", "hunger"]
+    getVisiblePawnBubbleIds(starvingLeader, false, state),
+    ["skillPoints", "leaderFaith", "hunger"]
   );
   const bubbleSpecs = getPawnBubbleSpecs(starvingLeader, state, { hoverActive: false });
   assert.deepEqual(
     bubbleSpecs.map((entry) => entry.systemId),
-    ["leaderFaith", "hunger"]
+    ["skillPoints", "leaderFaith", "hunger"]
+  );
+}
+
+function runSkillPointBubbleAvailabilityTest() {
+  const state = createEmptyState(654);
+  installEnvTile(state, 0);
+
+  const leaderWithPoints = createPawn({
+    skillPoints: 2,
+    unlockedSkillNodeIds: [],
+    systemState: {
+      stamina: { cur: 80, max: 100 },
+      hunger: { cur: 90, max: 100, belowThresholdSec: 0, debtCadenceSec: 0 },
+      leadership: { followersAutoFollow: true },
+    },
+    ai: {
+      mode: null,
+      assignedPlacement: { hubCol: null, envCol: 0 },
+      returnState: "none",
+      suppressAutoUntilSec: 0,
+    },
+  });
+  state.pawns.push(leaderWithPoints);
+
+  assert.deepEqual(
+    getVisiblePawnBubbleIds(leaderWithPoints, false, state),
+    ["skillPoints"],
+    "leaders with unlockable skill nodes should show the spendable skill point bubble"
+  );
+
+  const bubbleSpecs = getPawnBubbleSpecs(leaderWithPoints, state, { hoverActive: false });
+  assert.equal(bubbleSpecs[0]?.systemId, "skillPoints");
+  assert.equal(bubbleSpecs[0]?.shortLabel, "!");
+  assert.equal(bubbleSpecs[0]?.label, "Skill Points");
+
+  const leaderWithoutSpendableNodes = createPawn({
+    id: 102,
+    skillPoints: 0,
+    unlockedSkillNodeIds: [],
+    systemState: {
+      stamina: { cur: 80, max: 100 },
+      hunger: { cur: 90, max: 100, belowThresholdSec: 0, debtCadenceSec: 0 },
+      leadership: { followersAutoFollow: true },
+    },
+    ai: {
+      mode: null,
+      assignedPlacement: { hubCol: null, envCol: 0 },
+      returnState: "none",
+      suppressAutoUntilSec: 0,
+    },
+  });
+  state.pawns = [leaderWithoutSpendableNodes];
+
+  assert.deepEqual(
+    getVisiblePawnBubbleIds(leaderWithoutSpendableNodes, false, state),
+    [],
+    "leaders without spendable skill points should not show the spendable skill point bubble"
   );
 }
 
@@ -215,5 +274,6 @@ function runLegacyAliasShapeTest() {
 
 runLeaderInfocardAndDebugSpecTest();
 runBubbleVisibilityRulesTest();
+runSkillPointBubbleAvailabilityTest();
 runLegacyAliasShapeTest();
 console.log("[test] Pawn tooltip spec checks passed");

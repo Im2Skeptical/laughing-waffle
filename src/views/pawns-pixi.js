@@ -1797,6 +1797,7 @@ export function createPawnsView(opts) {
       if (view.bubbleSignature === bubbleSignature) return;
       view.bubbleSignature = bubbleSignature;
       const positions = {
+        skillPoints: { x: PAWN_UI_LAYOUT.bubbleSideX, y: PAWN_UI_LAYOUT.bubbleTopY },
         leaderFaith: { x: 0, y: PAWN_UI_LAYOUT.bubbleTopY },
         hunger: { x: -PAWN_UI_LAYOUT.bubbleSideX, y: PAWN_UI_LAYOUT.bubbleSideY },
         stamina: { x: PAWN_UI_LAYOUT.bubbleSideX, y: PAWN_UI_LAYOUT.bubbleSideY },

@@ -41,6 +41,16 @@ function createUpgradeScenarioState({
   });
 }
 
+function createHousingScenarioState({ faithTier = null } = {}) {
+  const structure = { defId: "mudHouses", hubCol: 2 };
+  if (faithTier) {
+    structure.systemTiers = { faith: faithTier };
+  }
+  const state = createUpgradeScenarioState({ structures: [structure] });
+  state.resources.population = 0;
+  return state;
+}
+
 function getStructureAtHubCol(state, hubCol) {
   return state?.hub?.occ?.[hubCol] ?? state?.hub?.slots?.[hubCol]?.structure ?? null;
 }
@@ -331,6 +341,16 @@ function runPopulationDormantWithoutHousingTest() {
   const yearly = getYearlyPopulationEntry(state, 1);
   assert.ok(yearly, "expected year-1 population yearly update event");
   assert.equal(
+    Math.floor(yearly?.data?.populationSkillPointsPerLeader ?? -1),
+    0,
+    "yearly update should report zero population skill points without residents"
+  );
+  assert.equal(
+    Math.floor(yearly?.data?.faithSkillPointsPerLeader ?? -1),
+    0,
+    "yearly update should report zero faith skill points without housing"
+  );
+  assert.equal(
     Math.floor(yearly?.data?.skillPointsPerLeader ?? -1),
     0,
     "yearly update should award zero skill points with dormant population"
@@ -366,14 +386,24 @@ function runPopulationAttractionAfterHousingUpgradeTest() {
     "housing vacancy should attract residents on year-1 update"
   );
   assert.equal(
-    Math.floor(firstYear?.data?.skillPointsPerLeader ?? -1),
+    Math.floor(firstYear?.data?.populationSkillPointsPerLeader ?? -1),
     0,
     "first attraction year should not yet award population skill points"
   );
   assert.equal(
+    Math.floor(firstYear?.data?.faithSkillPointsPerLeader ?? -1),
+    2,
+    "first attraction year should award gold-tier faith skill points"
+  );
+  assert.equal(
+    Math.floor(firstYear?.data?.skillPointsPerLeader ?? -1),
+    2,
+    "first attraction year should award faith-based skill points"
+  );
+  assert.equal(
     Math.floor(leader.skillPoints ?? -1),
-    initialSkillPoints,
-    "leader skill points should remain unchanged until population systems become active"
+    initialSkillPoints + 2,
+    "leader skill points should gain the dormant gold-tier faith bonus"
   );
 
   const residents = mudHouses?.systemState?.residents ?? null;
@@ -398,6 +428,7 @@ function runPopulationAttractionAfterHousingUpgradeTest() {
     "seasonal resident meal checks should begin after first attraction"
   );
 
+  const skillPointsBeforeSecondYear = Math.floor(leader.skillPoints ?? 0);
   assert.equal(
     advanceUntilYearlyPopulationEntry(state, 2),
     true,
@@ -411,18 +442,76 @@ function runPopulationAttractionAfterHousingUpgradeTest() {
     "population meals should be active in year-2 aggregation"
   );
   assert.ok(
-    Math.floor(secondYear?.data?.skillPointsPerLeader ?? 0) > 0,
-    "year-2 update should award skill points after population activation"
+    Math.floor(secondYear?.data?.populationSkillPointsPerLeader ?? 0) > 0,
+    "year-2 update should award population skill points after population activation"
+  );
+  assert.equal(
+    Math.floor(secondYear?.data?.faithSkillPointsPerLeader ?? -1),
+    2,
+    "year-2 update should still award gold-tier faith skill points"
+  );
+  assert.equal(
+    Math.floor(secondYear?.data?.skillPointsPerLeader ?? -1),
+    Math.floor(secondYear?.data?.populationSkillPointsPerLeader ?? 0) +
+      Math.floor(secondYear?.data?.faithSkillPointsPerLeader ?? 0),
+    "year-2 total should equal population plus faith skill points"
   );
   assert.equal(
     secondYear?.data?.faith?.active,
     true,
     "year-2 faith report should be active once population systems are running"
   );
-  assert.ok(
-    Math.floor(leader.skillPoints ?? 0) > initialSkillPoints,
-    "leader skill points should increase once yearly population systems activate"
+  assert.equal(
+    Math.floor(leader.skillPoints ?? -1),
+    skillPointsBeforeSecondYear +
+      Math.floor(secondYear?.data?.skillPointsPerLeader ?? 0),
+    "leader skill points should increase by the combined yearly award"
   );
+}
+
+function runFaithTierSkillPointBonusMappingTest() {
+  const expectedByTier = {
+    bronze: 0,
+    silver: 1,
+    gold: 2,
+    diamond: 3,
+  };
+
+  for (const [tier, expected] of Object.entries(expectedByTier)) {
+    const state = createHousingScenarioState({ faithTier: tier });
+    const leader = getLeader(state, 0);
+    assert.ok(leader, `expected leader for ${tier} faith mapping check`);
+    const initialSkillPoints = Math.floor(leader.skillPoints ?? 0);
+
+    assert.equal(
+      advanceUntilYearlyPopulationEntry(state, 1),
+      true,
+      `expected year-1 yearly update for ${tier} faith mapping`
+    );
+
+    const yearly = getYearlyPopulationEntry(state, 1);
+    assert.ok(yearly, `expected yearly entry for ${tier} faith mapping`);
+    assert.equal(
+      Math.floor(yearly?.data?.populationSkillPointsPerLeader ?? -1),
+      0,
+      `${tier} dormant housing should not award population skill points`
+    );
+    assert.equal(
+      Math.floor(yearly?.data?.faithSkillPointsPerLeader ?? -1),
+      expected,
+      `${tier} faith tier should map to the expected skill point bonus`
+    );
+    assert.equal(
+      Math.floor(yearly?.data?.skillPointsPerLeader ?? -1),
+      expected,
+      `${tier} total should equal the faith bonus when population is dormant`
+    );
+    assert.equal(
+      Math.floor(leader.skillPoints ?? -1),
+      initialSkillPoints + expected,
+      `${tier} faith bonus should be added to leader skill points`
+    );
+  }
 }
 
 function run() {
@@ -434,6 +523,7 @@ function run() {
   runUpgradeReplayParityTest();
   runPopulationDormantWithoutHousingTest();
   runPopulationAttractionAfterHousingUpgradeTest();
+  runFaithTierSkillPointBonusMappingTest();
   console.log("[test] Build upgrade checks passed");
 }
 
