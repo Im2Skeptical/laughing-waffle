@@ -45,6 +45,7 @@ import {
   LEADER_EQUIPMENT_SLOT_LABELS,
   LEADER_EQUIPMENT_SLOT_ORDER,
 } from "../defs/gamesystems/equipment-slot-defs.js";
+import { getLeaderInventorySectionCapabilities } from "../model/skills.js";
 import { MUCHA_UI_COLORS } from "./ui-helpers/mucha-ui-palette.js";
 
 export function createPawnsView(opts) {
@@ -118,6 +119,27 @@ export function createPawnsView(opts) {
     if (value <= 0) return 0;
     if (value >= 1) return 1;
     return value;
+  }
+
+  function getPawnDropdownSectionCapabilities(state, pawnData) {
+    if (!pawnData || pawnData.role !== "leader" || !Number.isFinite(pawnData.id)) {
+      return {
+        systems: false,
+        equipment: false,
+        skills: false,
+        prestige: false,
+        build: false,
+      };
+    }
+    const leaderCaps = getLeaderInventorySectionCapabilities(state, Math.floor(pawnData.id));
+    return {
+      systems: leaderCaps.systems === true,
+      equipment: leaderCaps.equipment === true,
+      skills: leaderCaps.skills === true,
+      prestige:
+        leaderCaps.prestige === true || leaderCaps.workers === true,
+      build: leaderCaps.build === true,
+    };
   }
 
   function nowMs() {
@@ -1124,12 +1146,68 @@ export function createPawnsView(opts) {
     ev?.stopPropagation?.();
   }
 
-  function drawBubbleGraphic(graphics, color) {
-    graphics.clear();
-    graphics.lineStyle(2, 0x2d1a12, 1);
-    graphics.beginFill(color, 0.98);
-    graphics.drawCircle(0, 0, BUBBLE_RADIUS);
-    graphics.endFill();
+  function getBubbleFillRatio(bubbleSpec) {
+    return Number.isFinite(bubbleSpec?.fillRatio) ? clamp01(bubbleSpec.fillRatio) : 1;
+  }
+
+  function drawBubbleMeter(bubble, bubbleSpec) {
+    if (!bubble) return;
+    const color = Number.isFinite(bubbleSpec?.color) ? bubbleSpec.color : 0x8f7c60;
+    const fillRatio = getBubbleFillRatio(bubbleSpec);
+    const diameter = BUBBLE_RADIUS * 2;
+    const fillHeight = Math.round(diameter * fillRatio);
+    const fillTop = BUBBLE_RADIUS - fillHeight;
+
+    bubble.bgGraphics.clear();
+    bubble.bgGraphics.beginFill(dimColor(color, 0.34), 0.94);
+    bubble.bgGraphics.drawCircle(0, 0, BUBBLE_RADIUS);
+    bubble.bgGraphics.endFill();
+
+    bubble.fillGraphics.clear();
+    if (fillHeight > 0) {
+      bubble.fillGraphics.beginFill(color, 0.98);
+      bubble.fillGraphics.drawCircle(0, 0, BUBBLE_RADIUS);
+      bubble.fillGraphics.endFill();
+    }
+
+    bubble.fillMask.clear();
+    if (fillHeight > 0) {
+      bubble.fillMask.beginFill(0xffffff, 1);
+      bubble.fillMask.drawRect(
+        -BUBBLE_RADIUS - 2,
+        fillTop - 1,
+        diameter + 4,
+        fillHeight + 2
+      );
+      bubble.fillMask.endFill();
+    }
+
+    bubble.fillEdge.clear();
+    if (fillRatio > 0 && fillRatio < 1) {
+      bubble.fillEdge.lineStyle(1, 0xf8f0d6, 0.35);
+      bubble.fillEdge.moveTo(-BUBBLE_RADIUS + 5, fillTop);
+      bubble.fillEdge.lineTo(BUBBLE_RADIUS - 5, fillTop);
+    }
+
+    bubble.outlineGraphics.clear();
+    bubble.outlineGraphics.lineStyle(2, 0x2d1a12, 1);
+    bubble.outlineGraphics.drawCircle(0, 0, BUBBLE_RADIUS);
+  }
+
+  function redrawBubbleValueBadge(bubble, text) {
+    if (!bubble?.valueBadgeBg || !bubble?.valueBadgeText) return;
+    bubble.valueBadgeText.text = typeof text === "string" ? text : "";
+    bubble.valueBadgeBg.clear();
+    if (!bubble.valueBadgeText.text.length) return;
+    const width = Math.max(28, Math.ceil(bubble.valueBadgeText.width) + 10);
+    bubble.valueBadgeBg.beginFill(0x24160f, 0.96);
+    bubble.valueBadgeBg.lineStyle(1, 0xf0d9a8, 0.65);
+    bubble.valueBadgeBg.drawRoundedRect(0, 0, width, 16, 6);
+    bubble.valueBadgeBg.endFill();
+    bubble.valueBadgeText.x = Math.floor(width / 2);
+    bubble.valueBadgeText.y = 8;
+    bubble.valueBadge.x = -Math.floor(width / 2);
+    bubble.valueBadge.y = -BUBBLE_RADIUS - 10;
   }
 
   function buildDropdownEquipmentLayout() {
@@ -1452,6 +1530,17 @@ export function createPawnsView(opts) {
     function renderDropdown() {
       const pawnData = view.pawn || pawn;
       const state = getStateSafe();
+      const sectionCaps =
+        pawnData?.role === "leader"
+          ? getPawnDropdownSectionCapabilities(state, pawnData)
+          : null;
+      if (sectionCaps) {
+        if (!sectionCaps.systems) view.dropdownSectionState.systems = false;
+        if (!sectionCaps.equipment) view.dropdownSectionState.equipment = false;
+        if (!sectionCaps.skills) view.dropdownSectionState.skills = false;
+        if (!sectionCaps.prestige) view.dropdownSectionState.prestige = false;
+        if (!sectionCaps.build) view.dropdownSectionState.build = false;
+      }
       const dropdownSignature = JSON.stringify({
         hover: view.selfHover === true,
         pawnId: pawnData?.id ?? null,
@@ -1484,6 +1573,7 @@ export function createPawnsView(opts) {
         faithTier: pawnData?.leaderFaith?.tier ?? "gold",
         sectionState: view.dropdownSectionState,
         followerCount: pawnData?.role === "leader" ? countFollowersForLeader(pawnData.id) : 0,
+        sectionCaps,
       });
       if (view.dropdownSignature === dropdownSignature) {
         view.dropdown.visible = view.selfHover === true;
@@ -1509,43 +1599,43 @@ export function createPawnsView(opts) {
       view.dropdownContent.addChild(title);
       cursorY += title.height + 8;
 
-      const systemsHeader = renderDropdownSectionHeader(
-        view.dropdownContent,
-        "systems",
-        "Systems",
-        8,
-        cursorY,
-        innerWidth
-      );
-      cursorY += 26;
-      if (view.dropdownSectionState.systems === true) {
-        for (const bubble of getPawnBubbleSpecs(pawnData, state, { hoverActive: true })) {
-          const line = new PIXI.Text(
-            `${bubble.label}: ${
-              bubble.systemId === "leaderFaith"
-                ? pawnData?.leaderFaith?.tier ?? "gold"
-                : `${Math.round(pawnData?.systemState?.[bubble.systemId]?.cur ?? 0)}/${Math.round(
-                    pawnData?.systemState?.[bubble.systemId]?.max ?? 0
-                  )}`
-            }`,
-            {
-              fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
-              fontSize: 10,
-            }
-          );
-          applyTextResolution(line, 1);
-          line.x = 14;
-          line.y = cursorY;
-          view.dropdownContent.addChild(line);
-          cursorY += line.height + 3;
+      const showLeaderSection = (key) =>
+        pawnData?.role === "leader" && sectionCaps?.[key] === true;
+
+      if (pawnData?.role !== "leader" || showLeaderSection("systems")) {
+        renderDropdownSectionHeader(view.dropdownContent, "systems", "Systems", 8, cursorY, innerWidth);
+        cursorY += 26;
+        if (view.dropdownSectionState.systems === true) {
+          for (const bubble of getPawnBubbleSpecs(pawnData, state, { hoverActive: true })) {
+            const line = new PIXI.Text(
+              `${bubble.label}: ${
+                bubble.systemId === "leaderFaith"
+                  ? pawnData?.leaderFaith?.tier ?? "gold"
+                  : `${Math.round(pawnData?.systemState?.[bubble.systemId]?.cur ?? 0)}/${Math.round(
+                      pawnData?.systemState?.[bubble.systemId]?.max ?? 0
+                    )}`
+              }`,
+              {
+                fill: MUCHA_UI_COLORS?.ink?.primary ?? 0xffffff,
+                fontSize: 10,
+              }
+            );
+            applyTextResolution(line, 1);
+            line.x = 14;
+            line.y = cursorY;
+            view.dropdownContent.addChild(line);
+            cursorY += line.height + 3;
+          }
+          cursorY += 4;
         }
-        cursorY += 4;
       }
 
       if (pawnData?.role === "leader") {
-        renderDropdownSectionHeader(view.dropdownContent, "equipment", "Equipment", 8, cursorY, innerWidth);
-        cursorY += 26;
-        if (view.dropdownSectionState.equipment === true) {
+        if (showLeaderSection("equipment")) {
+          renderDropdownSectionHeader(view.dropdownContent, "equipment", "Equipment", 8, cursorY, innerWidth);
+          cursorY += 26;
+        }
+        if (showLeaderSection("equipment") && view.dropdownSectionState.equipment === true) {
           const equipContainer = new PIXI.Container();
           equipContainer.x = 12;
           equipContainer.y = cursorY;
@@ -1640,9 +1730,11 @@ export function createPawnsView(opts) {
           cursorY += 134;
         }
 
-        renderDropdownSectionHeader(view.dropdownContent, "skills", "Skills", 8, cursorY, innerWidth);
-        cursorY += 26;
-        if (view.dropdownSectionState.skills === true) {
+        if (showLeaderSection("skills")) {
+          renderDropdownSectionHeader(view.dropdownContent, "skills", "Skills", 8, cursorY, innerWidth);
+          cursorY += 26;
+        }
+        if (showLeaderSection("skills") && view.dropdownSectionState.skills === true) {
           const skillPoints = Number.isFinite(pawnData?.skillPoints)
             ? Math.max(0, Math.floor(pawnData.skillPoints))
             : 0;
@@ -1679,9 +1771,11 @@ export function createPawnsView(opts) {
           cursorY += 30;
         }
 
-        renderDropdownSectionHeader(view.dropdownContent, "prestige", "Prestige / Workers", 8, cursorY, innerWidth);
-        cursorY += 26;
-        if (view.dropdownSectionState.prestige === true) {
+        if (showLeaderSection("prestige")) {
+          renderDropdownSectionHeader(view.dropdownContent, "prestige", "Prestige / Workers", 8, cursorY, innerWidth);
+          cursorY += 26;
+        }
+        if (showLeaderSection("prestige") && view.dropdownSectionState.prestige === true) {
           const lines = [
             `Followers: ${countFollowersForLeader(pawnData.id)}`,
             `Workers: ${Math.max(0, Math.floor(pawnData?.workerCount ?? 0))}`,
@@ -1701,9 +1795,11 @@ export function createPawnsView(opts) {
           cursorY += 4;
         }
 
-        renderDropdownSectionHeader(view.dropdownContent, "build", "Build", 8, cursorY, innerWidth);
-        cursorY += 26;
-        if (view.dropdownSectionState.build === true) {
+        if (showLeaderSection("build")) {
+          renderDropdownSectionHeader(view.dropdownContent, "build", "Build", 8, cursorY, innerWidth);
+          cursorY += 26;
+        }
+        if (showLeaderSection("build") && view.dropdownSectionState.build === true) {
           const button = createDropdownButton("Open Building Manager", () =>
             getInvSafe()?.openBuildingManagerForOwner?.(pawnData.id)
           );
@@ -1748,8 +1844,11 @@ export function createPawnsView(opts) {
       bubble.on("pointerdown", stopPointerBubble);
       bubble.on("pointerover", () => {
         view.hoveredBubbleId = bubbleSpec.systemId;
+        const activeSpec = bubble.currentSpec ?? bubbleSpec;
+        bubble.valueBadge.visible =
+          typeof activeSpec?.hoverText === "string" && activeSpec.hoverText.length > 0;
         getTooltipSafe()?.show?.(
-          bubbleSpec.tooltipSpec,
+          activeSpec?.tooltipSpec ?? bubbleSpec.tooltipSpec,
           {
             coordinateSpace: "parent",
             getAnchorRect: () =>
@@ -1759,14 +1858,24 @@ export function createPawnsView(opts) {
       });
       bubble.on("pointerout", () => {
         view.hoveredBubbleId = null;
+        bubble.valueBadge.visible = false;
         if (view.selfHover) {
           getTooltipSafe()?.show?.(makePawnInfocardSpec(view.pawn, getStateSafe()), buildPawnTooltipAnchor(view));
         } else {
           getTooltipSafe()?.hide?.();
         }
       });
-      const graphics = new PIXI.Graphics();
-      bubble.addChild(graphics);
+      const bgGraphics = new PIXI.Graphics();
+      bubble.addChild(bgGraphics);
+      const fillGraphics = new PIXI.Graphics();
+      bubble.addChild(fillGraphics);
+      const fillMask = new PIXI.Graphics();
+      bubble.addChild(fillMask);
+      fillGraphics.mask = fillMask;
+      const fillEdge = new PIXI.Graphics();
+      bubble.addChild(fillEdge);
+      const outlineGraphics = new PIXI.Graphics();
+      bubble.addChild(outlineGraphics);
       const text = new PIXI.Text(bubbleSpec.shortLabel, {
         fill: 0xffffff,
         fontSize: 18,
@@ -1775,8 +1884,29 @@ export function createPawnsView(opts) {
       applyTextResolution(text, 1);
       text.anchor.set(0.5);
       bubble.addChild(text);
-      bubble.graphics = graphics;
+      const valueBadge = new PIXI.Container();
+      valueBadge.visible = false;
+      bubble.addChild(valueBadge);
+      const valueBadgeBg = new PIXI.Graphics();
+      valueBadge.addChild(valueBadgeBg);
+      const valueBadgeText = new PIXI.Text("", {
+        fill: 0xffffff,
+        fontSize: 8,
+        fontWeight: "bold",
+      });
+      applyTextResolution(valueBadgeText, 1);
+      valueBadgeText.anchor.set(0.5);
+      valueBadge.addChild(valueBadgeText);
+      bubble.bgGraphics = bgGraphics;
+      bubble.fillGraphics = fillGraphics;
+      bubble.fillMask = fillMask;
+      bubble.fillEdge = fillEdge;
+      bubble.outlineGraphics = outlineGraphics;
       bubble.labelText = text;
+      bubble.valueBadge = valueBadge;
+      bubble.valueBadgeBg = valueBadgeBg;
+      bubble.valueBadgeText = valueBadgeText;
+      bubble.currentSpec = bubbleSpec;
       bubbleLayer.addChild(bubble);
       view.bubbleViews.set(bubbleSpec.systemId, bubble);
       return bubble;
@@ -1792,9 +1922,10 @@ export function createPawnsView(opts) {
           id: bubble.systemId,
           label: bubble.shortLabel,
           color: bubble.color,
+          fillRatio: bubble.fillRatio,
+          hoverText: bubble.hoverText,
         }))
       );
-      if (view.bubbleSignature === bubbleSignature) return;
       view.bubbleSignature = bubbleSignature;
       const positions = {
         skillPoints: { x: PAWN_UI_LAYOUT.bubbleSideX, y: PAWN_UI_LAYOUT.bubbleTopY },
@@ -1809,14 +1940,21 @@ export function createPawnsView(opts) {
         bubble.visible = true;
         bubble.x = pos.x;
         bubble.y = pos.y;
-        drawBubbleGraphic(bubble.graphics, bubbleSpec.color);
+        bubble.currentSpec = bubbleSpec;
+        drawBubbleMeter(bubble, bubbleSpec);
         bubble.labelText.text = bubbleSpec.shortLabel;
         bubble.labelText.x = 0;
         bubble.labelText.y = 0;
+        redrawBubbleValueBadge(bubble, bubbleSpec.hoverText);
+        bubble.valueBadge.visible =
+          view.hoveredBubbleId === bubbleSpec.systemId &&
+          typeof bubbleSpec.hoverText === "string" &&
+          bubbleSpec.hoverText.length > 0;
       }
       for (const [systemId, bubble] of view.bubbleViews.entries()) {
         if (!view.visibleBubbleIds.includes(systemId)) {
           bubble.visible = false;
+          bubble.valueBadge.visible = false;
         }
       }
     }

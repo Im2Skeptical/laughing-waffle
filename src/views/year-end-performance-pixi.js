@@ -29,6 +29,12 @@ function hasOwn(obj, key) {
   return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
 }
 
+function toOptionalInt(value, fallback = null) {
+  if (value == null) return fallback;
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.floor(value));
+}
+
 function normalizeReport(entry) {
   const eventData = entry?.data;
   const report =
@@ -74,9 +80,9 @@ function normalizeReport(entry) {
         : "populationUnchanged",
     grainTotal: toSafeInt(report.grainTotal, eventData?.grainTotal ?? 0),
     edibleTotal: toSafeInt(report.edibleTotal, eventData?.edibleTotal ?? 0),
-    skillPointsPerLeader: toSafeInt(
+    skillPointsPerLeader: toOptionalInt(
       report.skillPointsPerLeader,
-      eventData?.skillPointsPerLeader ?? 0
+      toOptionalInt(eventData?.skillPointsPerLeader, null)
     ),
     leaderCount: toSafeInt(report.leaderCount, eventData?.leaderCount ?? 0),
     totalSkillPointsAwarded: toSafeInt(
@@ -85,6 +91,14 @@ function normalizeReport(entry) {
     ),
     populationSkillPointsPerLeader,
     faithSkillPointsPerLeader,
+    populationSkillPointsAwardedTotal: toSafeInt(
+      report.populationSkillPointsAwardedTotal,
+      eventData?.populationSkillPointsAwardedTotal ?? 0
+    ),
+    faithSkillPointsAwardedTotal: toSafeInt(
+      report.faithSkillPointsAwardedTotal,
+      eventData?.faithSkillPointsAwardedTotal ?? 0
+    ),
   };
 }
 
@@ -223,17 +237,22 @@ export function createYearEndPerformanceView({ app, layer, onClose } = {}) {
     const hasBreakdown =
       report.populationSkillPointsPerLeader != null ||
       report.faithSkillPointsPerLeader != null;
-    const populationPart =
-      report.populationSkillPointsPerLeader != null
-        ? report.populationSkillPointsPerLeader
-        : report.skillPointsPerLeader;
-    const faithPart =
-      report.faithSkillPointsPerLeader != null
-        ? report.faithSkillPointsPerLeader
-        : 0;
-    skillText.text = hasBreakdown
-      ? `Skill Points Gained: ${report.totalSkillPointsAwarded} (${report.skillPointsPerLeader} x ${report.leaderCount} leaders; ${populationPart} pop + ${faithPart} faith)`
-      : `Skill Points Gained: ${report.totalSkillPointsAwarded} (${report.skillPointsPerLeader} x ${report.leaderCount} leaders)`;
+    if (hasBreakdown && report.skillPointsPerLeader != null) {
+      const populationPart =
+        report.populationSkillPointsPerLeader != null
+          ? report.populationSkillPointsPerLeader
+          : report.skillPointsPerLeader;
+      const faithPart =
+        report.faithSkillPointsPerLeader != null ? report.faithSkillPointsPerLeader : 0;
+      skillText.text = `Skill Points Gained: ${report.totalSkillPointsAwarded} (${report.skillPointsPerLeader} x ${report.leaderCount} leaders; ${populationPart} pop + ${faithPart} faith)`;
+      return;
+    }
+    if (hasBreakdown) {
+      skillText.text = `Skill Points Gained: ${report.totalSkillPointsAwarded} (${report.populationSkillPointsAwardedTotal} pop + ${report.faithSkillPointsAwardedTotal} faith across ${report.leaderCount} leaders)`;
+      return;
+    }
+    const perLeader = report.skillPointsPerLeader ?? 0;
+    skillText.text = `Skill Points Gained: ${report.totalSkillPointsAwarded} (${perLeader} x ${report.leaderCount} leaders)`;
   }
 
   function openForEntry(entry, opts = {}) {

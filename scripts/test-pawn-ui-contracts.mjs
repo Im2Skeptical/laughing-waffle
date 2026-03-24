@@ -53,8 +53,43 @@ assert.match(
 );
 assert.match(
   pawnsSource,
+  /getLeaderInventorySectionCapabilities/,
+  "[test] pawn dropdown should consult leader inventory section capabilities"
+);
+assert.match(
+  pawnsSource,
+  /const sectionCaps =[\s\S]*getPawnDropdownSectionCapabilities\(state,\s*pawnData\)/,
+  "[test] pawn dropdown should derive leader section gating from current state"
+);
+assert.match(
+  pawnsSource,
+  /if \(!sectionCaps\.skills\) view\.dropdownSectionState\.skills = false;/,
+  "[test] pawn dropdown should collapse locked skill sections"
+);
+assert.match(
+  pawnsSource,
+  /showLeaderSection\("skills"\) && view\.dropdownSectionState\.skills === true/,
+  "[test] pawn dropdown should only render leader skill content when unlocked"
+);
+assert.match(
+  pawnsSource,
+  /showLeaderSection\("prestige"\) && view\.dropdownSectionState\.prestige === true/,
+  "[test] pawn dropdown should only render prestige content when unlocked"
+);
+assert.match(
+  pawnsSource,
+  /showLeaderSection\("build"\) && view\.dropdownSectionState\.build === true/,
+  "[test] pawn dropdown should only render build content when unlocked"
+);
+assert.match(
+  pawnsSource,
   /dropdownSectionState:\s*isLeader[\s\S]*systems:\s*false[\s\S]*equipment:\s*false[\s\S]*skills:\s*false/,
   "[test] pawn menu should default leader sections to collapsed"
+);
+assert.doesNotMatch(
+  pawnsSource,
+  /renderDropdownSectionHeader\(view\.dropdownContent,\s*"skills",\s*"Skills",\s*8,\s*cursorY,\s*innerWidth\);\s*cursorY \+= 26;\s*if \(view\.dropdownSectionState\.skills === true\)/,
+  "[test] pawn dropdown should not render skills unconditionally"
 );
 assert.match(
   pawnsSource,
@@ -70,6 +105,26 @@ assert.match(
   pawnsSource,
   /interactionSafe\.getPointerStagePos\?\.\(\) \?\? null/,
   "[test] pawn dropdown hide should consult current pointer position"
+);
+assert.match(
+  pawnsSource,
+  /function drawBubbleMeter\(bubble,\s*bubbleSpec\)/,
+  "[test] pawn bubbles should render a dedicated meter fill"
+);
+assert.match(
+  pawnsSource,
+  /fillGraphics\.mask = fillMask;/,
+  "[test] pawn bubbles should clip fill graphics with a mask"
+);
+assert.match(
+  pawnsSource,
+  /bubble\.valueBadge\.visible =[\s\S]*activeSpec\?\.hoverText/,
+  "[test] pawn bubble hover should reveal a current-max value badge when available"
+);
+assert.match(
+  pawnsSource,
+  /fillRatio:\s*bubble\.fillRatio[\s\S]*hoverText:\s*bubble\.hoverText/,
+  "[test] pawn bubble redraws should react to meter ratio and hover text changes"
 );
 assert.match(
   pawnsSource,

@@ -1002,6 +1002,11 @@ function getFaithTierSkillPointsBonus(tier) {
   return 0;
 }
 
+function getLeaderFaithSkillPointsBonus(leader) {
+  if (!leader || leader.role !== PAWN_ROLE_LEADER) return 0;
+  return getFaithTierSkillPointsBonus(leader?.leaderFaith?.tier ?? null);
+}
+
 function getPoolTierQuantity(bucket, tier) {
   if (!bucket || typeof bucket !== "object") return 0;
   return Math.max(0, Math.floor(bucket[tier] ?? 0));
@@ -1294,22 +1299,41 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
   const populationSkillPointsPerLeader = populationSystemsActive
     ? getYearEndSkillPointsAward(outcomeKind)
     : 0;
-  const faithSkillPointsPerLeader = hasFaithHousing
-    ? getFaithTierSkillPointsBonus(nextFaithTier)
-    : 0;
-  const skillPointsPerLeader =
-    populationSkillPointsPerLeader + faithSkillPointsPerLeader;
   const pawns = Array.isArray(state?.pawns) ? state.pawns : [];
   let leaderCount = 0;
+  let faithSkillPointsAwardedTotal = 0;
+  let firstLeaderFaithSkillPoints = null;
+  let hasUniformFaithSkillPointsPerLeader = true;
+  let skillPointsPerLeader = null;
   for (const pawn of pawns) {
     if (!pawn || pawn.role !== PAWN_ROLE_LEADER) continue;
+    const leaderFaithSkillPoints = getLeaderFaithSkillPointsBonus(pawn);
+    if (leaderCount === 0) {
+      firstLeaderFaithSkillPoints = leaderFaithSkillPoints;
+    } else if (firstLeaderFaithSkillPoints !== leaderFaithSkillPoints) {
+      hasUniformFaithSkillPointsPerLeader = false;
+    }
+    faithSkillPointsAwardedTotal += leaderFaithSkillPoints;
+    const leaderSkillPointsAward =
+      populationSkillPointsPerLeader + leaderFaithSkillPoints;
     const current = Number.isFinite(pawn.skillPoints)
       ? Math.max(0, Math.floor(pawn.skillPoints))
       : 0;
-    pawn.skillPoints = current + skillPointsPerLeader;
+    pawn.skillPoints = current + leaderSkillPointsAward;
     leaderCount += 1;
   }
-  const totalSkillPointsAwarded = leaderCount * skillPointsPerLeader;
+  const uniformFaithSkillPointsPerLeader =
+    leaderCount > 0 && hasUniformFaithSkillPointsPerLeader
+      ? firstLeaderFaithSkillPoints
+      : null;
+  if (leaderCount > 0 && uniformFaithSkillPointsPerLeader != null) {
+    skillPointsPerLeader =
+      populationSkillPointsPerLeader + uniformFaithSkillPointsPerLeader;
+  }
+  const populationSkillPointsAwardedTotal =
+    leaderCount * populationSkillPointsPerLeader;
+  const totalSkillPointsAwarded =
+    populationSkillPointsAwardedTotal + faithSkillPointsAwardedTotal;
   const foodTotals = computeYearEndFoodTotals(state);
 
   const priorYear = Math.max(1, currentYear - 1);
@@ -1321,10 +1345,14 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
     populationSystemsActive && attractedPopulation > 0
       ? `, +${attractedPopulation} attracted`
       : "";
+  const skillPointSummaryText =
+    leaderCount > 0 && skillPointsPerLeader != null
+      ? `+${skillPointsPerLeader} skill points to each leader (${populationSkillPointsPerLeader} population + ${uniformFaithSkillPointsPerLeader} faith)`
+      : `+${totalSkillPointsAwarded} total skill points across ${leaderCount} leaders (${populationSkillPointsAwardedTotal} population + ${faithSkillPointsAwardedTotal} faith)`;
   const yearlyEntry = pushGameEvent(state, {
     type: "populationYearlyUpdate",
     tSec,
-    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})${attractionSummaryText}${faithSummaryText}, +${skillPointsPerLeader} skill points to each leader (${populationSkillPointsPerLeader} population + ${faithSkillPointsPerLeader} faith)`,
+    text: `Year ${priorYear} population update: ${previousPopulation} -> ${nextPopulation} (${outcomeText})${attractionSummaryText}${faithSummaryText}, ${skillPointSummaryText}`,
     data: {
       year: priorYear,
       previousPopulation,
@@ -1338,9 +1366,11 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
       housingVacancy: housingAfterAttraction.housingVacancy,
       attractionProgress: tracker.attractionProgress,
       populationSkillPointsPerLeader,
-      faithSkillPointsPerLeader,
+      faithSkillPointsPerLeader: uniformFaithSkillPointsPerLeader,
       skillPointsPerLeader,
       leaderCount,
+      populationSkillPointsAwardedTotal,
+      faithSkillPointsAwardedTotal,
       totalSkillPointsAwarded,
       grainTotal: foodTotals.grainTotal,
       edibleTotal: foodTotals.edibleTotal,
@@ -1370,9 +1400,11 @@ function maybeApplyYearlyPopulationChange(state, tSec, anchors = [], isTagUnlock
         grainTotal: foodTotals.grainTotal,
         edibleTotal: foodTotals.edibleTotal,
         populationSkillPointsPerLeader,
-        faithSkillPointsPerLeader,
+        faithSkillPointsPerLeader: uniformFaithSkillPointsPerLeader,
         skillPointsPerLeader,
         leaderCount,
+        populationSkillPointsAwardedTotal,
+        faithSkillPointsAwardedTotal,
         totalSkillPointsAwarded,
         faithPreviousTier: previousFaithTier,
         faithNextTier: nextFaithTier,

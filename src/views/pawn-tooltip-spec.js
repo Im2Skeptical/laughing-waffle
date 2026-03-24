@@ -183,6 +183,42 @@ function getSystemShortLabel(systemId) {
   return def?.ui?.shortLabel ?? def?.ui?.name?.[0]?.toUpperCase?.() ?? "?";
 }
 
+function clamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function getBubbleMeterData(pawn, systemId, state = null) {
+  if (systemId === "skillPoints") {
+    return {
+      value: null,
+      max: null,
+      fillRatio: null,
+      hoverText: null,
+    };
+  }
+  if (systemId === "leaderFaith") {
+    return {
+      value: null,
+      max: null,
+      fillRatio: null,
+      hoverText: null,
+    };
+  }
+  const systemDef = pawnSystemDefs?.[systemId];
+  const systemState = pawn?.systemState?.[systemId] ?? systemDef?.stateDefaults ?? {};
+  const value = Number.isFinite(systemState?.cur) ? Math.max(0, systemState.cur) : 0;
+  const max = Number.isFinite(systemState?.max) ? Math.max(0, systemState.max) : 0;
+  return {
+    value,
+    max,
+    fillRatio: max > 0 ? clamp01(value / max) : value > 0 ? 1 : 0,
+    hoverText: `${formatSystemValue(value)}/${formatSystemValue(max)}`,
+  };
+}
+
 function getSpendableSkillNodeIds(pawn, state) {
   if (pawn?.role !== "leader" || pawn?.id == null) return [];
   return getUnlockableSkillNodes(state, pawn.id);
@@ -341,6 +377,7 @@ function makeSystemBubbleTooltipSpec(pawn, systemId, state) {
 export function getPawnBubbleSpecs(pawn, state, { hoverActive = false } = {}) {
   const visibleIds = getVisiblePawnBubbleIds(pawn, hoverActive, state);
   return visibleIds.map((systemId) => ({
+    ...getBubbleMeterData(pawn, systemId, state),
     systemId,
     shortLabel:
       systemId === "leaderFaith"

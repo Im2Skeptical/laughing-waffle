@@ -79,6 +79,10 @@ function assertIncludes(list, expected, message) {
   assert.ok(list.includes(expected), message ?? `Missing entry: ${expected}`);
 }
 
+function getBubbleSpecById(specs, systemId) {
+  return specs.find((entry) => entry?.systemId === systemId) ?? null;
+}
+
 function runLeaderInfocardAndDebugSpecTest() {
   const state = createEmptyState(123);
   installEnvTile(state, 0);
@@ -204,6 +208,18 @@ function runBubbleVisibilityRulesTest() {
     bubbleSpecs.map((entry) => entry.systemId),
     ["skillPoints", "leaderFaith", "hunger"]
   );
+  const hungerBubble = getBubbleSpecById(bubbleSpecs, "hunger");
+  assert.equal(hungerBubble?.hoverText, "10/100");
+  assert.equal(hungerBubble?.fillRatio, 0.1);
+
+  const hoverBubbleSpecs = getPawnBubbleSpecs(starvingLeader, state, { hoverActive: true });
+  const staminaBubble = getBubbleSpecById(hoverBubbleSpecs, "stamina");
+  assert.equal(staminaBubble?.hoverText, "80/100");
+  assert.equal(staminaBubble?.fillRatio, 0.8);
+
+  const faithBubble = getBubbleSpecById(bubbleSpecs, "leaderFaith");
+  assert.equal(faithBubble?.hoverText, null);
+  assert.equal(faithBubble?.fillRatio, null);
 }
 
 function runSkillPointBubbleAvailabilityTest() {
