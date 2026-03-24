@@ -591,7 +591,7 @@ export const itemDefs = {
       {
         op: "AddSkillPoints",
         target: { ref: "pawn" },
-        amount: 2,
+        amount: 4,
       },
       {
         op: "RemoveItem",
@@ -605,7 +605,7 @@ export const itemDefs = {
         "Quantity: {quantity}",
         "Size: {width}x{height}",
         "Tap to read while paused.",
-        "Grants Memory +2 skill points, then vanishes.",
+        "Grants Memory +4 skill points, then vanishes.",
       ],
     },
   },
@@ -692,7 +692,7 @@ export const itemDefs = {
         (_, ctx) =>
           ctx?.timegraphWindowPast
             ? "Tap to consume it."
-            : "Click or tap to open/close this timegraph.",
+            : "Reveals to future of the owner. Drag into your inventory then click or tap to open/close this timegraph.",
       ],
     },
   },

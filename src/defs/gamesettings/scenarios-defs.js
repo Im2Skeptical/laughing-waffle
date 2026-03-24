@@ -287,7 +287,7 @@ export const setupDefs = {
         color: 0xff9999, 
         envCol: 0, 
         role: "leader", 
-        skillPoints: 3,
+        skillPoints: 0,
         //unlockedSkillNodeIds: ["Astronomy", "Crafting", "Worship", "MudHouses", "Fish", "Forage", "Basket", "Cooking", "Hearth"]
         unlockedSkillNodeIds: [""]
       },
