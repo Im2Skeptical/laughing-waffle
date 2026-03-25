@@ -1,6 +1,13 @@
 # laughing-waffle
 IdleCiv Game Prototype
 
+## Status
+Archived playable baseline as of 2026-03-25.
+
+- Verified archive tag: `pre-prototype-archive`
+- Current GitHub Pages URL: `https://im2skeptical.github.io/laughing-waffle/`
+- New prototype work has been split into a separate repo/workspace: `../laughing-waffle-proto`
+
 ## Local Run
 `npx live-server`
 
