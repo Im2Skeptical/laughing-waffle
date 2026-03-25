@@ -610,8 +610,8 @@ function runMysteriousAncientTomeItemUseChecks() {
   );
   assert.equal(
     Number.isFinite(leader.skillPoints) ? Math.floor(leader.skillPoints) : 0,
-    beforePoints + 2,
-    "[skill-feature] mysteriousAncientTome should add +2 skill points"
+    beforePoints + 4,
+    "[skill-feature] mysteriousAncientTome should add +4 skill points"
   );
   assert.equal(
     (ownerInv.items || []).some((item) => item?.id === movedTome.id),
